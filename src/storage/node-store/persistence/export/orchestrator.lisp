@@ -418,6 +418,20 @@ same-head forkchoice call without reintroducing a full-store scan."
      (lambda (key) (gethash key hashes))
      (sort (loop for key being the hash-keys of hashes collect key) #'string<))))
 
+(defun node-store-final-overlay-transaction-location
+    (chain-store transaction-hash)
+  "Return TRANSACTION-HASH's post-transition in-memory canonical location.
+
+Forkchoice mutates the memory overlay before its replacement WAL batch is
+published.  A missing overlay entry for a displaced transaction is therefore
+authoritative at this seam: falling through to the durable provider would read
+the deliberately stale pre-transition location and reject it as non-canonical
+before this exporter can delete it.  Ordinary public lookups retain their full
+durable validation."
+  (gethash
+   (engine-payload-store-key transaction-hash)
+   (memory-chain-store-transaction-locations chain-store)))
+
 (defun node-store-final-txpool-record (store transaction-hash)
   "Return the final encoded txpool record and its transaction as two values."
   (let ((entries nil))
@@ -993,7 +1007,7 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
         (dolist (transaction-hash transaction-hashes)
           (let* ((identifier (hash32-bytes transaction-hash))
                  (location
-                   (chain-store-transaction-location
+                   (node-store-final-overlay-transaction-location
                     chain-store transaction-hash))
                  (location-value
                    (and location

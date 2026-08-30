@@ -105,6 +105,8 @@ cl-workbench validation run cold-integration --match PEER-SYNC-PROGRESS
 cl-workbench validation run cold-integration --match STAGED-EXECUTION-UNIFIED
 cl-workbench validation run cold-integration --match DEVNET-PEER-SYNC
 cl-workbench validation run cold-integration --match DEV-PERIOD
+cl-workbench validation run cold-integration \
+  --match NODE-STORE-DIRECT-FORKCHOICE-REORG
 
 # Kill a writer after candidate+cursor batches return but before clean close,
 # then reopen RocksDB and verify candidate state, cursor, and canonical view.
@@ -130,6 +132,12 @@ require a positive dev period to be rejected without `--dev`, require local
 Amsterdam building to derive rather than pre-supply the block access list, and
 require `debug_setHead` to refuse both a post-Merge target and a rewind from a
 post-Merge current view.
+
+The direct-provider forkchoice reorg control restarts from a durable canonical
+transaction location, moves the head onto a branch that excludes that
+transaction, and requires the same WAL batch to delete the stale location. It
+fails if the exporter falls through the empty post-transition overlay into the
+old durable view, reproducing Hive's `Transaction Re-Org, Re-Org Out` failure.
 
 The cache tests apply count, exact encoded-byte, process-local age, and finality
 pressure to all five caches and assert deterministic eviction. Public direct
@@ -247,6 +255,10 @@ cl-workbench validation run cold-unit --match BATCHES-LOCAL
 cl-workbench validation run cold-integration --match NATIVE-MULTI-GET
 cl-workbench validation run cold-integration \
   --match SNAP-HEAL-ROCKSDB-LOCAL-READ-BATCH-USES-BOUNDED-WORKERS
+cl-workbench validation run cold-integration \
+  --match SNAP-HEAL-ROCKSDB-SMALL-BATCHES-REUSE-FIXED-WORKERS
+cl-workbench validation run cold-integration \
+  --match SNAP-HEAL-ROCKSDB-SHIPPED-ENTRY-OWNS-WORKER-LIFECYCLE
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-REUSES-PROVED-SUBTREES
 cl-workbench validation run cold-integration \
@@ -439,8 +451,13 @@ duplicate-key order and per-key absence. A healer-specific RocksDB control
 proves that one 4,096-key local batch reaches eight bounded read workers,
 performs present-value decoding on all eight workers, rejoins values,
 presence bits, and decoded objects in exact input order, and propagates an
-injected worker failure. Switching the production dispatch back to serial makes
-its eight-call and eight-decoder-thread witnesses fail. The frontier limiter
+injected worker failure. Two production-path controls additionally prove that
+small sibling batches reuse the same fixed workers across consecutive reads,
+never execute on the coordinator, and that the shipped healer entry creates,
+binds, stops, and joins the pool inside the RocksDB database lifetime. Switching
+the production dispatch back to serial, restoring the old 128-key threshold,
+or recreating threads for each small batch makes these witnesses fail. The
+frontier limiter
 also proves that the soft durable region continues to reserve worst-case
 sixteen-way expansion room while a 10,000-work transient frontier may use the
 full 4,096-key database batch, avoiding one reader-thread lifecycle per 512

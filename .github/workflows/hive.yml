@@ -9,7 +9,8 @@ name: hive
 #
 # Separate from tests.yml on purpose. That workflow is the blocking gate for
 # in-tree layers; this one runs an external harness against a client image and
-# is, today, mostly a way to find out how far short we fall.
+# keeps independently classified suites visible while their current pinned
+# baselines are still being driven to zero failures.
 #
 # WHAT IS GATED HERE, AND WHAT IS NOT
 #
@@ -19,14 +20,10 @@ name: hive
 #                  an unauthenticated one. Depends on nothing external, passes
 #                  today, and must keep passing.
 #
-# Non-blocking (continue-on-error), because they do not pass yet:
-#   ethereum/engine      includes the engine-auth suite. Expected to run and to
-#                        fail tests; the client starts, authenticates, and
-#                        answers, so the failures are real conformance signal.
-#   ethereum/rpc-compat  now exercises the adapter's canonical offline block
-#                        importer. Its first full run is required before any
-#                        pass/fail expectation is asserted; failures must be
-#                        classified from the archived result manifest.
+# Non-blocking (continue-on-error), with exact executed-test inventories
+# enforced by hive-run.sh, because none has a pinned zero-failure run yet:
+#   ethereum/engine      403 tests, including the engine-auth suite.
+#   ethereum/rpc-compat  243 tests through the canonical offline block importer.
 #   devp2p              exercises the real admin_nodeInfo/enode route and
 #                        bridge-address advertisement. It may still fail once
 #                        its simulator supplies a preloaded chain; those
@@ -47,10 +44,9 @@ name: hive
 #                                 hive.yaml deliberately does not claim the
 #                                 eth1_snap role.
 #
-# BEFORE THE GATE BECOMES BLOCKING, per suite: the suite must have a run whose
-# failures are all understood, the client must not crash or hang in it, and the
-# reason for every remaining skip must be recorded. Drop continue-on-error one
-# suite at a time -- a matrix-wide flip would hide which one regressed.
+# A suite becomes blocking only after an exact-inventory run has zero failures,
+# no client crash or hang, and every remaining skip is recorded. Keep the
+# decision per suite -- a matrix-wide setting hides which baseline regressed.
 
 on:
   push:
@@ -95,17 +91,24 @@ jobs:
   suites:
     needs: runtime-image
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    continue-on-error: true
+    # A full 403-case engine run starts an isolated client per case. The first
+    # measured amd64 run reached case 250 after 80 minutes, so retain enough
+    # margin for the long late-fork tail and image extraction. Exact suite
+    # counts remain enforced independently by hive-run.sh.
+    timeout-minutes: 180
+    continue-on-error: ${{ matrix.allow_failure }}
     env:
       HIVE_RESULTS: ${{ github.workspace }}/hive-results
     strategy:
       fail-fast: false
       matrix:
-        sim:
-          - ethereum/engine
-          - ethereum/rpc-compat
-          - devp2p
+        include:
+          - sim: ethereum/engine
+            allow_failure: true
+          - sim: ethereum/rpc-compat
+            allow_failure: true
+          - sim: devp2p
+            allow_failure: true
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

@@ -675,9 +675,15 @@ them by their physical location instead reintroduces dependency cycles:
   frontier is published. The next
   checkpoint is written only after the complete frontier is back within 8,192,
   so allocation remains explicitly bounded without turning a temporary shape
-  into a fatal node exit. On SBCL, production RocksDB batches of at least 128
+  into a fatal node exit. On SBCL, production RocksDB batches of at least two
   keys are divided into at most eight contiguous native multi-get slices on the
-  supported eight-core public-node profile. This
+  supported eight-core public-node profile. One fixed worker pool is created
+  for the RocksDB healer lifecycle and reused across small sibling batches;
+  traversal, completion sentinels, and durable publication remain on the sole
+  coordinator. This mirrors geth's concurrent per-parent child-presence checks
+  without repeatedly creating operating-system threads or waiting for a DFS
+  batch width that post-order completion boundaries rarely expose. The pool is
+  stopped and joined before the healer releases its database lifetime. This
   path uses a 256 MiB sharded block cache on the supported shared 16 GiB EL/CL
   public-node profile instead of RocksDB 11's 32 MiB fallback. This leaves
   cgroup headroom for the 384 MiB level-compaction preset and charged

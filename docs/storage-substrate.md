@@ -151,6 +151,14 @@ bodies, block and receipt records, canonical/transaction indexes, sidecars,
 txpool effects, and checkpoint changes join one WAL-synced RocksDB batch.
 In-memory block overlays are released after that batch succeeds.
 
+Forkchoice computes the replacement canonical view in the memory overlay before
+publishing that batch. At this atomic seam, affected transaction locations are
+resolved only from the post-transition overlay: absence means that the old
+durable location must be deleted. Falling through to the direct provider would
+observe the intentionally stale pre-transition location and reject it as
+non-canonical before the replacement batch could commit. Ordinary reads,
+startup, and offline audit still decode and fully validate durable locations.
+
 State retention is a distance behind the current head, with head, safe, and
 finalized roots protected independently. The ordered state-root index scans
 only heights newly crossing the boundary and includes side candidates, while

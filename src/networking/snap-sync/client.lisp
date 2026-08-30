@@ -131,8 +131,13 @@ sequentially instead.  Freshly fetched nodes remain satisfied by the bounded
 decoded cache, and loss of every source automatically restores local reads.
 Public-peer A/B measurements currently favor the local MultiGet path, so this
 remains disabled unless a controlled deployment binds it explicitly.")
-(defconstant +snap-sync-heal-parallel-read-minimum+ 128
-  "Do not pay worker creation overhead below this local read width.")
+(defconstant +snap-sync-heal-parallel-read-minimum+ 2
+  "Parallelize every multi-node RocksDB healer lookup.
+
+The healer owns a fixed worker pool for its lifetime, so small sibling batches
+no longer pay thread-creation overhead.  This matches geth's per-parent
+concurrent HASNODE checks instead of requiring a DFS batch of 128 references
+that post-order completion sentinels seldom permit in production.")
 (defconstant +snap-sync-heal-deferred-storage-target+ 2048
   "Collect this many account storage roots before descending into them.")
 (defconstant +snap-sync-heal-codes-per-request+ 2048)
@@ -3876,6 +3881,125 @@ for one source. When present, it replaces the local peer-capacity learner."
          (append (subseq sources offset) (subseq sources 0 offset)))))))
 
 #+sbcl
+(defstruct (snap-sync-heal-local-read-job
+            (:constructor make-snap-sync-heal-local-read-job
+                (&key task-count function remaining)))
+  "One synchronous set of disjoint RocksDB reads owned by the healer pool."
+  task-count
+  function
+  (next-index 0)
+  remaining)
+
+#+sbcl
+(defstruct (snap-sync-heal-local-read-pool
+            (:constructor make-snap-sync-heal-local-read-pool ()))
+  "Fixed workers reused by one healer instead of recreated for every DFS batch."
+  (lock (sb-thread:make-mutex :name "snap-sync-heal-local-read-pool"))
+  (changed
+    (sb-thread:make-waitqueue :name "snap-sync-heal-local-read-pool-changed"))
+  job
+  (threads #())
+  stopped-p)
+
+#+sbcl
+(defvar *snap-sync-heal-local-read-pool* nil)
+
+#+sbcl
+(defun snap-sync-heal-local-read-pool-worker (pool)
+  "Run at most one disjoint slice from every published local-read job."
+  (let ((seen-job nil))
+    (loop
+      (multiple-value-bind (job index)
+          (sb-thread:with-mutex
+              ((snap-sync-heal-local-read-pool-lock pool))
+            (loop
+              (when (snap-sync-heal-local-read-pool-stopped-p pool)
+                (return-from snap-sync-heal-local-read-pool-worker nil))
+              (let ((job (snap-sync-heal-local-read-pool-job pool)))
+                (when (and job
+                           (not (eq job seen-job))
+                           (< (snap-sync-heal-local-read-job-next-index job)
+                              (snap-sync-heal-local-read-job-task-count job)))
+                  (let ((index
+                          (snap-sync-heal-local-read-job-next-index job)))
+                    (incf (snap-sync-heal-local-read-job-next-index job))
+                    (setf seen-job job)
+                    (return (values job index)))))
+              (sb-thread:condition-wait
+               (snap-sync-heal-local-read-pool-changed pool)
+               (snap-sync-heal-local-read-pool-lock pool))))
+        (unwind-protect
+             (funcall (snap-sync-heal-local-read-job-function job) index)
+          (sb-thread:with-mutex
+              ((snap-sync-heal-local-read-pool-lock pool))
+            (decf (snap-sync-heal-local-read-job-remaining job))
+            (when (zerop (snap-sync-heal-local-read-job-remaining job))
+              (sb-thread:condition-broadcast
+               (snap-sync-heal-local-read-pool-changed pool)))))))))
+
+#+sbcl
+(defun snap-sync-stop-heal-local-read-pool (pool)
+  "Stop and join POOL without detaching a reader from the database lifetime."
+  (when pool
+    (sb-thread:with-mutex ((snap-sync-heal-local-read-pool-lock pool))
+      (setf (snap-sync-heal-local-read-pool-stopped-p pool) t)
+      (sb-thread:condition-broadcast
+       (snap-sync-heal-local-read-pool-changed pool)))
+    (loop for thread across (snap-sync-heal-local-read-pool-threads pool)
+          when thread
+            do (ignore-errors (sb-thread:join-thread thread))))
+  nil)
+
+#+sbcl
+(defun snap-sync-start-heal-local-read-pool (workers)
+  "Start WORKERS fixed local-read threads for one RocksDB healer lifecycle."
+  (unless (and (integerp workers) (<= 2 workers 16))
+    (error "Snap heal local read pool requires between two and 16 workers"))
+  (let ((pool (make-snap-sync-heal-local-read-pool)))
+    (setf (snap-sync-heal-local-read-pool-threads pool)
+          (make-array workers :initial-element nil))
+    (handler-case
+        (progn
+          (dotimes (index workers)
+            (setf
+             (aref (snap-sync-heal-local-read-pool-threads pool) index)
+             (sb-thread:make-thread
+              (lambda () (snap-sync-heal-local-read-pool-worker pool))
+              :name "snap-sync-heal-local-read-worker")))
+          pool)
+      (serious-condition (condition)
+        (snap-sync-stop-heal-local-read-pool pool)
+        (error condition)))))
+
+#+sbcl
+(defun snap-sync-run-heal-local-read-job (pool task-count function)
+  "Run TASK-COUNT disjoint FUNCTION calls on POOL and wait for every one."
+  (unless (and (integerp task-count)
+               (<= 1 task-count
+                   (length (snap-sync-heal-local-read-pool-threads pool))))
+    (error "Snap heal local read job exceeds its worker pool"))
+  (unless (functionp function)
+    (error "Snap heal local read job requires a function"))
+  (sb-thread:with-mutex ((snap-sync-heal-local-read-pool-lock pool))
+    (when (snap-sync-heal-local-read-pool-stopped-p pool)
+      (error "Snap heal local read pool is stopped"))
+    (when (snap-sync-heal-local-read-pool-job pool)
+      (error "Snap heal local read pool already has a job"))
+    (let ((job
+            (make-snap-sync-heal-local-read-job
+             :task-count task-count :function function
+             :remaining task-count)))
+      (setf (snap-sync-heal-local-read-pool-job pool) job)
+      (sb-thread:condition-broadcast
+       (snap-sync-heal-local-read-pool-changed pool))
+      (loop while (plusp (snap-sync-heal-local-read-job-remaining job))
+            do (sb-thread:condition-wait
+                (snap-sync-heal-local-read-pool-changed pool)
+                (snap-sync-heal-local-read-pool-lock pool)))
+      (setf (snap-sync-heal-local-read-pool-job pool) nil)))
+  nil)
+
+#+sbcl
 (defun snap-sync-heal-parallel-chain-record-batch
     (database kind identifiers workers decoder)
   "Read IDENTIFIERS of KIND concurrently and optionally decode present values.
@@ -3915,23 +4039,27 @@ the returned encoded, presence, and decoded vectors retain input order."
                              (aref decoded-by-worker index) decoded)))
                  (serious-condition (condition)
                    (setf (aref conditions index) condition)))))
-      (unwind-protect
-           (progn
-             (dotimes (index worker-count)
-               (let ((worker-index index))
-                 (setf
-                  (aref threads index)
-                  (sb-thread:make-thread
-                   (lambda () (run-worker worker-index))
-                   :name "snap-sync-heal-local-read-worker"))))
-             (dotimes (index worker-count)
-               (sb-thread:join-thread (aref threads index))
-               (setf (aref threads index) nil)))
-        ;; A partial thread-creation failure must not detach readers from the
-        ;; database lifetime owned by the coordinator.
-        (loop for thread across threads
-              when thread
-                do (ignore-errors (sb-thread:join-thread thread))))
+      (if *snap-sync-heal-local-read-pool*
+          (snap-sync-run-heal-local-read-job
+           *snap-sync-heal-local-read-pool* worker-count #'run-worker)
+          (unwind-protect
+               (progn
+                 (dotimes (index worker-count)
+                   (let ((worker-index index))
+                     (setf
+                      (aref threads index)
+                      (sb-thread:make-thread
+                       (lambda () (run-worker worker-index))
+                       :name "snap-sync-heal-local-read-worker"))))
+                 (dotimes (index worker-count)
+                   (sb-thread:join-thread (aref threads index))
+                   (setf (aref threads index) nil)))
+            ;; Direct helper calls outside a healer retain the safe fallback.
+            ;; A partial thread-creation failure must not detach readers from
+            ;; the database lifetime owned by the coordinator.
+            (loop for thread across threads
+                  when thread
+                    do (ignore-errors (sb-thread:join-thread thread)))))
       (let ((condition (find-if #'identity conditions)))
         (when condition
           (error condition)))
@@ -5149,7 +5277,7 @@ rather than replay."
       (t
        (error "Snap healing requires a live source")))))
 
-(defun snap-sync-heal-state
+(defun %snap-sync-heal-state
     (database sources progress byte-limit
      &key on-source-error on-heal-progress source-provider
           heal-yield-p
@@ -6381,6 +6509,43 @@ for more missing hashes."
        request-count response-bytes promoted-subtrees skipped-subtrees
        0 0 0 (hash-table-count incomplete-nodes) t)
       completed))))))
+
+(defun snap-sync-heal-state
+    (database sources progress byte-limit
+     &key on-source-error on-heal-progress source-provider
+          heal-yield-p
+          (code-batch-limit +snap-sync-heal-codes-per-request+))
+  "Heal state while reusing one bounded RocksDB local-read pool.
+
+The internal traversal and all durable publication rules remain synchronous on
+the coordinator.  Only disjoint local presence reads and their pure decoders
+run on the fixed pool, matching geth's concurrent child HASNODE boundary."
+  #+sbcl
+  (let ((pool
+          (and
+           (typep database
+                  'ethereum-lisp.database:rocksdb-key-value-database)
+           (> *snap-sync-heal-local-read-workers* 1)
+           (snap-sync-start-heal-local-read-pool
+            *snap-sync-heal-local-read-workers*))))
+    (unwind-protect
+         (let ((*snap-sync-heal-local-read-pool* pool))
+           (%snap-sync-heal-state
+            database sources progress byte-limit
+            :on-source-error on-source-error
+            :on-heal-progress on-heal-progress
+            :source-provider source-provider
+            :heal-yield-p heal-yield-p
+            :code-batch-limit code-batch-limit))
+      (snap-sync-stop-heal-local-read-pool pool)))
+  #-sbcl
+  (%snap-sync-heal-state
+   database sources progress byte-limit
+   :on-source-error on-source-error
+   :on-heal-progress on-heal-progress
+   :source-provider source-provider
+   :heal-yield-p heal-yield-p
+   :code-batch-limit code-batch-limit))
 
 (defun snap-sync-release-range-phase-memory ()
   "Reclaim transient flat-range heap before the local healing walk."

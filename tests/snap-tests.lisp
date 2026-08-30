@@ -6811,6 +6811,141 @@
         (uiop:delete-directory-tree path :validate t)))))
 
 #+sbcl
+(deftest snap-heal-rocksdb-small-batches-reuse-fixed-workers
+  (:layer :integration :module :p2p)
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :directory
+             `(:relative ,(format nil "ethereum-lisp-snap-pool-~A" (gensym))))
+            #P"/private/tmp/"))
+         (references
+           (map 'vector #'snap-test-index-hash
+                (loop for index below 16 collect (+ 10000 index))))
+         (real-get-many
+           (fdefinition 'ethereum-lisp.database:kv-get-chain-records))
+         (mutex (sb-thread:make-mutex :name "snap-heal-pool-test"))
+         (phase 0)
+         (first-workers '())
+         (second-workers '()))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (let ((batch (make-kv-write-batch))
+                      (pool nil)
+                      (pool-threads #()))
+                  (dotimes (index (length references))
+                    (ethereum-lisp.database:kv-batch-put-chain-record
+                     batch :trie-node (aref references index)
+                     (vector index)))
+                  (kv-apply-batch database batch)
+                  (setf
+                   (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+                   (lambda (candidate kind identifiers &optional default)
+                     (when (and (eq candidate database) (eq kind :trie-node))
+                       (sb-thread:with-mutex (mutex)
+                         (ecase phase
+                           (1 (pushnew sb-thread:*current-thread*
+                                       first-workers :test #'eq))
+                           (2 (pushnew sb-thread:*current-thread*
+                                       second-workers :test #'eq)))))
+                     (funcall
+                      real-get-many candidate kind identifiers default)))
+                  (unwind-protect
+                       (progn
+                         (setf pool
+                               (ethereum-lisp.snap-sync::snap-sync-start-heal-local-read-pool
+                                4)
+                               pool-threads
+                               (copy-seq
+                                (ethereum-lisp.snap-sync::snap-sync-heal-local-read-pool-threads
+                                 pool)))
+                         (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
+                                 4)
+                               (ethereum-lisp.snap-sync::*snap-sync-heal-local-read-pool*
+                                 pool))
+                           (setf phase 1)
+                           (ethereum-lisp.snap-sync::snap-sync-heal-local-node-batch
+                            database references)
+                           (setf phase 2)
+                           (ethereum-lisp.snap-sync::snap-sync-heal-local-node-batch
+                            database references))
+                         (is (= 4 (length first-workers)))
+                         (is (= 4 (length second-workers)))
+                         (is
+                          (every
+                           (lambda (thread)
+                             (member thread second-workers :test #'eq))
+                           first-workers))
+                         (is
+                          (null
+                           (member sb-thread:*current-thread* first-workers
+                                   :test #'eq))))
+                    (ethereum-lisp.snap-sync::snap-sync-stop-heal-local-read-pool
+                     pool))
+                  (is
+                   (every
+                    (lambda (thread) (not (sb-thread:thread-alive-p thread)))
+                    pool-threads)))
+             (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+                   real-get-many)
+             (close-rocksdb-key-value-database database)))
+      (setf (fdefinition 'ethereum-lisp.database:kv-get-chain-records)
+            real-get-many)
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
+#+sbcl
+(deftest snap-heal-rocksdb-shipped-entry-owns-worker-lifecycle
+  (:layer :integration :module :p2p)
+  (let* ((path
+           (merge-pathnames
+            (make-pathname
+             :directory
+             `(:relative ,(format nil "ethereum-lisp-snap-owner-~A" (gensym))))
+            #P"/private/tmp/"))
+         (real-healer
+           (fdefinition 'ethereum-lisp.snap-sync::%snap-sync-heal-state))
+         (observed-pool nil)
+         (observed-threads #()))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unwind-protect
+                (progn
+                  (setf
+                   (fdefinition 'ethereum-lisp.snap-sync::%snap-sync-heal-state)
+                   (lambda (&rest arguments)
+                     (declare (ignore arguments))
+                     (setf observed-pool
+                           ethereum-lisp.snap-sync::*snap-sync-heal-local-read-pool*
+                           observed-threads
+                           (copy-seq
+                            (ethereum-lisp.snap-sync::snap-sync-heal-local-read-pool-threads
+                             observed-pool)))
+                     (is
+                      (every #'sb-thread:thread-alive-p observed-threads))
+                     :healed))
+                  (let ((ethereum-lisp.snap-sync::*snap-sync-heal-local-read-workers*
+                          4))
+                    (is
+                     (eq :healed
+                         (ethereum-lisp.snap-sync::snap-sync-heal-state
+                          database nil nil 1))))
+                  (is (not (null observed-pool)))
+                  (is (= 4 (length observed-threads)))
+                  (is
+                   (every
+                    (lambda (thread) (not (sb-thread:thread-alive-p thread)))
+                    observed-threads)))
+             (setf (fdefinition 'ethereum-lisp.snap-sync::%snap-sync-heal-state)
+                   real-healer)
+             (close-rocksdb-key-value-database database)))
+      (setf (fdefinition 'ethereum-lisp.snap-sync::%snap-sync-heal-state)
+            real-healer)
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
+#+sbcl
 (deftest snap-state-healer-peer-first-experiment-falls-back-to-rocksdb
   (:layer :integration :module :p2p)
   (let* ((path
