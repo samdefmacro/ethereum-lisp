@@ -19,6 +19,8 @@
 #   RUNTIME_PREBUILT   set to 1 to use an existing image instead of building
 #   HIVE_RESULTS       results directory (default $HIVE_WORKDIR/results)
 #   HIVE_EXTRA_ARGS    appended to the hive command line verbatim
+#   HIVE_EXPECTED_TESTS exact executed-test count; full pinned engine and
+#                       rpc-compat runs select their known inventories
 #
 # Running Hive needs a Go toolchain and a dockerd on the same host, because
 # Hive dials the client containers by their bridge address for its liveness
@@ -74,6 +76,10 @@ command -v go >/dev/null 2>&1 || {
     echo "FATAL: Hive requires a Go toolchain on the Linux runner; use the reviewed CI/remote runner rather than installing one on a control-plane host" >&2
     exit 1
 }
+command -v jq >/dev/null 2>&1 || {
+    echo "FATAL: Hive result validation requires jq on the Linux runner" >&2
+    exit 1
+}
 
 # --- client base image ------------------------------------------------------
 
@@ -127,6 +133,10 @@ cat > "$client_file" <<YAML
 YAML
 
 mkdir -p "$results_dir"
+if find "$results_dir" -mindepth 1 -print -quit | grep -q .; then
+    echo "FATAL: HIVE_RESULTS must be empty for a new evidence run: $results_dir" >&2
+    exit 1
+fi
 
 hive_args=(--client-file "$client_file" --sim "$sim" --results-root "$results_dir")
 if [ -n "$sim_limit" ]; then
@@ -163,4 +173,47 @@ log "building hive"
 (cd "$hive_dir" && go build .)
 
 log "hive --sim $sim (hive $HIVE_COMMIT)"
-(cd "$hive_dir" && ./hive "${hive_args[@]}")
+hive_status=0
+(cd "$hive_dir" && ./hive "${hive_args[@]}") || hive_status=$?
+
+# A green process with no tests is not conformance evidence. Validate fresh
+# result JSON even when Hive itself failed, so every run leaves an honest count
+# manifest and a missing/empty artifact is a harder failure than test failures.
+result_file_count=0
+executed_test_count=0
+passed_test_count=0
+while IFS= read -r -d '' result_file; do
+    if ! jq -e '.testCases | type == "array"' "$result_file" >/dev/null; then
+        echo "FATAL: invalid Hive suite result: $result_file" >&2
+        exit 3
+    fi
+    result_file_count=$((result_file_count + 1))
+    count="$(jq '[.testCases[]?] | length' "$result_file")"
+    passed="$(jq '[.testCases[]? | select(.summaryResult.pass == true)] | length' \
+        "$result_file")"
+    executed_test_count=$((executed_test_count + count))
+    passed_test_count=$((passed_test_count + passed))
+done < <(find "$results_dir" -maxdepth 1 -type f -name '*.json' \
+         ! -name hive.json -print0)
+
+if [ "$result_file_count" -eq 0 ] || [ "$executed_test_count" -eq 0 ]; then
+    echo "FATAL: Hive executed zero tests for $sim" >&2
+    exit 3
+fi
+
+expected_test_count="${HIVE_EXPECTED_TESTS:-}"
+if [ -z "$expected_test_count" ] && [ -z "$sim_limit" ]; then
+    case "$sim" in
+        ethereum/engine) expected_test_count=403 ;;
+        ethereum/rpc-compat|rpc-compat) expected_test_count=243 ;;
+    esac
+fi
+if [ -n "$expected_test_count" ] \
+   && [ "$executed_test_count" -ne "$expected_test_count" ]; then
+    echo "FATAL: Hive executed $executed_test_count tests for $sim; expected $expected_test_count" >&2
+    exit 3
+fi
+
+printf 'hive %s :: %s :: %s/%s passed\n' \
+    "$HIVE_COMMIT" "$sim" "$passed_test_count" "$executed_test_count"
+exit "$hive_status"

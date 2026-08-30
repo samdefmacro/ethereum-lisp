@@ -29,9 +29,12 @@ host-side deployment metadata and is not embedded in the portable Hive image.
 
 `scripts/hive-run.sh` re-checks the Hive commit after fetching and refuses to
 run if the tree is anything else, so a result can always name the commit it came
-from. Bumping the Hive pin means re-reading its `docs/clients.md` for contract
-changes and re-diffing `tools/hive/mapper.jq` against
-`clients/go-ethereum/mapper.jq` at the new commit.
+from. It also requires a fresh result directory, rejects missing or zero-test
+result manifests, and checks the pinned full-suite inventories (403 Engine
+tests and 243 rpc-compat tests). Bumping the Hive pin means re-reading its
+`docs/clients.md` for contract changes, re-diffing `tools/hive/mapper.jq`
+against `clients/go-ethereum/mapper.jq`, and deliberately updating those
+inventory counts.
 
 ## Pieces
 
@@ -51,7 +54,10 @@ changes and re-diffing `tools/hive/mapper.jq` against
   `curl` onto the runtime image), `ethereum-lisp.sh` (the `HIVE_*` contract),
   `mapper.jq` (genesis translation), `enode.sh`, `hive.yaml`.
 - **`scripts/hive-run.sh`** — materializes the pinned Hive checkout, installs
-  `tools/hive` as `clients/ethereum-lisp`, writes the client file, runs a suite.
+  `tools/hive` as `clients/ethereum-lisp`, writes the client file, runs a suite,
+  and validates a nonzero fresh result/count manifest even when Hive reports
+  test failures. `HIVE_EXPECTED_TESTS` pins a diagnostic subset explicitly;
+  full Engine and rpc-compat runs select their known inventories automatically.
 - **`scripts/hive-runtime-smoke.sh`** — starts the runtime image and asserts
   over the wire that it answers `eth_chainId`, refuses an unauthenticated
   `engine_*` call with 401, and answers a JWT-signed one. It also builds a
@@ -169,7 +175,7 @@ agree on the same eight-hex-digit client commit.
 | Suite | State |
 |---|---|
 | `ethereum/engine` (incl. `engine-auth`) | wired, `continue-on-error` |
-| `ethereum/rpc-compat` | wired, `continue-on-error`; block preload is now wired, but no suite result yet |
+| `ethereum/rpc-compat` | wired, `continue-on-error`; full pinned inventory executes, with the current failure set still under repair |
 | `ethereum/eels/consume-engine` | not wired |
 | `ethereum/eels/consume-rlp` | not wired — requires a suite-specific current-fork review |
 | `devp2p` | wired, `continue-on-error`; the adapter's routable enode is asserted |
@@ -183,7 +189,8 @@ a pinned consensus client, which is a separate change.
 
 ## What has actually been run
 
-At the time of writing, on a macOS development host:
+The container-only image and adapter smoke checks pass on the development
+control plane:
 
 - `Dockerfile.runtime` builds, and `scripts/hive-runtime-smoke.sh` passes
   against the resulting image — the client starts non-root under a read-only
@@ -201,7 +208,16 @@ At the time of writing, on a macOS development host:
   `dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c`, verifies the commit, and installs
   `clients/ethereum-lisp`.
 
-**No Hive suite has been run.** Hive cannot run on this host for the reason
-above, so nothing in this document or in any commit message says which Hive
-tests pass. The first run will be the CI job, and its counts belong in this
-section when it produces them.
+Real Hive runs execute on the reviewed Linux runner `test-ethereum-server`, not
+on macOS. The first full baseline at client revision `10d533fd` executed all
+403 Engine cases and passed 307: engine-auth 8/8, exchange-capabilities 5/5,
+withdrawals 30/35, Cancun 165/226, and engine-api 99/129. Its full rpc-compat
+run passed 50/243. These are failure inventories, not readiness gates.
+
+After repairing historical block execution, client revision `6543ad11` passed
+the focused rpc-compat launch/head run 2/2 and its adapter imported all 54
+fixture blocks without an offline-import stop. The full pinned rpc-compat run
+then passed 96/243. The remaining 147 failures are still open; the largest
+groups include `eth_simulateV1`, tracing, blob/set-code transaction and receipt
+coverage, and exact RPC error/parameter semantics. No full Engine result has
+yet been recorded for `6543ad11`, and none of these runs completes Section 5.
