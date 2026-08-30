@@ -28,6 +28,8 @@
      (cons "blockHash" (hash32-to-hex (block-hash block)))
      (cons "blockNumber"
            (quantity-to-hex (block-header-number header)))
+     (cons "blockTimestamp"
+           (quantity-to-hex (block-header-timestamp header)))
      (cons "transactionHash"
            (hash32-to-hex (transaction-hash transaction)))
      (cons "transactionIndex" (quantity-to-hex transaction-index))

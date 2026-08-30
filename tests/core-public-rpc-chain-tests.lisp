@@ -606,7 +606,7 @@
                   "\"params\":[\"0x1\",\"latest\",[0,60,100]]}]")
                  store config)))
              (fee-history (field (third responses) "result"))
-             (rewards (first (field fee-history "reward"))))
+             (rewards (elt (field fee-history "reward") 0)))
         (is (string= "0x14" (field (first responses) "result")))
         (is (string= "0x78" (field (second responses) "result")))
         (is (equal '("0x5" "0x14" "0x14") rewards))))))

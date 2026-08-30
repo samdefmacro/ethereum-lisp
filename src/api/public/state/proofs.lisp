@@ -78,13 +78,16 @@
                   slot))))))
 
 (defun engine-rpc-handle-eth-get-proof (params store)
-  (unless (= 3 (length params))
+  (unless (<= 2 (length params) 3)
     (block-validation-fail
-     "eth_getProof params must contain address, storage keys, and block id"))
+     "eth_getProof params must contain address, storage keys, and optional block id"))
   (let* ((address (eth-rpc-address-param
                    (first params) "eth_getProof" "address"))
          (slots (eth-rpc-proof-storage-slots-param
                  (second params) "eth_getProof"))
          (block (eth-rpc-state-block-param
-                 (list (third params)) store "eth_getProof")))
+                 (list (if (= 3 (length params))
+                           (third params)
+                           "latest"))
+                 store "eth_getProof")))
     (eth-rpc-build-proof-object store (block-hash block) address slots)))

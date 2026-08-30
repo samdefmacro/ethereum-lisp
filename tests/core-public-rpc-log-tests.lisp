@@ -161,6 +161,8 @@
                      (field range-log "blockHash")))
         (is (string= (quantity-to-hex 40)
                      (field range-log "blockNumber")))
+        (is (string= (quantity-to-hex 400)
+                     (field range-log "blockTimestamp")))
         (is (string= (hash32-to-hex (transaction-hash tx-1))
                      (field range-log "transactionHash")))
         (is (string= (quantity-to-hex 0)
@@ -500,4 +502,3 @@
                        (field added-log "blockHash")))
           (is (null future-logs))
           (is (search "\"result\":[]" empty-changes-json)))))))
-

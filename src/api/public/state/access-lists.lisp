@@ -90,27 +90,31 @@ before Osaka — and those touches belong in a reported access list."
            :state-overrides state-overrides
            :block-overrides block-overrides)
         (declare (ignore return-data))
-        (unless (eth-rpc-call-status-success-p status)
-          (block-validation-fail
-           "eth_createAccessList execution reverted or exceeded gas cap"))
-        (list
-         (cons "accessList"
-               (eth-rpc-created-access-list-object
-                accessed-addresses
-                accessed-storage
-                sender
-                (transaction-to tx)
-                (eth-rpc-block-override-address
-                 block-overrides "feeRecipient"
-                 (or (block-header-beneficiary header) (zero-address))
-                 "eth_createAccessList")
-                (and config
-                     (chain-config-rules
-                      config
-                      (eth-rpc-block-override-quantity
-                       block-overrides "number"
-                       (block-header-number header))
-                      (eth-rpc-block-override-quantity
-                       block-overrides "time"
-                       (block-header-timestamp header))))))
-         (cons "gasUsed" (quantity-to-hex gas-used)))))))
+        (append
+         (list
+          (cons "accessList"
+                (eth-rpc-created-access-list-object
+                 accessed-addresses
+                 accessed-storage
+                 sender
+                 (transaction-to tx)
+                 (eth-rpc-block-override-address
+                  block-overrides "feeRecipient"
+                  (or (block-header-beneficiary header) (zero-address))
+                  "eth_createAccessList")
+                 (and config
+                      (chain-config-rules
+                       config
+                       (eth-rpc-block-override-quantity
+                        block-overrides "number"
+                        (block-header-number header))
+                       (eth-rpc-block-override-quantity
+                        block-overrides "time"
+                        (block-header-timestamp header))))))
+          (cons "gasUsed" (quantity-to-hex gas-used)))
+         (unless (eth-rpc-call-status-success-p status)
+           (list
+            (cons "error"
+                  (if (eq status :reverted)
+                      "execution reverted"
+                      "execution failed")))))))))

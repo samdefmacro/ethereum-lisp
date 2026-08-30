@@ -811,6 +811,49 @@
         ;; the way go-ethereum does, not null.
         (is (equalp #() (field target-entry "storageKeys")))))))
 
+(deftest eth-rpc-create-access-list-reports-revert-in-result
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :byzantium-block 0
+                                      :london-block 0))
+           (contract
+             (address-from-hex
+              "0x00000000000000000000000000000000000000ce"))
+           ;; PUSH1 0; PUSH1 0; REVERT.
+           (code #(#x60 #x00 #x60 #x00 #xfd))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 33
+                       :timestamp 330
+                       :gas-limit 100000
+                       :base-fee-per-gas 0))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 109)
+                 (cons "method" "eth_createAccessList")
+                 (cons "params"
+                       (list
+                        (list (cons "to" (address-to-hex contract))
+                              (cons "gas" (quantity-to-hex 100000)))
+                        "latest")))
+                store config))
+             (result (field response "result")))
+        (is (null (field response "error")))
+        (is (string= "execution reverted" (field result "error")))
+        (is (stringp (field result "gasUsed")))
+        (is (field result "accessList"))))))
+
 (deftest eth-rpc-simulation-methods-require-retained-state
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

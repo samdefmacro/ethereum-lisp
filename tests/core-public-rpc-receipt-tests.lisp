@@ -112,6 +112,8 @@
         (is (string= (hash32-to-hex topic-2) (first topics)))
         (is (string= "0x0203" (field log "data")))
         (is (string= (quantity-to-hex 1) (field log "logIndex")))
+        (is (string= (quantity-to-hex 150)
+                     (field log "blockTimestamp")))
         (is removed-entry)
         (is (null (cdr removed-entry)))
         (is (stringp (field receipt-result "logsBloom")))
@@ -247,4 +249,3 @@
         (is (null (field pending-response "result")))
         (is (null (field pending-object-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
-

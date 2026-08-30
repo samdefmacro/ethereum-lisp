@@ -189,6 +189,39 @@
         (is (= -32602 (field invalid-params-error "code")))
         (is (= -32602 (field too-many-storage-keys-error "code")))))))
 
+(deftest eth-rpc-get-proof-defaults-to-latest
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (address
+             (address-from-hex
+              "0x0000000000000000000000000000000000000105"))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header (make-block-header :number 30
+                                         :timestamp 300
+                                         :gas-limit 30000000))))
+      (state-db-set-account
+       state address (make-state-account :nonce 4 :balance 55))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":104,"
+                  "\"method\":\"eth_getProof\",\"params\":[\""
+                  (address-to-hex address) "\",[]]}")
+                 store config)))
+             (proof (field response "result")))
+        (is (string= "0x37" (field proof "balance")))
+        (is (string= "0x4" (field proof "nonce")))))))
+
 (deftest eth-rpc-get-proof-geth-secure-account-state
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

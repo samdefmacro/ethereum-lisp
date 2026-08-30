@@ -175,10 +175,16 @@
                 (append object
                         (list
                          (cons "reward"
-                               (loop for block in blocks
-                                     collect
-                                     (eth-rpc-fee-history-reward
-                                      block percentiles)))))))
+                               ;; A list of lists is ambiguous to the JSON
+                               ;; writer: (("0x1")) also looks like an alist
+                               ;; with key "0x1".  The outer vector makes the
+                               ;; specified two-dimensional array explicit.
+                               (coerce
+                                (loop for block in blocks
+                                      collect
+                                      (eth-rpc-fee-history-reward
+                                       block percentiles))
+                                'vector))))))
         (when (eth-rpc-fee-history-blob-enabled-p blocks)
           (setf object
                 (append
