@@ -183,7 +183,11 @@ result_file_count=0
 executed_test_count=0
 passed_test_count=0
 while IFS= read -r -d '' result_file; do
-    if ! jq -e '.testCases | type == "array"' "$result_file" >/dev/null; then
+    # Hive serializes testCases as an ID-keyed object today.  Accept an array
+    # as well because older/local simulators may emit a positional collection;
+    # .testCases[] below enumerates the values of either representation.
+    if ! jq -e '.testCases | (type == "object" or type == "array")' \
+        "$result_file" >/dev/null; then
         echo "FATAL: invalid Hive suite result: $result_file" >&2
         exit 3
     fi
