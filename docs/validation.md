@@ -959,6 +959,12 @@ scripts/hoodi-live-gate.sh complete
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
 ```
 
+When `start` replaces a container previously created by this live gate, set
+`HOODI_GATE_OLD_CONTAINER` and its full `HOODI_GATE_OLD_REVISION`. The broker
+stops it only after the agent label, gate and image revisions, explicit non-root
+user, and read-only root filesystem all match; a failed replacement restarts
+that exact old container.
+
 `upload` transfers both the checksummed runtime archive and the pinned
 `tools/runtime/docker-26.1.4-io-uring-seccomp.json`. The latter is Docker
 26.1.4's official default profile with only the three io_uring syscalls added;

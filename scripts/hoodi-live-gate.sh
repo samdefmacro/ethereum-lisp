@@ -57,6 +57,7 @@ expected_seccomp_sha256="68afe4d839d125a335c352d1707caa1482923a4c2adf5fa7c1789ca
 
 lighthouse_container="${HOODI_GATE_LIGHTHOUSE_CONTAINER:-hoodi-lighthouse-public}"
 old_container="${HOODI_GATE_OLD_CONTAINER:-hoodi-el-sec5-rehearsal-old3}"
+old_revision="${HOODI_GATE_OLD_REVISION:-}"
 previous_container="${HOODI_GATE_PREVIOUS_CONTAINER:-}"
 previous_revision="${HOODI_GATE_PREVIOUS_REVISION:-}"
 cl_network="${HOODI_GATE_CL_NETWORK:-hoodi-frozen}"
@@ -96,6 +97,10 @@ done
 [ -z "$previous_revision" ] || {
     case "$previous_revision" in *[!0-9a-f]*) fail "previous revision must be lowercase hexadecimal" ;; esac
     [ "${#previous_revision}" -eq 40 ] || fail "previous revision must contain exactly 40 hexadecimal characters"
+}
+[ -z "$old_revision" ] || {
+    case "$old_revision" in *[!0-9a-f]*) fail "old revision must be lowercase hexadecimal" ;; esac
+    [ "${#old_revision}" -eq 40 ] || fail "old revision must contain exactly 40 hexadecimal characters"
 }
 case "$public_ip" in *[!0-9.]*|'') fail "public IP must be an IPv4 literal" ;; esac
 case "$p2p_port" in *[!0-9]*|'') fail "P2P port must be an integer" ;; esac
@@ -361,7 +366,7 @@ start_gate() {
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
         "$cl_alias" "$p2p_port" "$memory_limit_bytes" \
-        "$allocation_profile_seconds" "$rocksdb_async_read_io" <<'REMOTE'
+        "$allocation_profile_seconds" "$rocksdb_async_read_io" "$old_revision" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
@@ -369,6 +374,7 @@ cl_network="${11}"; egress_network="${12}"; cl_alias="${13}"; p2p_port="${14}"
 memory_limit="${15}"
 allocation_profile_seconds="${16}"
 rocksdb_async_read_io="${17}"
+old_expected_revision="${18}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -422,11 +428,43 @@ old_was_running=false
 if docker container inspect "$old" >/dev/null 2>&1 &&
    [ "$(docker container inspect --format '{{.State.Running}}' "$old")" = true ]; then
     old_agent="$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$old")"
-    old_revision="$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$old")"
-    [ "$old_agent" = codex-sec5-rehearsal ] && [ "$old_revision" = section5-livefix18-20260812 ] || {
-        echo "refusing to stop container with unexpected ownership: $old" >&2
-        exit 1
-    }
+    old_image_revision="$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$old")"
+    old_gate_revision="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$old")"
+    old_user="$(docker container inspect --format '{{.Config.User}}' "$old")"
+    old_read_only="$(docker container inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$old")"
+    case "$old_agent" in
+        codex-sec5-rehearsal)
+            [ "$old_image_revision" = section5-livefix18-20260812 ] || {
+                echo "refusing to stop rehearsal container with unexpected revision: $old" >&2
+                exit 1
+            }
+            ;;
+        codex-sec5-live-gate)
+            [ -n "$old_expected_revision" ] || {
+                echo "HOODI_GATE_OLD_REVISION is required to replace a live gate" >&2
+                exit 1
+            }
+            [ "$old_gate_revision" = "$old_expected_revision" ] &&
+                [ "$old_image_revision" = "$old_expected_revision" ] || {
+                echo "refusing to stop live gate with unexpected revision: $old" >&2
+                exit 1
+            }
+            [ "$old_read_only" = true ] || {
+                echo "refusing to stop live gate without a read-only root: $old" >&2
+                exit 1
+            }
+            case "$old_user" in
+                0|0:*|*:0|'')
+                    echo "refusing to stop live gate without an explicit non-root user: $old" >&2
+                    exit 1
+                    ;;
+            esac
+            ;;
+        *)
+            echo "refusing to stop container with unexpected ownership: $old" >&2
+            exit 1
+            ;;
+    esac
     docker stop --time 30 "$old" >/dev/null
     old_was_running=true
 fi
