@@ -523,6 +523,37 @@
            (state-account-balance
             (state-db-get-account state ommer-beneficiary))))))
 
+(deftest block-execution-accepts-proof-of-work-ommers-and-applies-rewards
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (miner
+           (address-from-hex
+            "0x00000000000000000000000000000000000000c1"))
+         (ommer-beneficiary
+           (address-from-hex
+            "0x00000000000000000000000000000000000000c2"))
+         (header (make-block-header :beneficiary miner
+                                    :difficulty #x20000
+                                    :number 10
+                                    :gas-limit 100000))
+         (ommer (make-block-header :beneficiary ommer-beneficiary
+                                   :difficulty #x20000
+                                   :number 9))
+         (rules (make-chain-rules :byzantium-p t)))
+    (execute-legacy-block state sender '()
+                          :header header
+                          :chain-rules rules
+                          :ommers (list ommer)
+                          :apply-block-rewards-p t)
+    (is (= (+ 3000000000000000000
+              (floor 3000000000000000000 32))
+           (state-account-balance (state-db-get-account state miner))))
+    (is (= (floor (* 7 3000000000000000000) 8)
+           (state-account-balance
+            (state-db-get-account state ommer-beneficiary))))))
+
 (deftest block-execution-refuses-ommers-before-state-mutation
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))

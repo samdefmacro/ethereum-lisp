@@ -54,9 +54,11 @@
                            +block-access-list-item-gas-cost+))))
     (unless (hash32= ommers-root (block-header-ommers-hash header))
       (block-validation-fail "Ommers root hash mismatch"))
-    (when ommers
+    (when (and ommers
+               (plusp (block-header-number header))
+               (zerop (block-header-difficulty header)))
       (block-validation-fail
-       "Ommers are unsupported by this post-Merge client"))
+       "Post-Merge blocks cannot contain ommers"))
     (unless (hash32= transactions-root
                      (block-header-transactions-root header))
       (block-validation-fail "Transaction root hash mismatch"))

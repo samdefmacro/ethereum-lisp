@@ -52,10 +52,10 @@
                               block-access-list-max-code-size)
   (let ((actual-blob-gas-used (blob-gas-used transactions))
         (header-blob-gas-used (block-header-blob-gas-used header)))
-    (when ommers
+    (when (and ommers (block-header-post-merge-p header))
       (error 'block-validation-error
              :message
-             "Ommers are unsupported by this post-Merge client"))
+             "Post-Merge blocks cannot contain ommers"))
     (when (and (block-header-transactions-root header)
                (not (execution-hash32=
                      (block-header-transactions-root header)

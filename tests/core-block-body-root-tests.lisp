@@ -30,14 +30,15 @@
     (signals block-validation-error
       (validate-block-body-roots block))))
 
-(deftest block-body-refuses-validly-encoded-ommers
-  (let* ((ommer (make-block-header :number 1))
-         (block (make-block :ommers (list ommer))))
+(deftest proof-of-work-block-body-accepts-validly-encoded-ommers
+  (let* ((ommer (make-block-header :number 1 :difficulty 1))
+         (block (make-block :header (make-block-header :number 2
+                                                       :difficulty 1)
+                            :ommers (list ommer))))
     (is (string= (hash32-to-hex (ommers-hash (list ommer)))
                  (hash32-to-hex
                   (block-header-ommers-hash (block-header block)))))
-    (signals block-validation-error
-      (validate-block-body-roots block))))
+    (is (validate-block-body-roots block))))
 
 (deftest block-body-validates-commitment-fields-before-comparison
   (let* ((block (make-block))
@@ -330,4 +331,3 @@
     (signals block-validation-error
       (validate-block-against-config pre-london-parent pre-london-block
                                      (make-chain-config :london-block 10)))))
-
