@@ -273,6 +273,10 @@ them by their physical location instead reintroduces dependency cycles:
   storage and code complete. One coordinator folds up to sixteen ready
   successor cursors into one synchronous publication batch, so a visible cursor
   still flushes the complete preceding WAL prefix without a per-page fsync.
+  Account, code, storage, and progress publication share one narrow database
+  write lock. RocksDB already serializes these writers internally, but the
+  common seam also preserves the atomic copy-on-write memory oracle; network
+  requests and range-proof computation remain outside the lock and parallel.
   Storage and bytecode
   dependencies are scheduled independently of the peer that returned their
   account page. ByteCodes jobs from every page share thirty-two import-wide

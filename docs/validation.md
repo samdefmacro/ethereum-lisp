@@ -1204,9 +1204,14 @@ redirects are forbidden, only fixed Engine status enums may enter logs, and
 health/metrics expose counters rather than payloads. A full mirror queue drops
 the shadow copy instead of delaying the primary, increments
 `shadow_mirror_dropped_total`, and makes the later soak gate fail. Engine status
-mismatches are likewise counted. Catch-up traffic does not count toward the
-seven days: after geth reaches head, restart the proxy to establish zero
-counters before starting the comparison window.
+mismatches are likewise counted. The proxy also samples both internal public
+RPC endpoints every twelve seconds. It records latest-head lag and compares the
+finalized block number, hash, state root, receipts root, and requests hash.
+Two consecutive anomalous samples count as one persistent violation, while the
+maximum observed lag remains a strict high-water mark. No payload or root value
+enters the logs or metrics. Catch-up traffic does not count toward the seven
+days: after geth reaches head, restart the proxy to establish zero counters and
+a new sample series before starting the comparison window.
 
 The runtime stays only on the internal consensus/execution network. Remote
 brokers read `/healthz` and `/metrics` through the binary's fixed
@@ -1257,8 +1262,11 @@ clients to report sync complete with identical latest and finalized hashes,
 then restarts the proxy with zero counters and an immutable start-time label.
 `complete` is read-only and fails before 604,800 seconds, for any dropped or
 failed mirror, Engine status mismatch, non-zero primary error, unfinished
-mirror, active sync, or canonical-head difference. `restore` preserves both
-datadirs and the stopped proxy while returning Lighthouse directly to Lisp.
+mirror, active sync, or canonical-head difference. It additionally requires at
+least 95% of the expected twelve-second head samples, zero sample RPC errors,
+zero persistent lag/root violations, and no observed lag above two blocks.
+`restore` preserves both datadirs and the stopped proxy while returning
+Lighthouse directly to Lisp.
 After later commits advance the checkout, set `HOODI_SHADOW_PROXY_REVISION` to
 the deployed full Git id for `status`, `complete`, or `restore`; the broker
 accepts only a revision that remains an ancestor of the checkout.

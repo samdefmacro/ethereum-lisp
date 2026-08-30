@@ -2607,7 +2607,7 @@
       ;; one atomic KV batch. The owning account cursor supplies the later
       ;; durability seam, so storage delivery itself must not force an fsync.
       (sb-thread:with-mutex
-          ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-write-lock
+          ((ethereum-lisp.snap-sync::snap-sync-multi-runtime-database-write-lock
             runtime))
         (setf
          thread-a
@@ -4343,14 +4343,14 @@
            (progn
              (setf
               (fdefinition buffer-name)
-              (lambda (database state-root result)
+              (lambda (database state-root result &optional write-lock)
                 (when
                     (plusp
                      (ethereum-lisp.snap-sync:snap-sync-page-profile-storage-account-count
                       (ethereum-lisp.snap-sync::snap-sync-page-result-profile
                        result)))
                   (incf buffer-calls))
-                (funcall real-buffer database state-root result)))
+                (funcall real-buffer database state-root result write-lock)))
              (signals ethereum-lisp.snap-sync:snap-sync-heal-yielded
                (ethereum-lisp.snap-sync:snap-sync-import-state-multi
                 target-database (list yielding-source)

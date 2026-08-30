@@ -2270,7 +2270,7 @@ remains conservative and contributes no complete references."
             (nreverse complete-references))))
 
 (defun snap-sync-buffer-account-page-content
-    (database state-root result)
+    (database state-root result &optional write-lock)
   "Buffer RESULT's verified content before its task cursor is published.
 
 The records and proof metadata are authenticated and content-addressed, hence
@@ -2279,6 +2279,7 @@ publishes the successor cursor with KV-APPLY-BATCH; that synchronous write
 flushes this earlier WAL prefix before the cursor becomes durable.  A crash
 before that seam can expose no cursor and merely causes the page to be fetched
 again."
+  (declare (ignorable write-lock))
   (let ((batch (make-kv-write-batch)))
     (snap-sync-populate-verified-trie-records-batch
      database batch (snap-sync-page-result-account-records result))
@@ -2298,6 +2299,12 @@ again."
     (dolist (entry (snap-sync-page-result-dependency-subtrees result))
       (snap-sync-populate-account-subtree-dependencies-batch
        batch (car entry) (cdr entry)))
+    #+sbcl
+    (if write-lock
+        (sb-thread:with-mutex (write-lock)
+          (kv-apply-batch-buffered database batch))
+        (kv-apply-batch-buffered database batch))
+    #-sbcl
     (kv-apply-batch-buffered database batch)
     ;; The coordinator now needs only ordering metadata. Do not retain a large
     ;; page's reconstructed nodes and code while it waits behind other cursors.
@@ -2311,8 +2318,10 @@ again."
     result))
 
 (defun snap-sync-prepare-account-page-range
-    (database source state-root task-index task byte-limit)
+    (database source state-root task-index task byte-limit
+     &optional write-lock)
   "Fetch and verify one account range, without waiting for its dependencies."
+  (declare (ignorable write-lock))
   (let* ((started-at (get-internal-real-time))
          (origin (snap-sync-account-task-next-origin task))
          (limit (snap-sync-account-task-limit task))
@@ -2382,6 +2391,12 @@ again."
                (account-record-hashes (mapcar #'car account-records)))
           (snap-sync-populate-verified-trie-records-batch
            database batch account-records)
+          #+sbcl
+          (if write-lock
+              (sb-thread:with-mutex (write-lock)
+                (kv-apply-batch-buffered database batch))
+              (kv-apply-batch-buffered database batch))
+          #-sbcl
           (kv-apply-batch-buffered database batch)
           (make-snap-sync-account-page-work
            :task-index task-index
@@ -2402,7 +2417,7 @@ again."
 
 (defun snap-sync-complete-account-page
     (database source state-root work byte-limit
-     &key code-fetch-function deferred-storage-function)
+     &key code-fetch-function deferred-storage-function write-lock)
   "Resolve WORK's storage/code globally, then buffer its verified content."
   (multiple-value-bind (deferred-storage codes storage-ms code-ms)
       (snap-sync-fetch-page-dependencies
@@ -2479,7 +2494,8 @@ again."
                   :completed-p
                   (snap-sync-account-page-work-completed-p work)
                   :profile profile)))
-          (snap-sync-buffer-account-page-content database state-root result)
+          (snap-sync-buffer-account-page-content
+           database state-root result write-lock)
           (let ((finished-at (get-internal-real-time)))
             (setf
              (snap-sync-page-profile-buffer-ms profile)
@@ -2560,12 +2576,14 @@ again."
               :completed-p nil :tasks tasks)))
       next)))
 
-(defun snap-sync-commit-account-pages (database progress results)
+(defun snap-sync-commit-account-pages
+    (database progress results &optional write-lock)
   "Publish several ready task cursors through one synchronous WAL seam.
 
 Every RESULT's authenticated content was buffered first. Folding the results
 in event order retains the same durable cursor checks, while one final progress
 record flushes all of those worker prefixes and removes per-page fsync stalls."
+  (declare (ignorable write-lock))
   (unless results
     (error "Snap account cursor batch must contain at least one result"))
   (let ((next progress)
@@ -2585,6 +2603,12 @@ record flushes all of those worker prefixes and removes per-page fsync stalls."
         (snap-sync-populate-deferred-storage-plan-batch
          batch (snap-sync-progress-state-root next)))
       (snap-sync-populate-progress-batch batch next)
+      #+sbcl
+      (if write-lock
+          (sb-thread:with-mutex (write-lock)
+            (kv-apply-batch database batch))
+          (kv-apply-batch database batch))
+      #-sbcl
       (kv-apply-batch database batch))
     (values next (nreverse snapshots))))
 
@@ -6489,15 +6513,17 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
   (claims (make-hash-table))
   (failed-sources (make-hash-table :test #'eq))
   (code-inflight (make-hash-table :test #'equalp))
-  (code-write-lock
-    (sb-thread:make-mutex :name "snap-sync-code-publish"))
+  ;; RocksDB serializes writers itself, but the in-memory crash oracle uses a
+  ;; copy-on-write shadow. Keep every concurrent SNAP publication behind one
+  ;; narrow seam so a sibling account, code, storage, or progress batch cannot
+  ;; replace another writer's freshly published table.
+  (database-write-lock
+    (sb-thread:make-mutex :name "snap-sync-database-publish"))
   ;; One fixed worker per imported source drains all large-root partitions.
   ;; The shared queue rotates after every claim: an open root keeps priority
   ;; over new small-state discovery, but cannot serialize unrelated account
   ;; tasks behind all sixteen of its partitions. This is the same global
   ;; idle-peer boundary used by geth's assignStorageTasks loop.
-  (storage-write-lock
-    (sb-thread:make-mutex :name "snap-sync-storage-publish"))
   (storage-sources '())
   (storage-jobs '())
   (storage-results '())
@@ -6978,7 +7004,7 @@ behind and may safely replay any lost storage pages."
   ;; forms a one-page batch; responses verified during that write accumulate,
   ;; and the next drain folds up to sixteen cursors into one durable seam.
   (sb-thread:with-mutex
-      ((snap-sync-multi-runtime-storage-write-lock runtime))
+      ((snap-sync-multi-runtime-database-write-lock runtime))
     (loop
       (let ((entries (snap-sync-multi-storage-result-batch runtime)))
         (unless entries (return))
@@ -7233,7 +7259,8 @@ for RocksDB compaction or a preceding batch write."
            (handler-case
                (let ((work
                        (snap-sync-prepare-account-page-range
-                        database source state-root task-index task byte-limit)))
+                        database source state-root task-index task byte-limit
+                        (snap-sync-multi-runtime-database-write-lock runtime))))
                  (snap-sync-multi-push-dependency
                   runtime
                   (make-snap-sync-multi-event
@@ -7334,7 +7361,7 @@ for RocksDB compaction or a preceding batch write."
                       ;; backend used as the crash oracle cannot lose a sibling
                       ;; worker's batch while copying its shadow table.
                       (sb-thread:with-mutex
-                          ((snap-sync-multi-runtime-code-write-lock runtime))
+                          ((snap-sync-multi-runtime-database-write-lock runtime))
                         (kv-apply-batch-buffered database batch))))
                   (snap-sync-multi-finish-code-job runtime job)))
           (serious-condition (condition)
@@ -7504,7 +7531,9 @@ range-derived subtree proofs."
                  ;; priority while still allowing other account tasks to use
                  ;; otherwise idle peers, matching geth's assignment loop.
                  (snap-sync-multi-complete-deferred-storage-roots
-                  runtime database state-root commitments)))))
+                  runtime database state-root commitments))
+               :write-lock
+               (snap-sync-multi-runtime-database-write-lock runtime))))
           (snap-sync-heal-yielded (condition)
             ;; Pivot movement is a coordinator scheduling result. Do not mark
             ;; the account-page source failed merely because one of its pooled
@@ -7903,7 +7932,9 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                                  (snap-sync-commit-account-pages
                                   database
                                   (snap-sync-multi-runtime-progress runtime)
-                                  results)
+                                  results
+                                  (snap-sync-multi-runtime-database-write-lock
+                                   runtime))
                              (sb-thread:with-mutex
                                  ((snap-sync-multi-runtime-lock runtime))
                                (setf (snap-sync-multi-runtime-progress runtime)
