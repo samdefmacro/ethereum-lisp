@@ -1268,6 +1268,27 @@ the transport which supplied it."
                 numbers)))
            (and numbers (apply #'max numbers))))))))
 
+(defun devnet-node-snap-target-required-p (node target-hash)
+  "Return true when TARGET-HASH must enter the SNAP scheduler.
+
+An unfinished durable SNAP session always keeps its recovery path.  For a new
+Engine target, resolve the locally buffered header before doing any SNAP peer
+work: a gap of at most `+DEVNET-SNAP-PIVOT-DISTANCE+` blocks is cheaper to
+download and execute directly.  Unknown targets stay on the conservative SNAP
+path because their distance cannot yet be proved bounded."
+  (or (devnet-node-durable-snap-pivot-number node)
+      (call-with-devnet-node-store-guard
+       node
+       (lambda ()
+         (let* ((store (devnet-node-store node))
+                (target
+                  (or (chain-store-known-block store target-hash)
+                      (engine-payload-store-remote-block store target-hash))))
+           (or (null target)
+               (> (- (block-header-number (block-header target))
+                     (chain-store-head-number store))
+                  +devnet-snap-pivot-distance+)))))))
+
 (defun devnet-node-select-snap-pivot
     (node preferred-entry tail-headers)
   "Select a serviceable strict-ancestor pivot from a bounded Engine tail.
@@ -2270,7 +2291,8 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
   (let ((forkchoice-target
           (devnet-node-active-snap-target
            node (first (devnet-node-forkchoice-sync-targets node)))))
-    (when forkchoice-target
+    (when (and forkchoice-target
+               (devnet-node-snap-target-required-p node forkchoice-target))
       (let ((snap-entries
               (devnet-node-live-sync-entries node :snap-only-p t)))
         (return-from devnet-node-multi-sync-pass

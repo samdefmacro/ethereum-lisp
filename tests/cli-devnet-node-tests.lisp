@@ -2548,6 +2548,41 @@ really reopens the directory instead of observing the first handle's memory."
        (is (= 1 gap-calls))
        (is (= 1 snap-calls))))))
 
+(deftest devnet-snap-scheduler-bypasses-fresh-short-engine-targets
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (head-hash (chain-store-canonical-hash store 0))
+         (short-target
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash head-hash
+             :number ethereum-lisp.cli::+devnet-snap-pivot-distance+
+             :gas-limit 30000000
+             :timestamp 1)))
+         (long-target
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash head-hash
+             :number
+             (1+ ethereum-lisp.cli::+devnet-snap-pivot-distance+)
+             :gas-limit 30000000
+             :timestamp 1))))
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store short-target)
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store long-target)
+    (is (not
+         (ethereum-lisp.cli::devnet-node-snap-target-required-p
+          node (block-hash short-target))))
+    (is (ethereum-lisp.cli::devnet-node-snap-target-required-p
+         node (block-hash long-target)))))
+
 (deftest devnet-snap-target-downloads-only-the-bounded-pivot-tail
   (:layer :integration :module :p2p)
   (let* ((datadir
