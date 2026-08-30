@@ -269,8 +269,8 @@
                (is (equal (proof-node-hex-list
                            (state-proof-result-account-proof expected-proof))
                           (field proof "accountProof")))
-               (is (equal (state-proof-result-rpc-object expected-proof)
-                          proof))
+               (is (equalp (state-proof-result-rpc-object expected-proof)
+                           proof))
                (is (state-db-verify-proof (state-db-root state)
                                           decoded-proof)))))
     (let* ((store (make-engine-payload-memory-store))
@@ -462,8 +462,8 @@
                       (state-proof-result-from-rpc-object proof)))
                (is (string= expected-root
                             (state-db-root-hex state)))
-               (is (equal (state-proof-result-rpc-object expected-proof)
-                          proof))
+               (is (equalp (state-proof-result-rpc-object expected-proof)
+                           proof))
                (is (string= (address-to-hex address)
                             (field proof "address")))
                (is (string= (quantity-to-hex expected-balance)
@@ -666,4 +666,3 @@
          0
          0
          :expected-account-proof-count 3)))))
-

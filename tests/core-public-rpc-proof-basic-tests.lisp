@@ -286,9 +286,15 @@
                               config))
                    (proof (field response "result"))
                    (expected-proof (state-db-get-proof state address nil))
+                   (expected-object
+                     (state-proof-result-rpc-object expected-proof))
                    (decoded-proof (state-proof-result-from-rpc-object proof)))
-              (is (equal (state-proof-result-rpc-object expected-proof)
-                         proof))
+              ;; JSON-RPC must preserve the distinction between [] and null.
+              ;; The domain proof object uses NIL for an empty sequence; shape
+              ;; its expected wire field the same way as the public adapter.
+              (setf (cdr (assoc "storageProof" expected-object :test #'string=))
+                    (make-array 0))
+              (is (equalp expected-object proof))
               (is (string= (address-to-hex address)
                            (field proof "address")))
               (is (string= balance
@@ -300,7 +306,8 @@
               (is (string= (hash32-to-hex +empty-trie-hash+)
                            (field proof "storageHash")))
               (is (= 2 (length (field proof "accountProof"))))
-              (is (null (field proof "storageProof")))
+              (is (ethereum-lisp.json:json-empty-array-p
+                   (field proof "storageProof")))
               (is (state-db-verify-proof (state-db-root state)
                                          decoded-proof)))))))))
 
@@ -335,9 +342,10 @@
                          "\"method\":\"eth_getProof\","
                          "\"params\":[\"" (address-to-hex missing)
                          "\",[],\"" (hash32-to-hex (block-hash block))
-                         "\"]}")
+                        "\"]}")
                         store
-                        (make-chain-config))))
+                        (make-chain-config))
+                       :preserve-empty-arrays t))
                     (proof (field response "result"))
                     (expected-proof
                       (state-db-get-proof state missing nil)))
@@ -351,7 +359,8 @@
                             (field proof "codeHash")))
                (is (string= (hash32-to-hex +empty-trie-hash+)
                             (field proof "storageHash")))
-               (is (null (field proof "storageProof")))
+               (is (ethereum-lisp.json:json-empty-array-p
+                    (field proof "storageProof")))
                (is (equal (proof-node-hex-list
                            (state-proof-result-account-proof expected-proof))
                           (field proof "accountProof"))))))

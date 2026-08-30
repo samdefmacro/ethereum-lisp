@@ -69,13 +69,14 @@
            (hash32-to-hex
             (ethereum-lisp.state:state-proof-result-storage-root proof)))
      (cons "storageProof"
-           (loop for storage-proof in
-                 (ethereum-lisp.state:state-proof-result-storage-proofs proof)
-                 for slot in slots
-                 collect
-                 (eth-rpc-storage-proof-object-from-state-proof
-                  storage-proof
-                  slot))))))
+           (eth-rpc-json-array
+            (loop for storage-proof in
+                  (ethereum-lisp.state:state-proof-result-storage-proofs proof)
+                  for slot in slots
+                  collect
+                  (eth-rpc-storage-proof-object-from-state-proof
+                   storage-proof
+                   slot)))))))
 
 (defun engine-rpc-handle-eth-get-proof (params store)
   (unless (<= 2 (length params) 3)

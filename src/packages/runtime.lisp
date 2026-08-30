@@ -83,6 +83,7 @@
         #:ethereum-lisp.bytes
         #:ethereum-lisp.hex
         #:ethereum-lisp.types
+        #:ethereum-lisp.json
         #:ethereum-lisp.state)
   (:export
    #:state-proof-result-rpc-object

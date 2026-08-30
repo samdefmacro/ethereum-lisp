@@ -26,8 +26,10 @@
         (cons "storageHash"
               (hash32-to-hex (state-proof-result-storage-root proof)))
         (cons "storageProof"
-              (mapcar #'state-storage-proof-rpc-object
-                      (state-proof-result-storage-proofs proof)))))
+              (let ((storage-proofs
+                      (mapcar #'state-storage-proof-rpc-object
+                              (state-proof-result-storage-proofs proof))))
+                (if storage-proofs storage-proofs (make-array 0))))))
 
 (defun state-proof-rpc-required-field (object field label)
   (unless (listp object)
@@ -45,13 +47,13 @@
 
 (defun state-proof-rpc-node-list (object field label)
   (let ((nodes (state-proof-rpc-required-field object field label)))
-    (unless (listp nodes)
+    (unless (json-array-p nodes)
       (error "~A.~A must be a list" label field))
     (mapcar (lambda (node)
               (unless (stringp node)
                 (error "~A.~A entries must be hex strings" label field))
               (hex-to-bytes node))
-            nodes)))
+            (json-array-values nodes))))
 
 (defun state-proof-rpc-storage-key (value)
   (unless (stringp value)
@@ -101,6 +103,7 @@
    (let ((storage-proofs
            (state-proof-rpc-required-field
             object "storageProof" "State proof")))
-     (unless (listp storage-proofs)
+     (unless (json-array-p storage-proofs)
        (error "State proof.storageProof must be a list"))
-     (mapcar #'state-storage-proof-from-rpc-object storage-proofs))))
+     (mapcar #'state-storage-proof-from-rpc-object
+             (json-array-values storage-proofs)))))
