@@ -624,6 +624,49 @@
       (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
         (ethereum-lisp.snap-sync:snap-sync-probe-state-root pruned root)))))
 
+(deftest snap-backend-resolves-a-retained-historical-root
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (current-state (make-state-db))
+         (historical-state (make-state-db))
+         (current-address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000042"))
+         (historical-address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000043"))
+         (provider-calls 0))
+    (state-db-set-account
+     current-state current-address (make-state-account :balance 7))
+    (state-db-set-account
+     historical-state historical-address (make-state-account :balance 9))
+    (let* ((current-root (state-db-root current-state))
+           (historical-root (state-db-root historical-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database current-state
+              :state-provider
+              (lambda (requested-root)
+                (incf provider-calls)
+                (and (bytes= requested-root (hash32-bytes historical-root))
+                     historical-state))))
+           (source (snap-test-source backend)))
+      ;; The captured current state stays on the zero-provider-call fast path.
+      (is
+       (ethereum-lisp.snap-sync:snap-sync-probe-state-root
+        source current-root))
+      (is (= 0 provider-calls))
+      ;; A target-64 root is resolved dynamically instead of being reported as
+      ;; pruned merely because the peer connected at another canonical head.
+      (is
+       (ethereum-lisp.snap-sync:snap-sync-probe-state-root
+        source historical-root))
+      (is (= 1 provider-calls))
+      (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
+        (ethereum-lisp.snap-sync:snap-sync-probe-state-root
+         source (make-hash32 (make-byte-vector 32 :initial-element 99))))
+      (is (= 2 provider-calls)))))
+
 (deftest snap-state-import-classifies-an-empty-account-response-as-unavailable
   (:layer :unit :module :p2p)
   (let* ((database (make-memory-key-value-database))

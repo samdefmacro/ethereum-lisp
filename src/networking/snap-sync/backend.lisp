@@ -16,11 +16,25 @@ An unavailable state root is a normal snap/1 availability result, not a peer
 protocol fault.  Pinned geth responds with an empty AccountRange,
 StorageRanges, or TrieNodes packet so the requester can fail over without
 tearing down the shared eth+snap session."
-  (let* ((root (state-db-root state))
-         (trie (state-db-state-trie state)))
-    (when (bytes= requested-root (hash32-bytes root))
-      (mpt-persist database trie)
-      trie)))
+  (when state
+    (let* ((root (state-db-root state))
+           (trie (state-db-state-trie state)))
+      (when (bytes= requested-root (hash32-bytes root))
+        (mpt-persist database trie)
+        trie))))
+
+(defun snap-sync-state-for-root (state state-provider requested-root)
+  "Resolve REQUESTED-ROOT without pinning a long-lived peer to one head state.
+
+STATE preserves the historical two-argument backend contract and remains the
+fast path when it already has the requested root.  STATE-PROVIDER, when given,
+is responsible for resolving another still-retained state from the owning
+chain store.  An unavailable root returns NIL and is encoded as snap/1's normal
+empty availability response by the request handlers below."
+  (if (and state
+           (bytes= requested-root (hash32-bytes (state-db-root state))))
+      state
+      (and state-provider (funcall state-provider requested-root))))
 
 (defun snap-sync-trie-node-loader (database)
   (lambda (hash) (trie-node-store-get database hash)))
@@ -287,14 +301,36 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
       (make-snap-trie-nodes
        (snap-get-trie-nodes-id request) (nreverse nodes)))))
 
-(defun make-persistent-snap-state-backend (database state)
-  "Serve snap/1 from STATE while persisting every traversed trie node."
+(defun make-persistent-snap-state-backend
+    (database state &key state-provider)
+  "Serve snap/1 from retained states while persisting traversed trie nodes.
+
+STATE is the current-state fast path.  STATE-PROVIDER receives a requested
+32-byte state root when a peer asks for a different historical root.  This is
+essential for a server whose canonical head advances after the peer handshake:
+snap pivots are deliberately historical, so capturing one state for the whole
+connection would advertise snap/1 while rejecting every later target-64 root."
   (make-snap-state-backend
    :account-range
-   (lambda (request) (snap-sync-account-response database state request))
+   (lambda (request)
+     (let ((root (snap-get-account-range-root request)))
+       (snap-sync-account-response
+        database
+        (snap-sync-state-for-root state state-provider root)
+        request)))
    :storage-ranges
-   (lambda (request) (snap-sync-storage-response database state request))
+   (lambda (request)
+     (let ((root (snap-get-storage-ranges-root request)))
+       (snap-sync-storage-response
+        database
+        (snap-sync-state-for-root state state-provider root)
+        request)))
    :bytecodes
    (lambda (request) (snap-sync-bytecode-response database state request))
    :trie-nodes
-   (lambda (request) (snap-sync-trie-node-response database state request))))
+   (lambda (request)
+     (let ((root (snap-get-trie-nodes-root request)))
+       (snap-sync-trie-node-response
+        database
+        (snap-sync-state-for-root state state-provider root)
+        request)))))

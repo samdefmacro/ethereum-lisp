@@ -203,6 +203,48 @@ take the guard for the whole admission, since that mutates the pool."
          ;; this does not publish a peer tip as canonical.
          (devnet-peer-sync-import-block node block))))))
 
+(defun devnet-node-snap-state-provider (node)
+  "Return a root-indexed resolver for NODE's retained canonical states.
+
+The peer session invokes this only while holding NODE's store guard.  Successful
+lookups are cached per backend/peer because one snap import repeats the same
+pivot root across account, storage, and trie-node requests.  Misses are not
+cached: the requested root may become canonical after this request."
+  (let ((states (make-hash-table :test #'equal)))
+    (lambda (requested-root)
+      (let ((root-key (bytes-to-hex requested-root :prefix nil)))
+        (multiple-value-bind (cached present-p) (gethash root-key states)
+          (if present-p
+              cached
+              (let* ((store (devnet-node-store node))
+                     (memory-store
+                       (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+                        store))
+                     (head-number (chain-store-head-number store))
+                     (retention-depth
+                       (ethereum-lisp.chain-store.state:memory-chain-store-state-retention-depth
+                        memory-store))
+                     (first-number (max 0 (- head-number retention-depth)))
+                     (resolved
+                       (loop for number downfrom head-number to first-number
+                             for block-hash =
+                               (chain-store-canonical-hash store number)
+                             for block =
+                               (and block-hash
+                                    (chain-store-known-block store block-hash))
+                             when (and
+                                   block
+                                   (bytes= requested-root
+                                           (hash32-bytes
+                                            (block-header-state-root
+                                             (block-header block))))
+                                   (chain-store-state-available-p
+                                    store block-hash))
+                               return (chain-store-state-db store block-hash))))
+                (when resolved
+                  (setf (gethash root-key states) resolved))
+                resolved)))))))
+
 (defun devnet-peer-snap-backend (node)
   "Build a guarded snap server for NODE's current durable canonical state.
 
@@ -222,7 +264,8 @@ NIL keeps snap out of Hello on other backends."
            (return-from devnet-peer-snap-backend nil))
          (let ((backend
                  (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
-                  (database-engine-payload-store-database store) state)))
+                  (database-engine-payload-store-database store) state
+                  :state-provider (devnet-node-snap-state-provider node))))
            (ethereum-lisp.snap:make-snap-state-backend
             :account-range
             (lambda (request)

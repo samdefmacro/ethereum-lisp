@@ -1518,6 +1518,61 @@ really reopens the directory instead of observing the first handle's memory."
           (+ internal-time-units-per-second
              (floor internal-time-units-per-second 2))))))
 
+(deftest devnet-snap-state-provider-resolves-retained-canonical-root
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (historical-state (make-state-db))
+         (head-state (make-state-db))
+         (historical-address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000042"))
+         (head-address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000043")))
+    (state-db-set-account
+     historical-state historical-address (make-state-account :balance 7))
+    (state-db-set-account
+     head-state head-address (make-state-account :balance 9))
+    (let* ((historical-root (state-db-root historical-state))
+           (head-root (state-db-root head-state))
+           (historical-block
+             (make-block
+              :header
+              (make-block-header
+               :parent-hash (block-hash genesis)
+               :number 1 :gas-limit 30000000 :timestamp 1
+               :state-root historical-root)))
+           (head-block
+             (make-block
+              :header
+              (make-block-header
+               :parent-hash (block-hash historical-block)
+               :number 2 :gas-limit 30000000 :timestamp 2
+               :state-root head-root)))
+           (provider
+             (ethereum-lisp.cli::devnet-node-snap-state-provider node)))
+      (engine-payload-store-put-block
+       store historical-block :state-available-p t)
+      (commit-state-db-to-chain-store
+       store (block-hash historical-block) historical-state)
+      (engine-payload-store-put-block store head-block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash head-block) head-state)
+      (let ((resolved (funcall provider (hash32-bytes historical-root))))
+        (is resolved)
+        (is (hash32= historical-root (state-db-root resolved)))
+        ;; The per-peer provider returns the same retained state without a
+        ;; second canonical scan for the many requests sharing one pivot root.
+        (is (eq resolved
+                (funcall provider (hash32-bytes historical-root)))))
+      (is (null
+           (funcall
+            provider (make-byte-vector 32 :initial-element 99)))))))
+
 (deftest devnet-snap-pivot-logs-each-durable-state-page
   (:layer :integration :module :p2p)
   (let* ((node
