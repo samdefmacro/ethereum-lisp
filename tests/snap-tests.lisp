@@ -593,6 +593,7 @@
   (:layer :unit :module :p2p)
   (let* ((database (make-memory-key-value-database))
          (state (make-state-db))
+         (observed-byte-limit nil)
          (address
            (address-from-hex
             "0x0000000000000000000000000000000000000042")))
@@ -601,7 +602,16 @@
            (backend
              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
               database state))
-           (source (snap-test-source backend))
+           (base (snap-test-source backend))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (lambda (request)
+                (setf observed-byte-limit
+                      (ethereum-lisp.snap:snap-get-account-range-bytes request))
+                (funcall
+                 (ethereum-lisp.snap-sync:snap-sync-source-account-range base)
+                 request))))
            (pruned
              (ethereum-lisp.snap-sync:make-snap-sync-source
               :account-range
@@ -610,6 +620,7 @@
                  (ethereum-lisp.snap:snap-get-account-range-id request)
                  '() '())))))
       (is (ethereum-lisp.snap-sync:snap-sync-probe-state-root source root))
+      (is (= (* 512 1024) observed-byte-limit))
       (signals ethereum-lisp.snap-sync:snap-sync-state-unavailable
         (ethereum-lisp.snap-sync:snap-sync-probe-state-root pruned root)))))
 

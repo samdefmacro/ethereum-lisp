@@ -11,7 +11,13 @@
   "Geth-aligned upper bound for responsive parallel snap/1 pages.")
 (defconstant +snap-sync-storage-request-bytes+ (* 512 1024)
   "Geth-aligned upper bound for responsive parallel StorageRanges pages.")
-(defconstant +snap-sync-pivot-probe-bytes+ (* 4 1024))
+(defconstant +snap-sync-pivot-probe-bytes+ +snap-sync-request-bytes+
+  "Geth-sized account range used to distinguish a served pivot from pruning.
+
+A tiny probe can exhaust its byte budget while constructing the first boundary
+proof and produce the same empty response that snap/1 uses for an unavailable
+state root.  Use the normal 512 KiB account page so source selection does not
+misclassify otherwise usable peers before a state session can start.")
 (defconstant +snap-sync-storage-accounts-per-request+ 512
   "Maximum small storage tries in a 512 KiB geth-style request.")
 (defconstant +snap-sync-code-hashes-per-request+
