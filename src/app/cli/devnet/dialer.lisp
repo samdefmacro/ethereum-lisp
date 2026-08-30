@@ -2212,7 +2212,8 @@ must prove the new state root before either record can authorize publication."
                          "Snap skeleton block ~A disappeared"
                          (hash32-to-hex header-hash)))
                       (devnet-peer-sync-import-block
-                       node block :require-valid-p t)))))
+                       node block :require-valid-p t
+                       :invalid-head-hash target-hash)))))
               (devnet-peer-manager-log
                node "peer.snap.target_completed"
                "pivot" pivot-number "target" target-number)
@@ -2355,7 +2356,8 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
                        sources
                        (lambda (block)
                          (devnet-peer-sync-import-block
-                          node block :require-valid-p t))
+                          node block :require-valid-p t
+                          :invalid-head-hash target-hash))
                        :start-number (1+ head-number)
                        :target-number ancestor-target-number
                        :expected-parent-hash head-hash
@@ -2367,7 +2369,8 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
             ;; available.  This is the seam that converts a downloaded invalid
             ;; ancestor into an immediate Engine INVALID verdict.
             (devnet-peer-sync-import-block
-             node target-block :require-valid-p t)
+             node target-block :require-valid-p t
+             :invalid-head-hash target-hash)
             (incf count)
             (devnet-peer-manager-log
              node "peer.sync.multi_completed"
@@ -2404,13 +2407,15 @@ session supervisor instead of being misclassified as a peer branch miss."
                                      t))))
                            (lambda (block)
                              (devnet-peer-sync-import-block
-                              node block :require-valid-p t)))))
+                              node block :require-valid-p t
+                              :invalid-head-hash (block-hash target))))))
               ;; The reverse walk stops at TARGET's parent.  Re-admit the
               ;; buffered target even when FILLED is zero: another sync path
               ;; may already have supplied its parent since TARGET was first
               ;; buffered.
               (devnet-peer-sync-import-block
-               node target :require-valid-p t)
+               node target :require-valid-p t
+               :invalid-head-hash (block-hash target))
               (devnet-peer-manager-log node "peer.sync.gap_filled"
                                        "blocks" (1+ filled)
                                        "target" (hash32-to-hex
@@ -2435,7 +2440,8 @@ session supervisor instead of being misclassified as a peer branch miss."
                              t))))
                    (lambda (block)
                      (devnet-peer-sync-import-block
-                      node block :require-valid-p t)))))
+                      node block :require-valid-p t
+                      :invalid-head-hash target)))))
             (when (plusp filled)
               (devnet-peer-manager-log node "peer.sync.head_filled"
                                        "blocks" filled

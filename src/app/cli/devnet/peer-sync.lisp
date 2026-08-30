@@ -394,7 +394,7 @@ stop the rejected branch without treating it as a node-fatal implementation or
 storage failure; subsequent Engine requests can read the cached verdict."))
 
 (defun devnet-peer-sync-import-block
-    (node block &key peer-id require-valid-p)
+    (node block &key peer-id require-valid-p invalid-head-hash)
   "Import BLOCK as a validated, durable, noncanonical candidate.
 
 PEER-ID, when supplied by a forward downloader, is recorded in the same
@@ -404,7 +404,10 @@ contiguous forward cursor. REQUIRE-VALID-P rejects a deterministic INVALID
 verdict; ACCEPTED and SYNCING remain successful durable-buffering outcomes.
 Those statuses are expected while SNAP has not yet made the candidate's parent
 state executable, and treating them as peer invalidity would terminate a normal
-forward download before state import can close the gap."
+forward download before state import can close the gap.  INVALID-HEAD-HASH
+binds a deterministic bad ancestor to the bounded Engine/CL target whose
+backfill discovered it, so Engine can answer INVALID even when later descendant
+bodies were never admitted after the downloader stopped at the bad block."
   (let ((store (devnet-node-store node))
         (config (devnet-node-config node))
         (durability-function
@@ -438,7 +441,8 @@ forward download before state import can close the gap."
               #'import-p2p-block-candidate
               store block config
               (append
-               (list :durability-function durability-function)
+               (list :durability-function durability-function
+                     :invalid-head-hash invalid-head-hash)
                (when progress (list :progress progress))))
            (when (and require-valid-p
                       (string= +payload-status-invalid+

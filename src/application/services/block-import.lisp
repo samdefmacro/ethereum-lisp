@@ -380,14 +380,17 @@ derives them."
 (defun import-p2p-block-candidate
     (store block config
      &key sidecar import-function durability-function
-          (progress nil progress-supplied-p))
+          (progress nil progress-supplied-p)
+          invalid-head-hash)
   "Admit a typed eth-wire BLOCK as a durable, noncanonical candidate.
 
 Unlike Engine payloads, an eth BlockBodies response has no execution requests
 and (on Amsterdam) no block access list.  This entry point therefore preserves
 the typed canonical header/body and lets execution derive and verify those
 commitments.  Missing-parent and missing-state blocks are durably buffered and
-return SYNCING or ACCEPTED.  Deterministic consensus failures return INVALID;
+return SYNCING or ACCEPTED.  INVALID-HEAD-HASH, when supplied by a bounded
+consensus sync, aliases a deterministic invalid ancestor to that sync head in
+the same durable transaction.  Deterministic consensus failures return INVALID;
 storage, capability, and unknown program failures propagate and roll back.
 
 Returns PAYLOAD-STATUS, candidate block, and receipts."
@@ -475,13 +478,15 @@ Returns PAYLOAD-STATUS, candidate block, and receipts."
                        store block config parent sidecar
                        +payload-status-syncing+))
                     (block-validation-error (condition)
-                      (engine-payload-store-mark-invalid store block)
+                      (engine-payload-store-mark-invalid
+                       store block :head-hash invalid-head-hash)
                       (values
                        (block-import-make-invalid-status parent condition)
                        nil nil))
                     (ethereum-lisp.execution:transaction-validation-error
                         (condition)
-                      (engine-payload-store-mark-invalid store block)
+                      (engine-payload-store-mark-invalid
+                       store block :head-hash invalid-head-hash)
                       (values
                        (block-import-make-invalid-status parent condition)
                        nil nil)))))

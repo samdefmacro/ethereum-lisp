@@ -426,6 +426,33 @@
         (is (null (engine-payload-store-invalid-block
                    store (block-hash child))))))))
 
+(deftest block-import-p2p-invalid-ancestor-is-aliased-to-consensus-head
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    (let* ((invalid
+             (ethereum-lisp.chain-store:engine-payload-store-copy-block child))
+           (head-hash
+             (make-hash32 (make-byte-vector 32 :initial-element #x5a))))
+      ;; Gap fill stops as soon as this deterministic bad ancestor is executed,
+      ;; so its later descendants may never enter the remote-block cache.  The
+      ;; CL-authorized head alias must still make the verdict directly visible
+      ;; to repeated newPayload/forkchoice calls for that head.
+      (setf (block-header-receipts-root (block-header invalid)) (zero-hash32))
+      (multiple-value-bind (status candidate receipts)
+          (import-p2p-block-candidate
+           store invalid config :invalid-head-hash head-hash)
+        (is (string= +payload-status-invalid+
+                     (payload-status-status status)))
+        (is (search "Receipts root mismatch"
+                    (payload-status-validation-error status)))
+        (is (null candidate))
+        (is (null receipts)))
+      (let ((aliased
+              (engine-payload-store-invalid-block store head-hash)))
+        (is aliased)
+        (is (hash32= (block-hash invalid) (block-hash aliased)))))))
+
 (deftest block-import-durability-nonlocal-exit-rolls-back-every-view
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)

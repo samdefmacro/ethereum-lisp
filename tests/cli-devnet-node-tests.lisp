@@ -2630,11 +2630,13 @@ really reopens the directory instead of observing the first handle's memory."
               (incf download-calls)
               14))
       (cons 'ethereum-lisp.cli::devnet-peer-sync-import-block
-            (lambda (seen-node seen-block &key peer-id require-valid-p)
+            (lambda (seen-node seen-block
+                     &key peer-id require-valid-p invalid-head-hash)
               (is (eq node seen-node))
               (is (hash32= (block-hash target) (block-hash seen-block)))
               (is (null peer-id))
               (is require-valid-p)
+              (is (hash32= (block-hash target) invalid-head-hash))
               (incf target-imports)
               (values
                (make-payload-status :status +payload-status-valid+)
@@ -3622,10 +3624,12 @@ really reopens the directory instead of observing the first handle's memory."
          0))
       (cons
        'ethereum-lisp.cli::devnet-peer-sync-import-block
-       (lambda (seen-node block &key peer-id require-valid-p)
+       (lambda (seen-node block
+                &key peer-id require-valid-p invalid-head-hash)
          (is (eq node seen-node))
          (is (null peer-id))
          (is require-valid-p)
+         (is (hash32= (block-hash target) invalid-head-hash))
          (push block retried-targets)))
       (cons
        'ethereum-lisp.cli::devnet-peer-manager-log
@@ -3842,11 +3846,13 @@ really reopens the directory instead of observing the first handle's memory."
             (funcall import-block target)))))
       (cons
        'ethereum-lisp.cli::devnet-peer-sync-import-block
-       (lambda (seen-node block &key peer-id require-valid-p)
+       (lambda (seen-node block
+                &key peer-id require-valid-p invalid-head-hash)
          (is (eq node seen-node))
          (is (eq target block))
          (is (null peer-id))
          (is require-valid-p)
+         (is (hash32= (block-hash target) invalid-head-hash))
          (incf import-calls)
          (ethereum-lisp.validation:storage-fail
           "Injected candidate durability failure")))
