@@ -67,6 +67,11 @@ Commands:
   cold-scale         Run the production-store scale gate in containers
   runtime-build TAG  Build the reviewed non-root Dockerfile.runtime image
   runtime-smoke TAG  Run the reviewed runtime image smoke gate
+  shadow-proxy-format
+                     Format the Engine shadow proxy in a narrow container mount
+  shadow-proxy-test  Build and test the Engine shadow proxy with no network
+  shadow-proxy-build TAG
+                     Build its reviewed non-root runtime image
   hive-adapter-smoke TAG
                      Verify the Hive client wrapper against a reviewed runtime
   logs               Show the dev container's output
@@ -712,6 +717,50 @@ runtime_smoke() {
   "$ROOT/scripts/hive-runtime-smoke.sh" "$image"
 }
 
+shadow_proxy_format() {
+  [ "$#" -eq 0 ] || {
+    echo "ERROR: shadow-proxy-format accepts no arguments" >&2
+    return 2
+  }
+  build_cold_image
+  "$DOCKER" run --rm --init --network none --read-only \
+    --user "$(id -u):$(id -g)" \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --pids-limit 128 \
+    --volume "$ROOT/tools/shadow-proxy:/workspace:rw" \
+    --tmpfs "/tmp:exec,mode=1777" \
+    --workdir /workspace \
+    "$COLD_IMAGE" gofmt -w main.go main_test.go
+}
+
+shadow_proxy_test() {
+  [ "$#" -eq 0 ] || {
+    echo "ERROR: shadow-proxy-test accepts no arguments" >&2
+    return 2
+  }
+  "$DOCKER" build \
+    --network none \
+    --target test \
+    --file "$ROOT/tools/shadow-proxy/Dockerfile" \
+    "$ROOT/tools/shadow-proxy"
+}
+
+shadow_proxy_build() {
+  [ "$#" -le 1 ] || {
+    echo "ERROR: shadow-proxy-build accepts at most one image tag" >&2
+    return 2
+  }
+  local image="${1:-ethereum-lisp-shadow-engine-proxy:local}"
+  validate_runtime_image "$image" || return $?
+  "$DOCKER" build \
+    --network none \
+    --file "$ROOT/tools/shadow-proxy/Dockerfile" \
+    --tag "$image" \
+    --build-arg "REVISION=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    "$ROOT/tools/shadow-proxy"
+}
+
 hive_adapter_smoke() {
   [ "$#" -le 1 ] || {
     echo "ERROR: hive-adapter-smoke accepts at most one runtime image tag" >&2
@@ -757,6 +806,9 @@ case "$cmd" in
   cold-scale) cold_scale "$@" ;;
   runtime-build) runtime_build "$@" ;;
   runtime-smoke) runtime_smoke "$@" ;;
+  shadow-proxy-format) shadow_proxy_format "$@" ;;
+  shadow-proxy-test) shadow_proxy_test "$@" ;;
+  shadow-proxy-build) shadow_proxy_build "$@" ;;
   hive-adapter-smoke) hive_adapter_smoke "$@" ;;
   logs) show_logs "$@" ;;
   shell) open_shell ;;

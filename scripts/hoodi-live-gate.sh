@@ -803,6 +803,10 @@ docker stats --no-stream --format \
 printf 'datadir-bytes='
 du -sb "$datadir" | awk '{print $1}'
 printf 'datadir=%s\n' "$datadir"
+df -B1 "$datadir" | awk '
+    NR == 2 {
+        printf "data-filesystem-bytes=total=%s used=%s available=%s utilization=%s mount=%s\n", $2, $3, $4, $5, $6
+    }'
 
 rpc_port="$(docker port "$container" 8545/tcp | awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
 [ -n "$rpc_port" ] || { echo "public RPC loopback port is unavailable" >&2; exit 1; }

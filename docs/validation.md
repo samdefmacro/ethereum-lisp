@@ -973,11 +973,14 @@ the broker refuses another daemon version or profile checksum. `start` and
 `no-new-privileges`, use that profile, and set both Docker memory and memory-swap
 to exactly 7 GiB around the runtime's 6 GiB SBCL heap. `status` and `restart`
 fail closed unless both limits remain present, so a host-wide Docker default
-cannot silently replace the documented whole-process boundary. This lets
-RocksDB issue concurrent random reads without replacing Docker's syscall
-allowlist with an unconfined container. Before touching an existing execution
-client, the broker starts the exact candidate image under the same memory limit
-in a read-only, networkless, capability-free one-shot and requires its bundled
+cannot silently replace the documented whole-process boundary. `status` also
+reports the datadir filesystem's total, used, available, and utilization bytes
+so a long fresh sync cannot exhaust `/data` between separate operator checks.
+This lets RocksDB issue concurrent random reads without replacing Docker's
+syscall allowlist with an unconfined container. Before touching an existing
+execution client, the broker starts the exact candidate image under the same
+memory limit in a read-only, networkless, capability-free one-shot and requires
+its bundled
 probe to create RocksDB's exact 256-entry ring. Linux 5.15 must report the
 compatibility retry; any kernel, memory-lock, or seccomp failure leaves the
 previous client running.
@@ -1179,6 +1182,37 @@ scripts/hoodi-lisp-benchmark-gate.sh resume
 and `/data` mount before stopping anything. It keeps the source EL stopped,
 restarts the same candidate container, waits for its loopback-only RPC, and
 prints before/after block, syncing, start-time, and datadir-byte evidence.
+
+### Hoodi shadow Engine fan-out
+
+A seven-day EL comparison cannot attach two execution clients directly to one
+Lighthouse endpoint, and this host does not have enough memory for a second
+Lighthouse beside its 7-GiB EL boundary. `tools/shadow-proxy` therefore provides
+a small primary-authoritative Engine API fan-out. It forwards the exact
+authenticated request to ethereum-lisp and returns that primary response
+without waiting for geth, while a fixed worker bound mirrors the immutable body
+and headers to the shadow endpoint. The proxy never combines responses or lets
+the reference client choose Lighthouse's view.
+
+The request and response bodies are bounded at 32 MiB by default, upstream
+redirects are forbidden, only fixed Engine status enums may enter logs, and
+health/metrics expose counters rather than payloads. A full mirror queue drops
+the shadow copy instead of delaying the primary, increments
+`shadow_mirror_dropped_total`, and makes the later soak gate fail. Engine status
+mismatches are likewise counted. Catch-up traffic does not count toward the
+seven days: after geth reaches head, restart the proxy to establish zero
+counters before starting the comparison window.
+
+The proxy has no external Go modules. Its Workbench profile formats nothing,
+builds the digest-pinned test stage with networking disabled, checks `gofmt`,
+and runs the unit controls. Build the final non-root image only through the
+reviewed broker:
+
+```sh
+scripts/dev.sh shadow-proxy-format
+cl-workbench validation run shadow-proxy
+scripts/dev.sh shadow-proxy-build ethereum-lisp-shadow-engine-proxy:local
+```
 
 The reviewed runtime image must also pass
 `cl-workbench validation run runtime-smoke IMAGE`: this delegates to the

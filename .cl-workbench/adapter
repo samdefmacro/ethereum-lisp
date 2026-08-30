@@ -149,6 +149,9 @@ run_validation() {
     runtime-smoke)
       run_validation_gate "$DEV" runtime-smoke "$@"
       ;;
+    shadow-proxy)
+      run_validation_gate "$DEV" shadow-proxy-test "$@"
+      ;;
     *)
       if ! write_validation_result 0; then
         echo "WARNING: validation result counters could not be reported" >&2
