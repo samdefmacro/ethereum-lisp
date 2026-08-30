@@ -3746,6 +3746,53 @@ really reopens the directory instead of observing the first handle's memory."
     (is (= 0 numeric-source-calls))
     (is (= 0 import-calls))))
 
+(deftest devnet-multi-sync-hash-backfills-a-short-unknown-forkchoice-head
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 13)))
+         (gap-fill-calls 0)
+         (forward-target-calls 0))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (list target-hash)))
+      (cons
+       'ethereum-lisp.cli::devnet-node-active-snap-target
+       (lambda (seen-node seen-target)
+         (is (eq node seen-node))
+         (is (hash32= target-hash seen-target))
+         seen-target))
+      (cons
+       'ethereum-lisp.cli::devnet-node-snap-target-required-p
+       (lambda (seen-node seen-target)
+         (is (eq node seen-node))
+         (is (hash32= target-hash seen-target))
+         nil))
+      (cons
+       'ethereum-lisp.cli::devnet-node-fill-sync-gaps-with-live-peer
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (incf gap-fill-calls)
+         10))
+      (cons
+       'ethereum-lisp.cli::devnet-node-consensus-forward-target
+       (lambda (&rest arguments)
+         (declare (ignore arguments))
+         (incf forward-target-calls)
+         (error "Forkchoice hash backfill fell through to forward sync"))))
+     (lambda ()
+       (is (= 10
+              (ethereum-lisp.cli::devnet-node-multi-sync-pass node)))))
+    (is (= 1 gap-fill-calls))
+    (is (= 0 forward-target-calls))))
+
 (deftest devnet-peer-gap-fill-only-swallows-typed-peer-failures
   (:layer :integration :module :p2p)
   (let* ((node

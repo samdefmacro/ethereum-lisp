@@ -2293,22 +2293,27 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
   (let ((forkchoice-target
           (devnet-node-active-snap-target
            node (first (devnet-node-forkchoice-sync-targets node)))))
-    (when (and forkchoice-target
-               (devnet-node-snap-target-required-p node forkchoice-target))
-      (let ((snap-entries
-              (devnet-node-live-sync-entries node :snap-only-p t)))
-        (return-from devnet-node-multi-sync-pass
-          (if snap-entries
-              (progn
-                ;; A matching durable Snap session overrides the stale-pivot
-                ;; timer for this first real post-restart attempt, even when a
-                ;; deploy landed between healer checkpoints. If that source
-                ;; generation still cannot serve it, the next pass regains the
-                ;; ordinary rebase escape hatch.
-                (setf (devnet-node-snap-session-resume-p node) nil)
-                (or (devnet-node-snap-sync-target node forkchoice-target)
-                    (devnet-node-fill-sync-gaps-with-live-peer node)))
-              (devnet-node-fill-sync-gaps-with-live-peer node))))))
+    (when forkchoice-target
+      (return-from devnet-node-multi-sync-pass
+        (if (devnet-node-snap-target-required-p node forkchoice-target)
+            (let ((snap-entries
+                    (devnet-node-live-sync-entries node :snap-only-p t)))
+              (if snap-entries
+                  (progn
+                    ;; A matching durable Snap session overrides the stale-pivot
+                    ;; timer for this first real post-restart attempt, even when a
+                    ;; deploy landed between healer checkpoints. If that source
+                    ;; generation still cannot serve it, the next pass regains the
+                    ;; ordinary rebase escape hatch.
+                    (setf (devnet-node-snap-session-resume-p node) nil)
+                    (or (devnet-node-snap-sync-target node forkchoice-target)
+                        (devnet-node-fill-sync-gaps-with-live-peer node)))
+                  (devnet-node-fill-sync-gaps-with-live-peer node)))
+            ;; A short unknown FCU head may be at or below the current
+            ;; canonical height during a reorg, so it cannot appear in the
+            ;; height-only forward-target list below.  Its hash remains the CL
+            ;; authority: backfill from that hash to a known common ancestor.
+            (devnet-node-fill-sync-gaps-with-live-peer node)))))
   (multiple-value-bind
       (head-number head-hash target-number target-hash
        target-parent-hash target-block)
