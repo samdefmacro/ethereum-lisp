@@ -396,7 +396,8 @@
           (is (equal (mapcar #'bytes-to-hex
                              (state-proof-result-account-proof expected-proof))
                      (field proof "accountProof")))
-          (is (null (field proof "storageProof")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field proof "storageProof")))
           (is (state-db-verify-proof
                (block-header-state-root (block-header child-block))
                decoded-proof))
@@ -412,7 +413,8 @@
                              (state-proof-result-account-proof
                               expected-sender-proof))
                      (field latest-sender-proof "accountProof")))
-          (is (null (field latest-sender-proof "storageProof")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field latest-sender-proof "storageProof")))
           (is (state-db-verify-proof
                (block-header-state-root (block-header child-block))
                latest-sender-decoded-proof))
@@ -428,7 +430,8 @@
                              (state-proof-result-account-proof
                               parent-sender-proof))
                      (field safe-sender-proof "accountProof")))
-          (is (null (field safe-sender-proof "storageProof")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field safe-sender-proof "storageProof")))
           (is (state-db-verify-proof
                (block-header-state-root (block-header parent-block))
                safe-sender-decoded-proof))
@@ -440,7 +443,8 @@
                        (field finalized-sender-proof "nonce")))
           (is (equal (field safe-sender-proof "accountProof")
                      (field finalized-sender-proof "accountProof")))
-          (is (null (field finalized-sender-proof "storageProof")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field finalized-sender-proof "storageProof")))
           (is (state-db-verify-proof
                (block-header-state-root (block-header parent-block))
                finalized-sender-decoded-proof))
