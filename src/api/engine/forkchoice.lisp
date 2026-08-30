@@ -113,6 +113,32 @@ mutated working state into the next probe."
 Each candidate is probed on top of the already accepted transactions.  A
 sender whose next nonce is invalid or cannot fit the remaining gas is skipped
 for the rest of this payload; other senders are still considered."
+  ;; The overwhelmingly common case is that the txpool has already produced a
+  ;; nonce-ordered, fee-eligible set which fits the block.  Execute that set
+  ;; once before entering the rejection path.  The old prefix loop rebuilt
+  ;; prefixes of length 1..N from the parent state, making a healthy payload
+  ;; O(N^2) transaction executions and repeatedly reopening the parent trie.
+  ;; Geth keeps one payload environment and reaches the same all-valid result
+  ;; in one pass.  Preserve the exact filtering semantics below whenever the
+  ;; aggregate candidate is invalid or exceeds Osaka's encoded-size cap.
+  (when transactions
+    (handler-case
+        (let* ((candidate
+                 (engine-rpc-build-prepared-payload
+                  store parent-block payload-attributes config transactions
+                  :gas-limit-target gas-limit-target))
+               (header (block-header candidate)))
+          (unless (and
+                   (chain-config-osaka-p
+                    config
+                    (block-header-number header)
+                    (block-header-timestamp header))
+                   (> (length (block-rlp candidate))
+                      +max-rlp-block-size-eip7934+))
+            (return-from engine-rpc-build-viable-prepared-payload
+              (values candidate (copy-list transactions)))))
+      (transaction-validation-error ())
+      (block-validation-error ())))
   (let ((block
           (engine-rpc-build-prepared-payload
            store parent-block payload-attributes config nil

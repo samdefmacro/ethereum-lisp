@@ -605,17 +605,83 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
             77 (list (make-blob-network-transaction transaction fragment)))))
     ;; Geth's eth/72 network encoder sends exactly this shape: commitments and
     ;; 128 cell proofs remain, while the blob list is empty and GetCells carries
-    ;; the payload later. It is valid framing, but not yet a poolable sidecar.
+    ;; the payload later. The handler validates and queues it without admitting
+    ;; an incomplete sidecar.
     (is (ethereum-lisp.eth-sync:eth-peer-gossip-message
          peer ethereum-lisp.eth-wire:+eth-message-pooled-transactions+ payload))
     (is (zerop accepted))
     (is (zerop stored))
+    (is (= 1
+           (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
+            peer)))
     ;; The same payload is not valid before eth/72's GetCells semantics.
     (setf (ethereum-lisp.eth-sync:eth-peer-eth-version peer)
           ethereum-lisp.eth-wire:+eth-protocol-version-71+)
     (signals block-validation-error
       (ethereum-lisp.eth-sync:eth-peer-gossip-message
        peer ethereum-lisp.eth-wire:+eth-message-pooled-transactions+ payload))))
+
+(deftest eth-72-get-cells-assembles-verifies-and-admits-pooled-blob
+  (:layer :unit :module :p2p)
+  (let* ((blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proofs
+           (loop repeat +cell-proofs-per-blob+
+                 collect (make-byte-vector +kzg-proof-size+)))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003001")
+            :blob-versioned-hashes
+            (list (kzg-commitment-to-versioned-hash commitment))))
+         (fragment
+           (make-blob-sidecar :blobs '()
+                              :commitments (list commitment)
+                              :proofs proofs))
+         (data-cells
+           (loop for start below +blob-byte-size+ by +bytes-per-cell+
+                 collect (subseq blob start (+ start +bytes-per-cell+))))
+         (extension-cells
+           (loop repeat (/ +cell-proofs-per-blob+ 2)
+                 collect (make-byte-vector +bytes-per-cell+ :initial-element 7)))
+         (accepted nil)
+         (stored nil)
+         (backend
+           (make-eth-serve-backend
+            :accept-transaction (lambda (value) (setf accepted value))
+            :accept-blob-sidecar (lambda (value) (setf stored value))))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend)))
+    (is (ethereum-lisp.eth-sync::eth-peer-queue-omitted-blob-transaction
+         peer transaction fragment))
+    (let ((*kzg-cell-proof-verifier*
+            (lambda (actual-blob actual-commitment actual-proofs)
+              (and (bytes= blob actual-blob)
+                   (bytes= commitment actual-commitment)
+                   (= +cell-proofs-per-blob+ (length actual-proofs))))))
+      (eth-gossip-test-call-with-function-overrides
+       (list
+        (cons 'ethereum-lisp.eth-sync:eth-peer-get-cells
+              (lambda (actual-peer hashes mask &key request-id)
+                (declare (ignore actual-peer request-id))
+                (is (= 1 (length hashes)))
+                (is (every (lambda (byte) (= byte #xff)) mask))
+                (values hashes
+                        (list (append data-cells extension-cells))
+                        mask))))
+       (lambda ()
+         (is (= 1
+                (ethereum-lisp.eth-sync::eth-peer-fetch-omitted-blob-transaction
+                 peer))))))
+    (is (eq transaction accepted))
+    (is (typep stored 'blob-sidecar))
+    (is (bytes= blob (first (blob-sidecar-blobs stored))))
+    (is (zerop
+         (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
+          peer)))))
 
 (deftest eth-gossip-serves-only-the-pooled-transactions-it-has
   (:layer :unit :module :p2p)

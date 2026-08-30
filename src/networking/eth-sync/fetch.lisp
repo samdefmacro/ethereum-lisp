@@ -134,6 +134,62 @@ semantics."
                (values id (list response-hashes groups response-mask)))))))
     (values (first result) (second result) (third result))))
 
+(defun eth-full-custody-mask ()
+  "The eth/72 custody mask requesting every cell index for each blob."
+  (make-byte-vector 16 :initial-element #xff))
+
+(defun eth-assemble-blob-sidecar-from-cells (transaction fragment cells)
+  "Assemble a full eth/72 sidecar from one flat full-custody cell group.
+
+EIP-7594/c-kzg orders the original 4096 field elements as the first 64 of
+each blob's 128 extended cells.  FRAGMENT supplies the commitments and all 128
+cell proofs per blob; ordinary sidecar validation authenticates the assembled
+blobs before admission."
+  (let* ((blob-count
+           (ethereum-lisp.consensus:transaction-blob-count transaction))
+         (expected-cells (* blob-count +cell-proofs-per-blob+))
+         (data-cells (/ +cell-proofs-per-blob+ 2)))
+    (unless (= expected-cells (length cells))
+      (ethereum-lisp.validation:block-validation-fail
+       "eth/72 full-custody response has ~D cells, expected ~D"
+       (length cells) expected-cells))
+    (make-blob-sidecar
+     :blobs
+     (loop for blob-index below blob-count
+           for start = (* blob-index +cell-proofs-per-blob+)
+           collect (apply #'concat-bytes
+                          (subseq cells start (+ start data-cells))))
+     :commitments (blob-sidecar-commitments fragment)
+     :proofs (blob-sidecar-proofs fragment))))
+
+(defun eth-peer-fetch-omitted-blob-transaction (peer)
+  "Fetch, verify, and admit the oldest eth/72 omitted-payload transaction.
+
+This synchronous request is a top-level pump action.  It must never be called
+from a message handler because ETH-PEER-AWAIT dispatches unrelated messages
+while waiting and a nested wait could consume the outer request's reply."
+  (let ((entry (eth-peer-take-omitted-blob-transaction peer))
+        (backend (eth-peer-serve-backend peer)))
+    (if (or (null entry) (null backend))
+        0
+        (let* ((transaction (car entry))
+               (fragment (cdr entry))
+               (hash (hash32-bytes (transaction-hash transaction)))
+               (mask (eth-full-custody-mask)))
+          (multiple-value-bind (response-hashes groups response-mask)
+              (eth-peer-get-cells peer (list hash) mask)
+            (declare (ignore response-mask))
+            (let ((position (position hash response-hashes :test #'bytes=)))
+              (if (null position)
+                  0
+                  (eth-accept-transactions
+                   backend
+                   (list
+                    (make-blob-network-transaction
+                     transaction
+                     (eth-assemble-blob-sidecar-from-cells
+                      transaction fragment (nth position groups))))))))))))
+
 (defun eth-peer-fetch-announced-block (peer)
   "Fetch and submit the oldest NewBlockHashes announcement from PEER.
 
@@ -175,4 +231,10 @@ announcements are queued as they arrive and drained only from here."
           (eth-accept-transactions
            backend
            (eth-peer-await peer +eth-message-pooled-transactions+ request-id
-                           #'decode-eth-pooled-transactions))))))
+                           #'decode-eth-pooled-transactions)
+           :allow-omitted-blob-payload-p
+           (>= (eth-peer-eth-version peer) +eth-protocol-version-72+)
+           :omitted-blob-function
+           (lambda (transaction sidecar)
+             (eth-peer-queue-omitted-blob-transaction
+              peer transaction sidecar)))))))

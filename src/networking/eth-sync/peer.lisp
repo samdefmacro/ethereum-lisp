@@ -37,6 +37,10 @@
   ;; Block hashes announced for top-level draining by the session pump. Kept as
   ;; a FIFO list because ordering by the peer's announcement is useful.
   announced-block-hashes
+  ;; Valid eth/72 pooled blob wrappers whose blob payload is intentionally
+  ;; omitted.  The message handler only queues these fragments; the top-level
+  ;; session pump fetches their cells so synchronous waits never nest.
+  pending-blob-cell-fetches
   (request-counter 0))
 
 (defun eth-peer-set-sync-notification-function (peer function)

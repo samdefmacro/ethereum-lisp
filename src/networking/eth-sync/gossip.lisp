@@ -30,6 +30,9 @@ grow without bound.")
 (defconstant +eth-max-announced-block-hashes+ 256
   "How many block hashes one peer may queue before the excess is dropped.")
 
+(defconstant +eth-max-pending-blob-cell-fetches+ 256
+  "How many validated eth/72 blob fragments one peer may queue for GetCells.")
+
 (defconstant +eth-full-transaction-broadcast-size+ 4096
   "Largest transaction pushed in full; larger transactions are hash-announced.")
 
@@ -184,15 +187,17 @@ does not turn the fragment into a full blob sidecar."
     t))
 
 (defun eth-accept-transactions
-    (backend transactions &key allow-omitted-blob-payload-p)
+    (backend transactions
+     &key allow-omitted-blob-payload-p omitted-blob-function)
   "Offer TRANSACTIONS to the backend's pool, and return how many it took.
 
 A transaction the pool turns down — badly signed, underpriced, a nonce too far
 ahead — is skipped rather than raised as a session error. Peers relay freely and
 do not pre-filter for us, so one unusable transaction in a batch must not cost
 us the connection.  A valid eth/72 pooled wrapper that intentionally omits blob
-payloads is commitment-checked but left out of the pool until a cell fetcher can
-assemble and verify its full data."
+payloads is commitment-checked and passed to OMITTED-BLOB-FUNCTION, when given;
+it remains out of the pool until the cell fetcher assembles and verifies its
+full data."
   (let ((accept (eth-serve-backend-accept-transaction backend))
         (accept-sidecar
           (eth-serve-backend-accept-blob-sidecar backend))
@@ -215,12 +220,10 @@ assemble and verify its full data."
                      (typep transaction 'blob-transaction)
                      (null (blob-sidecar-blobs sidecar))
                      (plusp (length (blob-sidecar-commitments sidecar))))
-                ;; This is not a complete sidecar and must not enter either the
-                ;; sidecar cache or txpool.  Keeping the fragment out is the
-                ;; honest capability boundary until GetCells client scheduling
-                ;; is present.
                 (progn
                   (eth-validate-omitted-blob-payload sidecar transaction)
+                  (when omitted-blob-function
+                    (funcall omitted-blob-function transaction sidecar))
                   (setf sidecar nil))
                 (progn
                   (validate-blob-sidecar-fields
@@ -233,6 +236,31 @@ assemble and verify its full data."
                      (ignore-errors (funcall accept transaction) t))
             (incf accepted)))))
     accepted))
+
+(defun eth-peer-pending-blob-cell-fetch-count (peer)
+  "How many validated eth/72 pooled wrappers await GetCells from PEER."
+  (length (eth-peer-pending-blob-cell-fetches peer)))
+
+(defun eth-peer-queue-omitted-blob-transaction (peer transaction sidecar)
+  "Queue one validated eth/72 TRANSACTION/SIDECAR fragment for top-level fetch."
+  (let* ((hash (hash32-bytes (transaction-hash transaction)))
+         (queued (eth-peer-pending-blob-cell-fetches peer)))
+    (when (and (< (length queued) +eth-max-pending-blob-cell-fetches+)
+               (not (find hash queued
+                          :key (lambda (entry)
+                                 (hash32-bytes
+                                  (transaction-hash (car entry))))
+                          :test #'bytes=)))
+      (setf (eth-peer-pending-blob-cell-fetches peer)
+            (append queued (list (cons transaction sidecar))))
+      t)))
+
+(defun eth-peer-take-omitted-blob-transaction (peer)
+  "Remove and return the oldest eth/72 pooled wrapper awaiting GetCells."
+  (let ((queued (eth-peer-pending-blob-cell-fetches peer)))
+    (when queued
+      (setf (eth-peer-pending-blob-cell-fetches peer) (rest queued))
+      (first queued))))
 
 (defun eth-peer-announced-hash-table (peer)
   (or (eth-peer-announced-hashes peer)
@@ -472,6 +500,10 @@ the predicate retains the protocol library's historical accepting behavior."
              (eth-accept-transactions
               backend transactions
               :allow-omitted-blob-payload-p
-              (>= (eth-peer-eth-version peer) +eth-protocol-version-72+))))
+              (>= (eth-peer-eth-version peer) +eth-protocol-version-72+)
+              :omitted-blob-function
+              (lambda (transaction sidecar)
+                (eth-peer-queue-omitted-blob-transaction
+                 peer transaction sidecar)))))
          t)
            (t nil)))))))

@@ -94,8 +94,11 @@
 
 (defun block-withdrawals-from-rlp-object (value)
   (let ((withdrawals (rlp-list-field value "Block withdrawals")))
-    (when (> (length withdrawals) 16)
-      (block-validation-fail "Block contains more than 16 withdrawals"))
+    ;; MAX_WITHDRAWALS_PER_PAYLOAD is a consensus-layer production limit, not
+    ;; an execution block RLP limit.  Engine conformance deliberately exercises
+    ;; larger lists; retain the generic decoded-item DoS boundary here.
+    (when (> (length withdrawals) +block-max-rlp-list-items+)
+      (block-validation-fail "Block contains too many withdrawals"))
     (mapcar #'withdrawal-from-rlp-object withdrawals)))
 
 (defun block-from-rlp (bytes)

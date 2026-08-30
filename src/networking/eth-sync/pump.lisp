@@ -183,7 +183,9 @@ how a caller observes the session without this file knowing what telemetry is."
                       :request-p (and request t)
                       :drainable-p
                       (or (plusp (eth-peer-announced-block-count peer))
-                          (plusp (eth-peer-announced-hash-count peer)))
+                          (plusp (eth-peer-announced-hash-count peer))
+                          (plusp
+                           (eth-peer-pending-blob-cell-fetch-count peer)))
                       :chain-update-p (and chain-update t)
                       :broadcast-p (and broadcast t))))
         (when on-event (funcall on-event action))
@@ -210,6 +212,7 @@ how a caller observes the session without this file knowing what telemetry is."
            (setf (eth-pump-state-last-ping-at state) now))
           (:drain
            (eth-peer-fetch-announced-block peer)
+           (eth-peer-fetch-omitted-blob-transaction peer)
            (eth-peer-request-announced-transactions peer)
            (setf (eth-pump-state-last-drain-at state) now))
           (:chain-update (funcall chain-update))

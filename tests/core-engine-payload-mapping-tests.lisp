@@ -263,6 +263,39 @@
     (is (= 0 (length (block-ommers block))))
     (is (bytes= encoded (block-rlp block)))))
 
+(deftest block-from-rlp-preserves-engine-withdrawals-beyond-cl-production-limit
+  ;; The CL is responsible for the consensus MAX_WITHDRAWALS_PER_PAYLOAD
+  ;; production limit.  Engine payload attributes and execution block storage
+  ;; remain capable of carrying a larger list (the pinned Hive suite uses 80).
+  (let* ((withdrawals
+           (loop for index below 80
+                 collect
+                 (make-withdrawal
+                  :index index
+                  :validator-index index
+                  :address
+                  (address-from-hex
+                   "0x0000000000000000000000000000000000000001")
+                  :amount (1+ index))))
+         (block
+           (make-block
+            :header
+            (make-block-header
+             :base-fee-per-gas 1
+             :withdrawals-root (withdrawal-list-root withdrawals))
+            :withdrawals withdrawals))
+         (decoded (block-from-rlp (block-rlp block))))
+    (is (= 80 (length (block-withdrawals decoded))))
+    (loop for expected in withdrawals
+          for actual in (block-withdrawals decoded)
+          do (is (= (withdrawal-index expected) (withdrawal-index actual)))
+             (is (= (withdrawal-validator-index expected)
+                    (withdrawal-validator-index actual)))
+             (is (bytes= (address-bytes (withdrawal-address expected))
+                         (address-bytes (withdrawal-address actual))))
+             (is (= (withdrawal-amount expected)
+                    (withdrawal-amount actual))))))
+
 (deftest canonical-block-rlp-excludes-execution-sidecars
   (let* ((legacy-block (make-block))
          (legacy-rlp (block-rlp legacy-block))
