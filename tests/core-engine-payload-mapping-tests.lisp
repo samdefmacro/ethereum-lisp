@@ -307,3 +307,28 @@
         (apply #'make-rlp-list
                (append canonical-fields
                        (list (make-rlp-list) (make-rlp-list)))))))))
+
+(deftest public-block-rlp-wraps-typed-transactions
+  (let* ((recipient
+           (address-from-hex
+            "0x0000000000000000000000000000000000000002"))
+         (transaction
+           (make-dynamic-fee-transaction
+            :chain-id 1
+            :nonce 2
+            :max-priority-fee-per-gas 3
+            :max-fee-per-gas 4
+            :gas-limit 21000
+            :to recipient
+            :value 5
+            :data #(6)
+            :access-list '()
+            :y-parity 1
+            :r 7
+            :s 8))
+         (block (make-block :transactions (list transaction))))
+    ;; The public helper used to concatenate type || payload as though it were
+    ;; already a list item.  The canonical encoder wraps that typed envelope in
+    ;; an RLP string, which is also what geth reports in the block's `size`.
+    (is (bytes= (block-rlp block)
+                (ethereum-lisp.public-api::eth-rpc-block-rlp block)))))
