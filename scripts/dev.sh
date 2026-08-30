@@ -806,7 +806,7 @@ shadow_proxy_smoke() {
     "$DOCKER" network rm "$network" >/dev/null 2>&1 || true
   }
   trap cleanup_shadow_proxy_smoke EXIT HUP INT TERM
-  "$DOCKER" network create --internal \
+  "$DOCKER" network create \
     --label "$PROJECT_LABEL=ethereum-lisp" \
     --label "$CHECKOUT_LABEL=$CHECKOUT_ID" \
     "$network" >/dev/null
