@@ -19,30 +19,33 @@
                                 :value 4 :y-parity 1 :r 6 :s 7))
 
 (defun eth-gossip-test-blob-transaction (nonce)
-  (make-blob-transaction
-   :chain-id 1 :nonce nonce :max-fee-per-gas 10 :max-priority-fee-per-gas 1
-   :gas-limit 21000 :max-fee-per-blob-gas 1
-   ;; A blob transaction must have a recipient; it cannot create a contract.
-   :to (address-from-hex "0x0000000000000000000000000000000000003001")
-   :blob-versioned-hashes
-   (list (hex-to-bytes
-          "0x0100000000000000000000000000000000000000000000000000000000000001"))
-   :y-parity 0 :r 8 :s 9))
+  (let ((commitment
+          (make-byte-vector +kzg-commitment-size+ :initial-element 2)))
+    (make-blob-transaction
+     :chain-id 1 :nonce nonce :max-fee-per-gas 10 :max-priority-fee-per-gas 1
+     :gas-limit 21000 :max-fee-per-blob-gas 1
+     ;; A blob transaction must have a recipient; it cannot create a contract.
+     :to (address-from-hex "0x0000000000000000000000000000000000003001")
+     :blob-versioned-hashes
+     (list (kzg-commitment-to-versioned-hash commitment))
+     :y-parity 0 :r 8 :s 9)))
 
 (defun eth-gossip-transaction-hash-bytes (transaction)
   (hash32-bytes (transaction-hash transaction)))
 
 (defun eth-gossip-test-blob-sidecar ()
   (make-blob-sidecar
-   :blobs (list (make-byte-vector 3 :initial-element 1))
-   :commitments (list (make-byte-vector 48 :initial-element 2))
-   :proofs (list (make-byte-vector 48 :initial-element 3))))
+   :blobs (list (make-byte-vector +blob-byte-size+ :initial-element 1))
+   :commitments
+   (list (make-byte-vector +kzg-commitment-size+ :initial-element 2))
+   :proofs (list (make-byte-vector +kzg-proof-size+ :initial-element 3))))
 
 (defun eth-gossip-test-backend (&key (transactions '()) reject-p)
-  "A backend over a hash-table pool. Returns (VALUES BACKEND POOL); REJECT-P, if
-given, is a predicate marking transactions the pool turns down."
+  "A backend over hash-table pools. Returns (VALUES BACKEND POOL SIDECARS);
+REJECT-P, if given, is a predicate marking transactions the pool turns down."
   (let ((pool (make-hash-table :test #'equalp))
-        (sidecars (make-hash-table :test #'equalp)))
+        (sidecars (make-hash-table :test #'equalp))
+        (pending-sidecar nil))
     (dolist (transaction transactions)
       (setf (gethash (eth-gossip-transaction-hash-bytes transaction) pool)
             transaction)
@@ -63,11 +66,15 @@ given, is a predicate marking transactions the pool turns down."
           (error "test pool rejected the transaction"))
         (setf (gethash (eth-gossip-transaction-hash-bytes transaction) pool)
               transaction)
-        (when sidecar
+        (when (or sidecar pending-sidecar)
           (setf (gethash (eth-gossip-transaction-hash-bytes transaction)
                          sidecars)
-                sidecar))))
-     pool)))
+                (or sidecar pending-sidecar)
+                pending-sidecar nil)))
+      :accept-blob-sidecar
+      (lambda (sidecar) (setf pending-sidecar sidecar)))
+     pool
+     sidecars)))
 
 (defun eth-gossip-test-peer (backend)
   "A peer with no connection, for exercising the parts that only touch state."
@@ -716,7 +723,8 @@ given, is a predicate marking transactions the pool turns down."
     (multiple-value-bind (server-backend server-pool)
         (eth-gossip-test-backend :transactions (list offered blob))
       (declare (ignore server-pool))
-      (multiple-value-bind (client-backend client-pool) (eth-gossip-test-backend)
+      (multiple-value-bind (client-backend client-pool client-sidecars)
+          (eth-gossip-test-backend)
         (flet ((hello (client-id)
                  (make-devp2p-hello
                   :client-id client-id
@@ -749,8 +757,8 @@ given, is a predicate marking transactions the pool turns down."
                                                   connection (hello "srv")
                                                   (status)
                                                   :serve-backend server-backend)))
-                                      ;; Announce both; only the plain one is
-                                      ;; advertised, so only it can be asked for.
+                                      ;; The plain transaction and the blob
+                                      ;; wrapper are both available to eth/68.
                                       (setf announced
                                             (eth-peer-announce-transactions
                                              peer (list offered blob)))
@@ -774,22 +782,44 @@ given, is a predicate marking transactions the pool turns down."
                                        :serve-backend client-backend)))
                            ;; Read the announcement, which only queues hashes.
                            (eth-peer-serve-loop peer :max-messages 1)
-                           (is (= 1 (eth-peer-announced-hash-count peer)))
+                           (is (= 2 (eth-peer-announced-hash-count peer)))
                            (is (zerop (hash-table-count client-pool)))
-                           ;; Then ask for what was announced and pool it.
-                           (is (= 1 (eth-peer-fetch-announced-transactions peer)))
+                           ;; Then ask for both, validate the V1 blob proof, and
+                           ;; pool each transaction with the blob sidecar kept.
+                           (let ((*kzg-blob-proof-verifier*
+                                   (lambda (actual-blob actual-commitment
+                                            actual-proof)
+                                     (and
+                                      (= +blob-byte-size+
+                                         (length actual-blob))
+                                      (= +kzg-commitment-size+
+                                         (length actual-commitment))
+                                      (= +kzg-proof-size+
+                                         (length actual-proof))))))
+                             (is (= 2
+                                    (eth-peer-fetch-announced-transactions
+                                     peer))))
                            (is (= 0 (eth-peer-announced-hash-count peer)))
-                           (is (= 1 (hash-table-count client-pool)))
+                           (is (= 2 (hash-table-count client-pool)))
                            (let ((received (gethash
                                             (eth-gossip-transaction-hash-bytes
                                              offered)
                                             client-pool)))
                              (is (not (null received)))
                              (is (bytes= (transaction-encoding offered)
-                                         (transaction-encoding received))))))
+                                         (transaction-encoding received))))
+                           (is (typep
+                                (gethash
+                                 (eth-gossip-transaction-hash-bytes blob)
+                                 client-pool)
+                                'blob-transaction))
+                           (is (typep
+                                (gethash
+                                 (eth-gossip-transaction-hash-bytes blob)
+                                 client-sidecars)
+                                'blob-sidecar)))
                        (sb-thread:join-thread server-thread)
                        (when server-error
                          (error "eth gossip server side failed: ~A" server-error))
-                       ;; The blob transaction was never advertised.
-                       (is (= 1 announced))))))
-            (ignore-errors (sb-bsd-sockets:socket-close listener))))))))
+                       (is (= 2 announced))))))
+            (ignore-errors (sb-bsd-sockets:socket-close listener)))))))))
