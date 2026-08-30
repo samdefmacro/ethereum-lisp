@@ -73,7 +73,10 @@
                   (put-execution-account-values
                    state
                    contract
-                   1
+                   (if (or (null effective-chain-rules)
+                           (chain-rules-eip158-p effective-chain-rules))
+                       1
+                       0)
                    (state-account-balance contract-account)
                    (state-account-code-hash contract-account)))
                 (let* ((context

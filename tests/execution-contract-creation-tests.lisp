@@ -33,6 +33,41 @@
       (is (= 7 (state-account-balance (state-db-get-account state contract))))
       (is (bytes= #(0) (state-db-get-code state contract))))))
 
+(deftest contract-creation-initial-nonce-follows-eip158
+  (let* ((sender
+           (address-from-hex
+            "0x0000000000000000000000000000000000000001"))
+         (contract
+           (make-address
+            (subseq
+             (keccak-256
+              (rlp-encode
+               (make-rlp-list (address-bytes sender) 0)))
+             12 32)))
+         (initcode #(96 0 96 0 83 96 1 96 0 243)))
+    (labels ((created-nonce (eip158-p)
+               (let ((state (make-state-db))
+                     (tx (make-legacy-transaction
+                          :nonce 0
+                          :gas-price 1
+                          :gas-limit 80000
+                          :to nil
+                          :data initcode)))
+                 (state-db-set-account
+                  state sender (make-state-account :balance 100000))
+                 (let ((receipt
+                         (apply-message
+                          state sender tx
+                          :chain-rules
+                          (make-chain-rules :chain-id 1
+                                            :homestead-p t
+                                            :eip158-p eip158-p))))
+                   (is (= 1 (receipt-status receipt))))
+                 (state-account-nonce
+                  (state-db-get-account state contract)))))
+      (is (= 0 (created-nonce nil)))
+      (is (= 1 (created-nonce t))))))
+
 (deftest legacy-message-contract-creation-rejects-storage-not-balance-collisions
   ;; EIP-7610 / EIP-684: only a nonzero nonce, non-empty code, or non-empty
   ;; storage at the target is a collision. A pre-funded (balance-only) target
@@ -414,4 +449,3 @@
              (legacy-transaction-gas-limit tx)))
       (is (= 0 (length (receipt-logs receipt))))
       (is (not (state-db-get-account state contract))))))
-
