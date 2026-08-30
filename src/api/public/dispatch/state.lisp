@@ -23,6 +23,10 @@
        (public-rpc-dispatch-response
         context
         (engine-rpc-handle-eth-get-storage-at params store)))
+      ((public-rpc-dispatch-method-p context "eth_getStorageValues")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-eth-get-storage-values params store)))
       ((public-rpc-dispatch-method-p context "eth_getProof")
        (public-rpc-dispatch-response
         context

@@ -89,7 +89,8 @@
                   'string
                   "{\"jsonrpc\":\"2.0\",\"id\":79,"
                   "\"method\":\"eth_getBalance\","
-                  "\"params\":[\"" (address-to-hex address) "\"]}")
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"latest\",\"extra\"]}")
                  store
                  config)))
              (missing-state-error (field missing-state-response "error"))
@@ -231,7 +232,8 @@
                   'string
                   "{\"jsonrpc\":\"2.0\",\"id\":85,"
                   "\"method\":\"eth_getTransactionCount\","
-                  "\"params\":[\"" (address-to-hex address) "\"]}")
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"latest\",\"extra\"]}")
                  store
                  config)))
              (missing-state-error (field missing-state-response "error"))
@@ -332,7 +334,8 @@
                   'string
                   "{\"jsonrpc\":\"2.0\",\"id\":91,"
                   "\"method\":\"eth_getCode\","
-                  "\"params\":[\"" (address-to-hex address) "\"]}")
+                  "\"params\":[\"" (address-to-hex address)
+                  "\",\"latest\",\"extra\"]}")
                  store
                  config)))
              (missing-state-error (field missing-state-response "error"))
@@ -442,7 +445,7 @@
                   "{\"jsonrpc\":\"2.0\",\"id\":97,"
                   "\"method\":\"eth_getStorageAt\","
                   "\"params\":[\"" (address-to-hex address)
-                  "\",\"0x7\"]}")
+                  "\",\"0x7\",\"latest\",\"extra\"]}")
                  store
                  config)))
              (missing-state-error (field missing-state-response "error"))
@@ -460,3 +463,72 @@
                      (field missing-state-error "message")))
         (is (= -32602 (field invalid-slot-error "code")))
         (is (= -32602 (field invalid-params-error "code")))))))
+
+(deftest eth-rpc-get-storage-values
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (address
+             (address-from-hex
+              "0x0000000000000000000000000000000000000201"))
+           (unknown-address
+             (address-from-hex
+              "0x0000000000000000000000000000000000000202"))
+           (slot-seven
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000007"))
+           (slot-eight
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000008"))
+           (block
+             (make-block
+              :header (make-block-header :number 28
+                                         :timestamp 280
+                                         :gas-limit 30000000)))
+           (config (make-chain-config))
+           (address-hex (address-to-hex address))
+           (unknown-address-hex (address-to-hex unknown-address))
+           (slot-seven-hex (hash32-to-hex slot-seven))
+           (slot-eight-hex (hash32-to-hex slot-eight))
+           (expected-word
+             "0x000000000000000000000000000000000000000000000000000000000000002a")
+           (zero-word
+             "0x0000000000000000000000000000000000000000000000000000000000000000"))
+      (engine-payload-store-put-block store block)
+      (engine-payload-store-put-account-storage
+       store (block-hash block) address slot-seven #x2a)
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":98,"
+                  "\"method\":\"eth_getStorageValues\",\"params\":[{\""
+                  address-hex "\":[\"" slot-seven-hex "\",\""
+                  slot-eight-hex "\"],\"" unknown-address-hex "\":[\""
+                  slot-seven-hex "\"]}]}")
+                 store config)))
+             (result (field response "result"))
+             (known-values (field result address-hex))
+             (unknown-values (field result unknown-address-hex))
+             (empty-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"eth_getStorageValues\",\"params\":[{}]}"
+                 store config)))
+             (invalid-response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":100,"
+                  "\"method\":\"eth_getStorageValues\",\"params\":[{\""
+                  address-hex "\":[\"0x7\"]}]}")
+                 store config))))
+        (is (= 2 (length known-values)))
+        (is (string= expected-word (elt known-values 0)))
+        (is (string= zero-word (elt known-values 1)))
+        (is (= 1 (length unknown-values)))
+        (is (string= zero-word (elt unknown-values 0)))
+        (is (= -32602 (field (field empty-response "error") "code")))
+        (is (= -32602 (field (field invalid-response "error") "code")))))))

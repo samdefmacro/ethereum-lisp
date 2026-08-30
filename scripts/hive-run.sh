@@ -35,6 +35,7 @@ set -euo pipefail
 # tools/hive/mapper.jq against clients/go-ethereum/mapper.jq at the new commit.
 HIVE_COMMIT="dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c"
 HIVE_REPO="https://github.com/ethereum/hive"
+EXECUTION_APIS_COMMIT="e5d1bb60e6c064e4b15080da07b4370d0baadf92"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workdir="${HIVE_WORKDIR:-$repo_root/.dev-runtime/hive-gate}"
@@ -139,6 +140,14 @@ if find "$results_dir" -mindepth 1 -print -quit | grep -q .; then
 fi
 
 hive_args=(--client-file "$client_file" --sim "$sim" --results-root "$results_dir")
+case "$sim" in
+    ethereum/rpc-compat|rpc-compat)
+        # The pinned Hive Dockerfile defaults to execution-apis/main.  Pass the
+        # reviewed commit explicitly so rpc-compat is reproducible over time.
+        hive_args+=(--sim.buildarg "branch=$EXECUTION_APIS_COMMIT")
+        log "pinning execution-apis $EXECUTION_APIS_COMMIT"
+        ;;
+esac
 if [ -n "$sim_limit" ]; then
     hive_args+=(--sim.limit "$sim_limit")
 fi
@@ -220,4 +229,9 @@ fi
 
 printf 'hive %s :: %s :: %s/%s passed\n' \
     "$HIVE_COMMIT" "$sim" "$passed_test_count" "$executed_test_count"
+case "$sim" in
+    ethereum/rpc-compat|rpc-compat)
+        printf 'execution-apis %s\n' "$EXECUTION_APIS_COMMIT"
+        ;;
+esac
 exit "$hive_status"

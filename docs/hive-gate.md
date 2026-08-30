@@ -29,9 +29,12 @@ host-side deployment metadata and is not embedded in the portable Hive image.
 
 `scripts/hive-run.sh` re-checks the Hive commit after fetching and refuses to
 run if the tree is anything else, so a result can always name the commit it came
-from. It also requires a fresh result directory, rejects missing or zero-test
-result manifests, and checks the pinned full-suite inventories (403 Engine
-tests and 243 rpc-compat tests). Bumping the Hive pin means re-reading its
+from. For rpc-compat it also overrides the simulator Dockerfile's moving
+`execution-apis/main` default with the reviewed
+`e5d1bb60e6c064e4b15080da07b4370d0baadf92` commit. It requires a fresh result
+directory, rejects missing or zero-test result manifests, and checks the pinned
+full-suite inventories (403 Engine tests and 243 rpc-compat tests). Bumping the
+Hive pin means re-reading its
 `docs/clients.md` for contract changes, re-diffing `tools/hive/mapper.jq`
 against `clients/go-ethereum/mapper.jq`, and deliberately updating those
 inventory counts.
