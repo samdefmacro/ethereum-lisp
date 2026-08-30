@@ -3428,6 +3428,40 @@ really reopens the directory instead of observing the first handle's memory."
          (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node))))
     (is (= 3 passes))))
 
+(deftest devnet-sync-coordinator-keeps-serving-after-invalid-ancestor
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (passes 0)
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-node-multi-sync-pass
+       (lambda (seen-node)
+         (is (eq node seen-node))
+         (incf passes)
+         (error
+          'ethereum-lisp.cli::devnet-peer-sync-invalid
+          :message "injected durable invalid ancestor")))
+      (cons
+       'ethereum-lisp.cli::devnet-peer-manager-log
+       (lambda (seen-node name &rest fields)
+         (is (eq node seen-node))
+         (push (cons name fields) logs))))
+     (lambda ()
+       ;; This finite branch result must not cross the coordinator's outer
+       ;; serious-condition boundary, which would request whole-node shutdown.
+       (is (null
+            (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node)))))
+    (is (= 1 passes))
+    (is (= 1 (length logs)))
+    (is (string= "peer.sync.invalid_ancestor" (caar logs)))
+    (is (search "injected durable invalid ancestor"
+                (princ-to-string (third (first logs)))))))
+
 (deftest devnet-range-announcement-wakes-coordinator-without-lost-race
   (:layer :integration :module :p2p)
   #+sbcl

@@ -2592,6 +2592,15 @@ escape to the coordinator's outer serious-condition boundary."
   (handler-case
       (call-with-devnet-sync-claim
        node (lambda () (devnet-node-multi-sync-pass node)))
+    (devnet-peer-sync-invalid (condition)
+      ;; IMPORT-P2P-BLOCK-CANDIDATE installs and durably exports the INVALID
+      ;; verdict before DEVNET-PEER-SYNC-IMPORT-BLOCK signals this typed result.
+      ;; Keep the node and Engine RPC alive so the CL/Hive retry can observe
+      ;; that verdict instead of waiting against listeners torn down by the
+      ;; coordinator supervisor.
+      (devnet-peer-manager-log
+       node "peer.sync.invalid_ancestor" "error" condition)
+      nil)
     (eth-sync-multi-peer-error (condition)
       (devnet-peer-manager-log
        node "peer.sync.multi_retry" "error" condition)

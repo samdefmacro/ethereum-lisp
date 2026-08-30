@@ -384,6 +384,15 @@ would replace committed data with NIL."
             (>= version 3)
             (>= version 4))))
 
+(define-condition devnet-peer-sync-invalid (block-validation-error) ()
+  (:documentation
+   "A peer range executed to a durable deterministic INVALID verdict.
+
+The verdict is already installed in the payload store and, when configured,
+persisted before this condition is signaled.  Sync coordinators may therefore
+stop the rejected branch without treating it as a node-fatal implementation or
+storage failure; subsequent Engine requests can read the cached verdict."))
+
 (defun devnet-peer-sync-import-block
     (node block &key peer-id require-valid-p)
   "Import BLOCK as a validated, durable, noncanonical candidate.
@@ -434,11 +443,14 @@ forward download before state import can close the gap."
            (when (and require-valid-p
                       (string= +payload-status-invalid+
                                (payload-status-status status)))
-             (block-validation-fail
-              "Peer range block ~A was invalid: ~A~@[ (~A)~]"
-              (hash32-to-hex (block-hash block))
-              (payload-status-status status)
-              (payload-status-validation-error status)))
+             (error
+              'devnet-peer-sync-invalid
+              :message
+              (format
+               nil "Peer range block ~A was invalid: ~A~@[ (~A)~]"
+               (hash32-to-hex (block-hash block))
+               (payload-status-status status)
+               (payload-status-validation-error status))))
            (values status candidate receipts)))))))
 
 (defun devnet-peer-sync-status (node)
