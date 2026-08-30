@@ -177,6 +177,16 @@
       (let* ((response
                (engine-rpc-handle-request
                 (list (cons "jsonrpc" "2.0")
+                      (cons "id" 33)
+                      (cons "method" "engine_getPayloadBodiesByRangeV1")
+                      (cons "params" (list "0x5" "0x1")))
+                store
+                config))
+             (bodies (field response "result")))
+        (is (ethereum-lisp.json:json-empty-array-p bodies)))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
                       (cons "id" 31)
                       (cons "method" "engine_getPayloadBodiesByRangeV1")
                       (cons "params" (list "0x0" "0x1")))

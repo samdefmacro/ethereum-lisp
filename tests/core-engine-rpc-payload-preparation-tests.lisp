@@ -68,6 +68,73 @@
      store block :state-available-p t :canonicalize-p nil)
     (is (null (engine-payload-store-forkchoice-sync-targets store)))))
 
+(deftest engine-rpc-invalid-payload-attributes-still-apply-forkchoice
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (forkchoice-state-object (head)
+             (list (cons "headBlockHash" (hash32-to-hex head))
+                   (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+                   (cons "finalizedBlockHash"
+                         (hash32-to-hex (zero-hash32)))))
+           (payload-attributes-without-beacon-root ()
+             (list (cons "timestamp" "0x3")
+                   (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                   (cons "suggestedFeeRecipient"
+                         (address-to-hex (zero-address)))
+                   (cons "withdrawals" #()))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :london-block 0
+                                      :shanghai-time 0
+                                      :cancun-time 0))
+           (parent
+             (make-block
+              :header
+              (make-block-header
+               :number 1
+               :timestamp 1
+               :state-root +empty-trie-hash+
+               :gas-limit 30000000
+               :base-fee-per-gas 1
+               :withdrawals-root (withdrawal-list-root '())
+               :blob-gas-used 0
+               :excess-blob-gas 0
+               :parent-beacon-root (zero-hash32))
+              :withdrawals '()))
+           (child
+             (make-block
+              :header
+              (make-block-header
+               :parent-hash (block-hash parent)
+               :number 2
+               :timestamp 2
+               :state-root +empty-trie-hash+
+               :gas-limit 30000000
+               :base-fee-per-gas 1
+               :withdrawals-root (withdrawal-list-root '())
+               :blob-gas-used 0
+               :excess-blob-gas 0
+               :parent-beacon-root (zero-hash32))
+              :withdrawals '())))
+      (engine-payload-store-put-block store parent :state-available-p t)
+      (engine-payload-store-put-block
+       store child :state-available-p t :canonicalize-p nil)
+      (is (null (chain-store-canonical-hash store 2)))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 600)
+                 (cons "method" "engine_forkchoiceUpdatedV3")
+                 (cons "params"
+                       (list
+                        (forkchoice-state-object (block-hash child))
+                        (payload-attributes-without-beacon-root))))
+                store config))
+             (error (field response "error")))
+        (is (= -38003 (field error "code")))
+        (is (hash32= (block-hash child)
+                     (chain-store-canonical-hash store 2)))))))
+
 (deftest engine-rpc-forkchoice-updated-v1-reports-memory-status
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

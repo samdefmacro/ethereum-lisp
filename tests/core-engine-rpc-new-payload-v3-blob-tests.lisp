@@ -1,5 +1,60 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-rpc-new-payload-v3-validates-shape-before-fork
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request-code (payload versioned-hashes parent-beacon-root)
+             (let* ((response
+                      (engine-rpc-handle-request
+                       (list
+                        (cons "jsonrpc" "2.0")
+                        (cons "id" 34)
+                        (cons "method" "engine_newPayloadV3")
+                        (cons "params"
+                              (list payload
+                                    versioned-hashes
+                                    parent-beacon-root)))
+                       (make-engine-payload-memory-store)
+                       (make-chain-config :london-block 0
+                                          :cancun-time 1000)))
+                    (error (field response "error")))
+               (field error "code"))))
+    (let* ((json-null (parse-json "null" :preserve-types t))
+           (zero-root (hash32-to-hex (zero-hash32)))
+           (base-payload
+             (engine-rpc-executable-data-object
+              (make-executable-data
+               :parent-hash (zero-hash32)
+               :fee-recipient
+               (address-from-hex
+                "0x0000000000000000000000000000000000000001")
+               :state-root +empty-trie-hash+
+               :receipts-root +empty-trie-hash+
+               :logs-bloom (make-byte-vector 256)
+               :random (zero-hash32)
+               :number 1
+               :gas-limit 30000000
+               :gas-used 0
+               :timestamp 1
+               :extra-data (make-byte-vector 0)
+               :base-fee-per-gas 1
+               :block-hash (zero-hash32)
+               :transactions '())))
+           (blob-gas-only
+             (append base-payload (list (cons "blobGasUsed" "0x0"))))
+           (excess-blob-gas-only
+             (append base-payload (list (cons "excessBlobGas" "0x0"))))
+           (complete-payload
+             (append base-payload
+                     (list (cons "blobGasUsed" "0x0")
+                           (cons "excessBlobGas" "0x0")))))
+      (is (= -32602 (request-code base-payload json-null json-null)))
+      (is (= -32602 (request-code blob-gas-only json-null json-null)))
+      (is (= -32602 (request-code excess-blob-gas-only json-null json-null)))
+      (is (= -32602 (request-code base-payload #() json-null)))
+      (is (= -32602 (request-code base-payload json-null zero-root)))
+      (is (= -38005 (request-code complete-payload #() zero-root))))))
+
 (deftest engine-rpc-new-payload-v3-blob-typed-receipt
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

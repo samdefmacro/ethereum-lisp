@@ -35,6 +35,14 @@
        (format nil "engine_newPayloadV~D is unsupported for payload timestamp ~D"
                version timestamp)))))
 
+(defun engine-rpc-validate-new-payload-method-shape (version payload)
+  "Validate fields that are unconditionally required by the method version."
+  (when (>= version 3)
+    (when (null (executable-data-excess-blob-gas payload))
+      (engine-rpc-fail -32602 "excessBlobGas is required by newPayloadV3+"))
+    (when (null (executable-data-blob-gas-used payload))
+      (engine-rpc-fail -32602 "blobGasUsed is required by newPayloadV3+"))))
+
 (defun engine-rpc-persist-new-payload
     (store candidate new-payload-persistence-function &rest provenance)
   (when new-payload-persistence-function
@@ -55,7 +63,6 @@
           (engine-rpc-executable-data-from-object
            (json-rpc-required-param
             params 0 "payload" "engine_newPayload"))))
-    (engine-rpc-validate-new-payload-fork version payload config)
     (let* ((versioned-hashes
              (when (>= version 3)
                (json-rpc-hash32-list
@@ -80,6 +87,11 @@
       ;; consensus verdict.
       (when (>= version 4)
         (validate-execution-request-list-fields requests))
+      (engine-rpc-validate-new-payload-method-shape version payload)
+      ;; A complete request for an inactive method version is an unsupported
+      ;; fork.  Perform this check only after decoding all method parameters
+      ;; and validating the version's unconditionally required fields.
+      (engine-rpc-validate-new-payload-fork version payload config)
       (let ((invalid-message
               (engine-new-payload-version-invalid-p
                version payload config

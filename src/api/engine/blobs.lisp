@@ -226,7 +226,7 @@ deadline."
     (let* ((head (chain-store-head-number store))
            (last (min (+ start count -1) head)))
       (if (< last start)
-          '()
+          #()
           (loop for number from start to last
                 collect
                 (let ((block (chain-store-block-by-number store number)))
