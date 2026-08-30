@@ -1222,6 +1222,42 @@ cl-workbench validation run shadow-proxy-smoke \
   ethereum-lisp-shadow-engine-proxy:local
 ```
 
+The same-host Hoodi lifecycle is brokered separately from the proxy build. Its
+defaults pin the current Section 5 Lisp container, geth v1.17.4 image id,
+existing geth datadir, Lighthouse endpoint alias, internal CL network, resource
+limits, and seven-day duration:
+
+```sh
+SHADOW_PROXY_PLATFORM=linux/amd64 \
+  scripts/dev.sh shadow-proxy-build \
+  ethereum-lisp-shadow-engine-proxy:sec5-REVISION-amd64
+scripts/dev.sh shadow-proxy-export \
+  ethereum-lisp-shadow-engine-proxy:sec5-REVISION-amd64 \
+  /private/tmp/ethereum-lisp-shadow-engine-proxy-sec5-REVISION-amd64.tar
+HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh upload
+HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh load
+scripts/hoodi-shadow-gate.sh status
+HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh start-geth
+HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh cutover
+HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh reset-soak
+scripts/hoodi-shadow-gate.sh complete
+HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh restore
+```
+
+`start-geth` refuses to run until the authoritative Lisp RPC reports
+`eth_syncing=false`. `cutover` stops Lighthouse while atomically moving its
+stable Engine alias from Lisp to the proxy and rolls the alias back on any
+failure. The initial proxy phase is catch-up only. `reset-soak` requires both
+clients to report sync complete with identical latest and finalized hashes,
+then restarts the proxy with zero counters and an immutable start-time label.
+`complete` is read-only and fails before 604,800 seconds, for any dropped or
+failed mirror, Engine status mismatch, non-zero primary error, unfinished
+mirror, active sync, or canonical-head difference. `restore` preserves both
+datadirs and the stopped proxy while returning Lighthouse directly to Lisp.
+After later commits advance the checkout, set `HOODI_SHADOW_PROXY_REVISION` to
+the deployed full Git id for `status`, `complete`, or `restore`; the broker
+accepts only a revision that remains an ancestor of the checkout.
+
 The reviewed runtime image must also pass
 `cl-workbench validation run runtime-smoke IMAGE`: this delegates to the
 reviewed runtime smoke broker and checks non-root/read-only Hoodi startup,

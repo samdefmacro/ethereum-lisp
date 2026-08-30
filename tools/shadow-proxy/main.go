@@ -185,6 +185,20 @@ func responseEngineStatus(body []byte) string {
 	}
 }
 
+func responseHasRPCError(body []byte) bool {
+	var envelope struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return true
+	}
+	return len(envelope.Error) > 0 && string(envelope.Error) != "null"
+}
+
+func responseFailed(status int, body []byte, err error) bool {
+	return err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices || responseHasRPCError(body)
+}
+
 func (proxy *engineProxy) callTarget(
 	ctx context.Context,
 	client *http.Client,
@@ -233,7 +247,7 @@ func (proxy *engineProxy) mirror(
 		err:          err,
 	}
 	primaryMeta := <-primary
-	if secondary.err != nil {
+	if responseFailed(secondary.httpStatus, responseBody, secondary.err) {
 		proxy.counters.mirrorErrors.Add(1)
 		log.Printf("shadow_proxy method=%s secondary=error", method)
 		return
@@ -304,8 +318,10 @@ func (proxy *engineProxy) ServeHTTP(response http.ResponseWriter, request *http.
 		primaryMeta <- meta
 		close(primaryMeta)
 	}
-	if primaryErr != nil {
+	if responseFailed(status, responseBody, primaryErr) {
 		proxy.counters.primaryErrors.Add(1)
+	}
+	if primaryErr != nil {
 		http.Error(response, "primary execution endpoint unavailable", http.StatusBadGateway)
 		return
 	}

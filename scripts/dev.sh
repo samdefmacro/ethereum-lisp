@@ -72,6 +72,8 @@ Commands:
   shadow-proxy-test  Build and test the Engine shadow proxy with no network
   shadow-proxy-build TAG
                      Build its reviewed non-root runtime image
+  shadow-proxy-export TAG ARTIFACT
+                     Export an exact-revision linux/amd64 proxy archive
   shadow-proxy-smoke TAG
                      Verify the final proxy image and container boundary
   hive-adapter-smoke TAG
@@ -97,6 +99,8 @@ Environment:
   DEV_EVAL_MAX_OUTPUT          Output cap in chars, default 10000
   RUNTIME_PLATFORM             Optional runtime-build target: linux/amd64 or
                                linux/arm64 (defaults to Docker's native target)
+  SHADOW_PROXY_PLATFORM        Optional shadow-proxy-build target with the
+                               same accepted platform values
 Eval exit codes: 0 ok, 1 lisp error, 2 connection error, 3 timed out
 (interrupted), 4 hard hang (restart the image). Common Lisp Workbench records
 payload-free operation outcomes in .cl-workbench/state; it does not append raw
@@ -754,13 +758,62 @@ shadow_proxy_build() {
     return 2
   }
   local image="${1:-ethereum-lisp-shadow-engine-proxy:local}"
+  local platform="${SHADOW_PROXY_PLATFORM:-}"
   validate_runtime_image "$image" || return $?
-  "$DOCKER" build \
+  case "$platform" in
+    ""|linux/amd64|linux/arm64) ;;
+    *)
+      echo "ERROR: unsupported shadow proxy platform: $platform" >&2
+      return 2
+      ;;
+  esac
+  local args=(build)
+  [ -z "$platform" ] || args+=(--platform "$platform")
+  "$DOCKER" "${args[@]}" \
     --network none \
     --file "$ROOT/tools/shadow-proxy/Dockerfile" \
     --tag "$image" \
     --build-arg "REVISION=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" \
     "$ROOT/tools/shadow-proxy"
+}
+
+shadow_proxy_export() {
+  [ "$#" -eq 2 ] || {
+    echo "ERROR: shadow-proxy-export requires IMAGE and ARTIFACT" >&2
+    return 2
+  }
+  local image="$1" artifact="$2" revision image_revision platform
+  validate_runtime_image "$image" || return $?
+  case "$artifact" in
+    /private/tmp/ethereum-lisp-shadow-engine-proxy-*.tar) ;;
+    *)
+      echo "ERROR: shadow proxy artifact must be a named tar below /private/tmp" >&2
+      return 2
+      ;;
+  esac
+  [ ! -e "$artifact" ] || {
+    echo "ERROR: refusing existing shadow proxy artifact: $artifact" >&2
+    return 1
+  }
+  revision="$(git -C "$ROOT" rev-parse HEAD)"
+  image_revision="$($DOCKER image inspect \
+    --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' \
+    "$image")"
+  platform="$($DOCKER image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
+  [ "$image_revision" = "$revision" ] || {
+    echo "ERROR: shadow proxy image revision is $image_revision, expected $revision" >&2
+    return 1
+  }
+  [ "$platform" = linux/amd64 ] || {
+    echo "ERROR: shadow proxy export requires linux/amd64, got $platform" >&2
+    return 1
+  }
+  "$DOCKER" image save --output "$artifact" "$image"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$artifact"
+  else
+    shasum -a 256 "$artifact"
+  fi
 }
 
 shadow_proxy_smoke() {
@@ -908,6 +961,7 @@ case "$cmd" in
   shadow-proxy-format) shadow_proxy_format "$@" ;;
   shadow-proxy-test) shadow_proxy_test "$@" ;;
   shadow-proxy-build) shadow_proxy_build "$@" ;;
+  shadow-proxy-export) shadow_proxy_export "$@" ;;
   shadow-proxy-smoke) shadow_proxy_smoke "$@" ;;
   hive-adapter-smoke) hive_adapter_smoke "$@" ;;
   logs) show_logs "$@" ;;

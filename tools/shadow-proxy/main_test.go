@@ -172,6 +172,32 @@ func TestTargetValidation(t *testing.T) {
 	}
 }
 
+func TestCountsRejectedUpstreamResponsesAsErrors(t *testing.T) {
+	primary := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"internal"}}`)
+	}))
+	defer primary.Close()
+	secondary := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Error(response, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer secondary.Close()
+	proxy := newTestProxy(t, primary, secondary, 4096)
+	request := httptest.NewRequest(http.MethodPost, "http://proxy/", strings.NewReader(`{"method":"engine_forkchoiceUpdatedV3"}`))
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(response, request)
+	proxy.mirrors.Wait()
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"error"`) {
+		t.Fatalf("primary JSON-RPC error was not returned exactly: %d %s", response.Code, response.Body.String())
+	}
+	if proxy.counters.primaryErrors.Load() != 1 {
+		t.Fatal("primary JSON-RPC error was not counted")
+	}
+	if proxy.counters.mirrorErrors.Load() != 1 || proxy.counters.mirrorSucceeded.Load() != 0 {
+		t.Fatal("secondary HTTP rejection was counted as a successful mirror")
+	}
+}
+
 func TestLocalProbeIsBoundedToLoopbackEndpoints(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
