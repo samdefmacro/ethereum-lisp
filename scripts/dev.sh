@@ -939,7 +939,13 @@ shadow_proxy_smoke() {
     shadow_mirror_succeeded_total \
     shadow_mirror_errors_total \
     shadow_mirror_dropped_total \
-    shadow_status_mismatches_total
+    shadow_status_mismatches_total \
+    shadow_head_observations_total \
+    shadow_head_rpc_errors_total \
+    shadow_head_lag_violations_total \
+    shadow_head_root_mismatches_total \
+    shadow_head_latest_lag_blocks \
+    shadow_head_max_lag_blocks
   do
     printf '%s\n' "$metrics" | grep -Fx "$name 0" >/dev/null || {
       echo "ERROR: shadow proxy metric did not start at zero: $name" >&2

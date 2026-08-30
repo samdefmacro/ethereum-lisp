@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,56 @@ import (
 	"testing"
 	"time"
 )
+
+func testHead(number uint64, suffix string) headIdentity {
+	return headIdentity{
+		number:       number,
+		hash:         "0xhash" + suffix,
+		stateRoot:    "0xstate" + suffix,
+		receiptsRoot: "0xreceipts" + suffix,
+		requestsHash: "0xrequests" + suffix,
+	}
+}
+
+func headRPCServer(t *testing.T, latest, finalized headIdentity) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var payload struct {
+			Method string `json:"method"`
+			Params []any  `json:"params"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+			http.Error(response, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if payload.Method != "eth_getBlockByNumber" || len(payload.Params) != 2 {
+			t.Errorf("unexpected RPC request: %#v", payload)
+			http.Error(response, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		selected := latest
+		if payload.Params[0] == "finalized" {
+			selected = finalized
+		} else if payload.Params[0] != "latest" {
+			t.Errorf("unexpected block tag: %#v", payload.Params[0])
+			http.Error(response, "unexpected block tag", http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"result": map[string]string{
+				"number":       fmt.Sprintf("0x%x", selected.number),
+				"hash":         selected.hash,
+				"stateRoot":    selected.stateRoot,
+				"receiptsRoot": selected.receiptsRoot,
+				"requestsHash": selected.requestsHash,
+			},
+		})
+	}))
+}
 
 func mustURL(t *testing.T, raw string) *url.URL {
 	t.Helper()
@@ -233,5 +285,48 @@ func TestLocalProbeIsBoundedToLoopbackEndpoints(t *testing.T) {
 		if err := probeLocalURL(raw, io.Discard); err == nil {
 			t.Fatalf("accepted unsafe probe target %q", raw)
 		}
+	}
+}
+
+func TestFetchesHeadSnapshotAndAllowsTwoBlockLag(t *testing.T) {
+	finalized := testHead(90, "same")
+	server := headRPCServer(t, testHead(100, "primary"), finalized)
+	defer server.Close()
+	primary, err := fetchHeadSnapshot(server.Client(), mustURL(t, server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondary := headSnapshot{latest: testHead(98, "secondary"), finalized: finalized}
+	proxy := &engineProxy{}
+	state := &headMonitorState{}
+	lagViolation, rootMismatch := proxy.recordHeadObservation(state, primary, secondary)
+	if lagViolation || rootMismatch {
+		t.Fatal("allowed head observation was classified as a violation")
+	}
+	if proxy.counters.headObservations.Load() != 1 ||
+		proxy.counters.headLatestLag.Load() != 2 || proxy.counters.headMaxLag.Load() != 2 {
+		t.Fatal("allowed head observation counters are incorrect")
+	}
+}
+
+func TestCountsOnlyPersistentHeadViolations(t *testing.T) {
+	proxy := &engineProxy{}
+	state := &headMonitorState{}
+	primary := headSnapshot{latest: testHead(100, "primary"), finalized: testHead(90, "primary")}
+	secondary := headSnapshot{latest: testHead(96, "secondary"), finalized: testHead(90, "secondary")}
+
+	lagViolation, rootMismatch := proxy.recordHeadObservation(state, primary, secondary)
+	if lagViolation || rootMismatch || proxy.counters.headLagViolations.Load() != 0 ||
+		proxy.counters.headRootMismatches.Load() != 0 {
+		t.Fatal("one anomalous observation was not filtered")
+	}
+	lagViolation, rootMismatch = proxy.recordHeadObservation(state, primary, secondary)
+	if !lagViolation || !rootMismatch || proxy.counters.headLagViolations.Load() != 1 ||
+		proxy.counters.headRootMismatches.Load() != 1 {
+		t.Fatal("persistent anomalous observations were not counted")
+	}
+	proxy.recordHeadObservation(state, primary, secondary)
+	if proxy.counters.headLagViolations.Load() != 1 || proxy.counters.headRootMismatches.Load() != 1 {
+		t.Fatal("one continuous violation was counted more than once")
 	}
 }

@@ -605,6 +605,16 @@ shadow gate passes.
   slots through peer churn. Then run a fourteen-day validator soak with no
   client-attributable missed proposal before tagging the public-testnet release.
 
+The shadow gate samples both execution clients every twelve seconds through
+their internal public RPC endpoints. It records latest-head lag and compares
+the finalized block number, hash, state root, receipts root, and requests hash;
+two consecutive anomalous samples form a persistent violation. A seven-day run
+is valid only with at least 95% of the expected samples, zero RPC sample errors,
+zero persistent lag/root violations, no observed lag above two blocks, and the
+existing zero-error Engine fan-out counters. Catch-up time is excluded: the
+clock and counters start from zero only after both clients report sync complete
+and share the same latest and finalized heads.
+
 ## Release exit criteria
 
 - Zero open P0 and no remotely exploitable P1 finding.

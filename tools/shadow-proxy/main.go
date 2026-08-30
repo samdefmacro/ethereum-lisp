@@ -26,6 +26,9 @@ const (
 	defaultTimeout       = 15 * time.Second
 	probeMaxBodyBytes    = int64(64 * 1024)
 	probeTimeout         = 2 * time.Second
+	headRPCMaxBodyBytes  = int64(1024 * 1024)
+	defaultHeadInterval  = 12 * time.Second
+	maximumHeadLag       = uint64(2)
 )
 
 type responseMeta struct {
@@ -35,13 +38,37 @@ type responseMeta struct {
 }
 
 type proxyCounters struct {
-	primaryRequests  atomic.Uint64
-	primaryErrors    atomic.Uint64
-	mirrorStarted    atomic.Uint64
-	mirrorSucceeded  atomic.Uint64
-	mirrorErrors     atomic.Uint64
-	mirrorDropped    atomic.Uint64
-	statusMismatches atomic.Uint64
+	primaryRequests    atomic.Uint64
+	primaryErrors      atomic.Uint64
+	mirrorStarted      atomic.Uint64
+	mirrorSucceeded    atomic.Uint64
+	mirrorErrors       atomic.Uint64
+	mirrorDropped      atomic.Uint64
+	statusMismatches   atomic.Uint64
+	headObservations   atomic.Uint64
+	headRPCErrors      atomic.Uint64
+	headLagViolations  atomic.Uint64
+	headRootMismatches atomic.Uint64
+	headLatestLag      atomic.Uint64
+	headMaxLag         atomic.Uint64
+}
+
+type headIdentity struct {
+	number       uint64
+	hash         string
+	stateRoot    string
+	receiptsRoot string
+	requestsHash string
+}
+
+type headSnapshot struct {
+	latest    headIdentity
+	finalized headIdentity
+}
+
+type headMonitorState struct {
+	lagStreak  uint64
+	rootStreak uint64
 }
 
 type engineProxy struct {
@@ -199,6 +226,197 @@ func responseFailed(status int, body []byte, err error) bool {
 	return err != nil || status < http.StatusOK || status >= http.StatusMultipleChoices || responseHasRPCError(body)
 }
 
+func parseHexQuantity(raw string) (uint64, error) {
+	if len(raw) < 3 || !strings.HasPrefix(raw, "0x") {
+		return 0, errors.New("invalid hex quantity")
+	}
+	value, err := strconv.ParseUint(raw[2:], 16, 64)
+	if err != nil {
+		return 0, errors.New("invalid hex quantity")
+	}
+	return value, nil
+}
+
+func rpcResult(client *http.Client, target *url.URL, method string, params []any, result any) error {
+	payload, err := json.Marshal(struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      int    `json:"id"`
+		Method  string `json:"method"`
+		Params  []any  `json:"params"`
+	}{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  method,
+		Params:  params,
+	})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequest(http.MethodPost, target.String(), bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, headRPCMaxBodyBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(body)) > headRPCMaxBodyBytes {
+		return errors.New("head RPC response exceeds configured bound")
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return errors.New("head RPC returned a non-success status")
+	}
+	var envelope struct {
+		Result json.RawMessage `json:"result"`
+		Error  json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return errors.New("head RPC returned invalid JSON")
+	}
+	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+		return errors.New("head RPC returned a JSON-RPC error")
+	}
+	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
+		return errors.New("head RPC returned an empty result")
+	}
+	if err := json.Unmarshal(envelope.Result, result); err != nil {
+		return errors.New("head RPC result has an invalid shape")
+	}
+	return nil
+}
+
+func fetchBlockIdentity(client *http.Client, target *url.URL, tag string) (headIdentity, error) {
+	var block struct {
+		Number       string `json:"number"`
+		Hash         string `json:"hash"`
+		StateRoot    string `json:"stateRoot"`
+		ReceiptsRoot string `json:"receiptsRoot"`
+		RequestsHash string `json:"requestsHash"`
+	}
+	if err := rpcResult(client, target, "eth_getBlockByNumber", []any{tag, false}, &block); err != nil {
+		return headIdentity{}, err
+	}
+	number, err := parseHexQuantity(block.Number)
+	if err != nil || block.Hash == "" || block.StateRoot == "" ||
+		block.ReceiptsRoot == "" || block.RequestsHash == "" {
+		return headIdentity{}, errors.New("head RPC block is missing a required identity field")
+	}
+	return headIdentity{
+		number:       number,
+		hash:         block.Hash,
+		stateRoot:    block.StateRoot,
+		receiptsRoot: block.ReceiptsRoot,
+		requestsHash: block.RequestsHash,
+	}, nil
+}
+
+func fetchHeadSnapshot(client *http.Client, target *url.URL) (headSnapshot, error) {
+	latest, err := fetchBlockIdentity(client, target, "latest")
+	if err != nil {
+		return headSnapshot{}, err
+	}
+	finalized, err := fetchBlockIdentity(client, target, "finalized")
+	if err != nil {
+		return headSnapshot{}, err
+	}
+	return headSnapshot{latest: latest, finalized: finalized}, nil
+}
+
+func absoluteDifference(left, right uint64) uint64 {
+	if left >= right {
+		return left - right
+	}
+	return right - left
+}
+
+func (proxy *engineProxy) updateMaxHeadLag(lag uint64) {
+	for current := proxy.counters.headMaxLag.Load(); lag > current; current = proxy.counters.headMaxLag.Load() {
+		if proxy.counters.headMaxLag.CompareAndSwap(current, lag) {
+			return
+		}
+	}
+}
+
+func (proxy *engineProxy) recordHeadObservation(
+	state *headMonitorState,
+	primary headSnapshot,
+	secondary headSnapshot,
+) (bool, bool) {
+	lag := absoluteDifference(primary.latest.number, secondary.latest.number)
+	proxy.counters.headObservations.Add(1)
+	proxy.counters.headLatestLag.Store(lag)
+	proxy.updateMaxHeadLag(lag)
+
+	lagViolation := false
+	if lag > maximumHeadLag {
+		state.lagStreak++
+		if state.lagStreak == 2 {
+			proxy.counters.headLagViolations.Add(1)
+			lagViolation = true
+		}
+	} else {
+		state.lagStreak = 0
+	}
+
+	rootMismatch := false
+	if primary.finalized != secondary.finalized {
+		state.rootStreak++
+		if state.rootStreak == 2 {
+			proxy.counters.headRootMismatches.Add(1)
+			rootMismatch = true
+		}
+	} else {
+		state.rootStreak = 0
+	}
+	return lagViolation, rootMismatch
+}
+
+func (proxy *engineProxy) observeHeads(
+	state *headMonitorState,
+	primaryClient *http.Client,
+	primaryTarget *url.URL,
+	secondaryClient *http.Client,
+	secondaryTarget *url.URL,
+) {
+	primary, err := fetchHeadSnapshot(primaryClient, primaryTarget)
+	if err == nil {
+		var secondary headSnapshot
+		secondary, err = fetchHeadSnapshot(secondaryClient, secondaryTarget)
+		if err == nil {
+			lagViolation, rootMismatch := proxy.recordHeadObservation(state, primary, secondary)
+			if lagViolation {
+				log.Printf("shadow_head persistent_lag_above_blocks=%d", maximumHeadLag)
+			}
+			if rootMismatch {
+				log.Printf("shadow_head persistent_finalized_root_mismatch=true")
+			}
+			return
+		}
+	}
+	proxy.counters.headRPCErrors.Add(1)
+	state.lagStreak = 0
+	state.rootStreak = 0
+	log.Printf("shadow_head rpc_sample=error")
+}
+
+func (proxy *engineProxy) monitorHeads(primaryTarget, secondaryTarget *url.URL, interval time.Duration) {
+	primaryClient := upstreamClient()
+	secondaryClient := upstreamClient()
+	state := &headMonitorState{}
+	proxy.observeHeads(state, primaryClient, primaryTarget, secondaryClient, secondaryTarget)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		proxy.observeHeads(state, primaryClient, primaryTarget, secondaryClient, secondaryTarget)
+	}
+}
+
 func (proxy *engineProxy) callTarget(
 	ctx context.Context,
 	client *http.Client,
@@ -274,6 +492,12 @@ func (proxy *engineProxy) metrics(response http.ResponseWriter) {
 	fmt.Fprintf(response, "shadow_mirror_errors_total %d\n", proxy.counters.mirrorErrors.Load())
 	fmt.Fprintf(response, "shadow_mirror_dropped_total %d\n", proxy.counters.mirrorDropped.Load())
 	fmt.Fprintf(response, "shadow_status_mismatches_total %d\n", proxy.counters.statusMismatches.Load())
+	fmt.Fprintf(response, "shadow_head_observations_total %d\n", proxy.counters.headObservations.Load())
+	fmt.Fprintf(response, "shadow_head_rpc_errors_total %d\n", proxy.counters.headRPCErrors.Load())
+	fmt.Fprintf(response, "shadow_head_lag_violations_total %d\n", proxy.counters.headLagViolations.Load())
+	fmt.Fprintf(response, "shadow_head_root_mismatches_total %d\n", proxy.counters.headRootMismatches.Load())
+	fmt.Fprintf(response, "shadow_head_latest_lag_blocks %d\n", proxy.counters.headLatestLag.Load())
+	fmt.Fprintf(response, "shadow_head_max_lag_blocks %d\n", proxy.counters.headMaxLag.Load())
 }
 
 func (proxy *engineProxy) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -387,15 +611,40 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	headIntervalSeconds, err := envInt("SHADOW_PROXY_HEAD_INTERVAL_SECONDS", int(defaultHeadInterval/time.Second))
+	if err != nil {
+		log.Fatal(err)
+	}
+	primaryRPCURL := os.Getenv("SHADOW_PROXY_PRIMARY_RPC_URL")
+	secondaryRPCURL := os.Getenv("SHADOW_PROXY_SECONDARY_RPC_URL")
+	if (primaryRPCURL == "") != (secondaryRPCURL == "") {
+		log.Fatal("SHADOW_PROXY_PRIMARY_RPC_URL and SHADOW_PROXY_SECONDARY_RPC_URL must be configured together")
+	}
+
+	proxy := newEngineProxy(primary, secondary, maxBodyBytes, mirrorWorkers)
+	if primaryRPCURL != "" {
+		primaryRPC, parseErr := parseTarget(primaryRPCURL)
+		if parseErr != nil {
+			log.Fatal("invalid SHADOW_PROXY_PRIMARY_RPC_URL: ", parseErr)
+		}
+		secondaryRPC, parseErr := parseTarget(secondaryRPCURL)
+		if parseErr != nil {
+			log.Fatal("invalid SHADOW_PROXY_SECONDARY_RPC_URL: ", parseErr)
+		}
+		go proxy.monitorHeads(primaryRPC, secondaryRPC, time.Duration(headIntervalSeconds)*time.Second)
+	}
 
 	server := &http.Server{
 		Addr:              listen,
-		Handler:           newEngineProxy(primary, secondary, maxBodyBytes, mirrorWorkers),
+		Handler:           proxy,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	log.Printf("shadow_proxy listen=%s mirror_workers=%d max_body_bytes=%d", listen, mirrorWorkers, maxBodyBytes)
+	log.Printf(
+		"shadow_proxy listen=%s mirror_workers=%d max_body_bytes=%d head_monitor=%t head_interval_seconds=%d",
+		listen, mirrorWorkers, maxBodyBytes, primaryRPCURL != "", headIntervalSeconds,
+	)
 	log.Fatal(server.ListenAndServe())
 }

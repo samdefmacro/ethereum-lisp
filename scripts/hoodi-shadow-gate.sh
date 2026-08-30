@@ -39,6 +39,7 @@ ready_timeout="${HOODI_SHADOW_READY_TIMEOUT:-600}"
 geth_memory_bytes=2147483648
 proxy_memory_bytes=134217728
 required_soak_seconds=604800
+head_interval_seconds=12
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -167,7 +168,7 @@ remote_action() {
         "$cl_network" "$egress_network" "$stable_alias" "$source_alias" \
         "$geth_alias" "$jwt_dir" "$public_ip" "$geth_p2p_port" \
         "$ready_timeout" "$geth_memory_bytes" "$proxy_memory_bytes" \
-        "$required_soak_seconds" <<'REMOTE'
+        "$required_soak_seconds" "$head_interval_seconds" <<'REMOTE'
 set -eu
 action="$1"; revision="$2"; proxy_image="$3"; proxy="$4"; source="$5"
 source_revision="$6"; lighthouse="$7"; geth_image="$8"; geth_id="$9"
@@ -175,7 +176,7 @@ legacy="${10}"; geth="${11}"; geth_datadir="${12}"; cl_network="${13}"
 egress_network="${14}"; stable_alias="${15}"; source_alias="${16}"
 geth_alias="${17}"; jwt_dir="${18}"; public_ip="${19}"
 geth_p2p_port="${20}"; ready_timeout="${21}"; geth_memory="${22}"
-proxy_memory="${23}"; required_soak="${24}"
+proxy_memory="${23}"; required_soak="${24}"; head_interval="${25}"
 
 container_exists() { docker container inspect "$1" >/dev/null 2>&1; }
 running() { [ "$(docker container inspect --format '{{.State.Running}}' "$1")" = true ]; }
@@ -239,6 +240,9 @@ run_proxy() {
         --network "$cl_network" --network-alias "$stable_alias" \
         --env "SHADOW_PROXY_PRIMARY_URL=http://$source_alias:8551" \
         --env "SHADOW_PROXY_SECONDARY_URL=http://$geth_alias:8551" \
+        --env "SHADOW_PROXY_PRIMARY_RPC_URL=http://$source_alias:8545" \
+        --env "SHADOW_PROXY_SECONDARY_RPC_URL=http://$geth_alias:8545" \
+        --env "SHADOW_PROXY_HEAD_INTERVAL_SECONDS=$head_interval" \
         "$proxy_image" >/dev/null
 }
 wait_proxy_traffic() {
@@ -411,9 +415,10 @@ reset-soak)
     proxy_probe /metrics
     ;;
 complete)
-    assert_base; assert_geth
+    assert_base; assert_proxy_image; assert_geth
     running "$proxy" || { echo "proxy is not running" >&2; exit 1; }
     [ "$(label "$proxy" agent)" = codex-sec5-engine-shadow-proxy ] || { echo "proxy ownership mismatch" >&2; exit 1; }
+    [ "$(label "$proxy" io.ethereum-lisp.shadow-revision)" = "$revision" ] || { echo "proxy revision mismatch" >&2; exit 1; }
     [ "$(label "$proxy" io.ethereum-lisp.shadow-phase)" = soak ] || { echo "proxy is not in soak phase" >&2; exit 1; }
     soak_epoch="$(label "$proxy" io.ethereum-lisp.shadow-soak-start-epoch)"
     case "$soak_epoch" in *[!0-9]*|'') echo "invalid soak start epoch" >&2; exit 1 ;; esac
@@ -430,9 +435,18 @@ complete)
         mirror_errors="$(metric "$metrics" shadow_mirror_errors_total)"
         dropped="$(metric "$metrics" shadow_mirror_dropped_total)"
         mismatches="$(metric "$metrics" shadow_status_mismatches_total)"
-        if [ "${primary:-0}" -gt 0 ] && [ "$primary_errors" -eq 0 ] &&
-           [ "$mirror_errors" -eq 0 ] && [ "$dropped" -eq 0 ] &&
-           [ "$mismatches" -eq 0 ] && [ "$started" -eq "$succeeded" ]; then
+        observations="$(metric "$metrics" shadow_head_observations_total)"
+        head_rpc_errors="$(metric "$metrics" shadow_head_rpc_errors_total)"
+        lag_violations="$(metric "$metrics" shadow_head_lag_violations_total)"
+        root_mismatches="$(metric "$metrics" shadow_head_root_mismatches_total)"
+        max_lag="$(metric "$metrics" shadow_head_max_lag_blocks)"
+        minimum_observations="$(( required_soak / head_interval * 95 / 100 ))"
+        if [ "${primary:-0}" -gt 0 ] && [ "${primary_errors:-1}" -eq 0 ] &&
+           [ "${mirror_errors:-1}" -eq 0 ] && [ "${dropped:-1}" -eq 0 ] &&
+           [ "${mismatches:-1}" -eq 0 ] && [ "${started:-0}" -eq "${succeeded:-1}" ] &&
+           [ "${observations:-0}" -ge "$minimum_observations" ] &&
+           [ "${head_rpc_errors:-1}" -eq 0 ] && [ "${lag_violations:-1}" -eq 0 ] &&
+           [ "${root_mismatches:-1}" -eq 0 ] && [ "${max_lag:-3}" -le 2 ]; then
             balanced=true; break
         fi
         sleep 1
