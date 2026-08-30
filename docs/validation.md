@@ -1297,11 +1297,11 @@ metadata that still leaves the report usable is recorded as `report-gaps` and
 exits 0.
 
 CI archives one report per conformance job with `actions/upload-artifact`:
-`eest-conformance-report` from the blocking job (the `legacy-v5.4.0` corpus) and
-`eest-conformance-report-late-forks` from the non-blocking late-fork job
-(`tests@v20.0.1`). Both steps run under `if: always()`, because a run that
-failed is when its counts are worth the most, and both are echoed into the job
-summary.
+`eest-conformance-report` from the legacy compatibility job (the
+`legacy-v5.4.0` corpus) and `eest-conformance-report-late-forks` from the
+blocking current-fork job (`tests@v20.0.2`). Both steps run under
+`if: always()`, because a run that failed is when its counts are worth the most,
+and both are echoed into the job summary.
 
 ## Historical proof-of-work scope
 
