@@ -433,7 +433,8 @@
     (let* ((invalid
              (ethereum-lisp.chain-store:engine-payload-store-copy-block child))
            (head-hash
-             (make-hash32 (make-byte-vector 32 :initial-element #x5a))))
+             (make-hash32 (make-byte-vector 32 :initial-element #x5a)))
+           (durability-calls 0))
       ;; Gap fill stops as soon as this deterministic bad ancestor is executed,
       ;; so its later descendants may never enter the remote-block cache.  The
       ;; CL-authorized head alias must still make the verdict directly visible
@@ -441,13 +442,29 @@
       (setf (block-header-receipts-root (block-header invalid)) (zero-hash32))
       (multiple-value-bind (status candidate receipts)
           (import-p2p-block-candidate
-           store invalid config :invalid-head-hash head-hash)
+           store invalid config
+           :invalid-head-hash head-hash
+           :durability-function
+           (lambda (callback-store callback-block
+                    &key candidate-kind &allow-other-keys)
+             (incf durability-calls)
+             (is (eq :invalid candidate-kind))
+             (is (hash32= (block-hash invalid)
+                          (block-hash callback-block)))
+             ;; This is the production persistence adapter's prerequisite:
+             ;; it exports the candidate's own verdict and every head alias.
+             (is (engine-payload-store-invalid-block
+                  callback-store (block-hash invalid)))
+             (is (engine-payload-store-invalid-block
+                  callback-store head-hash))))
         (is (string= +payload-status-invalid+
                      (payload-status-status status)))
         (is (search "Receipts root mismatch"
                     (payload-status-validation-error status)))
         (is (null candidate))
         (is (null receipts)))
+      (is (= 1 durability-calls))
+      (is (engine-payload-store-invalid-block store (block-hash invalid)))
       (let ((aliased
               (engine-payload-store-invalid-block store head-hash)))
         (is aliased)

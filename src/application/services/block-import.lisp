@@ -309,6 +309,20 @@ the legacy two arguments (STORE CANDIDATE).  PROGRESS opts into :SOURCE,
       (ethereum-lisp.execution:transaction-validation-error-message
        condition)))))
 
+(defun block-import-mark-invalid-for-head (store block invalid-head-hash)
+  "Cache BLOCK's own verdict and an optional bounded-sync head alias."
+  ;; The durability adapter exports an invalid candidate by BLOCK's own hash,
+  ;; while Engine needs the CL-authorized descendant hash to resolve the same
+  ;; verdict after gap fill stopped before admitting the intervening bodies.
+  ;; Keep both keys inside this import transaction; storing only the alias
+  ;; violates the exporter invariant and rolls the whole verdict back.
+  (engine-payload-store-mark-invalid store block)
+  (when (and invalid-head-hash
+             (not (hash32= invalid-head-hash (block-hash block))))
+    (engine-payload-store-mark-invalid
+     store block :head-hash invalid-head-hash))
+  block)
+
 (defun block-import-validate-bufferable-p2p-block
     (block config &key sidecar)
   "Validate every peer-block property available before execution.
@@ -478,15 +492,15 @@ Returns PAYLOAD-STATUS, candidate block, and receipts."
                        store block config parent sidecar
                        +payload-status-syncing+))
                     (block-validation-error (condition)
-                      (engine-payload-store-mark-invalid
-                       store block :head-hash invalid-head-hash)
+                      (block-import-mark-invalid-for-head
+                       store block invalid-head-hash)
                       (values
                        (block-import-make-invalid-status parent condition)
                        nil nil))
                     (ethereum-lisp.execution:transaction-validation-error
                         (condition)
-                      (engine-payload-store-mark-invalid
-                       store block :head-hash invalid-head-hash)
+                      (block-import-mark-invalid-for-head
+                       store block invalid-head-hash)
                       (values
                        (block-import-make-invalid-status parent condition)
                        nil nil)))))
