@@ -56,6 +56,20 @@
   (setf (forkchoice-delta-test-database-applied-operation-batches database)
         nil))
 
+(defun forkchoice-delta-test-call-with-function-overrides (bindings thunk)
+  "Call THUNK with global function BINDINGS, restoring every definition."
+  (let ((originals
+          (mapcar (lambda (binding)
+                    (cons (car binding) (fdefinition (car binding))))
+                  bindings)))
+    (unwind-protect
+         (progn
+           (dolist (binding bindings)
+             (setf (fdefinition (car binding)) (cdr binding)))
+           (funcall thunk))
+      (dolist (binding originals)
+        (setf (fdefinition (car binding)) (cdr binding))))))
+
 (defun forkchoice-delta-test-operation-signatures (database)
   (sort
    (loop for batch in
@@ -358,6 +372,79 @@
       (is (= 1
              (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
               metadata))))))
+
+(deftest node-store-forkchoice-delta-skips-durable-installed-payload-records
+  (:layer :integration :module :storage)
+  (let* ((source (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1))
+         (state (make-state-db))
+         (genesis
+           (make-block
+            :header
+            (make-block-header
+             :number 0 :parent-hash (zero-hash32)
+             :state-root (state-db-root state)
+             :timestamp 0 :gas-limit 30000000 :extra-data (vector 0))))
+         (candidate
+           (make-block
+            :header
+            (make-block-header
+             :number 1 :parent-hash (block-hash genesis)
+             :state-root (state-db-root state)
+             :timestamp 1 :gas-limit 30000000 :extra-data (vector 1))))
+         (database (make-forkchoice-delta-test-database)))
+    (chain-store-put-block source genesis :state-available-p t)
+    (commit-state-db-to-chain-store source (block-hash genesis) state)
+    (engine-payload-store-put-block
+     source candidate :state-available-p t :canonicalize-p nil)
+    (commit-state-db-to-chain-store source (block-hash candidate) state)
+    (forkchoice-delta-test-set-checkpoints source genesis genesis genesis)
+    (node-store-export-to-kv source database)
+    (let ((store (make-database-engine-payload-store database)))
+      (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+       store)
+      (let* ((transition
+               (forkchoice-delta-test-select-head
+                store config candidate genesis genesis))
+             (immutable-symbol
+               'ethereum-lisp.node-store.persistence::node-store-put-immutable-block-records)
+             (state-symbol
+               'ethereum-lisp.node-store.persistence::node-store-put-state-record)
+             (immutable-original (fdefinition immutable-symbol))
+             (state-original (fdefinition state-symbol))
+             (immutable-calls 0)
+             (state-calls 0))
+        (is (ethereum-lisp.node-store.persistence::node-store-installed-block-records-durable-p
+             (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+              store)
+             candidate))
+        (is (ethereum-lisp.node-store.persistence::node-store-installed-state-record-durable-p
+             (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+              store)
+             candidate))
+        (forkchoice-delta-test-call-with-function-overrides
+         (list
+          (cons immutable-symbol
+                (lambda (&rest arguments)
+                  (incf immutable-calls)
+                  (apply immutable-original arguments)))
+          (cons state-symbol
+                (lambda (&rest arguments)
+                  (incf state-calls)
+                  (apply state-original arguments))))
+         (lambda ()
+           (node-store-export-forkchoice-to-kv
+            store transition database)))
+        (is (= 0 immutable-calls))
+        (is (= 0 state-calls))
+        (is (hash32=
+             (block-hash candidate)
+             (chain-store-canonical-hash store 1)))
+        (multiple-value-bind (persisted present-p)
+            (kv-get-chain-canonical-hash database 1)
+          (is present-p)
+          (is (bytes= persisted
+                      (hash32-bytes (block-hash candidate)))))))))
 
 (deftest node-store-forkchoice-delta-checkpoint-only-is-scoped-and-idempotent
   (let* ((store (make-engine-payload-memory-store))

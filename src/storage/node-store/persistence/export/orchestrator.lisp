@@ -44,6 +44,37 @@ record. Returns T when the batch changed."
          (setf changed-p t))))
     (values changed-p pending-nodes)))
 
+(defun node-store-installed-block-records-durable-p (store block)
+  "Return true when BLOCK is already owned by STORE's durable provider.
+
+A direct provider keeps a newly imported block in the memory overlay until its
+candidate batch commits.  That exporter then releases the overlay.  A later
+forkchoice transition can therefore distinguish an uncommitted installed
+block from one it just read back from the durable provider without repeating
+three immutable-record point reads."
+  (and (chain-store-durable-state-provider-p store)
+       (not
+        (nth-value
+         1
+         (gethash
+          (engine-payload-store-key (block-hash block))
+          (memory-chain-store-blocks store))))))
+
+(defun node-store-installed-state-record-durable-p (store block)
+  "Return true when BLOCK's available state has no pending durable write.
+
+CHAIN-STORE-PUT-STATE-PERSISTENCE (and the empty-baseline block put) owns an
+entry in STATE-BLOCKS until the candidate batch succeeds.  Direct-provider
+reads have no such entry, so forkchoice can publish their canonical indexes
+without reopening the already committed trie/state record."
+  (and (chain-store-durable-state-provider-p store)
+       (not
+        (nth-value
+         1
+         (gethash
+          (engine-payload-store-key (block-hash block))
+          (memory-chain-store-state-blocks store))))))
+
 (defun node-store-put-immutable-record
     (database batch kind identifier value record-label)
   (multiple-value-bind (existing-value present-p)
@@ -982,19 +1013,27 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
         (dolist (block installed-blocks)
           (let* ((hash (block-hash block))
                  (known-block (chain-store-known-block chain-store hash))
-                 (identifier (hash32-bytes hash)))
+                 (identifier (hash32-bytes hash))
+                 (block-records-durable-p
+                   (node-store-installed-block-records-durable-p
+                    chain-store block)))
             (unless (and known-block
                          (chain-store-persisted-block= known-block block)
                          (chain-store-canonical-block-p chain-store block))
               (block-validation-fail
                "Forkchoice transition installed block is not canonical"))
-            (when (node-store-put-immutable-block-records
-                   database batch block "Forkchoice transition")
-              (setf changed-p t))
+            (unless block-records-durable-p
+              (when (node-store-put-immutable-block-records
+                     database batch block "Forkchoice transition")
+                (setf changed-p t)))
             (when (node-store-populate-blob-sidecars-for-transactions-batch
                    chain-store database batch (block-transactions block))
               (setf changed-p t))
-            (when (chain-store-state-available-p chain-store hash)
+            (when (and
+                   (chain-store-state-available-p chain-store hash)
+                   (not
+                    (node-store-installed-state-record-durable-p
+                     chain-store block)))
               (push hash persisted-state-hashes)
               (multiple-value-bind (state-changed-p nodes)
                   (node-store-put-state-record
