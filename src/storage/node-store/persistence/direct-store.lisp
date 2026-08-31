@@ -11,12 +11,22 @@
 (defconstant +node-store-direct-account-cache-generation-limit+ 4096
   "Maximum immutable account snapshots retained in one cache generation.")
 
+(defconstant +node-store-direct-trie-node-cache-generation-limit+ 16384
+  "Maximum content-addressed trie nodes retained in one cache generation.")
+
 (defstruct (database-chain-store
             (:include memory-chain-store))
   (database (error "Database chain store requires a database")
             :type key-value-database)
   (account-cache (make-hash-table :test 'equal) :type hash-table)
   (previous-account-cache (make-hash-table :test 'equal) :type hash-table)
+  ;; Trie nodes are immutable and addressed by their Keccak hash.  Reopening a
+  ;; nearby state root therefore revisits almost all of the same durable nodes;
+  ;; retain two bounded generations instead of issuing a KV read for every
+  ;; traversal.  Cache encoded bytes so the shared entry cannot expose a
+  ;; mutable decoded node graph across concurrent executions.
+  (trie-node-cache (make-hash-table :test 'equalp) :type hash-table)
+  (previous-trie-node-cache (make-hash-table :test 'equalp) :type hash-table)
   ;; Public state RPC repeatedly asks for the immutable root of the current
   ;; head before traversing an account.  Keep exactly that root in process;
   ;; historical roots remain direct point reads and cannot accumulate here.
@@ -24,6 +34,9 @@
   (head-state-root-cache-root nil)
   (account-cache-lock
     #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-account-cache")
+    #-sbcl nil)
+  (trie-node-cache-lock
+    #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-trie-node-cache")
     #-sbcl nil))
 
 (defun make-empty-database-chain-store (database)
@@ -298,6 +311,42 @@ hash-table slot can start as NIL."
   (lambda (hash)
     (chain-store-backing-trie-node store hash)))
 
+(defun node-store-direct-trie-node-cache-lookup-unlocked (store identifier)
+  (multiple-value-bind (encoded present-p)
+      (gethash identifier (database-chain-store-trie-node-cache store))
+    (if present-p
+        (values encoded t)
+        (gethash identifier
+                 (database-chain-store-previous-trie-node-cache store)))))
+
+(defun node-store-direct-trie-node-cache-lookup (store identifier)
+  #+sbcl
+  (sb-thread:with-mutex ((database-chain-store-trie-node-cache-lock store))
+    (node-store-direct-trie-node-cache-lookup-unlocked store identifier))
+  #-sbcl
+  (node-store-direct-trie-node-cache-lookup-unlocked store identifier))
+
+(defun node-store-direct-trie-node-cache-put-unlocked
+    (store identifier encoded)
+  (when (>= (hash-table-count (database-chain-store-trie-node-cache store))
+            +node-store-direct-trie-node-cache-generation-limit+)
+    (setf (database-chain-store-previous-trie-node-cache store)
+          (database-chain-store-trie-node-cache store)
+          (database-chain-store-trie-node-cache store)
+          (make-hash-table :test 'equalp)))
+  (let ((cached (copy-seq encoded)))
+    (setf (gethash (copy-seq identifier)
+                   (database-chain-store-trie-node-cache store))
+          cached)
+    cached))
+
+(defun node-store-direct-trie-node-cache-put (store identifier encoded)
+  #+sbcl
+  (sb-thread:with-mutex ((database-chain-store-trie-node-cache-lock store))
+    (node-store-direct-trie-node-cache-put-unlocked store identifier encoded))
+  #-sbcl
+  (node-store-direct-trie-node-cache-put-unlocked store identifier encoded))
+
 (defun node-store-direct-account-cache-key (block-hash address)
   (engine-payload-store-account-key block-hash address))
 
@@ -459,8 +508,20 @@ hash-table slot can start as NIL."
     (unless (= 32 (length identifier))
       (block-validation-fail
        "Durable trie-node lookup requires a 32-byte hash"))
-    (kv-get-chain-record
-     (database-chain-store-database store) :trie-node identifier)))
+    (multiple-value-bind (cached cached-p)
+        (node-store-direct-trie-node-cache-lookup store identifier)
+      (if cached-p
+          (values (copy-seq cached) t)
+          (multiple-value-bind (encoded present-p)
+              (kv-get-chain-record
+               (database-chain-store-database store) :trie-node identifier)
+            (if present-p
+                (values
+                 (copy-seq
+                  (node-store-direct-trie-node-cache-put
+                   store identifier encoded))
+                 t)
+                (values nil nil)))))))
 
 (defun node-store-direct-pending-code (store identifier)
   (block found

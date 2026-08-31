@@ -330,6 +330,50 @@
                  (hash-table-count previous))
               (* 2 limit))))))
 
+(deftest database-chain-store-trie-node-cache-is-bounded-and-read-through
+  (let* ((database (make-instance 'direct-store-test-database))
+         (store
+           (ethereum-lisp.node-store.persistence::make-empty-database-chain-store
+            database))
+         (identifier (make-byte-vector 32 :initial-element 17))
+         (encoded #(#xc2 #x81 #x01))
+         (limit
+           ethereum-lisp.node-store.persistence::+node-store-direct-trie-node-cache-generation-limit+))
+    (kv-put-chain-record database :trie-node identifier encoded)
+    (multiple-value-bind (first present-p)
+        (ethereum-lisp.chain-store:chain-store-backing-trie-node
+         store identifier)
+      (is present-p)
+      (is (bytes= encoded first))
+      ;; A caller cannot mutate the shared cached value.
+      (setf (aref first 0) 0))
+    (let ((reads (direct-store-test-database-get-count database)))
+      (multiple-value-bind (second present-p)
+          (ethereum-lisp.chain-store:chain-store-backing-trie-node
+           store identifier)
+        (is present-p)
+        (is (bytes= encoded second)))
+      (is (= reads (direct-store-test-database-get-count database))))
+    (dotimes (index (+ (* 2 limit) 3))
+      (ethereum-lisp.node-store.persistence::node-store-direct-trie-node-cache-put
+       store
+       (let ((key (make-byte-vector 32 :initial-element 0)))
+         (setf (aref key 30) (ldb (byte 8 8) index)
+               (aref key 31) (ldb (byte 8 0) index))
+         key)
+       encoded))
+    (let ((current
+            (ethereum-lisp.node-store.persistence::database-chain-store-trie-node-cache
+             store))
+          (previous
+            (ethereum-lisp.node-store.persistence::database-chain-store-previous-trie-node-cache
+             store)))
+      (is (<= (hash-table-count current) limit))
+      (is (<= (hash-table-count previous) limit))
+      (is (<= (+ (hash-table-count current)
+                 (hash-table-count previous))
+              (* 2 limit))))))
+
 (deftest direct-account-point-reads-see-pending-and-persisted-tries
   (let* ((bootstrap (make-engine-payload-memory-store))
          (database (make-instance 'direct-store-test-database))
