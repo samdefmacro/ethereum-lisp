@@ -57,6 +57,30 @@
       (setf (devnet-persistence-state-chain-generation state) generation))
     (values result generation)))
 
+(defun devnet-cli-call-with-next-persistence-generation-when-written
+    (state role thunk)
+  "Call THUNK with the next metadata, confirming it only after a real write.
+
+THUNK returns its ordinary result and a second value that is true exactly when
+the target artifact committed a durable mutation.  This keeps an idempotent
+forkchoiceUpdated request from advancing the in-memory database generation
+past the metadata that actually exists on disk."
+  (unless (functionp thunk)
+    (block-validation-fail
+     "Conditional persistence generation writer must be a function"))
+  (let* ((generation (devnet-cli-next-persistence-generation state))
+         (metadata
+           (devnet-cli-persistence-metadata-for-generation
+            state role generation)))
+    (multiple-value-bind (result written-p)
+        (funcall thunk metadata)
+      (when written-p
+        (setf (devnet-persistence-state-current-generation state) generation)
+        (when (eq role :database)
+          (setf (devnet-persistence-state-chain-generation state)
+                generation)))
+      (values result (and written-p generation) written-p))))
+
 (defun devnet-cli-confirm-database-generation (state generation)
   (setf (devnet-persistence-state-chain-generation state) generation
         (devnet-persistence-state-current-generation state)
@@ -130,7 +154,7 @@
       ;; STORAGE-ERROR eligible for dev-period retry.
       (let ((database
               (devnet-cli-make-output-kv-database database-path engine)))
-        (devnet-cli-call-with-next-persistence-generation
+        (devnet-cli-call-with-next-persistence-generation-when-written
          persistence-state
          :database
          (lambda (metadata)

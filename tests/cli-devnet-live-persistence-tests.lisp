@@ -1,5 +1,51 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest devnet-conditional-persistence-generation-advances-only-on-write
+  (let* ((state
+           (ethereum-lisp.cli::make-devnet-persistence-state
+            :current-generation 7
+            :chain-generation 6
+            :chain-id 1
+            :genesis-hash (zero-hash32)
+            :authority-id (zero-hash32)))
+         (offered-generation nil))
+    (multiple-value-bind (result generation written-p)
+        (ethereum-lisp.cli::devnet-cli-call-with-next-persistence-generation-when-written
+         state :database
+         (lambda (metadata)
+           (setf offered-generation
+                 (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                  metadata))
+           (values :unchanged nil)))
+      (is (eq :unchanged result))
+      (is (null generation))
+      (is (null written-p)))
+    (is (= 8 offered-generation))
+    (is (= 7
+           (ethereum-lisp.cli::devnet-persistence-state-current-generation
+            state)))
+    (is (= 6
+           (ethereum-lisp.cli::devnet-persistence-state-chain-generation
+            state)))
+    (multiple-value-bind (result generation written-p)
+        (ethereum-lisp.cli::devnet-cli-call-with-next-persistence-generation-when-written
+         state :database
+         (lambda (metadata)
+           (setf offered-generation
+                 (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+                  metadata))
+           (values :written t)))
+      (is (eq :written result))
+      (is (= 8 generation))
+      (is written-p))
+    (is (= 8 offered-generation))
+    (is (= 8
+           (ethereum-lisp.cli::devnet-persistence-state-current-generation
+            state)))
+    (is (= 8
+           (ethereum-lisp.cli::devnet-persistence-state-chain-generation
+            state)))))
+
 (defun devnet-live-state-record-present-p (database identifier)
   "A block's state persists as :STATE for a baseline or :STATE-DIFF for a
 diff in an oracle, or as :STATE-HISTORY for the direct trie provider."

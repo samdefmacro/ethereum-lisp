@@ -1035,10 +1035,6 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    (node-store-populate-state-retention-batch
                     chain-store transition database batch installed-blocks))
           (setf changed-p t))
-        (when persistence-metadata
-          (node-store-populate-persistence-metadata-batch
-           batch persistence-metadata)
-          (setf changed-p t))
         ;; Finality/age/count pruning ran before this exporter. Synchronize the
         ;; bounded invalid and remote sets in the same forkchoice WAL batch so a
         ;; quiet node cannot retain pruned verdicts/targets forever on disk.
@@ -1063,6 +1059,14 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
             (when remote-changed-p
               (setf changed-p t))))
         (when changed-p
+          ;; Metadata describes a durable mutation, not receipt of an
+          ;; idempotent forkchoice request.  In particular, a consensus client
+          ;; asks for a child build by repeating the current head; writing only
+          ;; a new generation for that no-op would force one RocksDB WAL sync
+          ;; per block without publishing any new chain fact.
+          (when persistence-metadata
+            (node-store-populate-persistence-metadata-batch
+             batch persistence-metadata))
           (kv-apply-batch database batch)
           (mpt-mark-nodes-persisted pending-trie-nodes)
           (dolist (hash persisted-state-hashes)
@@ -1077,7 +1081,7 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
           (chain-store-release-durable-block-overlay chain-store block))
         (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
          store transaction-hashes)
-        database))))
+        (values database changed-p)))))
 
 (defun node-store-block-access-list-live-identifiers (store database)
   "Return the block identifiers that may reference shared BAL side data.

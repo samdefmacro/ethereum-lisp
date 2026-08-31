@@ -312,6 +312,53 @@
            (forkchoice-delta-test-database-applied-operation-batches
             database))))))
 
+(deftest node-store-forkchoice-delta-noop-does-not-write-metadata-only-batch
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1))
+         (genesis (forkchoice-delta-test-block nil 0 0))
+         (database (make-forkchoice-delta-test-database))
+         (authority-id (peer-sync-progress-test-authority-id))
+         (metadata-1
+           (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+            :role :database :generation 1 :chain-id 1
+            :genesis-hash (block-hash genesis)
+            :authority-id authority-id :base-chain-generation 1))
+         (metadata-2
+           (ethereum-lisp.node-store.persistence:make-node-store-persistence-metadata
+            :role :database :generation 2 :chain-id 1
+            :genesis-hash (block-hash genesis)
+            :authority-id authority-id :base-chain-generation 2)))
+    (engine-payload-store-put-block
+     store genesis :state-available-p t :canonicalize-p t)
+    (forkchoice-delta-test-set-checkpoints
+     store genesis genesis genesis)
+    (node-store-export-to-kv
+     store database :persistence-metadata metadata-1)
+    (forkchoice-delta-test-reset-operations database)
+    (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+     store)
+    (multiple-value-bind (head transition)
+        (chain-store-set-canonical-head
+         store (block-hash genesis)
+         :expected-chain-id (chain-config-chain-id config)
+         :chain-config config
+         :reconcile-unchanged-head-p nil)
+      (declare (ignore head))
+      (multiple-value-bind (result written-p)
+          (node-store-export-forkchoice-to-kv
+           store transition database :persistence-metadata metadata-2)
+        (is (eq result database))
+        (is (null written-p))))
+    (is (null
+         (forkchoice-delta-test-database-applied-operation-batches database)))
+    (multiple-value-bind (metadata present-p)
+        (ethereum-lisp.node-store.persistence:node-store-read-persistence-metadata
+         database)
+      (is present-p)
+      (is (= 1
+             (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
+              metadata))))))
+
 (deftest node-store-forkchoice-delta-checkpoint-only-is-scoped-and-idempotent
   (let* ((store (make-engine-payload-memory-store))
          (config (make-chain-config :chain-id 1))
