@@ -677,6 +677,8 @@ Content-Type: application/json
                                  "payloadStatus")
                           "status")))
       (is (string= "/" (field fields "httpTarget")))
+      (is (integerp (field fields "readMs")))
+      (is (not (minusp (field fields "readMs"))))
       (is (integerp (field fields "handlerMs")))
       (is (not (minusp (field fields "handlerMs"))))
       (is (string= +payload-status-syncing+

@@ -149,7 +149,8 @@
           persistent-p
           telemetry-sink
           telemetry-fields)
-  (let* ((started-at (get-internal-real-time))
+  (let* ((read-started-at (get-internal-real-time))
+         (handler-started-at nil)
          (request nil)
          (close-p t)
          (response nil))
@@ -158,6 +159,7 @@
           (setf request (engine-rpc-read-http-request-string input-stream))
           (when (null request)
             (return-from rpc-http-handle-stream (values nil t)))
+          (setf handler-started-at (get-internal-real-time))
           (setf close-p
                 (or (not persistent-p)
                     (engine-rpc-http-request-close-p request)))
@@ -179,7 +181,9 @@
               (engine-rpc-http-error-response
                400 "Bad Request"
                (format nil "~A" condition)))))
-    (let ((status-code (engine-rpc-http-response-status-code response)))
+    (let* ((handled-at (get-internal-real-time))
+           (handler-started-at (or handler-started-at handled-at))
+           (status-code (engine-rpc-http-response-status-code response)))
       (ethereum-lisp.telemetry:telemetry-log
        :info
        "engine.rpc.http.request"
@@ -191,9 +195,13 @@
                (when status-code
                  (list (cons "status" (format nil "~D" status-code))))
                (list
+                (cons "readMs"
+                      (round
+                       (* 1000 (- handler-started-at read-started-at))
+                       internal-time-units-per-second))
                 (cons "handlerMs"
                       (round
-                       (* 1000 (- (get-internal-real-time) started-at))
+                       (* 1000 (- handled-at handler-started-at))
                        internal-time-units-per-second)))
                (engine-rpc-http-response-telemetry-fields response)))
       (write-string response output-stream)
