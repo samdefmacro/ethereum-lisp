@@ -983,12 +983,7 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
              ;; consensus client after an unclean shutdown. Match geth's
              ;; foreground NoSync path instead of forcing one fsync per block.
              ;; Reorgs and persisted/current reconciliation remain explicit
-             ;; seams. Head, safe, and finalized checkpoints are all CL-owned
-             ;; replayable progress: after an unclean restart the consensus
-             ;; client resends its complete forkchoice state. Keeping those
-             ;; three markers in one NoSync WAL batch also matches geth's
-             ;; foreground chain-write policy instead of turning every safe
-             ;; advance into a hidden per-block fsync.
+             ;; seams; safe/finalized checkpoint changes add one below.
              (durability-seam-required-p
                (or sync-pivot-target-supplied-p
                    (canonical-chain-transition-displaced-blocks transition)
@@ -1026,7 +1021,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                         (chain-store-finalized-checkpoint chain-store))))
           (when (node-store-sync-checkpoint
                  database batch (cdr entry) (car entry))
-            (setf changed-p t)))
+            (setf changed-p t)
+            (when (member (car entry) '(:safe :finalized))
+              (setf durability-seam-required-p t))))
         (dolist (block installed-blocks)
           (let* ((hash (block-hash block))
                  (known-block (chain-store-known-block chain-store hash))
@@ -1129,10 +1126,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    (kv-buffered-batch-supported-p database)))
         (when changed-p
           ;; Metadata describes a database mutation, not receipt of an
-          ;; idempotent forkchoice request. Recoverable straight-head,
-          ;; safe/finalized, or txpool-only FCUs stage the same unconfirmed
-          ;; generation until a reorg/pivot/shutdown seam flushes the WAL
-          ;; prefix. RocksDB also syncs bounded WAL prefixes in the background.
+          ;; idempotent forkchoice request. Recoverable straight-head or
+          ;; txpool-only FCUs stage the same unconfirmed generation until a
+          ;; safe/finalized/reorg/pivot/shutdown seam flushes the WAL prefix.
           (when persistence-metadata
             (node-store-populate-persistence-metadata-batch
              batch persistence-metadata))

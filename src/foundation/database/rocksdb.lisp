@@ -330,9 +330,8 @@ silently changing the storage profile."
           ;; Match geth's Pebble durability cadence for recoverable head
           ;; progress: ordinary batches may avoid a foreground fsync, while
           ;; RocksDB incrementally syncs each roughly 500-KiB WAL prefix in the
-          ;; background. Reorg/pivot/shutdown publication still uses the
-          ;; explicit sync=1 handle below; CL-replayable head, safe, and
-          ;; finalized progress stays on this bounded NoSync path.
+          ;; background. Safe/finalized/reorg/pivot publication still uses the
+          ;; explicit sync=1 handle below.
           (%rocks-options-wal-bytes-per-sync
            options +rocksdb-wal-bytes-per-sync+)
           (unless

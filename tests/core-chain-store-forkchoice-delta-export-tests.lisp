@@ -592,10 +592,7 @@
             transition)))
       (forkchoice-delta-test-export-without-iteration
        store transition database)
-      ;; Safe/finalized are part of the CL-owned forkchoice state and are
-      ;; replayed together after a crash, so a checkpoint-only advance stays
-      ;; on the bounded NoSync WAL path too.
-      (is (= 1
+      (is (= 0
              (forkchoice-delta-test-database-buffered-apply-attempts
               database)))
       (is (equal
@@ -620,7 +617,7 @@
               :chain-config config))))
       (forkchoice-delta-test-export-without-iteration
        store transition database)
-      (is (= 1
+      (is (= 0
              (forkchoice-delta-test-database-buffered-apply-attempts
               database)))
       (is (equal
