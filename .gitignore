@@ -13,5 +13,5 @@
 *.so
 *.dylib
 *.dll
-/.eest-fixtures/
+/.eest-fixtures*/
 /.worktrees/
