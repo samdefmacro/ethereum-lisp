@@ -2,15 +2,6 @@
 
 ;;;; CLI telemetry sink selection and error logging.
 
-(defparameter +devnet-cli-stream-excluded-events+
-  '("engine.rpc.http.request")
-  "High-cardinality events kept out of the production stream sink.
-
-The node's counting sink still observes these before delegating to the stream,
-so request totals remain available to metrics. Per-request method/timing rows
-are diagnostic tracing, not geth-style default operational logging; rendering
-one synchronously before every response serializes high-throughput RPC flows.")
-
 (defun devnet-cli-error-log-file (args)
   (when (and args (string= "devnet" (first args)))
     (setf args (rest args)))
@@ -62,14 +53,10 @@ one synchronously before every response serializes high-throughput RPC flows.")
                                 :if-does-not-exist :create)
           (funcall thunk
                    (ethereum-lisp.telemetry:make-stream-telemetry-sink
-                    :stream stream
-                    :excluded-event-names
-                    +devnet-cli-stream-excluded-events+)))
+                    :stream stream)))
         (funcall thunk
                  (ethereum-lisp.telemetry:make-stream-telemetry-sink
-                  :stream output-stream
-                  :excluded-event-names
-                  +devnet-cli-stream-excluded-events+)))))
+                  :stream output-stream)))))
 
 (defun devnet-cli-report-ignored-options (options error-stream)
   (declare (ignore error-stream))
