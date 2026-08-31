@@ -65,6 +65,32 @@
       (is (equal '(("endpoint" . "localhost:8551"))
                  (getf record :fields))))))
 
+(deftest stream-telemetry-sink-excludes-only-configured-events
+  (let* ((output (make-string-output-stream))
+         (sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                :stream output
+                :excluded-event-names '("rpc.trace"))))
+    (ethereum-lisp.telemetry:telemetry-log :info "rpc.trace" :sink sink)
+    (ethereum-lisp.telemetry:telemetry-log :info "sync.progress" :sink sink)
+    (let* ((input (make-string-input-stream
+                   (get-output-stream-string output)))
+           (record (read input nil :eof)))
+      (is (string= "sync.progress" (getf record :name)))
+      (is (eq :eof (read input nil :eof))))))
+
+(deftest stream-telemetry-sink-copies-and-validates-exclusions
+  (let* ((excluded (list "rpc.trace"))
+         (output (make-string-output-stream))
+         (sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                :stream output :excluded-event-names excluded)))
+    (setf (first excluded) "sync.progress")
+    (ethereum-lisp.telemetry:telemetry-log :info "rpc.trace" :sink sink)
+    (is (string= "" (get-output-stream-string output))))
+  (signals error
+    (ethereum-lisp.telemetry:make-stream-telemetry-sink
+     :stream (make-string-output-stream)
+     :excluded-event-names '("ok" 1))))
+
 #+sbcl
 (deftest stream-telemetry-sink-serializes-concurrent-writes
   (let* ((output (make-string-output-stream))

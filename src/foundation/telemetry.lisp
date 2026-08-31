@@ -18,15 +18,21 @@
 
 (defstruct (stream-telemetry-sink
             (:constructor %make-stream-telemetry-sink
-                (&key stream)))
+                (&key stream excluded-event-names)))
   stream
+  (excluded-event-names nil :type list)
   #+sbcl
   (lock (sb-thread:make-mutex :name "telemetry stream sink")))
 
-(defun make-stream-telemetry-sink (&key (stream *standard-output*))
+(defun make-stream-telemetry-sink
+    (&key (stream *standard-output*) excluded-event-names)
   (unless (output-stream-p stream)
     (error "Telemetry stream sink requires an output stream"))
-  (%make-stream-telemetry-sink :stream stream))
+  (unless (and (listp excluded-event-names)
+               (every #'stringp excluded-event-names))
+    (error "Telemetry excluded event names must be a string list"))
+  (%make-stream-telemetry-sink
+   :stream stream :excluded-event-names (copy-list excluded-event-names)))
 
 (defstruct (counting-telemetry-sink
             (:constructor %make-counting-telemetry-sink (counts lock delegate)))
@@ -107,12 +113,15 @@ being mutated by a worker thread underneath it."
 
 (defmethod telemetry-emit
     ((sink stream-telemetry-sink) (event telemetry-event))
-  (let ((stream (stream-telemetry-sink-stream sink)))
-    #+sbcl
-    (sb-thread:with-mutex ((stream-telemetry-sink-lock sink))
-      (telemetry-write-event-record stream event))
-    #-sbcl
-    (telemetry-write-event-record stream event))
+  (unless (member (telemetry-event-name event)
+                  (stream-telemetry-sink-excluded-event-names sink)
+                  :test #'string=)
+    (let ((stream (stream-telemetry-sink-stream sink)))
+      #+sbcl
+      (sb-thread:with-mutex ((stream-telemetry-sink-lock sink))
+        (telemetry-write-event-record stream event))
+      #-sbcl
+      (telemetry-write-event-record stream event)))
   event)
 
 (defun telemetry-events (sink)
