@@ -133,17 +133,6 @@
     (is (hash32= (block-hash parent)
                  (block-hash (chain-store-head-block store))))))
 
-(deftest block-import-private-candidate-validation-stays-detached
-  (multiple-value-bind (store config parent child)
-      (block-import-test-fixture)
-    (is (eq child
-            (validate-private-block-candidate store child config)))
-    (is (null (chain-store-known-block store (block-hash child))))
-    (is (not (chain-store-state-available-p store (block-hash child))))
-    (is (null (chain-store-canonical-hash store 1)))
-    (is (hash32= (block-hash parent)
-                 (block-hash (chain-store-head-block store))))))
-
 (deftest block-import-private-builder-rolls-back-accidental-publication
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)

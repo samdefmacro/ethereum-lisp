@@ -132,7 +132,6 @@
         #:ethereum-lisp.engine)
   (:export
    #:build-private-block-candidate
-   #:validate-private-block-candidate
    #:import-executable-payload
    #:import-block-candidate
    #:import-p2p-block-candidate

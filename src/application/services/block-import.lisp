@@ -198,17 +198,6 @@ an optional process-local post-state which a matching newPayload may reuse."
        (block-import-private-candidate-ready-receipts condition)
        (block-import-private-candidate-ready-execution-state condition)))))
 
-(defun validate-private-block-candidate (store block config &key sidecar)
-  "Validate a block already built on detached state without publishing it.
-
-Unlike BUILD-PRIVATE-BLOCK-CANDIDATE, this seam does not execute an arbitrary
-builder inside a store rollback frame.  Its caller must already own BLOCK and
-any post-state privately.  The common parent, header, body, sender, and sidecar
-checks are read-only with respect to STORE, so paying for a whole-store volatile
-snapshot here would only duplicate the detached state boundary."
-  (block-import-validate-candidate store block config :sidecar sidecar)
-  block)
-
 (defun block-import-require-executor-publication
     (store input-block candidate)
   "Verify that an injected executor published exactly INPUT-BLOCK with state."
