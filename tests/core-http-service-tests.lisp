@@ -1032,6 +1032,22 @@ Content-Type: application/json
   (require :sb-bsd-sockets))
 
 #+sbcl
+(deftest engine-rpc-http-configures-client-sockets-for-low-latency
+  (:layer :integration :module :rpc-http :requires-local-sockets t)
+  (let ((socket (make-instance 'sb-bsd-sockets:inet-socket
+                               :type :stream
+                               :protocol :tcp)))
+    (unwind-protect
+         (progn
+           (setf (sb-bsd-sockets:sockopt-tcp-nodelay socket) nil)
+           (is (null (sb-bsd-sockets:sockopt-tcp-nodelay socket)))
+           (is (eq socket
+                   (ethereum-lisp.rpc-http::engine-rpc-http-configure-client-socket
+                    socket)))
+           (is (sb-bsd-sockets:sockopt-tcp-nodelay socket)))
+      (ignore-errors (sb-bsd-sockets:socket-close socket)))))
+
+#+sbcl
 (deftest engine-rpc-http-service-serves-local-socket
   (:layer :integration :module :rpc-http :requires-local-sockets t)
   (labels ((field (object name)

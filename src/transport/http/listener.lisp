@@ -65,6 +65,17 @@
       "127.0.0.1"
       host))
 
+(defun engine-rpc-http-configure-client-socket (socket)
+  "Configure an accepted HTTP SOCKET for low-latency persistent RPC traffic.
+
+Engine and public RPC issue short, ordered request/response exchanges.  With
+HTTP/1.1 keep-alive, Nagle coalescing on the server side can interact with a
+peer's delayed ACK timer and add tens of milliseconds to every exchange.  Go's
+TCP connections disable Nagle by default; mirror that contract here."
+  #+sbcl
+  (setf (sb-bsd-sockets:sockopt-tcp-nodelay socket) t)
+  socket)
+
 (defun make-engine-rpc-http-socket-listener
     (service &key (backlog 16))
   (unless (typep service 'engine-rpc-http-service)
@@ -108,6 +119,7 @@
                (multiple-value-bind (client-socket peer-address peer-port)
                    (sb-bsd-sockets:socket-accept socket)
                  (declare (ignore peer-address peer-port))
+                 (engine-rpc-http-configure-client-socket client-socket)
                  (let ((stream
                          (sb-bsd-sockets:socket-make-stream
                           client-socket
