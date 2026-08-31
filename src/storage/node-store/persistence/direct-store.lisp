@@ -17,6 +17,11 @@
             :type key-value-database)
   (account-cache (make-hash-table :test 'equal) :type hash-table)
   (previous-account-cache (make-hash-table :test 'equal) :type hash-table)
+  ;; Public state RPC repeatedly asks for the immutable root of the current
+  ;; head before traversing an account.  Keep exactly that root in process;
+  ;; historical roots remain direct point reads and cannot accumulate here.
+  (head-state-root-cache-hash nil)
+  (head-state-root-cache-root nil)
   (account-cache-lock
     #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-account-cache")
     #-sbcl nil))
@@ -202,32 +207,92 @@ hash-table slot can start as NIL."
   (declare (ignore store))
   nil)
 
+(defun node-store-direct-head-state-root-cache-lookup-unlocked
+    (store block-hash)
+  (let ((cached-hash (database-chain-store-head-state-root-cache-hash store)))
+    (if (and cached-hash (hash32= cached-hash block-hash))
+        (values
+         (database-chain-store-head-state-root-cache-root store)
+         t)
+        (values nil nil))))
+
+(defun node-store-direct-head-state-root-cache-lookup (store block-hash)
+  #+sbcl
+  (sb-thread:with-mutex ((database-chain-store-account-cache-lock store))
+    (node-store-direct-head-state-root-cache-lookup-unlocked store block-hash))
+  #-sbcl
+  (node-store-direct-head-state-root-cache-lookup-unlocked store block-hash))
+
+(defun node-store-direct-head-state-root-cache-put-unlocked
+    (store block-hash root)
+  (let* ((checkpoint (memory-chain-store-head-checkpoint store))
+         (head-hash
+           (and checkpoint
+                (chain-store-checkpoint-block-hash checkpoint))))
+    (when (and head-hash (hash32= head-hash block-hash))
+      (setf (database-chain-store-head-state-root-cache-hash store) block-hash
+            (database-chain-store-head-state-root-cache-root store) root)))
+  root)
+
+(defun node-store-direct-head-state-root-cache-put (store block-hash root)
+  #+sbcl
+  (sb-thread:with-mutex ((database-chain-store-account-cache-lock store))
+    (node-store-direct-head-state-root-cache-put-unlocked
+     store block-hash root))
+  #-sbcl
+  (node-store-direct-head-state-root-cache-put-unlocked store block-hash root))
+
+(defun node-store-direct-head-state-root-cache-clear (store)
+  #+sbcl
+  (sb-thread:with-mutex ((database-chain-store-account-cache-lock store))
+    (setf (database-chain-store-head-state-root-cache-hash store) nil
+          (database-chain-store-head-state-root-cache-root store) nil))
+  #-sbcl
+  (setf (database-chain-store-head-state-root-cache-hash store) nil
+        (database-chain-store-head-state-root-cache-root store) nil)
+  store)
+
+(defmethod chain-store-forkchoice-cache-reset
+    ((store database-chain-store))
+  ;; The old head may cease to be retention-protected in the same durable
+  ;; transition.  Clear even for a no-op update; one point read repopulates it.
+  (node-store-direct-head-state-root-cache-clear store))
+
 (defmethod chain-store-backing-state-root
     ((store database-chain-store) block-hash)
   (unless (hash32-p block-hash)
     (block-validation-fail "Durable state lookup requires a block hash32"))
-  (multiple-value-bind (root present-p)
-      (kv-get-chain-record
-       (database-chain-store-database store)
-       :state-history
-       (hash32-bytes block-hash))
-    (if present-p
-        (progn
-          (unless (= 32 (length root))
-            (storage-fail
-             "Durable state-history record must contain a 32-byte root"))
-          (let* ((root (make-hash32 root))
-                 (block (engine-payload-store-known-block store block-hash))
-                 (header-root
-                   (and block (block-header-state-root (block-header block)))))
-            (unless block
-              (storage-fail
-               "Durable state-history record references an unknown block"))
-            (unless (and header-root (hash32= root header-root))
-              (storage-fail
-               "Durable state-history root does not match the block header"))
-            (values root t)))
-        (values nil nil))))
+  (multiple-value-bind (cached-root cached-p)
+      (node-store-direct-head-state-root-cache-lookup store block-hash)
+    (if cached-p
+        (values cached-root t)
+        (multiple-value-bind (root present-p)
+            (kv-get-chain-record
+             (database-chain-store-database store)
+             :state-history
+             (hash32-bytes block-hash))
+          (if present-p
+              (progn
+                (unless (= 32 (length root))
+                  (storage-fail
+                   "Durable state-history record must contain a 32-byte root"))
+                (let* ((root (make-hash32 root))
+                       (block
+                         (engine-payload-store-known-block store block-hash))
+                       (header-root
+                         (and block
+                              (block-header-state-root
+                               (block-header block)))))
+                  (unless block
+                    (storage-fail
+                     "Durable state-history record references an unknown block"))
+                  (unless (and header-root (hash32= root header-root))
+                    (storage-fail
+                     "Durable state-history root does not match the block header"))
+                  (node-store-direct-head-state-root-cache-put
+                   store block-hash root)
+                  (values root t)))
+              (values nil nil))))))
 
 (defun node-store-direct-trie-node-loader (store)
   (lambda (hash)

@@ -206,4 +206,5 @@
          :block-hash
          (engine-payload-store-forkchoice-checkpoint-hash
           (forkchoice-state-finalized-block-hash state))))
+  (chain-store-forkchoice-cache-reset store)
   store)

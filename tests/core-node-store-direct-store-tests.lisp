@@ -2,6 +2,9 @@
 
 (defclass direct-store-test-database (memory-key-value-database)
   ((get-count :initform 0 :accessor direct-store-test-database-get-count)
+   (state-history-get-count
+    :initform 0
+    :accessor direct-store-test-database-state-history-get-count)
    (last-operations
     :initform nil
     :accessor direct-store-test-database-last-operations)
@@ -48,8 +51,14 @@
 
 (defmethod kv-get :around
     ((database direct-store-test-database) key &optional default)
-  (declare (ignore key default))
+  (declare (ignore default))
   (incf (direct-store-test-database-get-count database))
+  (when (and (byte-vector-p key)
+             (plusp (length key))
+             (= (aref key 0)
+                (ethereum-lisp.database::kv-chain-record-kind-prefix
+                 :state-history)))
+    (incf (direct-store-test-database-state-history-get-count database)))
   (call-next-method))
 
 (defmethod kv-iterator :around
@@ -189,8 +198,66 @@
         (is present-p)
         (is (bytes= persisted-root (hash32-bytes root))))
       (setf (direct-store-test-database-get-count database) 0
+            (direct-store-test-database-state-history-get-count database) 0
             (direct-store-test-database-forbid-iteration-p database) t)
       (let ((direct (make-database-engine-payload-store database)))
+        (let* ((block-hash (block-hash block))
+               (first-root
+                 (ethereum-lisp.chain-store::chain-store-state-root
+                  direct block-hash))
+               (reads-after-first-root
+                 (direct-store-test-database-get-count database)))
+          (is (hash32= root first-root))
+          (is (hash32=
+               root
+               (ethereum-lisp.chain-store::chain-store-state-root
+                direct block-hash)))
+          ;; The current head is immutable between forkchoice transitions.
+          ;; State availability plus account/storage RPC must not point-read
+          ;; the same state-history record thousands of times.
+          (is (= reads-after-first-root
+                 (direct-store-test-database-get-count database)))
+          (let ((state-history-reads
+                  (direct-store-test-database-state-history-get-count
+                   database)))
+            ;; Mirrors Hive's 1024 balance plus 1024 storage verifications:
+            ;; availability checks at one immutable head reuse one root.
+            (dotimes (index 2048)
+              (declare (ignore index))
+              (is (chain-store-state-available-p direct block-hash)))
+            (is (= state-history-reads
+                   (direct-store-test-database-state-history-get-count
+                    database))))
+          (chain-store-update-forkchoice-checkpoints
+           direct
+           (make-forkchoice-state
+            :head-block-hash block-hash
+            :safe-block-hash block-hash
+            :finalized-block-hash block-hash))
+          (let ((reads-after-forkchoice
+                  (direct-store-test-database-get-count database)))
+            ;; Exercise the provider cache directly here.  The public lookup
+            ;; may also be satisfied by a transaction-local state-root entry;
+            ;; that is independently correct and must not weaken this cache's
+            ;; invalidation check.
+            (multiple-value-bind (persisted-root present-p)
+                (ethereum-lisp.chain-store:chain-store-backing-state-root
+                 (ethereum-lisp.chain-store.state:chain-store-component direct)
+                 block-hash)
+              (is present-p)
+              (is (hash32= root persisted-root)))
+            (is (> (direct-store-test-database-get-count database)
+                   reads-after-forkchoice))
+            (let ((reads-after-refill
+                    (direct-store-test-database-get-count database)))
+              (multiple-value-bind (persisted-root present-p)
+                  (ethereum-lisp.chain-store:chain-store-backing-state-root
+                   (ethereum-lisp.chain-store.state:chain-store-component direct)
+                   block-hash)
+                (is present-p)
+                (is (hash32= root persisted-root)))
+              (is (= reads-after-refill
+                     (direct-store-test-database-get-count database))))))
         ;; Generic chain-store reads are used by txpool admission/revalidation
         ;; and public RPC. They must resolve the secure trie too, rather than
         ;; silently falling back to empty legacy flat tables after restart.

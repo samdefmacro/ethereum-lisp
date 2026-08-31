@@ -111,6 +111,13 @@ provider that has no trie state for the requested block."))
   (declare (ignore store))
   t)
 
+(defgeneric chain-store-forkchoice-cache-reset (store)
+  (:documentation
+   "Invalidate provider-specific read caches after forkchoice publication."))
+
+(defmethod chain-store-forkchoice-cache-reset ((store t))
+  store)
+
 (defun chain-store-release-durable-block-overlay (store block)
   "Drop BLOCK's immutable cache entries once the durable batch owns them."
   (setf store (chain-store-require-memory-store store))
