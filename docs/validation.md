@@ -1382,6 +1382,24 @@ instead of being visible only to whoever happened to run the check locally.
 
 ## Archived Conformance Reports
 
+Fetch an external corpus through the reviewed container broker. The destination
+must be a dedicated `.eest-fixtures*` directory immediately below the checkout;
+the fetch container gets network access, a read-only checkout and root
+filesystem, no capabilities or Docker socket, and only that fixture directory
+is writable. Keeping a qualification run in its own directory also prevents a
+same-named archive from another release from being mistaken for the pinned
+bytes:
+
+```sh
+scripts/dev.sh eest-fixtures stable-v20.0.2 \
+  .eest-fixtures-sec5-$(git rev-parse --short=8 HEAD)
+```
+
+The broker prints the fixture root to mount. `scripts/fetch-eest-fixtures.sh`
+still verifies the release checksum before extraction; an existing extracted
+tree is usable as evidence only when the matching archive remains present for
+`scripts/conformance-report.sh` to re-hash.
+
 A conformance run prints one count manifest per family, and those counts are the
 only record of what it actually measured:
 

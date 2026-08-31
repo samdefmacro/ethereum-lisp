@@ -65,6 +65,8 @@ Commands:
   cold-test LAYER    Run unit, integration, e2e, or all in a fresh container
   cold-docs          Verify PAX transcripts in a fresh container
   cold-scale         Run the production-store scale gate in containers
+  eest-fixtures BASELINE DESTINATION
+                     Fetch a checksum-pinned EEST corpus in a narrow container
   runtime-build TAG  Build the reviewed non-root Dockerfile.runtime image
   runtime-export TAG ARTIFACT
                      Export an exact-revision linux/amd64 runtime archive
@@ -593,6 +595,68 @@ cold_docs() {
   run_cold_container sbcl --non-interactive --load scripts/docs-check.lisp
 }
 
+eest_fixtures() {
+  [ "$#" -eq 2 ] || {
+    echo "ERROR: eest-fixtures requires BASELINE and DESTINATION" >&2
+    return 2
+  }
+  local baseline="$1" destination="$2" destination_parent
+  case "$baseline" in
+    legacy-v5.4.0|stable-v20.0.2|amsterdam-v7.2.1) ;;
+    *)
+      echo "ERROR: unsupported EEST baseline: $baseline" >&2
+      return 2
+      ;;
+  esac
+  case "$destination" in
+    /*) ;;
+    *) destination="$ROOT/$destination" ;;
+  esac
+  case "$destination" in
+    "$ROOT"/.eest-fixtures*) ;;
+    *)
+      echo "ERROR: EEST destination must be a .eest-fixtures* path in this checkout" >&2
+      return 2
+      ;;
+  esac
+  case "$destination" in
+    *'..'*|*$'\n'*|*$'\r'*|*$'\t'*|*' '*)
+      echo "ERROR: EEST destination must be normalized and contain no whitespace" >&2
+      return 2
+      ;;
+  esac
+  [ ! -L "$destination" ] || {
+    echo "ERROR: refusing symlink EEST destination: $destination" >&2
+    return 2
+  }
+  destination_parent="$(dirname "$destination")"
+  [ -d "$destination_parent" ] || {
+    echo "ERROR: EEST destination parent is absent: $destination_parent" >&2
+    return 2
+  }
+  [ "$(cd "$destination_parent" && pwd -P)" = "$ROOT" ] || {
+    echo "ERROR: EEST destination parent is not this checkout" >&2
+    return 2
+  }
+  mkdir -p "$destination"
+
+  build_cold_image
+  "$DOCKER" run --rm --init \
+    --network bridge \
+    --read-only \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --pids-limit 256 \
+    --user "$(id -u):$(id -g)" \
+    --mount "type=bind,source=$ROOT,target=/workspace,readonly" \
+    --mount "type=bind,source=$destination,target=/fixtures-cache" \
+    --tmpfs "/tmp:exec,mode=1777" \
+    --workdir /workspace \
+    --env "EEST_BASELINE=$baseline" \
+    "$COLD_IMAGE" \
+    sh scripts/fetch-eest-fixtures.sh /fixtures-cache
+}
+
 run_cold_scale_gate() {
   local scale_cache="ethereum-lisp-scale-cache-$CHECKOUT_SHORT-$$"
   if "$DOCKER" volume inspect "$scale_cache" >/dev/null 2>&1; then
@@ -1003,6 +1067,7 @@ case "$cmd" in
   cold-test) cold_test "$@" ;;
   cold-docs) cold_docs "$@" ;;
   cold-scale) cold_scale "$@" ;;
+  eest-fixtures) eest_fixtures "$@" ;;
   runtime-build) runtime_build "$@" ;;
   runtime-export) runtime_export "$@" ;;
   runtime-smoke) runtime_smoke "$@" ;;
