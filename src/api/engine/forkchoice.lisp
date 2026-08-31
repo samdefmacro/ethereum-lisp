@@ -3,14 +3,17 @@
 (defvar *engine-rpc-phase-timings* :disabled
   "Per-request Engine RPC phase timings, or :DISABLED outside HTTP handling.")
 
-(defun engine-rpc-record-phase-timing (name started-at)
+(defun engine-rpc-record-phase-duration (name milliseconds)
   (unless (eq *engine-rpc-phase-timings* :disabled)
-    (push
-     (cons name
-           (round
-            (* 1000 (- (get-internal-real-time) started-at))
-            internal-time-units-per-second))
-     *engine-rpc-phase-timings*))
+    (push (cons name milliseconds) *engine-rpc-phase-timings*))
+  nil)
+
+(defun engine-rpc-record-phase-timing (name started-at)
+  (engine-rpc-record-phase-duration
+   name
+   (round
+    (* 1000 (- (get-internal-real-time) started-at))
+    internal-time-units-per-second))
   nil)
 
 (defmacro engine-rpc-with-phase-timing ((name) &body body)
@@ -87,6 +90,7 @@
                    :header header
                    :parent-header (block-header parent-block)
                    :chain-config config
+                   :phase-recorder #'engine-rpc-record-phase-duration
                    :block-hashes
                    (chain-store-block-hashes-for-header store header))
                   (engine-rpc-prepared-payload-body-arguments

@@ -26,6 +26,18 @@
           (setf (gethash (1- number) block-hashes) :unavailable))))
   block-hashes)
 
+(defun call-with-execution-phase-timing (recorder name thunk)
+  (if recorder
+      (let ((started-at (get-internal-real-time)))
+        (multiple-value-prog1
+            (funcall thunk)
+          (funcall
+           recorder name
+           (round
+            (* 1000 (- (get-internal-real-time) started-at))
+            internal-time-units-per-second))))
+      (funcall thunk)))
+
 (defun execute-block-with-message-applier
     (state transactions apply-transactions
      &key (header (make-block-header))
@@ -43,6 +55,7 @@
           (block-access-list-supplied-p nil)
           (block-access-list-rlp nil)
           (block-access-list-rlp-supplied-p nil)
+          phase-recorder
           expected-block-hash)
   (when (and expected-block-hash
              (not (hash32-p expected-block-hash)))
@@ -101,57 +114,68 @@
           (header-snapshot (copy-block-header-for-execution header)))
       (handler-case
           (progn
-            (call-with-block-access-phase
-             block-access-list-construction state 0
+            (call-with-execution-phase-timing
+             phase-recorder "fcuExecPreSystemMs"
              (lambda ()
-               (apply-dao-hard-fork-if-needed
-                state header chain-config)
-               (apply-amsterdam-activation-transition
-                state header parent-header chain-config)
-               (process-parent-beacon-block-root
-                state header effective-chain-rules
-                :blob-base-fee block-blob-base-fee
-                :block-hashes block-hashes)
-               (process-parent-block-hash-history
-                state header effective-chain-rules
-                :blob-base-fee block-blob-base-fee
-                :block-hashes block-hashes)))
+               (call-with-block-access-phase
+                block-access-list-construction state 0
+                (lambda ()
+                  (apply-dao-hard-fork-if-needed
+                   state header chain-config)
+                  (apply-amsterdam-activation-transition
+                   state header parent-header chain-config)
+                  (process-parent-beacon-block-root
+                   state header effective-chain-rules
+                   :blob-base-fee block-blob-base-fee
+                   :block-hashes block-hashes)
+                  (process-parent-block-hash-history
+                   state header effective-chain-rules
+                   :blob-base-fee block-blob-base-fee
+                   :block-hashes block-hashes)))))
             (multiple-value-bind
                   (receipts gas-used regular-gas-used state-gas-used)
-                (funcall
-                 apply-transactions
-                 state
-                 transactions
-                 :base-fee (or (block-header-base-fee-per-gas header) 0)
-                 :blob-base-fee block-blob-base-fee
-                 :chain-rules effective-chain-rules
-                 :chain-config chain-config
-                 :coinbase (or (block-header-beneficiary header) (zero-address))
-                 :timestamp (block-header-timestamp header)
-                 :block-number (block-header-number header)
-                 :slot-number (or (block-header-slot-number header) 0)
-                 :prev-randao (or (block-header-mix-hash header) (zero-hash32))
-                 :difficulty (block-header-difficulty header)
-                 :random-p (block-header-post-merge-p header)
-                 :context-gas-limit (block-header-gas-limit header)
-                 :block-hashes block-hashes
-                 :block-access-list-construction
-                 block-access-list-construction
-                 :block-gas-limit
-                 (when (plusp (block-header-gas-limit header))
-                   (block-header-gas-limit header)))
+                (call-with-execution-phase-timing
+                 phase-recorder "fcuExecTransactionsMs"
+                 (lambda ()
+                   (funcall
+                    apply-transactions
+                    state
+                    transactions
+                    :base-fee (or (block-header-base-fee-per-gas header) 0)
+                    :blob-base-fee block-blob-base-fee
+                    :chain-rules effective-chain-rules
+                    :chain-config chain-config
+                    :coinbase
+                    (or (block-header-beneficiary header) (zero-address))
+                    :timestamp (block-header-timestamp header)
+                    :block-number (block-header-number header)
+                    :slot-number (or (block-header-slot-number header) 0)
+                    :prev-randao
+                    (or (block-header-mix-hash header) (zero-hash32))
+                    :difficulty (block-header-difficulty header)
+                    :random-p (block-header-post-merge-p header)
+                    :context-gas-limit (block-header-gas-limit header)
+                    :block-hashes block-hashes
+                    :block-access-list-construction
+                    block-access-list-construction
+                    :block-gas-limit
+                    (when (plusp (block-header-gas-limit header))
+                      (block-header-gas-limit header)))))
               (multiple-value-bind (derived-requests requests-derived-p)
-                  (call-with-block-access-phase
-                   block-access-list-construction
-                   state
-                   (1+ (length transactions))
+                  (call-with-execution-phase-timing
+                   phase-recorder "fcuExecPostSystemMs"
                    (lambda ()
-                     (when withdrawals-supplied-p
-                       (apply-withdrawals state withdrawals))
-                     (derive-prague-execution-requests
-                      state receipts header effective-chain-rules chain-config
-                      :blob-base-fee block-blob-base-fee
-                      :block-hashes block-hashes)))
+                     (call-with-block-access-phase
+                      block-access-list-construction
+                      state
+                      (1+ (length transactions))
+                      (lambda ()
+                        (when withdrawals-supplied-p
+                          (apply-withdrawals state withdrawals))
+                        (derive-prague-execution-requests
+                         state receipts header effective-chain-rules chain-config
+                         :blob-base-fee block-blob-base-fee
+                         :block-hashes block-hashes)))))
                 (let* ((effective-requests
                          (if requests-derived-p derived-requests requests))
                        (effective-requests-supplied-p
@@ -187,37 +211,46 @@
                       (setf (block-header-excess-blob-gas header) 0)))
                   ;; One root: nothing mutates STATE between validation and the
                   ;; header write, so the two calls are provably equal.
-                  (let ((computed-state-root (state-db-root state)))
-                    (validate-supplied-block-execution-roots
-                     header transactions receipts computed-state-root
-                     :expected-block-hash expected-block-hash
-                     :chain-rules effective-chain-rules)
+                  (let ((computed-state-root
+                          (call-with-execution-phase-timing
+                           phase-recorder "fcuExecStateRootMs"
+                           (lambda () (state-db-root state)))))
+                    (call-with-execution-phase-timing
+                     phase-recorder "fcuExecValidateRootsMs"
+                     (lambda ()
+                       (validate-supplied-block-execution-roots
+                        header transactions receipts computed-state-root
+                        :expected-block-hash expected-block-hash
+                        :chain-rules effective-chain-rules)))
                     (setf (block-header-state-root header) computed-state-root
                           (block-header-gas-used header)
                           (if (execution-amsterdam-p effective-chain-rules)
                               (max regular-gas-used state-gas-used)
                               gas-used)))
                   (let ((executed-block
-                          (apply #'make-block
-                                 (append
-                                  (list :header header
-                                        :transactions transactions
-                                        :ommers ommers
-                                        :receipts receipts)
-                                  (when withdrawals-supplied-p
-                                    (list :withdrawals withdrawals))
-                                  (when effective-requests-supplied-p
-                                    (list :requests effective-requests))
-                                  (cond
-                                    (derived-block-access-list
-                                     (list :block-access-list
-                                           derived-block-access-list))
-                                    (block-access-list-supplied-p
-                                     (if encoded-block-access-list
-                                         (list :block-access-list-rlp
-                                               encoded-block-access-list)
-                                         (list :block-access-list
-                                               block-access-list))))))))
+                          (call-with-execution-phase-timing
+                           phase-recorder "fcuExecMakeBlockMs"
+                           (lambda ()
+                             (apply #'make-block
+                                    (append
+                                     (list :header header
+                                           :transactions transactions
+                                           :ommers ommers
+                                           :receipts receipts)
+                                     (when withdrawals-supplied-p
+                                       (list :withdrawals withdrawals))
+                                     (when effective-requests-supplied-p
+                                       (list :requests effective-requests))
+                                     (cond
+                                       (derived-block-access-list
+                                        (list :block-access-list
+                                              derived-block-access-list))
+                                       (block-access-list-supplied-p
+                                        (if encoded-block-access-list
+                                            (list :block-access-list-rlp
+                                                  encoded-block-access-list)
+                                            (list :block-access-list
+                                                  block-access-list))))))))))
                     (when (and expected-block-hash
                                (not (execution-hash32=
                                      expected-block-hash
@@ -246,6 +279,7 @@
                                    block-access-list-supplied-p)
                                   (block-access-list-rlp nil
                                    block-access-list-rlp-supplied-p)
+                                  phase-recorder
                                   expected-block-hash)
   (execute-block-with-message-applier
    state
@@ -267,6 +301,7 @@
    :block-access-list-supplied-p block-access-list-supplied-p
    :block-access-list-rlp block-access-list-rlp
    :block-access-list-rlp-supplied-p block-access-list-rlp-supplied-p
+   :phase-recorder phase-recorder
    :expected-block-hash expected-block-hash))
 
 (defun execute-signed-block (state transactions
@@ -284,6 +319,7 @@
                                    block-access-list-supplied-p)
                                   (block-access-list-rlp nil
                                    block-access-list-rlp-supplied-p)
+                                  phase-recorder
                                   expected-block-hash)
   "Execute a block by recovering each transaction sender from its signature."
   (execute-block-with-message-applier
@@ -307,4 +343,5 @@
    :block-access-list-supplied-p block-access-list-supplied-p
    :block-access-list-rlp block-access-list-rlp
    :block-access-list-rlp-supplied-p block-access-list-rlp-supplied-p
+   :phase-recorder phase-recorder
    :expected-block-hash expected-block-hash))

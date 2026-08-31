@@ -387,6 +387,50 @@
                                       (list tx) receipts))
                      (hash32-to-hex (block-header-receipts-root header))))))))
 
+(deftest signed-block-execution-records-phase-durations
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
+         (recipient
+           (address-from-hex
+            "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (make-legacy-transaction
+            :nonce 9
+            :gas-price 20000000000
+            :gas-limit 21000
+            :to recipient
+            :value 1000000000000000000
+            :v 37
+            :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+            :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+         (phase-durations (make-hash-table :test #'equal)))
+    (state-db-set-account
+     state sender
+     (make-state-account :nonce 9 :balance 2000000000000000000))
+    (multiple-value-bind (block receipts)
+        (execute-signed-block
+         state (list transaction)
+         :expected-chain-id 1
+         :header (make-block-header :gas-limit 50000)
+         :phase-recorder
+         (lambda (name milliseconds)
+           (setf (gethash name phase-durations) milliseconds)))
+      (is (hash32-p (block-header-state-root (block-header block))))
+      (is (= 1 (length receipts))))
+    (dolist (name '("fcuExecPreSystemMs"
+                    "fcuExecTransactionsMs"
+                    "fcuExecPostSystemMs"
+                    "fcuExecStateRootMs"
+                    "fcuExecValidateRootsMs"
+                    "fcuExecMakeBlockMs"))
+      (multiple-value-bind (milliseconds present-p)
+          (gethash name phase-durations)
+        (is present-p)
+        (is (integerp milliseconds))
+        (is (not (minusp milliseconds)))))))
+
 (deftest signed-block-executes-contract-beyond-100000-steps-within-gas
   (let* ((state (make-state-db))
          (sender (fixture-private-key-address 1))
