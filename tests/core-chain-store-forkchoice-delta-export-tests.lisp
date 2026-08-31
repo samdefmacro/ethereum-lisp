@@ -403,10 +403,7 @@
     (let ((store (make-database-engine-payload-store database)))
       (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
        store)
-      (let* ((transition
-               (forkchoice-delta-test-select-head
-                store config candidate genesis genesis))
-             (immutable-symbol
+      (let* ((immutable-symbol
                'ethereum-lisp.node-store.persistence::node-store-put-immutable-block-records)
              (state-symbol
                'ethereum-lisp.node-store.persistence::node-store-put-state-record)
@@ -414,6 +411,27 @@
              (state-original (fdefinition state-symbol))
              (immutable-calls 0)
              (state-calls 0))
+        ;; A direct-provider read with no dirty overlay also describes SNAP
+        ;; pivot publication, so absence alone must never authorize the skip.
+        (is (not
+             (ethereum-lisp.node-store.persistence::node-store-installed-block-records-durable-p
+              (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+               store)
+              candidate)))
+        (is (not
+             (ethereum-lisp.node-store.persistence::node-store-installed-state-record-durable-p
+              (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+               store)
+              candidate)))
+        (node-store-export-payload-candidate-to-kv
+         store candidate database)
+        (is (not
+             (ethereum-lisp.node-store.persistence::node-store-installed-block-records-durable-p
+              (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+               store)
+              candidate)))
+        (node-store-export-payload-candidate-to-kv
+         store candidate database :durable-forkchoice-hint-p t)
         (is (ethereum-lisp.node-store.persistence::node-store-installed-block-records-durable-p
              (ethereum-lisp.chain-store.state:chain-store-require-memory-store
               store)
@@ -422,29 +440,36 @@
              (ethereum-lisp.chain-store.state:chain-store-require-memory-store
               store)
              candidate))
-        (forkchoice-delta-test-call-with-function-overrides
-         (list
-          (cons immutable-symbol
-                (lambda (&rest arguments)
-                  (incf immutable-calls)
-                  (apply immutable-original arguments)))
-          (cons state-symbol
-                (lambda (&rest arguments)
-                  (incf state-calls)
-                  (apply state-original arguments))))
-         (lambda ()
-           (node-store-export-forkchoice-to-kv
-            store transition database)))
-        (is (= 0 immutable-calls))
-        (is (= 0 state-calls))
-        (is (hash32=
-             (block-hash candidate)
-             (chain-store-canonical-hash store 1)))
-        (multiple-value-bind (persisted present-p)
-            (kv-get-chain-canonical-hash database 1)
-          (is present-p)
-          (is (bytes= persisted
-                      (hash32-bytes (block-hash candidate)))))))))
+        (let ((transition
+                (forkchoice-delta-test-select-head
+                 store config candidate genesis genesis)))
+          (forkchoice-delta-test-call-with-function-overrides
+           (list
+            (cons immutable-symbol
+                  (lambda (&rest arguments)
+                    (incf immutable-calls)
+                    (apply immutable-original arguments)))
+            (cons state-symbol
+                  (lambda (&rest arguments)
+                    (incf state-calls)
+                    (apply state-original arguments))))
+           (lambda ()
+             (node-store-export-forkchoice-to-kv
+              store transition database)))
+          (is (= 0 immutable-calls))
+          (is (= 0 state-calls))
+          (is (null
+               (ethereum-lisp.chain-store.state:memory-chain-store-durable-engine-payload-hash
+                (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+                 store))))
+          (is (hash32=
+               (block-hash candidate)
+               (chain-store-canonical-hash store 1)))
+          (multiple-value-bind (persisted present-p)
+              (kv-get-chain-canonical-hash database 1)
+            (is present-p)
+            (is (bytes= persisted
+                        (hash32-bytes (block-hash candidate))))))))))
 
 (deftest node-store-forkchoice-delta-checkpoint-only-is-scoped-and-idempotent
   (let* ((store (make-engine-payload-memory-store))

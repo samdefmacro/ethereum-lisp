@@ -93,7 +93,7 @@ past the metadata that actually exists on disk."
   (when database-path
     (lambda (store candidate
              &key source (candidate-kind :executed) payload-status progress)
-      (declare (ignore source payload-status))
+      (declare (ignore payload-status))
       ;; Construct/load first so malformed persisted data remains a permanent
       ;; startup/runtime invariant failure rather than a retry loop.
       (let ((database
@@ -104,7 +104,9 @@ past the metadata that actually exists on disk."
            (ecase candidate-kind
              (:executed
               (node-store-export-payload-candidate-to-kv
-               store candidate database :peer-sync-progress progress))
+               store candidate database
+               :peer-sync-progress progress
+               :durable-forkchoice-hint-p (eq source :engine)))
              (:buffered
               ;; A buffered block has neither derived state nor receipts.  It
               ;; is durable as a future sync target, but must never advance a

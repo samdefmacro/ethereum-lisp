@@ -45,6 +45,9 @@
    :state-code-bodies
    (engine-payload-store-copy-table
     (memory-chain-store-state-code-bodies store))
+   :durable-engine-payload-hash
+   (maybe-copy-hash32
+    (memory-chain-store-durable-engine-payload-hash store))
    :state-baseline-interval
    (memory-chain-store-state-baseline-interval store)
    :state-retention-depth

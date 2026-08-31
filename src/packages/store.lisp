@@ -82,6 +82,7 @@
    #:memory-chain-store-state-roots
    #:memory-chain-store-state-tries
    #:memory-chain-store-state-code-bodies
+   #:memory-chain-store-durable-engine-payload-hash
    #:memory-chain-store-state-baseline-interval
    #:memory-chain-store-state-retention-depth
    #:chain-state-diff

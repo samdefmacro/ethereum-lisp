@@ -45,35 +45,20 @@ record. Returns T when the batch changed."
     (values changed-p pending-nodes)))
 
 (defun node-store-installed-block-records-durable-p (store block)
-  "Return true when BLOCK is already owned by STORE's durable provider.
+  "Return true only for the explicit committed Engine candidate hint.
 
-A direct provider keeps a newly imported block in the memory overlay until its
-candidate batch commits.  That exporter then releases the overlay.  A later
-forkchoice transition can therefore distinguish an uncommitted installed
-block from one it just read back from the durable provider without repeating
-three immutable-record point reads."
-  (and (chain-store-durable-state-provider-p store)
-       (not
-        (nth-value
-         1
-         (gethash
-          (engine-payload-store-key (block-hash block))
-          (memory-chain-store-blocks store))))))
+Absence from the direct provider's block overlay is not sufficient evidence:
+a SNAP pivot is also read directly while its canonical state record still has
+to be published.  The one-slot hint is installed only after an Engine
+candidate's block and state batch commits, then consumed by forkchoice."
+  (let ((hint (memory-chain-store-durable-engine-payload-hash store)))
+    (and (chain-store-durable-state-provider-p store)
+         hint
+         (hash32= hint (block-hash block)))))
 
 (defun node-store-installed-state-record-durable-p (store block)
-  "Return true when BLOCK's available state has no pending durable write.
-
-CHAIN-STORE-PUT-STATE-PERSISTENCE (and the empty-baseline block put) owns an
-entry in STATE-BLOCKS until the candidate batch succeeds.  Direct-provider
-reads have no such entry, so forkchoice can publish their canonical indexes
-without reopening the already committed trie/state record."
-  (and (chain-store-durable-state-provider-p store)
-       (not
-        (nth-value
-         1
-         (gethash
-          (engine-payload-store-key (block-hash block))
-          (memory-chain-store-state-blocks store))))))
+  "Return true only when BLOCK has the committed Engine candidate hint."
+  (node-store-installed-block-records-durable-p store block))
 
 (defun node-store-put-immutable-record
     (database batch kind identifier value record-label)
@@ -640,11 +625,18 @@ content-addressed and shared; REBUILD is the offline compaction path."
         changed-p))))
 
 (defun node-store-export-payload-candidate-to-kv
-    (store candidate database &key peer-sync-progress)
+    (store candidate database
+     &key peer-sync-progress durable-forkchoice-hint-p)
   "Persist CANDIDATE and its ancestry without publishing canonical indexes.
 
 When PEER-SYNC-PROGRESS is supplied, its cursor is committed in the same KV
-batch as the candidate and must name CANDIDATE exactly."
+batch as the candidate and must name CANDIDATE exactly.
+
+DURABLE-FORKCHOICE-HINT-P is reserved for Engine newPayload.  After its batch
+commits, a one-slot process-local hint lets the immediately following
+forkchoice avoid reopening the same immutable and state records.  Peer/SNAP
+imports must not set it because their pivot publication has distinct state
+durability obligations."
   (let ((chain-store (chain-store-require-memory-store store)))
     (engine-payload-store-enable-durable-cache-change-tracking chain-store)
     (unless (typep candidate 'ethereum-block)
@@ -791,6 +783,10 @@ batch as the candidate and must name CANDIDATE exactly."
          (append remote-evicted (list (hash32-bytes candidate-hash))))
         (dolist (block persisted-blocks)
           (chain-store-release-durable-block-overlay chain-store block))
+        (when (and durable-forkchoice-hint-p
+                   (chain-store-durable-state-provider-p chain-store))
+          (setf (memory-chain-store-durable-engine-payload-hash chain-store)
+                (make-hash32 (hash32-bytes candidate-hash))))
         database))))
 
 (defun node-store-export-invalid-candidate-to-kv
@@ -1118,6 +1114,14 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
          remote-evicted))
         (dolist (block installed-blocks)
           (chain-store-release-durable-block-overlay chain-store block))
+        (let ((hint
+                (memory-chain-store-durable-engine-payload-hash chain-store)))
+          (when (and hint
+                     (find hint installed-blocks
+                           :key #'block-hash :test #'hash32=))
+            (setf
+             (memory-chain-store-durable-engine-payload-hash chain-store)
+             nil)))
         (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
          store transaction-hashes)
         (values database changed-p)))))
