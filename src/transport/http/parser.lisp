@@ -122,6 +122,34 @@ expiry would tear down the listener instead of the one stalled request."
         when (string= normalized header-name)
           collect value))
 
+(defun engine-rpc-http-comma-separated-tokens (values)
+  "Return trimmed, lower-case comma-separated tokens from header VALUES."
+  (loop for value in values
+        append
+        (loop with start = 0
+              for comma = (position #\, value :start start)
+              for end = (or comma (length value))
+              for token = (string-downcase
+                           (engine-rpc-http-trim (subseq value start end)))
+              unless (zerop (length token))
+                collect token
+              while comma
+              do (setf start (1+ comma)))))
+
+(defun engine-rpc-http-request-close-p (request)
+  "True when a framed HTTP/1.1 REQUEST explicitly asks to close its connection."
+  (multiple-value-bind (boundary boundary-length)
+      (engine-rpc-http-header-boundary request)
+    (declare (ignore boundary-length))
+    (let* ((head (subseq request 0 boundary))
+           (lines (engine-rpc-http-split-lines head))
+           (headers (engine-rpc-http-headers (rest lines))))
+      (not (null
+            (member "close"
+                    (engine-rpc-http-comma-separated-tokens
+                     (engine-rpc-http-header-values headers "connection"))
+                    :test #'string=))))))
+
 (defun engine-rpc-http-single-header (headers name)
   (let ((values (engine-rpc-http-header-values headers name)))
     (when (rest values)
@@ -296,7 +324,11 @@ read into the next request or block waiting for octets that were never sent."
         (push line lines)
         (when (string= "" (engine-rpc-http-trim line))
           (return))))
-    (unless (and lines (string= "" (engine-rpc-http-trim (first lines))))
+    ;; A persistent peer may close cleanly between requests.  Distinguish that
+    ;; from EOF inside a partially read header, which remains malformed.
+    (when (null lines)
+      (return-from engine-rpc-read-http-request-string nil))
+    (unless (string= "" (engine-rpc-http-trim (first lines)))
       (block-validation-fail "HTTP request is missing header boundary"))
     (let* ((lines (nreverse lines))
            (headers (engine-rpc-http-headers (rest lines)))

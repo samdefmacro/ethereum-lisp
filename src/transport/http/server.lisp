@@ -15,17 +15,35 @@
      :sink sink
      :fields fields)
     (unwind-protect
-         (rpc-http-handle-stream
-          input-stream
-          output-stream
-          (engine-rpc-http-service-rpc-context service)
-          :jwt-secret (engine-rpc-http-service-jwt-secret service)
-          :now (funcall (engine-rpc-http-service-now-provider service))
-          :rpc-prefix (engine-rpc-http-service-rpc-prefix service)
-          :cors-origins (engine-rpc-http-service-cors-origins service)
-          :allowed-hosts (engine-rpc-http-service-allowed-hosts service)
-          :telemetry-sink sink
-          :telemetry-fields fields)
+         (loop with last-response = nil
+               do (multiple-value-bind (response close-p)
+                      ;; The deadline is per request, not per connection.  A
+                      ;; healthy keep-alive connection can live indefinitely,
+                      ;; while an idle or stalled request still releases its
+                      ;; bounded worker promptly.
+                      (engine-rpc-http-with-request-deadline
+                        (rpc-http-handle-stream
+                         input-stream
+                         output-stream
+                         (engine-rpc-http-service-rpc-context service)
+                         :jwt-secret
+                         (engine-rpc-http-service-jwt-secret service)
+                         :now
+                         (funcall
+                          (engine-rpc-http-service-now-provider service))
+                         :rpc-prefix
+                         (engine-rpc-http-service-rpc-prefix service)
+                         :cors-origins
+                         (engine-rpc-http-service-cors-origins service)
+                         :allowed-hosts
+                         (engine-rpc-http-service-allowed-hosts service)
+                         :persistent-p t
+                         :telemetry-sink sink
+                         :telemetry-fields fields))
+                    (when response
+                      (setf last-response response))
+                    (when close-p
+                      (return last-response))))
       (ethereum-lisp.telemetry:telemetry-metric
        "engine.rpc.http.streams"
        1
@@ -45,13 +63,10 @@ the connection, not the listener: an escaping error unwinds the accept loop and
 the supervising node treats it as a shutdown request."
   (handler-case
       (unwind-protect
-           ;; The deadline covers reading the request and writing the response,
-           ;; so a peer that stalls at any point cannot hold its worker.
-           (engine-rpc-http-with-request-deadline
-             (engine-rpc-http-service-handle-stream
-              service
-              (engine-rpc-http-connection-input-stream connection)
-              (engine-rpc-http-connection-output-stream connection)))
+           (engine-rpc-http-service-handle-stream
+            service
+            (engine-rpc-http-connection-input-stream connection)
+            (engine-rpc-http-connection-output-stream connection))
         (ignore-errors
          (engine-rpc-http-connection-close connection)))
     (error (condition)

@@ -1,5 +1,12 @@
 (in-package #:ethereum-lisp.rpc-http)
 
+(defparameter *engine-rpc-http-response-connection* "close"
+  "Connection header emitted by the response helpers.
+
+The request-stream adapter binds this to KEEP-ALIVE only while serving a valid
+persistent HTTP/1.1 request.  Direct request-string callers retain the historic
+single-request CLOSE behaviour.")
+
 (defun engine-rpc-http-cors-wildcard-p (origins)
   (member "*" origins :test #'string=))
 
@@ -114,7 +121,8 @@ is not answered with 403 when vhosts default to (\"localhost\")."
               (car header)
               (cdr header)
               #\Return #\Newline))
-    (format stream "Connection: close~C~C" #\Return #\Newline)
+    (format stream "Connection: ~A~C~C"
+            *engine-rpc-http-response-connection* #\Return #\Newline)
     ;; Content-Length counts octets, and the socket stream encodes the body as
     ;; UTF-8, so a body with any non-ASCII character (a revert reason, say) has
     ;; more octets than characters and a character count would truncate it.

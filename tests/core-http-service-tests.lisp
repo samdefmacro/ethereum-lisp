@@ -845,6 +845,39 @@ Content-Type: application/json
       (signals block-validation-error
         (make-engine-rpc-http-service :import-function nil)))))
 
+(deftest engine-rpc-http-service-reuses-http11-connection
+  (labels ((request (id close-p)
+             (let ((body
+                     (format nil
+                             "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"eth_chainId\",\"params\":[]}"
+                             id)))
+               (format nil
+                       "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%~AContent-Length: ~D~%~%~A"
+                       (if close-p (format nil "Connection: close~%") "")
+                       (length body)
+                       body))))
+    (let* ((input
+             (make-string-input-stream
+              (concatenate 'string (request 1 nil) (request 2 t))))
+           (output (make-string-output-stream))
+           (returned
+             (engine-rpc-http-service-handle-stream
+              (make-engine-rpc-http-service) input output))
+           (written (get-output-stream-string output))
+           (first-response (search "HTTP/1.1 200 OK" written))
+           (second-response
+             (and first-response
+                  (search "HTTP/1.1 200 OK" written
+                          :start2 (1+ first-response))))
+           (keep-alive (search "Connection: keep-alive" written))
+           (close (search "Connection: close" written)))
+      (is first-response)
+      (is second-response)
+      (is keep-alive)
+      (is close)
+      (is (< first-response keep-alive second-response close))
+      (is (search "Connection: close" returned)))))
+
 (deftest engine-rpc-http-default-importer-fails-closed
   (multiple-value-bind (store config parent-block child-block)
       (new-payload-persistence-test-fixture)
@@ -1063,7 +1096,7 @@ Content-Type: application/json
                      "\"version\":\"1.1.1\",\"commit\":\"0x12345678\"}]}"))
                   (request
                     (format nil
-                            "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                            "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Connection: close~%Content-Length: ~D~%~%~A"
                             (length body)
                             body))
                   (stream (connect-stream "127.0.0.1" port)))
@@ -1199,6 +1232,12 @@ Content-Type: application/json
     (is (search "eth_chainId" request))
     ;; The rebuilt request must still carry its body.
     (is (search body request))))
+
+(deftest engine-rpc-http-read-accepts-clean-eof-between-requests
+  (with-input-from-string (stream "")
+    (is (null
+         (ethereum-lisp.rpc-http::engine-rpc-read-http-request-string
+          stream)))))
 
 (deftest devnet-cli-http-timeouts-configure-the-request-deadline
   ;; geth-style --http.readtimeout and --http.writetimeout were accepted and

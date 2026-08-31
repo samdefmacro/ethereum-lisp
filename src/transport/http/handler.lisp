@@ -146,45 +146,59 @@
           (rpc-prefix "/")
           cors-origins
           allowed-hosts
+          persistent-p
           telemetry-sink
           telemetry-fields)
   (let* ((started-at (get-internal-real-time))
          (request nil)
-         (response
-           (handler-case
-               (progn
-                 (setf request
-                       (engine-rpc-read-http-request-string input-stream))
-                 (rpc-http-handle-request
-                  request context
-                  :jwt-secret jwt-secret
-                  :now now
-                  :rpc-prefix rpc-prefix
-                  :cors-origins cors-origins
-                  :allowed-hosts allowed-hosts))
-             (error (condition)
-               (engine-rpc-http-error-response
-                400 "Bad Request"
-                (format nil "~A" condition)))))
-         (status-code (engine-rpc-http-response-status-code response)))
-    (ethereum-lisp.telemetry:telemetry-log
-     :info
-     "engine.rpc.http.request"
-     :sink telemetry-sink
-     :fields
-     (append telemetry-fields
-             (and request
-                  (engine-rpc-http-request-telemetry-fields request))
-             (when status-code
-               (list (cons "status" (format nil "~D" status-code))))
-             (list
-              (cons "handlerMs"
-                    (round
-                     (* 1000 (- (get-internal-real-time) started-at))
-                     internal-time-units-per-second)))
-             (engine-rpc-http-response-telemetry-fields response)))
-    (write-string response output-stream)
-    response))
+         (close-p t)
+         (response nil))
+    (handler-case
+        (progn
+          (setf request (engine-rpc-read-http-request-string input-stream))
+          (when (null request)
+            (return-from rpc-http-handle-stream (values nil t)))
+          (setf close-p
+                (or (not persistent-p)
+                    (engine-rpc-http-request-close-p request)))
+          (let ((*engine-rpc-http-response-connection*
+                  (if close-p "close" "keep-alive")))
+            (setf response
+                  (rpc-http-handle-request
+                   request context
+                   :jwt-secret jwt-secret
+                   :now now
+                   :rpc-prefix rpc-prefix
+                   :cors-origins cors-origins
+                   :allowed-hosts allowed-hosts))))
+      (error (condition)
+        ;; A framing error cannot be recovered without risking that unread
+        ;; bytes are interpreted as another request, so answer once and close.
+        (setf close-p t
+              response
+              (engine-rpc-http-error-response
+               400 "Bad Request"
+               (format nil "~A" condition)))))
+    (let ((status-code (engine-rpc-http-response-status-code response)))
+      (ethereum-lisp.telemetry:telemetry-log
+       :info
+       "engine.rpc.http.request"
+       :sink telemetry-sink
+       :fields
+       (append telemetry-fields
+               (and request
+                    (engine-rpc-http-request-telemetry-fields request))
+               (when status-code
+                 (list (cons "status" (format nil "~D" status-code))))
+               (list
+                (cons "handlerMs"
+                      (round
+                       (* 1000 (- (get-internal-real-time) started-at))
+                       internal-time-units-per-second)))
+               (engine-rpc-http-response-telemetry-fields response)))
+      (write-string response output-stream)
+      (finish-output output-stream)
+      (values response close-p))))
 
 (defun engine-rpc-handle-http-stream
     (input-stream output-stream store config
