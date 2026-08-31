@@ -751,8 +751,8 @@
             (is (= 1 failed-persistence-calls))
             (is (null (chain-store-known-block store prepared-hash)))
             (is (not (chain-store-state-available-p store prepared-hash)))
-            ;; The import used a copy.  A failed durable callback therefore
-            ;; leaves the cached post-state intact for an idempotent retry.
+            ;; The import transaction restores the borrowed state after a
+            ;; failed durable callback, leaving it intact for retry.
             (is (engine-prepared-payload-execution-state
                  (chain-store-prepared-payload
                   store (hex-to-bytes payload-id)))))
@@ -779,7 +779,14 @@
             (is (string= (hash32-to-hex prepared-hash)
                          (field new-payload-status "latestValidHash")))
             (is (chain-store-known-block store prepared-hash))
-            (is (chain-store-state-available-p store prepared-hash))))))))
+            (is (chain-store-state-available-p store prepared-hash))
+            ;; A complete durable import consumes the private shortcut instead
+            ;; of retaining a second world-state beside the canonical store.
+            (multiple-value-bind (retained-block retained-state)
+                (ethereum-lisp.chain-store::engine-payload-store-borrow-prepared-execution-for-block
+                 store (engine-prepared-payload-block prepared-payload))
+              (is (null retained-block))
+              (is (null retained-state)))))))))
 
 (deftest engine-rpc-forkchoice-updated-v1-improves-stable-payload-before-get
   (labels ((field (object name)

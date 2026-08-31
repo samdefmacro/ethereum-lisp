@@ -769,6 +769,48 @@ transient or raced verdict can be retried without restarting the node."
    (chain-store-require-memory-store store)
    :copy-execution-state-p copy-execution-state-p))
 
+(defun engine-payload-store-borrow-prepared-execution-for-block
+    (store block &key (now (unix-time)))
+  "Return the private prepared post-state matching BLOCK without copying it.
+
+This is an internal execution-service lease, not a general chain-store read.
+EXECUTE-ATOMIC-BLOCK-COMMIT journals subsequent state mutations and restores
+the state root plus change-set metadata on every nonlocal exit, so a failed
+durable import leaves the lease retryable.  The Engine handler drops it only
+after the complete import and durability boundary succeeds."
+  (setf store (chain-store-require-memory-store store))
+  (engine-payload-store-enforce-cache-bounds
+   store :prepared-payload now nil)
+  (let ((hash (block-hash block)))
+    (loop for prepared-payload
+            being the hash-values of
+              (memory-chain-store-prepared-payloads store)
+          for prepared-block =
+            (engine-prepared-payload-block prepared-payload)
+          for execution-state =
+            (engine-prepared-payload-execution-state prepared-payload)
+          when (and (typep execution-state 'ethereum-lisp.state:state-db)
+                    (hash32= hash (block-hash prepared-block)))
+            do (return
+                 (values
+                  (engine-payload-store-copy-block prepared-block)
+                  execution-state)))))
+
+(defun engine-payload-store-drop-prepared-execution-for-block (store block)
+  "Release the private prepared post-state matching successfully imported BLOCK."
+  (setf store (chain-store-require-memory-store store))
+  (let ((hash (block-hash block)))
+    (loop for prepared-payload
+            being the hash-values of
+              (memory-chain-store-prepared-payloads store)
+          when (hash32=
+                hash
+                (block-hash
+                 (engine-prepared-payload-block prepared-payload)))
+            do (setf (engine-prepared-payload-execution-state prepared-payload)
+                     nil)))
+  block)
+
 (defun engine-payload-store-put-blob-sidecar
     (store sidecar &key (now (unix-time)) block-number)
   (setf store (chain-store-require-memory-store store))

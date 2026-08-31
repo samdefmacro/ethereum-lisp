@@ -55,15 +55,9 @@
         (storage-fail "New payload persistence failed: ~A" condition)))))
 
 (defun engine-rpc-prepared-execution-for-block (store block)
-  "Return a copied prepared block and post-state matching BLOCK exactly."
-  (loop with hash = (block-hash block)
-        for prepared-payload in (chain-store-prepared-payloads store)
-        for prepared-block = (engine-prepared-payload-block prepared-payload)
-        for execution-state =
-          (engine-prepared-payload-execution-state prepared-payload)
-        when (and (typep execution-state 'ethereum-lisp.state:state-db)
-                  (hash32= hash (block-hash prepared-block)))
-          do (return (values prepared-block execution-state))))
+  "Return the private prepared block and post-state matching BLOCK exactly."
+  (ethereum-lisp.chain-store::engine-payload-store-borrow-prepared-execution-for-block
+   store block))
 
 (defun engine-rpc-import-with-prepared-execution
     (store block config fallback-import-function)
@@ -72,9 +66,10 @@
       (engine-rpc-prepared-execution-for-block store block)
     (if execution-state
         (let ((state execution-state))
-          ;; CHAIN-STORE-PREPARED-PAYLOADS returned a defensive state copy.
-          ;; This import owns that one copy, while the cached source remains
-          ;; intact for rollback and idempotent retry.
+          ;; EXECUTE-ATOMIC-BLOCK-COMMIT journals STATE and restores it when
+          ;; this import or its enclosing durability callback fails.  Borrowing
+          ;; the private build result therefore keeps retry semantics without
+          ;; cloning the entire post-state once per block.
           (unless (hash32=
                    (ethereum-lisp.state:state-db-root state)
                    (block-header-state-root (block-header prepared-block)))
@@ -167,6 +162,10 @@
                    (null block))
           (storage-fail
            "VALID new payload did not publish a candidate block"))
+        (when (string= +payload-status-valid+
+                       (payload-status-status status))
+          (ethereum-lisp.chain-store::engine-payload-store-drop-prepared-execution-for-block
+           store block))
         (engine-rpc-payload-status-object status)))))
 
 (defun engine-rpc-string-list-p (value)

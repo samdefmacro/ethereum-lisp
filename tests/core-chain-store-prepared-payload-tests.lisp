@@ -53,6 +53,12 @@
       (chain-store-put-prepared-payload
        store prepared :transfer-execution-state-p t)
       (is (= 0 copy-count))
+      (multiple-value-bind (borrowed-block borrowed-state)
+          (ethereum-lisp.chain-store::engine-payload-store-borrow-prepared-execution-for-block
+           store (engine-prepared-payload-block prepared))
+        (is borrowed-block)
+        (is (eq borrowed-state state))
+        (is (= 0 copy-count)))
       ;; Background improvement only needs payload metadata. Its two-second
       ;; scan must never clone the retained post-state.
       (let ((metadata-only
