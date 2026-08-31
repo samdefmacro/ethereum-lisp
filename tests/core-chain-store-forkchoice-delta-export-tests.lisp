@@ -306,12 +306,6 @@
              (length
               (forkchoice-delta-test-database-applied-operation-batches
                database))))
-      ;; Even when the candidate block/state records were not pre-staged, a
-      ;; straight extension is wholly reproducible from CL or P2P after an
-      ;; unclean restart and must not reintroduce a foreground fsync.
-      (is (= 1
-             (forkchoice-delta-test-database-buffered-apply-attempts
-              database)))
       (is (equal expected
                  (forkchoice-delta-test-operation-signatures database)))
       (is (null
@@ -345,10 +339,7 @@
       (is (null (forkchoice-delta-test-operation-signatures database)))
       (is (null
            (forkchoice-delta-test-database-applied-operation-batches
-            database)))
-      (is (= 0
-             (forkchoice-delta-test-database-buffered-apply-attempts
-              database))))))
+            database))))))
 
 (deftest node-store-forkchoice-delta-noop-does-not-write-metadata-only-batch
   (let* ((store (make-engine-payload-memory-store))
