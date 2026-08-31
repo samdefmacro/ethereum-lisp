@@ -87,7 +87,8 @@
              table)
     copy))
 
-(defun engine-payload-store-copy-prepared-payload (prepared-payload)
+(defun engine-payload-store-copy-prepared-payload
+    (prepared-payload &key (copy-execution-state-p t))
   (cond
     ((typep prepared-payload 'engine-prepared-payload)
      (make-engine-prepared-payload
@@ -113,9 +114,11 @@
       (maybe-copy-hash32
        (engine-prepared-payload-candidate-transactions-root prepared-payload))
       :execution-state
-      (let ((state
-              (engine-prepared-payload-execution-state prepared-payload)))
-        (and state (ethereum-lisp.state:state-db-copy state)))
+      (and copy-execution-state-p
+           (let ((state
+                   (engine-prepared-payload-execution-state
+                    prepared-payload)))
+             (and state (ethereum-lisp.state:state-db-copy state))))
       :open-p (engine-prepared-payload-open-p prepared-payload)))
     (t prepared-payload)))
 

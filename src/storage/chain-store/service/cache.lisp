@@ -671,7 +671,8 @@ transient or raced verdict can be retried without restarting the node."
   (engine-payload-id-key payload-id))
 
 (defun engine-payload-store-put-prepared-payload
-    (store prepared-payload &key (now (unix-time)))
+    (store prepared-payload
+     &key (now (unix-time)) transfer-execution-state-p)
   (setf store (chain-store-require-memory-store store))
   (validate-engine-prepared-payload prepared-payload)
   (engine-payload-store-synchronize-cache-metadata
@@ -680,33 +681,63 @@ transient or raced verdict can be retried without restarting the node."
   ;; budget protects this cache.  Retain an execution shortcut for only the
   ;; newest payload environment; older payload ids remain fully usable and
   ;; safely fall back to ordinary newPayload execution.
-  (when (engine-prepared-payload-execution-state prepared-payload)
-    (loop for existing
-            being the hash-values of
-              (memory-chain-store-prepared-payloads store)
-          do (setf (engine-prepared-payload-execution-state existing) nil)))
-  (let ((stored-payload
-          (engine-payload-store-copy-prepared-payload prepared-payload)))
-    (engine-payload-store-cache-put
-     store :prepared-payload
-     (engine-payload-id-key
-      (engine-prepared-payload-payload-id stored-payload))
-     stored-payload now))
+  (let* ((payload-id-key
+           (engine-payload-id-key
+            (engine-prepared-payload-payload-id prepared-payload)))
+         (incoming-state
+           (engine-prepared-payload-execution-state prepared-payload))
+         (prior
+           (gethash payload-id-key
+                    (memory-chain-store-prepared-payloads store)))
+         ;; Engine payload construction creates a detached post-state and can
+         ;; transfer its sole owner directly into this process-local cache.
+         ;; General chain-store callers retain the defensive-copy contract.
+         ;; A metadata-only replacement (getPayload closes an unchanged build)
+         ;; carries the exact prior block's private state forward.
+         (retained-state
+           (cond
+             ((and incoming-state transfer-execution-state-p)
+              incoming-state)
+             (incoming-state
+              (ethereum-lisp.state:state-db-copy incoming-state))
+             ((and prior
+                   (hash32=
+                    (block-hash
+                     (engine-prepared-payload-block prior))
+                    (block-hash
+                     (engine-prepared-payload-block prepared-payload))))
+              (engine-prepared-payload-execution-state prior)))))
+    (when incoming-state
+      (loop for existing
+              being the hash-values of
+                (memory-chain-store-prepared-payloads store)
+            do (setf (engine-prepared-payload-execution-state existing) nil)))
+    (let ((stored-payload
+            (engine-payload-store-copy-prepared-payload
+             prepared-payload :copy-execution-state-p nil)))
+      (setf (engine-prepared-payload-execution-state stored-payload)
+            retained-state)
+      (engine-payload-store-cache-put
+       store :prepared-payload
+       payload-id-key
+       stored-payload now)))
   (engine-payload-store-enforce-cache-bounds
    store :prepared-payload now nil)
   prepared-payload)
 
 (defun engine-payload-store-prepared-payload
-    (store payload-id &key (now (unix-time)))
+    (store payload-id
+     &key (now (unix-time)) (copy-execution-state-p t))
   (setf store (chain-store-require-memory-store store))
   (engine-payload-store-enforce-cache-bounds
    store :prepared-payload now nil)
   (engine-payload-store-copy-prepared-payload
    (gethash (engine-payload-id-key payload-id)
-            (memory-chain-store-prepared-payloads store))))
+            (memory-chain-store-prepared-payloads store))
+   :copy-execution-state-p copy-execution-state-p))
 
 (defun engine-payload-store-prepared-payload-list
-    (store &key (now (unix-time)))
+    (store &key (now (unix-time)) (copy-execution-state-p t))
   (setf store (chain-store-require-memory-store store))
   (engine-payload-store-enforce-cache-bounds
    store :prepared-payload now nil)
@@ -714,21 +745,29 @@ transient or raced verdict can be retried without restarting the node."
           being the hash-values of
             (memory-chain-store-prepared-payloads store)
         collect
-        (engine-payload-store-copy-prepared-payload prepared-payload)))
+        (engine-payload-store-copy-prepared-payload
+         prepared-payload
+         :copy-execution-state-p copy-execution-state-p)))
 
-(defun chain-store-put-prepared-payload (store prepared-payload)
+(defun chain-store-put-prepared-payload
+    (store prepared-payload &key transfer-execution-state-p)
   (engine-payload-store-put-prepared-payload
    (chain-store-require-memory-store store)
-   prepared-payload))
+   prepared-payload
+   :transfer-execution-state-p transfer-execution-state-p))
 
-(defun chain-store-prepared-payload (store payload-id)
+(defun chain-store-prepared-payload
+    (store payload-id &key (copy-execution-state-p t))
   (engine-payload-store-prepared-payload
    (chain-store-require-memory-store store)
-   payload-id))
+   payload-id
+   :copy-execution-state-p copy-execution-state-p))
 
-(defun chain-store-prepared-payloads (store)
+(defun chain-store-prepared-payloads
+    (store &key (copy-execution-state-p t))
   (engine-payload-store-prepared-payload-list
-   (chain-store-require-memory-store store)))
+   (chain-store-require-memory-store store)
+   :copy-execution-state-p copy-execution-state-p))
 
 (defun engine-payload-store-put-blob-sidecar
     (store sidecar &key (now (unix-time)) block-number)

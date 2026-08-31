@@ -71,7 +71,10 @@
   (multiple-value-bind (prepared-block execution-state)
       (engine-rpc-prepared-execution-for-block store block)
     (if execution-state
-        (let ((state (ethereum-lisp.state:state-db-copy execution-state)))
+        (let ((state execution-state))
+          ;; CHAIN-STORE-PREPARED-PAYLOADS returned a defensive state copy.
+          ;; This import owns that one copy, while the cached source remains
+          ;; intact for rollback and idempotent retry.
           (unless (hash32=
                    (ethereum-lisp.state:state-db-root state)
                    (block-header-state-root (block-header prepared-block)))

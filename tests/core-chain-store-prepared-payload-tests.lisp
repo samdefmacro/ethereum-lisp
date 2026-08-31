@@ -32,6 +32,51 @@
            (state-db-root retained)
            (state-db-root second-state))))))
 
+(deftest chain-store-prepared-payload-hot-path-bounds-state-copies
+  (let* ((store (make-engine-payload-memory-store))
+         (payload-id #(1 0 0 0 0 0 0 3))
+         (state (make-state-db))
+         (copy-count 0)
+         (prepared
+           (make-engine-prepared-payload
+            :payload-id payload-id
+            :version 1
+            :block (make-block :header (make-block-header :number 1))
+            :execution-state state
+            :open-p nil)))
+    (let ((ethereum-lisp.state::*state-db-copy-observer*
+            (lambda (copied-state)
+              (declare (ignore copied-state))
+              (incf copy-count))))
+      ;; The Engine builder created a detached state and transfers it without
+      ;; cloning the entire world once merely to install the private cache.
+      (chain-store-put-prepared-payload
+       store prepared :transfer-execution-state-p t)
+      (is (= 0 copy-count))
+      ;; Background improvement only needs payload metadata. Its two-second
+      ;; scan must never clone the retained post-state.
+      (let ((metadata-only
+              (first
+               (ethereum-lisp.chain-store:chain-store-prepared-payloads
+                store :copy-execution-state-p nil))))
+        (is (null
+             (engine-prepared-payload-execution-state metadata-only)))
+        (is (= 0 copy-count))
+        ;; Replacing unchanged payload metadata carries the private state
+        ;; forward even though this metadata copy deliberately omitted it.
+        (chain-store-put-prepared-payload
+         store metadata-only :transfer-execution-state-p t)
+        (is (= 0 copy-count)))
+      ;; A general reader still receives an isolated state and therefore
+      ;; cannot mutate the cache that an idempotent newPayload retry needs.
+      (let ((isolated
+              (engine-prepared-payload-execution-state
+               (chain-store-prepared-payload store payload-id))))
+        (is isolated)
+        (is (not (eq isolated state)))
+        (is (= 1 copy-count))
+        (is (hash32= (state-db-root isolated) (state-db-root state)))))))
+
 (deftest chain-store-export-import-kv-restores-prepared-payloads
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

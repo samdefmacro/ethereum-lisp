@@ -21,7 +21,8 @@
             (json-rpc-required-param
              params 0 "payloadId" method)))
          (prepared-payload
-           (chain-store-prepared-payload store payload-id)))
+           (chain-store-prepared-payload
+            store payload-id :copy-execution-state-p nil)))
     (unless prepared-payload
       (engine-rpc-fail +engine-rpc-error-unknown-payload+
                        "Unknown payload"))
@@ -30,7 +31,8 @@
             (engine-rpc-improve-prepared-payload
              store config prepared-payload)
             (engine-prepared-payload-open-p prepared-payload) nil)
-      (chain-store-put-prepared-payload store prepared-payload))
+      (chain-store-put-prepared-payload
+       store prepared-payload :transfer-execution-state-p t))
     prepared-payload))
 
 (defun engine-rpc-prepared-payload-envelope (prepared-payload)

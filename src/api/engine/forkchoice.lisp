@@ -264,12 +264,15 @@ for the rest of this payload; other senders are still considered."
                        :candidate-transactions-root candidate-root
                        :execution-state execution-state
                        :open-p t)))
-                (chain-store-put-prepared-payload store improved)
+                (chain-store-put-prepared-payload
+                 store improved :transfer-execution-state-p t)
                 improved))))))
 
 (defun engine-rpc-improve-open-payloads (store config)
   "Improve every payload that has not yet been retrieved."
-  (dolist (prepared-payload (chain-store-prepared-payloads store))
+  (dolist (prepared-payload
+           (chain-store-prepared-payloads
+            store :copy-execution-state-p nil))
     (when (engine-prepared-payload-open-p prepared-payload)
       (engine-rpc-improve-prepared-payload store config prepared-payload)))
   nil)
@@ -420,7 +423,8 @@ for the rest of this payload; other senders are still considered."
           ;; explicitly reopened from an empty candidate for the new request.
           (unless
               (let ((existing
-                      (chain-store-prepared-payload store candidate-id)))
+                      (chain-store-prepared-payload
+                       store candidate-id :copy-execution-state-p nil)))
                 (and existing
                      (engine-prepared-payload-open-p existing)))
             (multiple-value-bind
@@ -452,7 +456,8 @@ for the rest of this payload; other senders are still considered."
                 :candidate-transactions-root
                 (transaction-list-root nil)
                 :execution-state execution-state
-                :open-p t))))
+                :open-p t)
+               :transfer-execution-state-p t)))
           (setf payload-id candidate-id)))
       (engine-rpc-forkchoice-response-object
        status
