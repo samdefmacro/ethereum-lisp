@@ -110,6 +110,7 @@
      &key (parent-beacon-root nil parent-beacon-root-supplied-p)
           (versioned-hashes nil versioned-hashes-supplied-p)
           (requests nil requests-supplied-p)
+          (validated-block nil validated-block-supplied-p)
           import-function
           (import-state-available-p t))
   (unless (typep store 'engine-payload-memory-store)
@@ -118,11 +119,60 @@
                "newPayload store must be engine-payload-memory-store")
               nil)))
   (multiple-value-bind (status block)
-      (engine-new-payload-version-status-for-request
-       version payload config
-       parent-beacon-root parent-beacon-root-supplied-p
-       versioned-hashes versioned-hashes-supplied-p
-       requests requests-supplied-p)
+      (if validated-block-supplied-p
+          ;; IMPORT-EXECUTABLE-PAYLOAD already crossed the complete wire
+          ;; conversion boundary and passes that exact block here. Repeat the
+          ;; cheap version/fork rules so this keyword cannot bypass them, then
+          ;; bind the block by its declared payload hash. Avoiding a second
+          ;; executable-data-to-block conversion is important on the Engine
+          ;; hot path, where every transaction would otherwise be decoded,
+          ;; rooted, and hashed twice before admission.
+          (let ((invalid-message
+                  (and (typep payload 'executable-data)
+                       (typep config 'chain-config)
+                       (engine-new-payload-version-invalid-p
+                        version payload config
+                        versioned-hashes-supplied-p
+                        parent-beacon-root-supplied-p
+                        requests-supplied-p))))
+            (cond
+              ((not (typep payload 'executable-data))
+               (values
+                (invalid-payload-status
+                 "newPayload execution payload must be executable-data")
+                nil))
+              ((not (typep config 'chain-config))
+               (values
+                (invalid-payload-status
+                 "newPayload chain config must be chain-config")
+                nil))
+              ((not (typep validated-block 'ethereum-block))
+               (values
+                (invalid-payload-status
+                 "newPayload validated block must be an Ethereum block")
+                nil))
+              (invalid-message
+               (values (invalid-payload-status invalid-message) nil))
+              ((or (not (hash32-p (executable-data-block-hash payload)))
+                   (not
+                    (hash32=
+                     (executable-data-block-hash payload)
+                     (block-hash validated-block))))
+               (values
+                (invalid-payload-status
+                 "newPayload validated block hash does not match payload")
+                nil))
+              (t
+               (values
+                (make-payload-status
+                 :status +payload-status-valid+
+                 :latest-valid-hash (block-hash validated-block))
+                validated-block))))
+          (engine-new-payload-version-status-for-request
+           version payload config
+           parent-beacon-root parent-beacon-root-supplied-p
+           versioned-hashes versioned-hashes-supplied-p
+           requests requests-supplied-p))
     (unless (string= +payload-status-valid+
                      (payload-status-status status))
       (return-from engine-new-payload-memory-status

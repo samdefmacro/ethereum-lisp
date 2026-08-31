@@ -9,6 +9,15 @@
   (incf (block-import-read-count-database-get-count database))
   (call-next-method))
 
+(defun block-import-test-call-with-function-override
+    (symbol replacement thunk)
+  (let ((original (fdefinition symbol)))
+    (unwind-protect
+         (progn
+           (setf (fdefinition symbol) replacement)
+           (funcall thunk))
+      (setf (fdefinition symbol) original))))
+
 (defun block-import-test-fixture ()
   (let* ((store (make-engine-payload-memory-store))
          (config
@@ -657,6 +666,42 @@
       (is (= 2 calls))
       ;; The known/state replay still validates, but does not re-execute.
       (is (= 1 executor-calls)))))
+
+(deftest block-import-executable-payload-reconstructs-wire-block-once
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    (let* ((symbol
+             'ethereum-lisp.engine-payloads:executable-data-to-block)
+           (original (fdefinition symbol))
+           (calls 0))
+      (block-import-test-call-with-function-override
+       symbol
+       (lambda (&rest arguments)
+         (incf calls)
+         (apply original arguments))
+       (lambda ()
+         (multiple-value-bind (status candidate)
+             (import-executable-payload
+              store 2 (block-import-test-payload child) config)
+           (is (string= +payload-status-valid+
+                        (payload-status-status status)))
+           (is (hash32= (block-hash child) (block-hash candidate))))))
+      (is (= 1 calls)))))
+
+(deftest engine-new-payload-validated-block-cannot-bypass-wire-hash
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    (let ((payload (block-import-test-payload child)))
+      (setf (executable-data-block-hash payload) (zero-hash32))
+      (multiple-value-bind (status candidate)
+          (engine-new-payload-memory-status
+           store 2 payload config :validated-block child)
+        (is (string= +payload-status-invalid+
+                     (payload-status-status status)))
+        (is (null candidate))
+        (is (null (chain-store-known-block store (block-hash child))))))))
 
 (deftest block-import-known-replay-does-no-store-read-after-durability
   (multiple-value-bind (source config parent child)

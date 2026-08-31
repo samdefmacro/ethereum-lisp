@@ -600,7 +600,8 @@ never converted into INVALID payload verdicts."
               #'engine-new-payload-memory-status
               store version payload config
               (append
-               (list :import-function #'import-candidate)
+               (list :import-function #'import-candidate
+                     :validated-block wire-block)
                (when parent-beacon-root-supplied-p
                  (list :parent-beacon-root parent-beacon-root))
                (when versioned-hashes-supplied-p
