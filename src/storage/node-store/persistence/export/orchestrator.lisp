@@ -979,16 +979,15 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
       (let* ((batch (make-kv-write-batch))
              (code-sink (make-node-store-code-sink batch database))
              (changed-p nil)
-             ;; A straight Engine head extension is replayable from the
-             ;; consensus client after an unclean shutdown. Match geth's
-             ;; foreground NoSync path instead of forcing one fsync per block.
-             ;; Reorgs and persisted/current reconciliation remain explicit
-             ;; seams. Head, safe, and finalized checkpoints are all CL-owned
-             ;; replayable progress: after an unclean restart the consensus
-             ;; client resends its complete forkchoice state. Keeping those
-             ;; three markers in one NoSync WAL batch also matches geth's
-             ;; foreground chain-write policy instead of turning every safe
-             ;; advance into a hidden per-block fsync.
+             ;; A straight canonical extension is replayable after an unclean
+             ;; shutdown: the consensus client resends its complete
+             ;; forkchoice state, and a P2P-derived extension can be fetched
+             ;; again. Its block/state records, head/safe/finalized markers,
+             ;; txpool changes, and retention/cache updates therefore remain
+             ;; one atomic NoSync WAL batch with an unconfirmed generation.
+             ;; Match geth's foreground chain-write policy instead of letting
+             ;; any derived subrecord reintroduce one fsync per block. A reorg
+             ;; or pivot reconciliation is the topology-changing exception.
              (durability-seam-required-p
                (or sync-pivot-target-supplied-p
                    (canonical-chain-transition-displaced-blocks transition)
@@ -1042,12 +1041,10 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
             (unless block-records-staged-p
               (when (node-store-put-immutable-block-records
                      database batch block "Forkchoice transition")
-                (setf changed-p t
-                      durability-seam-required-p t)))
+                (setf changed-p t)))
             (when (node-store-populate-blob-sidecars-for-transactions-batch
                    chain-store database batch (block-transactions block))
-              (setf changed-p t
-                    durability-seam-required-p t))
+              (setf changed-p t))
             (when (and
                    (chain-store-state-available-p chain-store hash)
                    (not
@@ -1059,8 +1056,7 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    chain-store database batch hash identifier
                    "Forkchoice transition" code-sink)
                 (when state-changed-p
-                  (setf changed-p t
-                        durability-seam-required-p t))
+                  (setf changed-p t))
                 (setf pending-trie-nodes
                       (nconc pending-trie-nodes nodes))))))
         (dolist (transaction-hash transaction-hashes)
@@ -1095,8 +1091,11 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    (chain-store-durable-state-provider-p chain-store)
                    (node-store-populate-state-retention-batch
                     chain-store transition database batch installed-blocks))
-          (setf changed-p t
-                durability-seam-required-p t))
+          ;; Retention records and deletions are derived from the canonical
+          ;; transition. Losing a NoSync suffix retains extra state or causes
+          ;; the same pruning decision to be replayed; it cannot publish a
+          ;; false canonical completion marker.
+          (setf changed-p t))
         ;; Finality/age/count pruning ran before this exporter. Synchronize the
         ;; bounded invalid and remote sets in the same forkchoice WAL batch so a
         ;; quiet node cannot retain pruned verdicts/targets forever on disk.
@@ -1107,8 +1106,7 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
              chain-store database batch :write-current-p nil)
             (setf invalid-evicted evicted)
           (when invalid-changed-p
-            (setf changed-p t
-                  durability-seam-required-p t))
+            (setf changed-p t))
           (multiple-value-bind (remote-changed-p evicted)
             (chain-store-populate-remote-block-export-batch
              chain-store database batch :write-current-p nil)
@@ -1118,11 +1116,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    (append invalid-evicted remote-evicted)
                    :deleted-remote-identifiers remote-evicted
                    :deleted-invalid-identifiers invalid-evicted)
-              (setf changed-p t
-                    durability-seam-required-p t))
+              (setf changed-p t))
             (when remote-changed-p
-              (setf changed-p t
-                    durability-seam-required-p t))))
+              (setf changed-p t))))
         (setf buffered-prefix-p
               (and changed-p
                    (not durability-seam-required-p)
