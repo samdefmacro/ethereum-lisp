@@ -520,6 +520,11 @@ silently changing the storage profile."
   (rocksdb-apply-batch-with-options
    database batch (rocksdb-buffered-write-options database)))
 
+(defmethod kv-buffered-batch-supported-p
+    ((database rocksdb-key-value-database))
+  (declare (ignore database))
+  t)
+
 (defun rocksdb-iterator-check-error (iterator)
   "Signal if the iterator carries a non-OK status.
 RocksDB surfaces IO and corruption errors through the iterator's status rather

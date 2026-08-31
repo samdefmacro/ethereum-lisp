@@ -40,7 +40,7 @@ reads treat absence as that same default."
                       (state-roots (make-hash-table :test 'equalp))
                       (state-tries (make-hash-table :test 'equalp))
                       (state-code-bodies (make-hash-table :test 'equalp))
-                      durable-engine-payload-hash
+                      buffered-engine-payload-hash
                       (state-baseline-interval
                        +chain-store-default-state-baseline-interval+)
                       (state-retention-depth
@@ -92,9 +92,10 @@ reads treat absence as that same default."
   state-tries
   state-code-bodies
   ;; A bounded, process-local performance hint.  The Engine candidate exporter
-  ;; installs it only after the block and state batch commits; the following
-  ;; forkchoice consumes it.  It is never reconstructed from durable data.
-  durable-engine-payload-hash
+  ;; installs it only after the block and state batch is staged in the database;
+  ;; the following canonical forkchoice consumes it and supplies the durable
+  ;; WAL seam.  It is never reconstructed from durable data.
+  buffered-engine-payload-hash
   (state-baseline-interval +chain-store-default-state-baseline-interval+
    :type (integer 1 *))
   (state-retention-depth +chain-store-default-state-retention-depth+

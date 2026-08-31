@@ -62,6 +62,7 @@
    #:kv-write-batch-statistics
    #:kv-apply-batch
    #:kv-apply-batch-buffered
+   #:kv-buffered-batch-supported-p
    #:kv-iterator
    #:kv-chain-record-key
    #:kv-chain-record-key-kind

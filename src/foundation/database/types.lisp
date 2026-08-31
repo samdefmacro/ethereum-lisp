@@ -97,6 +97,13 @@ no cursor or externally visible completion marker until a later
 KV-APPLY-BATCH. That later synchronous batch must make all preceding buffered
 writes durable before it returns. A crash before the seam may lose the
 unpublished work, which the absent cursor makes safe to retry."))
+(defgeneric kv-buffered-batch-supported-p (database)
+  (:documentation
+   "Return true when KV-APPLY-BATCH-BUFFERED is a real non-syncing WAL path.
+
+The default backends establish a durable seam even through the buffered API;
+callers use this capability to report durability and generation changes
+accurately while RocksDB group-commits unpublished work."))
 (defgeneric kv-iterator (database &key start end reverse-p)
   (:documentation
    "Return an iterator function and, as a second value, an idempotent closer.

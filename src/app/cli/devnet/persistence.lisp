@@ -106,7 +106,7 @@ past the metadata that actually exists on disk."
               (node-store-export-payload-candidate-to-kv
                store candidate database
                :peer-sync-progress progress
-               :durable-forkchoice-hint-p (eq source :engine)))
+               :buffer-for-forkchoice-p (eq source :engine)))
              (:buffered
               ;; A buffered block has neither derived state nor receipts.  It
               ;; is durable as a future sync target, but must never advance a

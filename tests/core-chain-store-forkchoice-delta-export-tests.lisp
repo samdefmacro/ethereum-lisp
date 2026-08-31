@@ -4,6 +4,9 @@
   ((applied-operation-batches
      :initform nil
      :accessor forkchoice-delta-test-database-applied-operation-batches)
+   (buffered-apply-attempts
+     :initform 0
+     :accessor forkchoice-delta-test-database-buffered-apply-attempts)
    (forbid-iteration-p
      :initform nil
      :accessor forkchoice-delta-test-database-forbid-iteration-p)))
@@ -41,6 +44,16 @@
    (forkchoice-delta-test-database-applied-operation-batches database))
   (call-next-method))
 
+(defmethod kv-apply-batch-buffered :around
+    ((database forkchoice-delta-test-database) (batch kv-write-batch))
+  (incf (forkchoice-delta-test-database-buffered-apply-attempts database))
+  (call-next-method))
+
+(defmethod kv-buffered-batch-supported-p
+    ((database forkchoice-delta-test-database))
+  (declare (ignore database))
+  t)
+
 (defmethod kv-iterator :around
     ((database forkchoice-delta-test-database)
      &key start end reverse-p)
@@ -54,7 +67,9 @@
 
 (defun forkchoice-delta-test-reset-operations (database)
   (setf (forkchoice-delta-test-database-applied-operation-batches database)
-        nil))
+        nil
+        (forkchoice-delta-test-database-buffered-apply-attempts database)
+        0))
 
 (defun forkchoice-delta-test-call-with-function-overrides (bindings thunk)
   "Call THUNK with global function BINDINGS, restoring every definition."
@@ -373,7 +388,7 @@
              (ethereum-lisp.node-store.persistence:node-store-persistence-metadata-generation
               metadata))))))
 
-(deftest node-store-forkchoice-delta-skips-durable-installed-payload-records
+(deftest node-store-forkchoice-delta-skips-staged-installed-payload-records
   (:layer :integration :module :storage)
   (let* ((source (make-engine-payload-memory-store))
          (config (make-chain-config :chain-id 1))
@@ -414,29 +429,29 @@
         ;; A direct-provider read with no dirty overlay also describes SNAP
         ;; pivot publication, so absence alone must never authorize the skip.
         (is (not
-             (ethereum-lisp.node-store.persistence::node-store-installed-block-records-durable-p
+             (ethereum-lisp.node-store.persistence::node-store-installed-block-records-staged-p
               (ethereum-lisp.chain-store.state:chain-store-require-memory-store
                store)
               candidate)))
         (is (not
-             (ethereum-lisp.node-store.persistence::node-store-installed-state-record-durable-p
+             (ethereum-lisp.node-store.persistence::node-store-installed-state-record-staged-p
               (ethereum-lisp.chain-store.state:chain-store-require-memory-store
                store)
               candidate)))
         (node-store-export-payload-candidate-to-kv
          store candidate database)
         (is (not
-             (ethereum-lisp.node-store.persistence::node-store-installed-block-records-durable-p
+             (ethereum-lisp.node-store.persistence::node-store-installed-block-records-staged-p
               (ethereum-lisp.chain-store.state:chain-store-require-memory-store
                store)
               candidate)))
         (node-store-export-payload-candidate-to-kv
-         store candidate database :durable-forkchoice-hint-p t)
-        (is (ethereum-lisp.node-store.persistence::node-store-installed-block-records-durable-p
+         store candidate database :buffer-for-forkchoice-p t)
+        (is (ethereum-lisp.node-store.persistence::node-store-installed-block-records-staged-p
              (ethereum-lisp.chain-store.state:chain-store-require-memory-store
               store)
              candidate))
-        (is (ethereum-lisp.node-store.persistence::node-store-installed-state-record-durable-p
+        (is (ethereum-lisp.node-store.persistence::node-store-installed-state-record-staged-p
              (ethereum-lisp.chain-store.state:chain-store-require-memory-store
               store)
              candidate))
@@ -459,7 +474,7 @@
           (is (= 0 immutable-calls))
           (is (= 0 state-calls))
           (is (null
-               (ethereum-lisp.chain-store.state:memory-chain-store-durable-engine-payload-hash
+               (ethereum-lisp.chain-store.state:memory-chain-store-buffered-engine-payload-hash
                 (ethereum-lisp.chain-store.state:chain-store-require-memory-store
                  store))))
           (is (hash32=
@@ -470,6 +485,79 @@
             (is present-p)
             (is (bytes= persisted
                         (hash32-bytes (block-hash candidate))))))))))
+
+(deftest node-store-engine-candidate-buffers-until-canonical-forkchoice
+  (:layer :integration :module :storage)
+  (labels
+      ((make-fixture ()
+         (let* ((source (make-engine-payload-memory-store))
+                (state (make-state-db))
+                (root (state-db-root state))
+                (genesis
+                  (make-block
+                   :header
+                   (make-block-header
+                    :number 0 :parent-hash (zero-hash32)
+                    :state-root root :timestamp 0 :gas-limit 30000000)))
+                (candidate
+                  (make-block
+                   :header
+                   (make-block-header
+                    :number 1 :parent-hash (block-hash genesis)
+                    :state-root root :timestamp 1 :gas-limit 30000000)))
+                (database (make-forkchoice-delta-test-database)))
+           (chain-store-put-block source genesis :state-available-p t)
+           (commit-state-db-to-chain-store source (block-hash genesis) state)
+           (forkchoice-delta-test-set-checkpoints
+            source genesis genesis genesis)
+           (node-store-export-to-kv source database)
+           (forkchoice-delta-test-reset-operations database)
+           (let ((store (make-database-engine-payload-store database)))
+             (engine-payload-store-put-block
+              store candidate :state-available-p t :canonicalize-p nil)
+             (commit-state-db-to-chain-store
+              store (block-hash candidate) state)
+             (values store genesis candidate database)))))
+    (multiple-value-bind (store genesis candidate database)
+        (make-fixture)
+      (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+       store)
+      (node-store-export-payload-candidate-to-kv
+       store candidate database :buffer-for-forkchoice-p t)
+      (is (= 1
+             (forkchoice-delta-test-database-buffered-apply-attempts
+              database)))
+      (is
+       (ethereum-lisp.node-store.persistence::node-store-installed-block-records-staged-p
+        (ethereum-lisp.chain-store.state:chain-store-require-memory-store store)
+        candidate))
+      (let ((transition
+              (forkchoice-delta-test-select-head
+               store (make-chain-config :chain-id 1)
+               candidate genesis genesis)))
+        (multiple-value-bind (result durable-written-p changed-p)
+            (node-store-export-forkchoice-to-kv
+             store transition database)
+          (is (eq result database))
+          (is durable-written-p)
+          (is changed-p)))
+      (is (null
+           (ethereum-lisp.chain-store.state:memory-chain-store-buffered-engine-payload-hash
+            (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+             store)))))
+    (multiple-value-bind (store genesis candidate database)
+        (make-fixture)
+      (declare (ignore genesis))
+      (node-store-export-payload-candidate-to-kv
+       store candidate database)
+      (is (= 0
+             (forkchoice-delta-test-database-buffered-apply-attempts
+              database)))
+      (is (not
+           (ethereum-lisp.node-store.persistence::node-store-installed-block-records-staged-p
+            (ethereum-lisp.chain-store.state:chain-store-require-memory-store
+             store)
+            candidate))))))
 
 (deftest node-store-forkchoice-delta-checkpoint-only-is-scoped-and-idempotent
   (let* ((store (make-engine-payload-memory-store))
@@ -616,8 +704,15 @@
              (ethereum-lisp.canonical-chain:canonical-chain-transition-changed-txpool-hashes
               transition)
              transaction-hash))
-        (forkchoice-delta-test-export-without-iteration
-         restored transition database))
+        (multiple-value-bind (result durable-written-p changed-p)
+            (forkchoice-delta-test-export-without-iteration
+             restored transition database)
+          (is (eq result database))
+          (is (null durable-written-p))
+          (is changed-p)))
+      (is (= 1
+             (forkchoice-delta-test-database-buffered-apply-attempts
+              database)))
       (is (equal
            (list
             (forkchoice-delta-test-expected-operation
@@ -647,7 +742,10 @@
       (is (null (forkchoice-delta-test-operation-signatures database)))
       (is (null
            (forkchoice-delta-test-database-applied-operation-batches
-            database))))))
+            database)))
+      (is (= 0
+             (forkchoice-delta-test-database-buffered-apply-attempts
+              database))))))
 
 (deftest node-store-forkchoice-delta-requires-persisted-chain-baseline
   (let* ((store (make-engine-payload-memory-store))

@@ -44,21 +44,21 @@ record. Returns T when the batch changed."
          (setf changed-p t))))
     (values changed-p pending-nodes)))
 
-(defun node-store-installed-block-records-durable-p (store block)
-  "Return true only for the explicit committed Engine candidate hint.
+(defun node-store-installed-block-records-staged-p (store block)
+  "Return true only for the explicit staged Engine candidate hint.
 
 Absence from the direct provider's block overlay is not sufficient evidence:
 a SNAP pivot is also read directly while its canonical state record still has
 to be published.  The one-slot hint is installed only after an Engine
-candidate's block and state batch commits, then consumed by forkchoice."
-  (let ((hint (memory-chain-store-durable-engine-payload-hash store)))
+candidate's block and state batch is staged, then consumed by forkchoice."
+  (let ((hint (memory-chain-store-buffered-engine-payload-hash store)))
     (and (chain-store-durable-state-provider-p store)
          hint
          (hash32= hint (block-hash block)))))
 
-(defun node-store-installed-state-record-durable-p (store block)
-  "Return true only when BLOCK has the committed Engine candidate hint."
-  (node-store-installed-block-records-durable-p store block))
+(defun node-store-installed-state-record-staged-p (store block)
+  "Return true only when BLOCK has the staged Engine candidate hint."
+  (node-store-installed-block-records-staged-p store block))
 
 (defun node-store-put-immutable-record
     (database batch kind identifier value record-label)
@@ -626,17 +626,18 @@ content-addressed and shared; REBUILD is the offline compaction path."
 
 (defun node-store-export-payload-candidate-to-kv
     (store candidate database
-     &key peer-sync-progress durable-forkchoice-hint-p)
+     &key peer-sync-progress buffer-for-forkchoice-p)
   "Persist CANDIDATE and its ancestry without publishing canonical indexes.
 
 When PEER-SYNC-PROGRESS is supplied, its cursor is committed in the same KV
 batch as the candidate and must name CANDIDATE exactly.
 
-DURABLE-FORKCHOICE-HINT-P is reserved for Engine newPayload.  After its batch
-commits, a one-slot process-local hint lets the immediately following
-forkchoice avoid reopening the same immutable and state records.  Peer/SNAP
-imports must not set it because their pivot publication has distinct state
-durability obligations."
+BUFFER-FOR-FORKCHOICE-P is reserved for Engine newPayload.  Its batch may use
+the recoverable buffered RocksDB WAL path; a one-slot process-local hint lets
+the following canonical forkchoice avoid reopening the same immutable and
+state records while its synchronous batch supplies the durable seam. Peer/SNAP
+imports must not use this path because their cursors and pivot publication have
+distinct durability obligations."
   (let ((chain-store (chain-store-require-memory-store store)))
     (engine-payload-store-enable-durable-cache-change-tracking chain-store)
     (unless (typep candidate 'ethereum-block)
@@ -771,7 +772,11 @@ durability obligations."
                     database batch peer-sync-progress))
           (setf changed-p t))
         (when changed-p
-          (kv-apply-batch database batch)
+          (if (and buffer-for-forkchoice-p
+                   (chain-store-durable-state-provider-p chain-store)
+                   (kv-buffered-batch-supported-p database))
+              (kv-apply-batch-buffered database batch)
+              (kv-apply-batch database batch))
           (mpt-mark-nodes-persisted pending-trie-nodes)
           (dolist (hash persisted-state-hashes)
             (chain-store-clear-state-persistence-pending chain-store hash)))
@@ -783,9 +788,9 @@ durability obligations."
          (append remote-evicted (list (hash32-bytes candidate-hash))))
         (dolist (block persisted-blocks)
           (chain-store-release-durable-block-overlay chain-store block))
-        (when (and durable-forkchoice-hint-p
+        (when (and buffer-for-forkchoice-p
                    (chain-store-durable-state-provider-p chain-store))
-          (setf (memory-chain-store-durable-engine-payload-hash chain-store)
+          (setf (memory-chain-store-buffered-engine-payload-hash chain-store)
                 (make-hash32 (hash32-bytes candidate-hash))))
         database))))
 
@@ -973,6 +978,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
       (let* ((batch (make-kv-write-batch))
              (code-sink (make-node-store-code-sink batch database))
              (changed-p nil)
+             (durability-seam-required-p
+               sync-pivot-target-supplied-p)
+             (buffered-prefix-p nil)
              (pending-trie-nodes nil)
              (persisted-state-hashes nil)
              (installed-blocks
@@ -996,7 +1004,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                   #'<))
           (when (node-store-sync-canonical-hash
                  database batch chain-store number)
-            (setf changed-p t)))
+            (setf changed-p t
+                  durability-seam-required-p t)))
         (dolist (entry
                  (list
                   (cons :head (chain-store-head-checkpoint chain-store))
@@ -1005,30 +1014,33 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                         (chain-store-finalized-checkpoint chain-store))))
           (when (node-store-sync-checkpoint
                  database batch (cdr entry) (car entry))
-            (setf changed-p t)))
+            (setf changed-p t
+                  durability-seam-required-p t)))
         (dolist (block installed-blocks)
           (let* ((hash (block-hash block))
                  (known-block (chain-store-known-block chain-store hash))
                  (identifier (hash32-bytes hash))
-                 (block-records-durable-p
-                   (node-store-installed-block-records-durable-p
+                 (block-records-staged-p
+                   (node-store-installed-block-records-staged-p
                     chain-store block)))
             (unless (and known-block
                          (chain-store-persisted-block= known-block block)
                          (chain-store-canonical-block-p chain-store block))
               (block-validation-fail
                "Forkchoice transition installed block is not canonical"))
-            (unless block-records-durable-p
+            (unless block-records-staged-p
               (when (node-store-put-immutable-block-records
                      database batch block "Forkchoice transition")
-                (setf changed-p t)))
+                (setf changed-p t
+                      durability-seam-required-p t)))
             (when (node-store-populate-blob-sidecars-for-transactions-batch
                    chain-store database batch (block-transactions block))
-              (setf changed-p t))
+              (setf changed-p t
+                    durability-seam-required-p t))
             (when (and
                    (chain-store-state-available-p chain-store hash)
                    (not
-                    (node-store-installed-state-record-durable-p
+                    (node-store-installed-state-record-staged-p
                      chain-store block)))
               (push hash persisted-state-hashes)
               (multiple-value-bind (state-changed-p nodes)
@@ -1036,7 +1048,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    chain-store database batch hash identifier
                    "Forkchoice transition" code-sink)
                 (when state-changed-p
-                  (setf changed-p t))
+                  (setf changed-p t
+                        durability-seam-required-p t))
                 (setf pending-trie-nodes
                       (nconc pending-trie-nodes nodes))))))
         (dolist (transaction-hash transaction-hashes)
@@ -1053,7 +1066,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
             (when (node-store-sync-chain-record
                    database batch :transaction-location identifier
                    location-value)
-              (setf changed-p t))
+              (setf changed-p t
+                    durability-seam-required-p t))
             (multiple-value-bind (txpool-record txpool-transaction)
                 (node-store-final-txpool-record store transaction-hash)
               (when (node-store-sync-chain-record
@@ -1069,7 +1083,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    (chain-store-durable-state-provider-p chain-store)
                    (node-store-populate-state-retention-batch
                     chain-store transition database batch installed-blocks))
-          (setf changed-p t))
+          (setf changed-p t
+                durability-seam-required-p t))
         ;; Finality/age/count pruning ran before this exporter. Synchronize the
         ;; bounded invalid and remote sets in the same forkchoice WAL batch so a
         ;; quiet node cannot retain pruned verdicts/targets forever on disk.
@@ -1080,7 +1095,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
              chain-store database batch :write-current-p nil)
             (setf invalid-evicted evicted)
           (when invalid-changed-p
-            (setf changed-p t))
+            (setf changed-p t
+                  durability-seam-required-p t))
           (multiple-value-bind (remote-changed-p evicted)
             (chain-store-populate-remote-block-export-batch
              chain-store database batch :write-current-p nil)
@@ -1090,19 +1106,26 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    (append invalid-evicted remote-evicted)
                    :deleted-remote-identifiers remote-evicted
                    :deleted-invalid-identifiers invalid-evicted)
-              (setf changed-p t))
+              (setf changed-p t
+                    durability-seam-required-p t))
             (when remote-changed-p
-              (setf changed-p t))))
+              (setf changed-p t
+                    durability-seam-required-p t))))
+        (setf buffered-prefix-p
+              (and changed-p
+                   (not durability-seam-required-p)
+                   (kv-buffered-batch-supported-p database)))
         (when changed-p
-          ;; Metadata describes a durable mutation, not receipt of an
-          ;; idempotent forkchoice request.  In particular, a consensus client
-          ;; asks for a child build by repeating the current head; writing only
-          ;; a new generation for that no-op would force one RocksDB WAL sync
-          ;; per block without publishing any new chain fact.
+          ;; Metadata describes a database mutation, not receipt of an
+          ;; idempotent forkchoice request. A txpool-only repeated-head FCU may
+          ;; stage that mutation in the recoverable WAL without fsync; the next
+          ;; canonical FCU writes the same generation and flushes the prefix.
           (when persistence-metadata
             (node-store-populate-persistence-metadata-batch
              batch persistence-metadata))
-          (kv-apply-batch database batch)
+          (if buffered-prefix-p
+              (kv-apply-batch-buffered database batch)
+              (kv-apply-batch database batch))
           (mpt-mark-nodes-persisted pending-trie-nodes)
           (dolist (hash persisted-state-hashes)
             (chain-store-clear-state-persistence-pending chain-store hash)))
@@ -1115,16 +1138,18 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
         (dolist (block installed-blocks)
           (chain-store-release-durable-block-overlay chain-store block))
         (let ((hint
-                (memory-chain-store-durable-engine-payload-hash chain-store)))
+                (memory-chain-store-buffered-engine-payload-hash chain-store)))
           (when (and hint
                      (find hint installed-blocks
                            :key #'block-hash :test #'hash32=))
             (setf
-             (memory-chain-store-durable-engine-payload-hash chain-store)
+             (memory-chain-store-buffered-engine-payload-hash chain-store)
              nil)))
         (engine-payload-store-clear-txpool-database-dirty-transaction-hashes
          store transaction-hashes)
-        (values database changed-p)))))
+        (values database
+                (and changed-p (not buffered-prefix-p))
+                changed-p)))))
 
 (defun node-store-block-access-list-live-identifiers (store database)
   "Return the block identifiers that may reference shared BAL side data.

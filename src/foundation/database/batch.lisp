@@ -77,3 +77,7 @@ for comparing application writes with backend and device write amplification."
   ;; Memory and the fsync-per-record file oracle have no cheaper recoverable
   ;; prefix. Preserve their existing behavior; RocksDB specializes this seam.
   (kv-apply-batch database batch))
+
+(defmethod kv-buffered-batch-supported-p ((database key-value-database))
+  (declare (ignore database))
+  nil)
