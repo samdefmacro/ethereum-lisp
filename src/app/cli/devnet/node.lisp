@@ -199,6 +199,11 @@
          (forkchoice-persistence-function
            (devnet-cli-forkchoice-persistence-function
             database-path persistence-state db-engine))
+         (payload-improvement-notification-function
+           (lambda ()
+             (let ((node (first node-box)))
+               (when node
+                 (devnet-node-notify-payload-improvement node)))))
          (store
            (progn
              (chain-store-put-block
@@ -230,6 +235,8 @@
             :new-payload-persistence-function
             new-payload-persistence-function
             :forkchoice-persistence-function forkchoice-persistence-function
+            :payload-improvement-notification-function
+            payload-improvement-notification-function
             :gas-limit-target miner-gas-limit
             :request-guard-function store-guard-function
             :request-guard-predicate
@@ -259,6 +266,8 @@
             :new-payload-persistence-function
             new-payload-persistence-function
             :forkchoice-persistence-function forkchoice-persistence-function
+            :payload-improvement-notification-function
+            payload-improvement-notification-function
             :gas-limit-target miner-gas-limit
             :request-guard-function store-guard-function
             :request-guard-predicate

@@ -9,6 +9,7 @@
                       new-payload-persistence-function
                       forkchoice-persistence-function request-guard-function
                       request-guard-predicate
+                      payload-improvement-notification-function
                       network-id coinbase
                       allowed-method-p allow-unprotected-transactions-p
                       txpool-price-limit txpool-price-bump-percent
@@ -24,6 +25,7 @@
   forkchoice-persistence-function
   request-guard-function
   request-guard-predicate
+  payload-improvement-notification-function
   network-id
   coinbase
   allowed-method-p
@@ -48,6 +50,7 @@
                        forkchoice-persistence-function
                        request-guard-function
                        request-guard-predicate
+                       payload-improvement-notification-function
                        network-id
                        coinbase
                        (allowed-method-p #'engine-rpc-any-method-p)
@@ -83,6 +86,10 @@
              (not (functionp request-guard-predicate)))
     (block-validation-fail
      "JSON-RPC request guard predicate must be a function"))
+  (when (and payload-improvement-notification-function
+             (not (functionp payload-improvement-notification-function)))
+    (block-validation-fail
+     "JSON-RPC payload improvement notification must be a function"))
   (when (and get-blobs-v3-function
              (not (functionp get-blobs-v3-function)))
     (block-validation-fail
@@ -95,6 +102,8 @@
    :forkchoice-persistence-function forkchoice-persistence-function
    :request-guard-function request-guard-function
    :request-guard-predicate request-guard-predicate
+   :payload-improvement-notification-function
+   payload-improvement-notification-function
    :network-id network-id
    :coinbase coinbase
    :allowed-method-p allowed-method-p
@@ -180,6 +189,8 @@
            (rpc-context-new-payload-persistence-function context)
            :forkchoice-persistence-function
            (rpc-context-forkchoice-persistence-function context)
+           :payload-improvement-notification-function
+           (rpc-context-payload-improvement-notification-function context)
            :gas-limit-target (rpc-context-gas-limit-target context)
            :get-blobs-v3-function
            (rpc-context-get-blobs-v3-function context))

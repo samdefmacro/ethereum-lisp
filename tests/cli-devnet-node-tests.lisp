@@ -3802,6 +3802,82 @@ really reopens the directory instead of observing the first handle's memory."
   #-sbcl
   (is t))
 
+(deftest devnet-engine-payload-request-wakes-builder-without-poll-delay
+  (:layer :integration :module :cli)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (shutdown
+           (ethereum-lisp.cli:make-devnet-shutdown-controller))
+         (lock
+           (sb-thread:make-mutex :name "test-payload-improvement-wakeup"))
+         (changed
+           (sb-thread:make-waitqueue :name "test-payload-improvement-wakeup"))
+         (calls 0)
+         (builder-error nil)
+         (thread nil)
+         (context
+           (ethereum-lisp.rpc-http::engine-rpc-http-service-rpc-context
+            (ethereum-lisp.cli:devnet-node-service node)))
+         (notify
+           (ethereum-lisp.rpc::rpc-context-payload-improvement-notification-function
+            context)))
+    (labels ((wait-for-call (timeout-seconds)
+               (sb-thread:with-mutex (lock)
+                 (unless (plusp calls)
+                   (sb-thread:condition-wait
+                    changed lock :timeout timeout-seconds))
+                 (plusp calls))))
+      (is (functionp notify))
+      (unwind-protect
+           (devnet-peer-sync-call-with-function-overrides
+            (list
+             (cons
+              'ethereum-lisp.engine-api:engine-rpc-improve-open-payloads
+              (lambda (seen-store seen-config)
+                (sb-thread:with-mutex (lock)
+                  (when (and (eq seen-store
+                                 (ethereum-lisp.cli:devnet-node-store node))
+                             (eq seen-config
+                                 (ethereum-lisp.cli:devnet-node-config node)))
+                    (incf calls))
+                  (sb-thread:condition-broadcast changed))
+                nil)))
+            (lambda ()
+              ;; Multiple FCUs before the worker runs remain one bounded bit.
+              (dotimes (index 10)
+                (declare (ignore index))
+                (funcall notify))
+              (setf thread
+                    (ethereum-lisp.cli::devnet-start-payload-improvement-thread
+                     node shutdown
+                     (lambda (condition)
+                       (sb-thread:with-mutex (lock)
+                         (setf builder-error condition)
+                         (sb-thread:condition-broadcast changed)))
+                     :poll-interval-seconds 30d0))
+              ;; A polling-only implementation cannot pass this one-second
+              ;; bound when its fallback is explicitly thirty seconds.
+              (is (wait-for-call 1d0))
+              (is (= 1 calls))
+              (is (null builder-error))
+              (ethereum-lisp.cli:devnet-shutdown-request shutdown)
+              (let ((joined
+                      (sb-thread:join-thread
+                       thread :timeout 2 :default :timeout)))
+                (is (not (eq :timeout joined)))
+                (when (eq :timeout joined)
+                  (sb-thread:terminate-thread thread)
+                  (sb-thread:join-thread thread)))))
+        (ethereum-lisp.cli:devnet-shutdown-request shutdown)
+        (when (and thread (sb-thread:thread-alive-p thread))
+          (sb-thread:terminate-thread thread)
+          (sb-thread:join-thread thread)))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-peer-gap-fill-retries-a-buffered-target-with-known-parent
   (:layer :integration :module :p2p)
   (let* ((node

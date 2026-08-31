@@ -6,36 +6,58 @@
   "Cadence for rebuilding open Engine payloads while the proposer waits.")
 
 (defun devnet-start-payload-improvement-thread
-    (node shutdown-controller error-callback)
+    (node shutdown-controller error-callback
+     &key (poll-interval-seconds
+            +devnet-payload-improvement-interval-seconds+))
   #-sbcl
-  (declare (ignore node shutdown-controller error-callback))
+  (declare (ignore node shutdown-controller error-callback
+                   poll-interval-seconds))
   #-sbcl
   nil
   #+sbcl
-  (sb-thread:make-thread
-   (lambda ()
-     (handler-case
-         (loop until (devnet-shutdown-requested-p shutdown-controller)
-               do (loop repeat +devnet-payload-improvement-interval-seconds+
-                        until (devnet-shutdown-requested-p shutdown-controller)
-                        do (sleep 1))
-                  (unless (devnet-shutdown-requested-p shutdown-controller)
-                    (call-with-devnet-node-store-guard
-                     node
-                     (lambda ()
-                       (engine-rpc-improve-open-payloads
-                        (devnet-node-store node)
-                        (devnet-node-config node))))))
-       ;; MANDATORY, not defensive: the node runs as `sbcl --script`, which
-       ;; implies --disable-debugger, so an unhandled SERIOUS-CONDITION here
-       ;; (a STORAGE-CONDITION such as control-stack exhaustion is a
-       ;; serious-condition that is NOT an ERROR, so an ERROR handler never
-       ;; sees it) exits the whole process rather than fail-stopping the node.
-       ;; Catch SERIOUS-CONDITION like every other worker in this file.
-       (serious-condition (condition)
-         (funcall error-callback condition)
-         (devnet-shutdown-request shutdown-controller))))
-   :name "ethereum-lisp-devnet-payload-improvement"))
+  (progn
+    (unless (and (realp poll-interval-seconds)
+                 (plusp poll-interval-seconds))
+      (error "Payload improvement poll interval must be positive"))
+    (let ((wake-token
+            (devnet-shutdown-controller-add-closeable
+             shutdown-controller
+             (lambda () (devnet-node-notify-payload-improvement node)))))
+      (handler-case
+          (sb-thread:make-thread
+           (lambda ()
+             (unwind-protect
+                  (handler-case
+                      (loop until
+                            (devnet-shutdown-requested-p shutdown-controller)
+                            do
+                               ;; FCU signals after publishing its empty
+                               ;; candidate. The timeout remains a bounded
+                               ;; fallback for a lost or absent signal.
+                               (devnet-node-wait-for-payload-improvement
+                                node shutdown-controller poll-interval-seconds)
+                               (unless
+                                   (devnet-shutdown-requested-p
+                                    shutdown-controller)
+                                 (call-with-devnet-node-store-guard
+                                  node
+                                  (lambda ()
+                                    (engine-rpc-improve-open-payloads
+                                     (devnet-node-store node)
+                                     (devnet-node-config node))))))
+                    ;; MANDATORY, not defensive: the node runs as
+                    ;; `sbcl --script`, which implies --disable-debugger, so
+                    ;; serious storage conditions must fail-stop the node.
+                    (serious-condition (condition)
+                      (funcall error-callback condition)
+                      (devnet-shutdown-request shutdown-controller)))
+               (devnet-shutdown-controller-remove-closeable
+                shutdown-controller wake-token)))
+           :name "ethereum-lisp-devnet-payload-improvement")
+        (serious-condition (condition)
+          (devnet-shutdown-controller-remove-closeable
+           shutdown-controller wake-token)
+          (error condition))))))
 
 (defun devnet-start-txpool-maintenance-thread
     (node shutdown-controller error-callback)

@@ -332,7 +332,8 @@ for the rest of this payload; other senders are still considered."
 
 (defun engine-rpc-handle-forkchoice-updated
     (params store config method payload-version payload-attributes-parser
-     &key forkchoice-persistence-function gas-limit-target)
+     &key forkchoice-persistence-function gas-limit-target
+          payload-improvement-notification-function)
   (unless (and (listp params) params)
     (block-validation-fail "~A params must include forkchoice state" method))
   (let ((state
@@ -458,39 +459,56 @@ for the rest of this payload; other senders are still considered."
                 :execution-state execution-state
                 :open-p t)
                :transfer-execution-state-p t)))
-          (setf payload-id candidate-id)))
+          (setf payload-id candidate-id)
+          ;; The initial empty payload is now visible. Wake the production
+          ;; builder after publication so it can fill from the txpool while the
+          ;; proposer waits before getPayload. The callback is deliberately
+          ;; advisory: scheduler failure cannot invalidate an applied FCU.
+          (when payload-improvement-notification-function
+            (ignore-errors
+             (funcall payload-improvement-notification-function)))))
       (engine-rpc-forkchoice-response-object
        status
        :payload-id payload-id))))
 
 (defun engine-rpc-handle-forkchoice-updated-v1
-    (params store config &key forkchoice-persistence-function gas-limit-target)
+    (params store config &key forkchoice-persistence-function gas-limit-target
+                              payload-improvement-notification-function)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV1" 1
    (lambda (payload-attributes)
      (engine-rpc-validate-payload-attributes-v1
       payload-attributes :method "engine_forkchoiceUpdatedV1"))
    :forkchoice-persistence-function forkchoice-persistence-function
+   :payload-improvement-notification-function
+   payload-improvement-notification-function
    :gas-limit-target gas-limit-target))
 
 (defun engine-rpc-handle-forkchoice-updated-v2
-    (params store config &key forkchoice-persistence-function gas-limit-target)
+    (params store config &key forkchoice-persistence-function gas-limit-target
+                              payload-improvement-notification-function)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV2" 2
    #'engine-rpc-validate-payload-attributes-v2
    :forkchoice-persistence-function forkchoice-persistence-function
+   :payload-improvement-notification-function
+   payload-improvement-notification-function
    :gas-limit-target gas-limit-target))
 
 (defun engine-rpc-handle-forkchoice-updated-v3
-    (params store config &key forkchoice-persistence-function gas-limit-target)
+    (params store config &key forkchoice-persistence-function gas-limit-target
+                              payload-improvement-notification-function)
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV3" 3
    #'engine-rpc-validate-payload-attributes-v3
    :forkchoice-persistence-function forkchoice-persistence-function
+   :payload-improvement-notification-function
+   payload-improvement-notification-function
    :gas-limit-target gas-limit-target))
 
 (defun engine-rpc-handle-forkchoice-updated-v4
-    (params store config &key forkchoice-persistence-function gas-limit-target)
+    (params store config &key forkchoice-persistence-function gas-limit-target
+                              payload-improvement-notification-function)
   (when (> (length params) 3)
     (block-validation-fail
      "engine_forkchoiceUpdatedV4 accepts at most three parameters"))
@@ -507,4 +525,6 @@ for the rest of this payload; other senders are still considered."
    params store config "engine_forkchoiceUpdatedV4" 4
    #'engine-rpc-validate-payload-attributes-v4
    :forkchoice-persistence-function forkchoice-persistence-function
+   :payload-improvement-notification-function
+   payload-improvement-notification-function
    :gas-limit-target gas-limit-target))

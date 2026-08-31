@@ -206,7 +206,9 @@
                                          :gas-limit 30000000)))
            (unknown-hash
              (hash32-from-hex
-              "0x1111111111111111111111111111111111111111111111111111111111111111")))
+              "0x1111111111111111111111111111111111111111111111111111111111111111"))
+           (payload-improvement-notifications 0)
+           (notification-observed-open-p nil))
       (engine-payload-store-put-block
        store known-block :state-available-p t)
       (engine-payload-store-put-block
@@ -225,7 +227,15 @@
                  (forkchoice-state-object known-hash)
                  (payload-attributes-object))
                 store
-                config))
+                config
+                :payload-improvement-notification-function
+                (lambda ()
+                  (incf payload-improvement-notifications)
+                  (setf notification-observed-open-p
+                        (some
+                         #'ethereum-lisp.engine-payloads:engine-prepared-payload-open-p
+                         (ethereum-lisp.chain-store:chain-store-prepared-payloads
+                          store))))))
              (result (field response "result"))
              (payload-status (field result "payloadStatus")))
         (is (= 17 (field response "id")))
@@ -235,6 +245,8 @@
                      (field payload-status "latestValidHash")))
         (is (stringp (field result "payloadId")))
         (is (= 18 (length (field result "payloadId"))))
+        (is (= 1 payload-improvement-notifications))
+        (is notification-observed-open-p)
         (let* ((get-payload-response
                  (engine-rpc-handle-request
                   (list (cons "jsonrpc" "2.0")
@@ -281,7 +293,10 @@
                     :safe (block-hash safe-block)
                     :finalized (block-hash finalized-block)))
                   store
-                  config))
+                  config
+                  :payload-improvement-notification-function
+                  (lambda ()
+                    (incf payload-improvement-notifications))))
                (checkpoint-status
                  (field (field checkpoint-response "result") "payloadStatus"))
                (safe-header-response
@@ -315,6 +330,7 @@
                    store
                    config))))
           (is (= 28 (field checkpoint-response "id")))
+          (is (= 1 payload-improvement-notifications))
           (is (string= +payload-status-valid+
                        (field checkpoint-status "status")))
           (is (string= (quantity-to-hex 32)

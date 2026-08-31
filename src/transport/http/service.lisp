@@ -89,6 +89,7 @@
        forkchoice-persistence-function
        request-guard-function
        request-guard-predicate
+       payload-improvement-notification-function
        get-blobs-v3-function
        (allowed-method-p #'engine-rpc-any-method-p)
        network-id
@@ -145,6 +146,10 @@
              (not (functionp request-guard-predicate)))
     (block-validation-fail
      "Engine RPC HTTP request guard predicate must be a function"))
+  (when (and payload-improvement-notification-function
+             (not (functionp payload-improvement-notification-function)))
+    (block-validation-fail
+     "Engine RPC HTTP payload improvement notification must be a function"))
   (when (and get-blobs-v3-function
              (not (functionp get-blobs-v3-function)))
     (block-validation-fail
@@ -190,6 +195,8 @@
     :forkchoice-persistence-function forkchoice-persistence-function
     :request-guard-function request-guard-function
     :request-guard-predicate request-guard-predicate
+    :payload-improvement-notification-function
+    payload-improvement-notification-function
     :get-blobs-v3-function get-blobs-v3-function
     :network-id network-id
     :coinbase coinbase
