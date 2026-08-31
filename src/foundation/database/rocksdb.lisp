@@ -35,6 +35,12 @@
 (cffi:defcfun ("rocksdb_options_set_bytes_per_sync"
                %rocks-options-bytes-per-sync) :void
   (options :pointer) (bytes :uint64))
+(cffi:defcfun ("rocksdb_options_set_wal_bytes_per_sync"
+               %rocks-options-wal-bytes-per-sync) :void
+  (options :pointer) (bytes :uint64))
+(cffi:defcfun ("rocksdb_options_get_wal_bytes_per_sync"
+               %rocks-options-get-wal-bytes-per-sync) :uint64
+  (options :pointer))
 (cffi:defcfun ("rocksdb_block_based_options_create"
                %rocks-block-options-create) :pointer)
 (cffi:defcfun ("rocksdb_block_based_options_destroy"
@@ -164,7 +170,9 @@ RLPx, the consensus-client Engine endpoint, and independent flush jobs. This
 changes only background SST construction; WAL and cursor durability are
 unchanged.")
 (defconstant +rocksdb-background-bytes-per-sync+ (* 1024 1024)
-  "Incremental background-file sync width; WAL cursor batches remain synced.")
+  "Incremental background-file sync width for SST construction.")
+(defconstant +rocksdb-wal-bytes-per-sync+ (* 5 100 1024)
+  "Background WAL sync width matching geth's five ideal 100-KiB batches.")
 (defconstant +rocksdb-block-cache-bytes+ (* 256 1024 1024)
   "Block-cache budget for the supported shared 16-GiB EL/CL node profile.
 
@@ -319,6 +327,17 @@ silently changing the storage profile."
           (%rocks-options-dynamic-level-bytes options 1)
           (%rocks-options-bytes-per-sync
            options +rocksdb-background-bytes-per-sync+)
+          ;; Match geth's Pebble durability cadence for recoverable head
+          ;; progress: ordinary batches may avoid a foreground fsync, while
+          ;; RocksDB incrementally syncs each roughly 500-KiB WAL prefix in the
+          ;; background. Safe/finalized/reorg/pivot publication still uses the
+          ;; explicit sync=1 handle below.
+          (%rocks-options-wal-bytes-per-sync
+           options +rocksdb-wal-bytes-per-sync+)
+          (unless
+              (= +rocksdb-wal-bytes-per-sync+
+                 (%rocks-options-get-wal-bytes-per-sync options))
+            (error "RocksDB refused the configured WAL sync width"))
           ;; The RocksDB 11 block-table default is only 32 MiB. SNAP account
           ;; ranges and final healing issue wide random content-addressed reads
           ;; over tens of gigabytes, so that fallback turns nearly every lookup
@@ -327,8 +346,8 @@ silently changing the storage profile."
           ;; the bytes returned to verification.
           (rocksdb-configure-block-table options)
           (%rocks-write-options-sync write-options 1)
-          ;; Only unpublished, content-addressed SNAP prerequisites use this
-          ;; handle. Their following cursor batch uses WRITE-OPTIONS above;
+          ;; Recoverable prerequisites and straight Engine head extensions use
+          ;; this handle. A following explicit seam uses WRITE-OPTIONS above;
           ;; RocksDB's synced write flushes the preceding WAL prefix too.
           (%rocks-write-options-sync buffered-write-options 0)
           (setf handle

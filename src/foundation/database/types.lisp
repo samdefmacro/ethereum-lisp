@@ -92,11 +92,11 @@ writes either way and must be reopened."))
    "Apply BATCH atomically without independently establishing a durable seam.
 
 The default delegates to KV-APPLY-BATCH. A production backend may return after
-the atomic WAL append but before syncing it only when the caller will publish
-no cursor or externally visible completion marker until a later
-KV-APPLY-BATCH. That later synchronous batch must make all preceding buffered
-writes durable before it returns. A crash before the seam may lose the
-unpublished work, which the absent cursor makes safe to retry."))
+the atomic WAL append but before syncing it for unpublished prerequisites or
+externally replayable progress. It must periodically sync WAL prefixes in the
+background, and a later KV-APPLY-BATCH must make all preceding buffered writes
+durable before it returns. A crash before that seam may lose the buffered
+suffix, so callers must not use it for irreplaceable completion markers."))
 (defgeneric kv-buffered-batch-supported-p (database)
   (:documentation
    "Return true when KV-APPLY-BATCH-BUFFERED is a real non-syncing WAL path.

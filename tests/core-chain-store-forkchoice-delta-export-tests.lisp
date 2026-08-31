@@ -539,8 +539,13 @@
             (node-store-export-forkchoice-to-kv
              store transition database)
           (is (eq result database))
-          (is durable-written-p)
+          (is (null durable-written-p))
           (is changed-p)))
+      ;; Candidate admission and its straight canonical extension are both
+      ;; recoverable WAL progress; neither forces a foreground fsync.
+      (is (= 2
+             (forkchoice-delta-test-database-buffered-apply-attempts
+              database)))
       (is (null
            (ethereum-lisp.chain-store.state:memory-chain-store-buffered-engine-payload-hash
             (ethereum-lisp.chain-store.state:chain-store-require-memory-store
@@ -587,6 +592,9 @@
             transition)))
       (forkchoice-delta-test-export-without-iteration
        store transition database)
+      (is (= 0
+             (forkchoice-delta-test-database-buffered-apply-attempts
+              database)))
       (is (equal
            (list
             (forkchoice-delta-test-expected-operation
@@ -609,6 +617,9 @@
               :chain-config config))))
       (forkchoice-delta-test-export-without-iteration
        store transition database)
+      (is (= 0
+             (forkchoice-delta-test-database-buffered-apply-attempts
+              database)))
       (is (equal
            (sort
             (list
@@ -967,6 +978,9 @@
            store (transaction-hash transaction)))
       (forkchoice-delta-test-export-without-iteration
        store transition database)
+      (is (= 0
+             (forkchoice-delta-test-database-buffered-apply-attempts
+              database)))
       (is (equal expected
                  (forkchoice-delta-test-operation-signatures database)))
       (multiple-value-bind (value present-p)

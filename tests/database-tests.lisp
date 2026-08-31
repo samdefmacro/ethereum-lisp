@@ -314,12 +314,16 @@
          (real-set-subcompactions
            (fdefinition
             'ethereum-lisp.database::%rocks-options-set-max-subcompactions))
+         (real-set-wal-sync-width
+           (fdefinition
+            'ethereum-lisp.database::%rocks-options-wal-bytes-per-sync))
          (real-set-factory
            (fdefinition
             'ethereum-lisp.database::%rocks-options-set-block-table-factory))
          (cache-capacity nil)
          (compaction-budget nil)
          (subcompactions nil)
+         (wal-sync-width nil)
          (bloom-bits nil)
          (factory-calls 0))
     (unwind-protect
@@ -342,11 +346,17 @@
               (setf compaction-budget budget)
               (funcall real-optimize options budget)))
            (setf
-            (fdefinition
+           (fdefinition
              'ethereum-lisp.database::%rocks-options-set-max-subcompactions)
             (lambda (options count)
               (setf subcompactions count)
               (funcall real-set-subcompactions options count)))
+           (setf
+            (fdefinition
+             'ethereum-lisp.database::%rocks-options-wal-bytes-per-sync)
+            (lambda (options bytes)
+              (setf wal-sync-width bytes)
+              (funcall real-set-wal-sync-width options bytes)))
            (setf
             (fdefinition
              'ethereum-lisp.database::%rocks-options-set-block-table-factory)
@@ -375,6 +385,10 @@
        real-set-subcompactions)
       (setf
        (fdefinition
+        'ethereum-lisp.database::%rocks-options-wal-bytes-per-sync)
+       real-set-wal-sync-width)
+      (setf
+       (fdefinition
         'ethereum-lisp.database::%rocks-options-set-block-table-factory)
        real-set-factory)
       (when (probe-file path)
@@ -388,6 +402,9 @@
     (is (= ethereum-lisp.database::+rocksdb-max-subcompactions+
            subcompactions))
     (is (= 4 subcompactions))
+    (is (= ethereum-lisp.database::+rocksdb-wal-bytes-per-sync+
+           wal-sync-width))
+    (is (= (* 5 100 1024) wal-sync-width))
     (is (= ethereum-lisp.database::+rocksdb-bloom-bits-per-key+
            bloom-bits))
     (is (= 1 factory-calls))))

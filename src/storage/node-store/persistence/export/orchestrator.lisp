@@ -635,9 +635,10 @@ batch as the candidate and must name CANDIDATE exactly.
 BUFFER-FOR-FORKCHOICE-P is reserved for Engine newPayload.  Its batch may use
 the recoverable buffered RocksDB WAL path; a one-slot process-local hint lets
 the following canonical forkchoice avoid reopening the same immutable and
-state records while its synchronous batch supplies the durable seam. Peer/SNAP
-imports must not use this path because their cursors and pivot publication have
-distinct durability obligations."
+state records. Straight head extensions remain recoverable buffered progress;
+safe/finalized updates, reorgs, pivots, periodic WAL sync, and clean shutdown
+supply durable seams. Peer/SNAP imports must not use this path because their
+cursors and pivot publication have distinct durability obligations."
   (let ((chain-store (chain-store-require-memory-store store)))
     (engine-payload-store-enable-durable-cache-change-tracking chain-store)
     (unless (typep candidate 'ethereum-block)
@@ -978,8 +979,15 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
       (let* ((batch (make-kv-write-batch))
              (code-sink (make-node-store-code-sink batch database))
              (changed-p nil)
+             ;; A straight Engine head extension is replayable from the
+             ;; consensus client after an unclean shutdown. Match geth's
+             ;; foreground NoSync path instead of forcing one fsync per block.
+             ;; Reorgs and persisted/current reconciliation remain explicit
+             ;; seams; safe/finalized checkpoint changes add one below.
              (durability-seam-required-p
-               sync-pivot-target-supplied-p)
+               (or sync-pivot-target-supplied-p
+                   (canonical-chain-transition-displaced-blocks transition)
+                   persisted-displaced-blocks))
              (buffered-prefix-p nil)
              (pending-trie-nodes nil)
              (persisted-state-hashes nil)
@@ -1004,8 +1012,7 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                   #'<))
           (when (node-store-sync-canonical-hash
                  database batch chain-store number)
-            (setf changed-p t
-                  durability-seam-required-p t)))
+            (setf changed-p t)))
         (dolist (entry
                  (list
                   (cons :head (chain-store-head-checkpoint chain-store))
@@ -1014,8 +1021,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                         (chain-store-finalized-checkpoint chain-store))))
           (when (node-store-sync-checkpoint
                  database batch (cdr entry) (car entry))
-            (setf changed-p t
-                  durability-seam-required-p t)))
+            (setf changed-p t)
+            (when (member (car entry) '(:safe :finalized))
+              (setf durability-seam-required-p t))))
         (dolist (block installed-blocks)
           (let* ((hash (block-hash block))
                  (known-block (chain-store-known-block chain-store hash))
@@ -1066,8 +1074,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
             (when (node-store-sync-chain-record
                    database batch :transaction-location identifier
                    location-value)
-              (setf changed-p t
-                    durability-seam-required-p t))
+              ;; This derived index is atomic with the recoverable head marker
+              ;; and is reconstructed by replaying that canonical extension.
+              (setf changed-p t))
             (multiple-value-bind (txpool-record txpool-transaction)
                 (node-store-final-txpool-record store transaction-hash)
               (when (node-store-sync-chain-record
@@ -1117,9 +1126,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                    (kv-buffered-batch-supported-p database)))
         (when changed-p
           ;; Metadata describes a database mutation, not receipt of an
-          ;; idempotent forkchoice request. A txpool-only repeated-head FCU may
-          ;; stage that mutation in the recoverable WAL without fsync; the next
-          ;; canonical FCU writes the same generation and flushes the prefix.
+          ;; idempotent forkchoice request. Recoverable straight-head or
+          ;; txpool-only FCUs stage the same unconfirmed generation until a
+          ;; safe/finalized/reorg/pivot/shutdown seam flushes the WAL prefix.
           (when persistence-metadata
             (node-store-populate-persistence-metadata-batch
              batch persistence-metadata))
