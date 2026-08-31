@@ -1,5 +1,39 @@
 (in-package #:ethereum-lisp.test)
 
+(defstruct (txpool-counting-chain-store
+            (:include ethereum-lisp.chain-store.state:memory-chain-store)
+            (:constructor make-txpool-counting-chain-store))
+  (account-state-read-count 0 :type (integer 0 *)))
+
+(defmethod ethereum-lisp.chain-store:chain-store-backing-account-state
+    ((store txpool-counting-chain-store) block-hash address)
+  (declare (ignore block-hash address))
+  (incf (txpool-counting-chain-store-account-state-read-count store))
+  (values most-positive-fixnum
+          0
+          +empty-code-hash+
+          +empty-trie-hash+
+          t
+          t))
+
+(deftest chain-store-account-state-reads-sender-trie-once
+  (:layer :unit :module :txpool)
+  (let* ((chain-store (make-txpool-counting-chain-store))
+         (address
+           (address-from-hex
+            "0x3535353535353535353535353535353535353535")))
+    (multiple-value-bind
+        (balance nonce code account-present-p state-present-p)
+        (chain-store-account-state chain-store (zero-hash32) address)
+      (is (= most-positive-fixnum balance))
+      (is (zerop nonce))
+      (is (bytes= #() code))
+      (is account-present-p)
+      (is state-present-p))
+    (is (= 1
+           (txpool-counting-chain-store-account-state-read-count
+            chain-store)))))
+
 (deftest eth-rpc-send-raw-transaction-applies-basic-admission-preflight
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
@@ -529,4 +563,3 @@
         (is (string= basefee-hash (field (field queued "0") "hash")))
         (is (null (field queued "1")))
         (is (null (field second-lookup-response "result")))))))
-

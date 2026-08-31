@@ -135,6 +135,62 @@
              (copy-seq code)
              (make-byte-vector 0)))))))
 
+(defun engine-payload-store-account-state (store block-hash address)
+  "Read one account snapshot with at most one trie traversal.
+
+Return BALANCE, NONCE, CODE, ACCOUNT-PRESENT-P, and STATE-PRESENT-P.  The
+last value reports whether BLOCK-HASH has readable state, including the
+legacy in-memory baseline/diff representation."
+  (setf store (chain-store-require-memory-store store))
+  (multiple-value-bind
+      (balance nonce code-hash storage-root account-present-p state-present-p)
+      (chain-store-backing-account-state store block-hash address)
+    (declare (ignore storage-root))
+    (if state-present-p
+        (let ((code
+                (cond
+                  ((not account-present-p)
+                   (make-byte-vector 0))
+                  ((not (hash32-p code-hash))
+                   (block-validation-fail
+                    "Trie-backed account code hash must be a hash32"))
+                  ((hash32= code-hash +empty-code-hash+)
+                   (make-byte-vector 0))
+                  (t
+                   (multiple-value-bind (body present-p)
+                       (chain-store-backing-code store code-hash)
+                     (unless present-p
+                       (block-validation-fail
+                        "Trie-backed account code is missing"))
+                     (copy-seq body))))))
+          (values balance nonce code account-present-p t))
+        (let ((suffix (address-to-hex address)))
+          (multiple-value-bind (legacy-balance balance-present-p)
+              (engine-payload-store-resolve-state-value
+               store block-hash
+               #'chain-state-diff-balances suffix
+               (memory-chain-store-account-balances store) 0)
+            (multiple-value-bind (legacy-nonce nonce-present-p)
+                (engine-payload-store-resolve-state-value
+                 store block-hash
+                 #'chain-state-diff-nonces suffix
+                 (memory-chain-store-account-nonces store) 0)
+              (multiple-value-bind (legacy-code code-present-p)
+                  (engine-payload-store-resolve-state-value
+                   store block-hash
+                   #'chain-state-diff-codes suffix
+                   (memory-chain-store-account-codes store) nil)
+                (values legacy-balance
+                        legacy-nonce
+                        (if legacy-code
+                            (copy-seq legacy-code)
+                            (make-byte-vector 0))
+                        (or balance-present-p
+                            nonce-present-p
+                            code-present-p)
+                        (engine-payload-store-state-available-p
+                         store block-hash)))))))))
+
 (defun engine-payload-store-put-account-storage
     (store block-hash address slot value)
   (setf store (chain-store-require-memory-store store))
@@ -210,6 +266,12 @@
 
 (defun chain-store-account-code (store block-hash address)
   (engine-payload-store-account-code
+   (chain-store-require-memory-store store)
+   block-hash
+   address))
+
+(defun chain-store-account-state (store block-hash address)
+  (engine-payload-store-account-state
    (chain-store-require-memory-store store)
    block-hash
    address))

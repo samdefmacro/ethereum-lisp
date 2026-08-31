@@ -7,6 +7,9 @@
                                   local-transaction-predicate)
   (let ((promoted-transactions nil))
     (when (and head
+               (engine-payload-store-indexed-sender-transactions
+                (engine-payload-store-queued-sender-index store)
+                sender)
                (chain-store-state-available-p store (block-hash head)))
       (let ((state-nonce
               (chain-store-account-nonce store (block-hash head) sender)))

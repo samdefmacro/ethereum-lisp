@@ -21,6 +21,16 @@
   (local-addresses '() :type list)
   no-local-exemptions-p)
 
+(defstruct (txpool-admission-state
+            (:constructor %make-txpool-admission-state))
+  head
+  (block-number 0 :type (integer 0 *))
+  (timestamp 0 :type (integer 0 *))
+  state-available-p
+  (nonce 0 :type (integer 0 *))
+  (balance 0 :type (integer 0 *))
+  (code (make-byte-vector 0) :type vector))
+
 (defun make-txpool-admission-policy
     (&key allow-unprotected-transactions-p
           price-limit
@@ -89,13 +99,32 @@
             (if header (block-header-number header) 0)
             (if header (block-header-timestamp header) 0))))
 
-(defun validate-txpool-sender-code (store head sender)
-  (when head
-    (let ((code (chain-store-account-code store (block-hash head) sender)))
-      (when (and (plusp (length code))
-                 (not (set-code-delegation-target code)))
-        (block-validation-fail
-         "eth_sendRawTransaction sender has non-delegation code"))))
+(defun txpool-load-admission-state (store sender)
+  (multiple-value-bind (head block-number timestamp)
+      (txpool-admission-head-context store)
+    (if head
+        (multiple-value-bind
+            (balance nonce code account-present-p state-available-p)
+            (chain-store-account-state store (block-hash head) sender)
+          (declare (ignore account-present-p))
+          (%make-txpool-admission-state
+           :head head
+           :block-number block-number
+           :timestamp timestamp
+           :state-available-p state-available-p
+           :nonce nonce
+           :balance balance
+           :code code))
+        (%make-txpool-admission-state
+         :head nil :block-number block-number :timestamp timestamp))))
+
+(defun validate-txpool-sender-code (admission-state)
+  (let ((code (txpool-admission-state-code admission-state)))
+    (when (and (txpool-admission-state-state-available-p admission-state)
+               (plusp (length code))
+               (not (set-code-delegation-target code)))
+      (block-validation-fail
+       "eth_sendRawTransaction sender has non-delegation code")))
   t)
 
 (defun txpool-set-code-authorities (transaction)
@@ -117,24 +146,20 @@
    (engine-payload-store-pooled-transactions store)))
 
 (defun validate-txpool-delegation-reservations
-    (store sender transaction config)
+    (store sender transaction config &optional admission-state)
   (declare (ignore config))
-  (multiple-value-bind (head block-number timestamp)
-      (txpool-admission-head-context store)
-    (declare (ignore block-number timestamp))
-    (when (and head
-               (chain-store-state-available-p store (block-hash head)))
-      (let ((sender-code
-              (chain-store-account-code store (block-hash head) sender)))
-        (when (set-code-delegation-target sender-code)
-          (when (engine-payload-store-sender-pooled-transactions store sender)
-            (block-validation-fail
-             "eth_sendRawTransaction delegated account already has an in-flight transaction"))
-          (unless (= (transaction-nonce transaction)
-                     (chain-store-account-nonce
-                      store (block-hash head) sender))
-            (block-validation-fail
-             "eth_sendRawTransaction delegated account nonce must be current")))))
+  (let ((admission-state
+          (or admission-state (txpool-load-admission-state store sender))))
+    (when (and (txpool-admission-state-state-available-p admission-state)
+               (set-code-delegation-target
+                (txpool-admission-state-code admission-state)))
+      (when (engine-payload-store-sender-pooled-transactions store sender)
+        (block-validation-fail
+         "eth_sendRawTransaction delegated account already has an in-flight transaction"))
+      (unless (= (transaction-nonce transaction)
+                 (txpool-admission-state-nonce admission-state))
+        (block-validation-fail
+         "eth_sendRawTransaction delegated account nonce must be current")))
     (when (txpool-authority-reserved-p store sender)
       (block-validation-fail
        "eth_sendRawTransaction sender is reserved by a pending set-code authorization"))
@@ -146,47 +171,49 @@
          "eth_sendRawTransaction set-code authority already has an in-flight transaction"))))
   t)
 
-(defun validate-txpool-sender-state (store head sender transaction)
-  (when (and head
-             (chain-store-state-available-p store (block-hash head)))
-    (let* ((block-hash (block-hash head))
-           (state-nonce (chain-store-account-nonce store block-hash sender))
-           (state-balance
-             (chain-store-account-balance store block-hash sender)))
-      (when (< (transaction-nonce transaction) state-nonce)
-        (block-validation-fail "eth_sendRawTransaction nonce too low"))
-      (when (< state-balance
-               (engine-payload-store-sender-admission-expenditure
-                store sender transaction))
-        (block-validation-fail
-         "eth_sendRawTransaction insufficient sender balance"))))
+(defun validate-txpool-sender-state
+    (store admission-state sender transaction)
+  (when (txpool-admission-state-state-available-p admission-state)
+    (when (< (transaction-nonce transaction)
+             (txpool-admission-state-nonce admission-state))
+      (block-validation-fail "eth_sendRawTransaction nonce too low"))
+    (when (< (txpool-admission-state-balance admission-state)
+             (engine-payload-store-sender-admission-expenditure
+              store sender transaction))
+      (block-validation-fail
+       "eth_sendRawTransaction insufficient sender balance")))
   t)
 
 (defun txpool-queued-nonce-gap-p
-    (store sender transaction config)
-  (multiple-value-bind (head block-number timestamp)
-      (txpool-admission-head-context store)
-    (declare (ignore block-number timestamp))
-    (and head
-         (chain-store-state-available-p store (block-hash head))
+    (store sender transaction config &optional admission-state)
+  (let ((admission-state
+          (or admission-state (txpool-load-admission-state store sender))))
+    (and (txpool-admission-state-state-available-p admission-state)
          (> (transaction-nonce transaction)
             (engine-payload-store-pending-contiguous-nonce
              store sender
-             (chain-store-account-nonce store (block-hash head) sender)
+             (txpool-admission-state-nonce admission-state)
              :expected-chain-id (chain-config-chain-id config))))))
 
-(defun txpool-basefee-ineligible-p (store transaction)
-  (multiple-value-bind (head block-number timestamp)
-      (txpool-admission-head-context store)
-    (declare (ignore block-number timestamp))
-    (let* ((header (and head (block-header head)))
-           (base-fee (and header (block-header-base-fee-per-gas header))))
-      (and base-fee
-           (< (transaction-max-fee-per-gas transaction) base-fee)))))
+(defun txpool-basefee-ineligible-p
+    (store transaction &optional admission-state)
+  (let* ((head
+           (if admission-state
+               (txpool-admission-state-head admission-state)
+               (chain-store-latest-block store)))
+         (header (and head (block-header head)))
+         (base-fee (and header (block-header-base-fee-per-gas header))))
+    (and base-fee
+         (< (transaction-max-fee-per-gas transaction) base-fee))))
 
-(defun validate-txpool-admission (transaction sender store config)
-  (multiple-value-bind (head block-number timestamp)
-      (txpool-admission-head-context store)
+(defun validate-txpool-admission
+    (transaction sender store config &optional admission-state)
+  (let* ((admission-state
+           (or admission-state (txpool-load-admission-state store sender)))
+         (head (txpool-admission-state-head admission-state))
+         (block-number
+           (txpool-admission-state-block-number admission-state))
+         (timestamp (txpool-admission-state-timestamp admission-state)))
     (let ((rules (chain-config-rules config block-number timestamp)))
       (validate-transaction-type-for-config
        transaction config block-number timestamp)
@@ -239,8 +266,9 @@
                     +transaction-gas-limit-cap-eip7825+))
         (block-validation-fail
          "eth_sendRawTransaction gas limit exceeds the EIP-7825 cap"))
-      (validate-txpool-sender-state store head sender transaction)
-      (validate-txpool-sender-code store head sender)))
+      (validate-txpool-sender-state
+       store admission-state sender transaction)
+      (validate-txpool-sender-code admission-state)))
   t)
 
 (defun unprotected-transaction-p (transaction)
@@ -264,7 +292,7 @@
   t)
 
 (defun admit-new-transaction
-    (transaction sender store config policy admitted-at)
+    (transaction sender store config policy admitted-at admission-state)
   (let ((local-transaction-p
           (txpool-local-transaction-p sender policy))
         (price-bump
@@ -272,7 +300,8 @@
         (local-predicate
           (txpool-local-transaction-predicate config policy)))
     (validate-admission-policy transaction local-transaction-p policy)
-    (validate-txpool-admission transaction sender store config)
+    (validate-txpool-admission
+     transaction sender store config admission-state)
     (engine-payload-store-configure-txpool-promotion-policy
      store
      (txpool-admission-policy-account-slot-limit policy)
@@ -286,14 +315,15 @@
                           (unless local-transaction-p
                             (txpool-admission-policy-global-slot-limit policy))
                           :admitted-at admitted-at))
-      ((txpool-basefee-ineligible-p store transaction)
+      ((txpool-basefee-ineligible-p store transaction admission-state)
        (engine-payload-store-put-basefee-transaction
         store transaction :price-bump-percent price-bump
                           :global-slot-limit
                           (unless local-transaction-p
                             (txpool-admission-policy-global-slot-limit policy))
                           :admitted-at admitted-at))
-      ((txpool-queued-nonce-gap-p store sender transaction config)
+      ((txpool-queued-nonce-gap-p
+        store sender transaction config admission-state)
        (engine-payload-store-put-queued-transaction
         store transaction :price-bump-percent price-bump
                           :admitted-at admitted-at
@@ -343,8 +373,9 @@
                 "eth_sendRawTransaction transaction sender recovery failed"))))
     (unless (or (chain-store-transaction-location store hash)
                 (engine-payload-store-pooled-transaction store hash))
-      (validate-txpool-delegation-reservations
-       store sender transaction config)
-      (admit-new-transaction
-       transaction sender store config policy admitted-at))
+      (let ((admission-state (txpool-load-admission-state store sender)))
+        (validate-txpool-delegation-reservations
+         store sender transaction config admission-state)
+        (admit-new-transaction
+         transaction sender store config policy admitted-at admission-state)))
     hash))

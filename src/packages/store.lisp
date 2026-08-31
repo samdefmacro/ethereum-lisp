@@ -265,6 +265,7 @@
    #:engine-payload-store-account-nonce
    #:engine-payload-store-put-account-code
    #:engine-payload-store-account-code
+   #:engine-payload-store-account-state
    #:engine-payload-store-put-account-storage
    #:engine-payload-store-account-storage
    #:chain-store-put-account-balance
@@ -273,6 +274,7 @@
    #:chain-store-account-nonce
    #:chain-store-put-account-code
    #:chain-store-account-code
+   #:chain-store-account-state
    #:chain-store-put-account-storage
    #:chain-store-account-storage
    #:chain-store-account-storage-entries
