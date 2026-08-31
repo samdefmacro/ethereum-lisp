@@ -127,14 +127,7 @@ TCP connections disable Nagle by default; mirror that contract here."
                           :output t
                           :element-type 'character
                           :external-format :utf-8
-                          ;; Match geth's bufio-backed HTTP transport. The
-                          ;; bounded parser still accounts for every decoded
-                          ;; octet, while a full fd buffer avoids turning its
-                          ;; defensive READ-CHAR loops into one kernel read per
-                          ;; character. RPC-HTTP-HANDLE-STREAM explicitly
-                          ;; FINISH-OUTPUTs every response, so output latency is
-                          ;; unchanged.
-                          :buffering :full)))
+                          :buffering :none)))
                    (make-engine-rpc-http-connection
                     :input-stream stream
                     :output-stream stream
