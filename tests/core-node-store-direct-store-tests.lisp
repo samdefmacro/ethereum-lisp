@@ -330,6 +330,52 @@
                  (hash-table-count previous))
               (* 2 limit))))))
 
+(deftest database-chain-store-block-cache-is-bounded-and-read-through
+  (multiple-value-bind (source blocks) (direct-store-test-chain 1)
+    (let* ((database (make-instance 'direct-store-test-database))
+           (block (first blocks))
+           (hash (block-hash block)))
+      (node-store-export-to-kv source database)
+      (setf (direct-store-test-database-get-count database) 0)
+      (let* ((store
+               (ethereum-lisp.node-store.persistence::make-empty-database-chain-store
+                database))
+             (limit
+               ethereum-lisp.node-store.persistence::+node-store-direct-block-cache-generation-limit+))
+        (let ((first (chain-store-known-block store hash)))
+          (is first)
+          (is (hash32= hash (block-hash first))))
+        (let ((reads (direct-store-test-database-get-count database)))
+          (is (plusp reads))
+          (let ((second (chain-store-known-block store hash)))
+            (is second)
+            (is (hash32= hash (block-hash second))))
+          (is (= reads (direct-store-test-database-get-count database))))
+        (dotimes (index (+ (* 2 limit) 3))
+          (let* ((candidate
+                   (make-block
+                    :header
+                    (make-block-header
+                     :number index
+                     :parent-hash (zero-hash32)
+                     :state-root (zero-hash32)
+                     :timestamp index
+                     :gas-limit 30000000)))
+                 (candidate-hash (block-hash candidate)))
+            (ethereum-lisp.chain-store:chain-store-backing-block-cache-put
+             store candidate-hash candidate)))
+        (let ((current
+                (ethereum-lisp.node-store.persistence::database-chain-store-block-cache
+                 store))
+              (previous
+                (ethereum-lisp.node-store.persistence::database-chain-store-previous-block-cache
+                 store)))
+          (is (<= (hash-table-count current) limit))
+          (is (<= (hash-table-count previous) limit))
+          (is (<= (+ (hash-table-count current)
+                     (hash-table-count previous))
+                  (* 2 limit))))))))
+
 (deftest database-chain-store-trie-node-cache-is-bounded-and-read-through
   (let* ((database (make-instance 'direct-store-test-database))
          (store

@@ -173,6 +173,8 @@
    #:chain-store-backing-blob-sidecar
    #:chain-store-durable-state-provider-p
    #:chain-store-cache-backing-read-p
+   #:chain-store-backing-block-cache-lookup
+   #:chain-store-backing-block-cache-put
    #:chain-store-forkchoice-cache-reset
    #:chain-store-release-durable-block-overlay
    #:call-with-chain-store-transaction

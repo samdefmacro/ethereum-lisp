@@ -79,19 +79,24 @@
       (cond
         (present-p block)
         (t
-         (multiple-value-bind (persisted persisted-p)
-             (chain-store-backing-block store hash)
-           (when persisted-p
-             (unless (and (typep persisted 'ethereum-block)
-                          (hash32= hash (block-hash persisted)))
-               (block-validation-fail
-                "Durable chain-store block does not match its lookup hash"))
-             (if (chain-store-cache-backing-read-p store)
-                 ;; A read-through cache is not part of the transaction's
-                 ;; logical write set. A rollback may retain immutable data.
-                 (setf (gethash key blocks)
-                       (engine-payload-store-copy-block persisted))
-                 (engine-payload-store-copy-block persisted)))))))))
+         (multiple-value-bind (cached cached-p)
+             (chain-store-backing-block-cache-lookup store hash)
+           (if cached-p
+               cached
+               (multiple-value-bind (persisted persisted-p)
+                   (chain-store-backing-block store hash)
+                 (when persisted-p
+                   (unless (and (typep persisted 'ethereum-block)
+                                (hash32= hash (block-hash persisted)))
+                     (block-validation-fail
+                      "Durable chain-store block does not match its lookup hash"))
+                   (if (chain-store-cache-backing-read-p store)
+                       ;; A read-through cache is not part of the transaction's
+                       ;; logical write set. A rollback may retain immutable data.
+                       (setf (gethash key blocks)
+                             (engine-payload-store-copy-block persisted))
+                       (chain-store-backing-block-cache-put
+                        store hash persisted)))))))))))
 
 (defun engine-payload-store-checkpoint-number
     (store checkpoint &key label fallback-to-head-p)

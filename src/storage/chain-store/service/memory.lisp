@@ -111,6 +111,22 @@ provider that has no trie state for the requested block."))
   (declare (ignore store))
   t)
 
+(defgeneric chain-store-backing-block-cache-lookup (store hash)
+  (:documentation
+   "Return (VALUES BLOCK PRESENT-P) from STORE's bounded verified block cache."))
+
+(defmethod chain-store-backing-block-cache-lookup ((store t) hash)
+  (declare (ignore store hash))
+  (values nil nil))
+
+(defgeneric chain-store-backing-block-cache-put (store hash block)
+  (:documentation
+   "Retain a verified immutable BLOCK under HASH in STORE's bounded cache."))
+
+(defmethod chain-store-backing-block-cache-put ((store t) hash block)
+  (declare (ignore store hash))
+  block)
+
 (defgeneric chain-store-forkchoice-cache-reset (store)
   (:documentation
    "Invalidate provider-specific read caches after forkchoice publication."))
@@ -130,6 +146,11 @@ provider that has no trie state for the requested block."))
              (gethash number (memory-chain-store-number-blocks store)))
            (canonical-key
              (gethash number (memory-chain-store-canonical-hashes store))))
+      ;; The durable commit made this hash-addressed block immutable.  Give a
+      ;; bounded direct provider a verified recent-history entry before the
+      ;; unbounded transaction overlay is released.  BLOCKHASH and recent
+      ;; public RPC can then reuse the decoded header without another KV read.
+      (chain-store-backing-block-cache-put store hash block)
       (chain-store-journal-remhash (memory-chain-store-blocks store) key)
       (when (and number-block (hash32= hash (block-hash number-block)))
         (chain-store-journal-remhash

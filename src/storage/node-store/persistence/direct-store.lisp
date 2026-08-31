@@ -14,12 +14,21 @@
 (defconstant +node-store-direct-trie-node-cache-generation-limit+ 16384
   "Maximum content-addressed trie nodes retained in one cache generation.")
 
+(defconstant +node-store-direct-block-cache-generation-limit+ 512
+  "Maximum verified immutable blocks retained in one cache generation.")
+
 (defstruct (database-chain-store
             (:include memory-chain-store))
   (database (error "Database chain store requires a database")
             :type key-value-database)
   (account-cache (make-hash-table :test 'equal) :type hash-table)
   (previous-account-cache (make-hash-table :test 'equal) :type hash-table)
+  ;; EVM BLOCKHASH walks as many as 256 recent ancestors for every payload.
+  ;; Durable blocks are immutable and hash-addressed, so retain two bounded
+  ;; generations of already verified decoded blocks rather than decoding and
+  ;; hashing the same history again for each execution.
+  (block-cache (make-hash-table :test 'equal) :type hash-table)
+  (previous-block-cache (make-hash-table :test 'equal) :type hash-table)
   ;; Trie nodes are immutable and addressed by their Keccak hash.  Reopening a
   ;; nearby state root therefore revisits almost all of the same durable nodes;
   ;; retain two bounded generations instead of issuing a KV read for every
@@ -34,6 +43,9 @@
   (head-state-root-cache-root nil)
   (account-cache-lock
     #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-account-cache")
+    #-sbcl nil)
+  (block-cache-lock
+    #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-block-cache")
     #-sbcl nil)
   (trie-node-cache-lock
     #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-trie-node-cache")
@@ -219,6 +231,55 @@ hash-table slot can start as NIL."
 (defmethod chain-store-cache-backing-read-p ((store database-chain-store))
   (declare (ignore store))
   nil)
+
+(defun node-store-direct-block-cache-lookup-unlocked (store key)
+  (multiple-value-bind (block present-p)
+      (gethash key (database-chain-store-block-cache store))
+    (if present-p
+        (values block t)
+        (gethash key
+                 (database-chain-store-previous-block-cache store)))))
+
+(defun node-store-direct-block-cache-lookup (store hash)
+  (let ((key (engine-payload-store-key hash)))
+    #+sbcl
+    (sb-thread:with-mutex ((database-chain-store-block-cache-lock store))
+      (node-store-direct-block-cache-lookup-unlocked store key))
+    #-sbcl
+    (node-store-direct-block-cache-lookup-unlocked store key)))
+
+(defun node-store-direct-block-cache-put-unlocked (store key block)
+  (when (>= (hash-table-count (database-chain-store-block-cache store))
+            +node-store-direct-block-cache-generation-limit+)
+    (setf (database-chain-store-previous-block-cache store)
+          (database-chain-store-block-cache store)
+          (database-chain-store-block-cache store)
+          (make-hash-table :test 'equal)))
+  (let ((cached (engine-payload-store-copy-block block)))
+    (setf (gethash (copy-seq key)
+                   (database-chain-store-block-cache store))
+          cached)
+    cached))
+
+(defun node-store-direct-block-cache-put (store hash block)
+  (let ((key (engine-payload-store-key hash)))
+    #+sbcl
+    (sb-thread:with-mutex ((database-chain-store-block-cache-lock store))
+      (node-store-direct-block-cache-put-unlocked store key block))
+    #-sbcl
+    (node-store-direct-block-cache-put-unlocked store key block)))
+
+(defmethod chain-store-backing-block-cache-lookup
+    ((store database-chain-store) hash)
+  (node-store-direct-block-cache-lookup store hash))
+
+(defmethod chain-store-backing-block-cache-put
+    ((store database-chain-store) hash block)
+  (unless (and (hash32-p hash)
+               (typep block 'ethereum-block)
+               (hash32= hash (block-hash block)))
+    (storage-fail "Verified block cache entry does not match its lookup hash"))
+  (node-store-direct-block-cache-put store hash block))
 
 (defun node-store-direct-head-state-root-cache-lookup-unlocked
     (store block-hash)
