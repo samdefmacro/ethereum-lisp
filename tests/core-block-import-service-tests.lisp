@@ -689,6 +689,40 @@
            (is (hash32= (block-hash child) (block-hash candidate))))))
       (is (= 1 calls)))))
 
+(deftest block-import-executable-payload-validates-fresh-candidate-once
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    (let* ((validation-symbol
+             'ethereum-lisp.consensus:validate-block-against-config)
+           (sender-symbol
+             'ethereum-lisp.engine-payloads:engine-new-payload-require-transaction-senders)
+           (original-validation (fdefinition validation-symbol))
+           (original-sender (fdefinition sender-symbol))
+           (validation-calls 0)
+           (sender-calls 0))
+      (block-import-test-call-with-function-override
+       validation-symbol
+       (lambda (&rest arguments)
+         (incf validation-calls)
+         (apply original-validation arguments))
+       (lambda ()
+         (block-import-test-call-with-function-override
+          sender-symbol
+          (lambda (&rest arguments)
+            (incf sender-calls)
+            (apply original-sender arguments))
+          (lambda ()
+            (multiple-value-bind (status candidate)
+                (import-executable-payload
+                 store 2 (block-import-test-payload child) config)
+              (is (string= +payload-status-valid+
+                           (payload-status-status status)))
+              (is (hash32= (block-hash child)
+                           (block-hash candidate))))))))
+      (is (= 1 validation-calls))
+      (is (= 1 sender-calls)))))
+
 (deftest engine-new-payload-validated-block-cannot-bypass-wire-hash
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)

@@ -215,15 +215,15 @@ an optional process-local post-state which a matching newPayload may reuse."
       (storage-fail "Candidate executor did not publish block state")))
   candidate)
 
-(defun block-import-execute-candidate
-    (store block config
-     &key sidecar import-function (validate-sidecar-p t))
-  "Validate and execute BLOCK as a hash-addressed, noncanonical candidate.
+(defun block-import-execute-prevalidated-candidate
+    (store block config &key sidecar import-function)
+  "Execute a candidate already validated in the current atomic call chain.
 
-This is intentionally internal: every public entry point supplies the outer
-rollback boundary and calls durability only after this function has completed."
-  (block-import-validate-candidate
-   store block config :sidecar (and validate-sidecar-p sidecar))
+This private seam owns execution, executor-publication checks, and sidecar
+publication only.  It must be called immediately after the same BLOCK passed
+the complete candidate validator, or from Engine admission after that layer
+performed the equivalent parent/block/sender checks and its outer service
+validated SIDECAR."
   (let* ((hash (block-hash block))
          (known (chain-store-known-block store hash)))
     (multiple-value-bind (candidate receipts)
@@ -249,6 +249,18 @@ rollback boundary and calls durability only after this function has completed."
          :block-number
          (block-header-number (block-header candidate))))
       (values candidate receipts))))
+
+(defun block-import-execute-candidate
+    (store block config
+     &key sidecar import-function (validate-sidecar-p t))
+  "Validate and execute BLOCK as a hash-addressed, noncanonical candidate.
+
+This is intentionally internal: every public entry point supplies the outer
+rollback boundary and calls durability only after this function has completed."
+  (block-import-validate-candidate
+   store block config :sidecar (and validate-sidecar-p sidecar))
+  (block-import-execute-prevalidated-candidate
+   store block config :sidecar sidecar :import-function import-function))
 
 (defun block-import-call-candidate-durability
     (function store candidate source candidate-kind payload-status
@@ -587,10 +599,16 @@ never converted into INVALID payload verdicts."
        (flet ((import-candidate (candidate-store candidate candidate-config)
                 (multiple-value-prog1
                     (multiple-value-bind (imported receipts)
-                        (block-import-execute-candidate
+                        ;; ENGINE-NEW-PAYLOAD-MEMORY-STATUS invokes this only
+                        ;; after the same candidate passed its complete
+                        ;; parent/block/sender admission checks.  The sidecar
+                        ;; was independently validated above, outside the
+                        ;; consensus-invalid classifier.  Executing through
+                        ;; the private seam avoids immediately repeating the
+                        ;; full validation walk for every newPayload.
+                        (block-import-execute-prevalidated-candidate
                          candidate-store candidate candidate-config
                          :sidecar sidecar
-                         :validate-sidecar-p nil
                          :import-function import-function)
                       (setf imported-receipts receipts)
                       (values imported receipts))
