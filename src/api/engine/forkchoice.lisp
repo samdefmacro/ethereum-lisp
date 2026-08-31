@@ -78,24 +78,26 @@
           (when (chain-config-cancun-p config block-number timestamp)
             (setf (block-header-blob-gas-used header)
                   (blob-gas-used transactions)))
-          (multiple-value-bind (built-block receipts)
-              (engine-rpc-with-phase-timing ("fcuExecutePayloadMs")
-                (apply
-                 #'execute-signed-block
-                 state
-                 transactions
-                 (append
-                  (list
-                   :expected-chain-id (chain-config-chain-id config)
-                   :header header
-                   :parent-header (block-header parent-block)
-                   :chain-config config
-                   :phase-recorder #'engine-rpc-record-phase-duration
-                   :block-hashes
-                   (chain-store-block-hashes-for-header store header))
-                  (engine-rpc-prepared-payload-body-arguments
-                   payload-attributes config block-number timestamp))))
-            (values built-block receipts state))))))
+          (let ((block-hashes
+                  (engine-rpc-with-phase-timing ("fcuBlockHashesMs")
+                    (chain-store-block-hashes-for-header store header))))
+            (multiple-value-bind (built-block receipts)
+                (engine-rpc-with-phase-timing ("fcuExecutePayloadMs")
+                  (apply
+                   #'execute-signed-block
+                   state
+                   transactions
+                   (append
+                    (list
+                     :expected-chain-id (chain-config-chain-id config)
+                     :header header
+                     :parent-header (block-header parent-block)
+                     :chain-config config
+                     :phase-recorder #'engine-rpc-record-phase-duration
+                     :block-hashes block-hashes)
+                    (engine-rpc-prepared-payload-body-arguments
+                     payload-attributes config block-number timestamp))))
+              (values built-block receipts state)))))))
 
 (defun engine-rpc-build-prepared-payload
     (store parent-block payload-attributes config transactions

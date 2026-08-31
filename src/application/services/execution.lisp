@@ -32,14 +32,17 @@ so execution only fails if EVM code actually queries unavailable history."
                       (unless ancestor
                         (mark-unavailable-from (1+ offset))
                         (return))
+                      ;; KNOWN-BLOCK is hash-addressed: in-memory entries are
+                      ;; inserted under the block's computed hash, while a
+                      ;; durable read verifies the decoded block against its
+                      ;; lookup key before returning it. Re-hashing every one
+                      ;; of the 256 ancestors here repeated that already-proven
+                      ;; invariant for every payload build.
                       (let ((ancestor-header (block-header ancestor)))
                         (unless (= expected-number
                                    (block-header-number ancestor-header))
                           (storage-fail
                            "BLOCKHASH ancestor number is inconsistent"))
-                        (unless (hash32= expected-hash (block-hash ancestor))
-                          (storage-fail
-                           "BLOCKHASH ancestor hash is inconsistent"))
                         (setf expected-hash
                               (block-header-parent-hash
                                ancestor-header)))))))))))
