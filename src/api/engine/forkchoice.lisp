@@ -1,5 +1,24 @@
 (in-package #:ethereum-lisp.engine-api)
 
+(defvar *engine-rpc-phase-timings* :disabled
+  "Per-request Engine RPC phase timings, or :DISABLED outside HTTP handling.")
+
+(defun engine-rpc-record-phase-timing (name started-at)
+  (unless (eq *engine-rpc-phase-timings* :disabled)
+    (push
+     (cons name
+           (round
+            (* 1000 (- (get-internal-real-time) started-at))
+            internal-time-units-per-second))
+     *engine-rpc-phase-timings*))
+  nil)
+
+(defmacro engine-rpc-with-phase-timing ((name) &body body)
+  `(let ((started-at (get-internal-real-time)))
+     (multiple-value-prog1
+         (progn ,@body)
+       (engine-rpc-record-phase-timing ,name started-at))))
+
 (defun engine-rpc-prepared-payload-body-arguments
     (payload-attributes config block-number timestamp)
   (let ((arguments nil))
@@ -280,12 +299,13 @@ for the rest of this payload; other senders are still considered."
 (defun engine-rpc-persist-forkchoice
     (store transition forkchoice-persistence-function)
   (when forkchoice-persistence-function
-    (handler-case
-        (funcall forkchoice-persistence-function store transition)
-      (storage-error (condition)
-        (error condition))
-      (error (condition)
-        (storage-fail "Forkchoice persistence failed: ~A" condition)))))
+    (engine-rpc-with-phase-timing ("fcuPersistenceMs")
+      (handler-case
+          (funcall forkchoice-persistence-function store transition)
+        (storage-error (condition)
+          (error condition))
+        (error (condition)
+          (storage-fail "Forkchoice persistence failed: ~A" condition))))))
 
 (defun engine-rpc-prepared-payload-version
     (forkchoice-version payload-attributes config block-number timestamp)
@@ -345,68 +365,73 @@ for the rest of this payload; other senders are still considered."
             (let ((value (second params)))
               (unless (json-null-p value)
                 value)))))
-    (let ((status (engine-forkchoice-memory-status store state))
+    (let ((status
+            (engine-rpc-with-phase-timing ("fcuStatusMs")
+              (engine-forkchoice-memory-status store state)))
           (payload-id nil)
           (validated-payload-attributes nil)
           (prepared-payload-version nil)
           (payload-attributes-error nil))
       (when (string= +payload-status-valid+
                      (payload-status-status status))
-        (let ((checkpoint-error
-                (or
-                 (engine-forkchoice-checkpoint-error-message
-                  store (forkchoice-state-finalized-block-hash state)
-                  "finalized"
-                  :head-hash (forkchoice-state-head-block-hash state))
-                 (engine-forkchoice-checkpoint-error-message
-                  store (forkchoice-state-safe-block-hash state)
-                  "safe"
-                  :head-hash (forkchoice-state-head-block-hash state))
-                 (engine-forkchoice-checkpoint-order-error-message
-                  store state))))
-          (when checkpoint-error
-            (engine-rpc-fail
-             +engine-rpc-error-invalid-forkchoice-state+
-             checkpoint-error)))
-        ;; Decode attributes before publication, but defer their RPC error
-        ;; until after the valid forkchoice state is applied.  The Engine API
-        ;; orders forkchoice application before payload-attribute validation.
-        (when payload-attributes
-          (handler-case
-              (progn
-                (setf validated-payload-attributes
-                      (funcall payload-attributes-parser payload-attributes))
-                (let* ((head-hash (forkchoice-state-head-block-hash state))
-                       (parent-block (chain-store-known-block store head-hash))
-                       (parent-header (block-header parent-block))
-                       (block-number
-                         (1+ (block-header-number parent-header))))
-                  (setf prepared-payload-version
-                        (engine-rpc-prepared-payload-version
-                         payload-version validated-payload-attributes config
-                         block-number
-                         (payload-attributes-v1-timestamp
-                          validated-payload-attributes)))))
-            (block-validation-error (condition)
-              (setf payload-attributes-error
-                    (make-condition
-                     'engine-rpc-error
-                     :code +engine-rpc-error-invalid-payload-attributes+
-                     :message (block-validation-error-message condition))))
-            (engine-rpc-error (condition)
-              (setf payload-attributes-error condition))))
-        (publish-canonical-block
-         store
-         (forkchoice-state-head-block-hash state)
-         config
-         :authority :engine-forkchoice
-         :forkchoice-state state
-         :durability-function
-         (and
-          forkchoice-persistence-function
-          (lambda (callback-store transition)
-            (engine-rpc-persist-forkchoice
-             callback-store transition forkchoice-persistence-function)))))
+        (engine-rpc-with-phase-timing ("fcuValidationMs")
+          (let ((checkpoint-error
+                  (or
+                   (engine-forkchoice-checkpoint-error-message
+                    store (forkchoice-state-finalized-block-hash state)
+                    "finalized"
+                    :head-hash (forkchoice-state-head-block-hash state))
+                   (engine-forkchoice-checkpoint-error-message
+                    store (forkchoice-state-safe-block-hash state)
+                    "safe"
+                    :head-hash (forkchoice-state-head-block-hash state))
+                   (engine-forkchoice-checkpoint-order-error-message
+                    store state))))
+            (when checkpoint-error
+              (engine-rpc-fail
+               +engine-rpc-error-invalid-forkchoice-state+
+               checkpoint-error)))
+          ;; Decode attributes before publication, but defer their RPC error
+          ;; until after the valid forkchoice state is applied.  The Engine API
+          ;; orders forkchoice application before payload-attribute validation.
+          (when payload-attributes
+            (handler-case
+                (progn
+                  (setf validated-payload-attributes
+                        (funcall payload-attributes-parser payload-attributes))
+                  (let* ((head-hash (forkchoice-state-head-block-hash state))
+                         (parent-block
+                           (chain-store-known-block store head-hash))
+                         (parent-header (block-header parent-block))
+                         (block-number
+                           (1+ (block-header-number parent-header))))
+                    (setf prepared-payload-version
+                          (engine-rpc-prepared-payload-version
+                           payload-version validated-payload-attributes config
+                           block-number
+                           (payload-attributes-v1-timestamp
+                            validated-payload-attributes)))))
+              (block-validation-error (condition)
+                (setf payload-attributes-error
+                      (make-condition
+                       'engine-rpc-error
+                       :code +engine-rpc-error-invalid-payload-attributes+
+                       :message (block-validation-error-message condition))))
+              (engine-rpc-error (condition)
+                (setf payload-attributes-error condition)))))
+        (engine-rpc-with-phase-timing ("fcuCanonicalMs")
+          (publish-canonical-block
+           store
+           (forkchoice-state-head-block-hash state)
+           config
+           :authority :engine-forkchoice
+           :forkchoice-state state
+           :durability-function
+           (and
+            forkchoice-persistence-function
+            (lambda (callback-store transition)
+              (engine-rpc-persist-forkchoice
+               callback-store transition forkchoice-persistence-function))))))
         (when payload-attributes-error
           (error payload-attributes-error))
       (when (and payload-attributes
@@ -422,51 +447,53 @@ for the rest of this payload; other senders are still considered."
           ;; A repeated build request keeps the stable id.  An open build
           ;; continues improving in place; a payload already retrieved is
           ;; explicitly reopened from an empty candidate for the new request.
-          (unless
-              (let ((existing
-                      (chain-store-prepared-payload
-                       store candidate-id :copy-execution-state-p nil)))
-                (and existing
-                     (engine-prepared-payload-open-p existing)))
-            (multiple-value-bind
-                  (block viable-transactions execution-state)
-                (handler-case
-                    (engine-rpc-build-viable-prepared-payload
-                     store parent-block payload-attributes config nil
-                     :gas-limit-target gas-limit-target)
-                  (block-validation-error (condition)
-                    (engine-rpc-fail
-                     +engine-rpc-error-invalid-payload-attributes+
-                     (block-validation-error-message condition)))
-                  (transaction-validation-error (condition)
-                    (engine-rpc-fail
-                     +engine-rpc-error-invalid-payload-attributes+
-                     (princ-to-string condition))))
-              (chain-store-put-prepared-payload
-               store
-               (make-engine-prepared-payload
-                :payload-id candidate-id
-                :version prepared-payload-version
-                :block block
-                :blobs-bundle
-                (engine-rpc-blobs-bundle-for-transactions
-                 store viable-transactions)
-                :parent-hash head-hash
-                :payload-attributes payload-attributes
-                :gas-limit-target gas-limit-target
-                :candidate-transactions-root
-                (transaction-list-root nil)
-                :execution-state execution-state
-                :open-p t)
-               :transfer-execution-state-p t)))
+          (engine-rpc-with-phase-timing ("fcuBuildMs")
+            (unless
+                (let ((existing
+                        (chain-store-prepared-payload
+                         store candidate-id :copy-execution-state-p nil)))
+                  (and existing
+                       (engine-prepared-payload-open-p existing)))
+              (multiple-value-bind
+                    (block viable-transactions execution-state)
+                  (handler-case
+                      (engine-rpc-build-viable-prepared-payload
+                       store parent-block payload-attributes config nil
+                       :gas-limit-target gas-limit-target)
+                    (block-validation-error (condition)
+                      (engine-rpc-fail
+                       +engine-rpc-error-invalid-payload-attributes+
+                       (block-validation-error-message condition)))
+                    (transaction-validation-error (condition)
+                      (engine-rpc-fail
+                       +engine-rpc-error-invalid-payload-attributes+
+                       (princ-to-string condition))))
+                (chain-store-put-prepared-payload
+                 store
+                 (make-engine-prepared-payload
+                  :payload-id candidate-id
+                  :version prepared-payload-version
+                  :block block
+                  :blobs-bundle
+                  (engine-rpc-blobs-bundle-for-transactions
+                   store viable-transactions)
+                  :parent-hash head-hash
+                  :payload-attributes payload-attributes
+                  :gas-limit-target gas-limit-target
+                  :candidate-transactions-root
+                  (transaction-list-root nil)
+                  :execution-state execution-state
+                  :open-p t)
+                 :transfer-execution-state-p t))))
           (setf payload-id candidate-id)
           ;; The initial empty payload is now visible. Wake the production
           ;; builder after publication so it can fill from the txpool while the
           ;; proposer waits before getPayload. The callback is deliberately
           ;; advisory: scheduler failure cannot invalidate an applied FCU.
           (when payload-improvement-notification-function
-            (ignore-errors
-             (funcall payload-improvement-notification-function)))))
+            (engine-rpc-with-phase-timing ("fcuNotifyMs")
+              (ignore-errors
+               (funcall payload-improvement-notification-function))))))
       (engine-rpc-forkchoice-response-object
        status
        :payload-id payload-id))))

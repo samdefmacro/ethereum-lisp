@@ -153,7 +153,8 @@
          (handler-started-at nil)
          (request nil)
          (close-p t)
-         (response nil))
+         (response nil)
+         (*engine-rpc-phase-timings* nil))
     (handler-case
         (progn
           (setf request (engine-rpc-read-http-request-string input-stream))
@@ -203,6 +204,7 @@
                       (round
                        (* 1000 (- handled-at handler-started-at))
                        internal-time-units-per-second)))
+               (nreverse *engine-rpc-phase-timings*)
                (engine-rpc-http-response-telemetry-fields response)))
       (write-string response output-stream)
       (finish-output output-stream)

@@ -681,6 +681,8 @@ Content-Type: application/json
       (is (not (minusp (field fields "readMs"))))
       (is (integerp (field fields "handlerMs")))
       (is (not (minusp (field fields "handlerMs"))))
+      (is (integerp (field fields "fcuStatusMs")))
+      (is (not (minusp (field fields "fcuStatusMs"))))
       (is (string= +payload-status-syncing+
                    (field fields "rpcPayloadStatus"))))
     (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))

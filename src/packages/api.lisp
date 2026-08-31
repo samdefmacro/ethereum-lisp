@@ -69,6 +69,7 @@
    #:engine-rpc-forkchoice-response-object
    #:engine-rpc-handle-get-payload-v1
    #:engine-rpc-handle-forkchoice-updated-v1
+   #:*engine-rpc-phase-timings*
    #:engine-rpc-build-viable-prepared-payload
    #:engine-rpc-pending-build-transactions
    #:engine-rpc-improve-prepared-payload
