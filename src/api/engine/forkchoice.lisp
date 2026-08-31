@@ -42,9 +42,10 @@
 (defun engine-rpc-build-prepared-payload-detached
     (store parent-block payload-attributes config transactions
      &key gas-limit-target)
-  (let* ((block (engine-build-empty-payload
-                 parent-block payload-attributes config
-                 gas-limit-target))
+  (let* ((block
+           (engine-rpc-with-phase-timing ("fcuEmptyBlockMs")
+             (engine-build-empty-payload
+              parent-block payload-attributes config gas-limit-target)))
          (header (block-header block))
          (block-number (block-header-number header))
          (timestamp (block-header-timestamp header)))
@@ -60,7 +61,9 @@
                  (chain-config-ubt-p
                   config block-number timestamp)))
         block
-        (let ((state (chain-store-state-db store (block-hash parent-block))))
+        (let ((state
+                (engine-rpc-with-phase-timing ("fcuStateOpenMs")
+                  (chain-store-state-db store (block-hash parent-block)))))
           (unless state
             (block-validation-fail
              "Prepared payload parent state is unavailable"))
@@ -73,33 +76,35 @@
             (setf (block-header-blob-gas-used header)
                   (blob-gas-used transactions)))
           (multiple-value-bind (built-block receipts)
-              (apply
-               #'execute-signed-block
-               state
-               transactions
-               (append
-                (list
-                 :expected-chain-id (chain-config-chain-id config)
-                 :header header
-                 :parent-header (block-header parent-block)
-                 :chain-config config
-                 :block-hashes
-                 (chain-store-block-hashes-for-header store header))
-                (engine-rpc-prepared-payload-body-arguments
-                 payload-attributes config block-number timestamp)))
+              (engine-rpc-with-phase-timing ("fcuExecutePayloadMs")
+                (apply
+                 #'execute-signed-block
+                 state
+                 transactions
+                 (append
+                  (list
+                   :expected-chain-id (chain-config-chain-id config)
+                   :header header
+                   :parent-header (block-header parent-block)
+                   :chain-config config
+                   :block-hashes
+                   (chain-store-block-hashes-for-header store header))
+                  (engine-rpc-prepared-payload-body-arguments
+                   payload-attributes config block-number timestamp))))
             (values built-block receipts state))))))
 
 (defun engine-rpc-build-prepared-payload
     (store parent-block payload-attributes config transactions
      &key gas-limit-target)
   "Build a validated payload candidate that remains private until newPayload."
-  (build-private-block-candidate
-   store
-   (lambda ()
-     (engine-rpc-build-prepared-payload-detached
-      store parent-block payload-attributes config transactions
-      :gas-limit-target gas-limit-target))
-   config))
+  (engine-rpc-with-phase-timing ("fcuPrivateCandidateMs")
+    (build-private-block-candidate
+     store
+     (lambda ()
+       (engine-rpc-build-prepared-payload-detached
+        store parent-block payload-attributes config transactions
+        :gas-limit-target gas-limit-target))
+     config)))
 
 (defun engine-rpc-transaction-sender-key (transaction expected-chain-id)
   (let ((sender (transaction-sender
@@ -450,8 +455,10 @@ for the rest of this payload; other senders are still considered."
           (engine-rpc-with-phase-timing ("fcuBuildMs")
             (unless
                 (let ((existing
-                        (chain-store-prepared-payload
-                         store candidate-id :copy-execution-state-p nil)))
+                        (engine-rpc-with-phase-timing
+                            ("fcuPreparedLookupMs")
+                          (chain-store-prepared-payload
+                           store candidate-id :copy-execution-state-p nil))))
                   (and existing
                        (engine-prepared-payload-open-p existing)))
               (multiple-value-bind
@@ -468,23 +475,24 @@ for the rest of this payload; other senders are still considered."
                       (engine-rpc-fail
                        +engine-rpc-error-invalid-payload-attributes+
                        (princ-to-string condition))))
-                (chain-store-put-prepared-payload
-                 store
-                 (make-engine-prepared-payload
-                  :payload-id candidate-id
-                  :version prepared-payload-version
-                  :block block
-                  :blobs-bundle
-                  (engine-rpc-blobs-bundle-for-transactions
-                   store viable-transactions)
-                  :parent-hash head-hash
-                  :payload-attributes payload-attributes
-                  :gas-limit-target gas-limit-target
-                  :candidate-transactions-root
-                  (transaction-list-root nil)
-                  :execution-state execution-state
-                  :open-p t)
-                 :transfer-execution-state-p t))))
+                (engine-rpc-with-phase-timing ("fcuPreparedStoreMs")
+                  (chain-store-put-prepared-payload
+                   store
+                   (make-engine-prepared-payload
+                    :payload-id candidate-id
+                    :version prepared-payload-version
+                    :block block
+                    :blobs-bundle
+                    (engine-rpc-blobs-bundle-for-transactions
+                     store viable-transactions)
+                    :parent-hash head-hash
+                    :payload-attributes payload-attributes
+                    :gas-limit-target gas-limit-target
+                    :candidate-transactions-root
+                    (transaction-list-root nil)
+                    :execution-state execution-state
+                    :open-p t)
+                   :transfer-execution-state-p t)))))
           (setf payload-id candidate-id)
           ;; The initial empty payload is now visible. Wake the production
           ;; builder after publication so it can fill from the txpool while the
