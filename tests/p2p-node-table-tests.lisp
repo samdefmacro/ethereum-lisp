@@ -197,6 +197,15 @@
                       (ethereum-lisp.p2p:discv4-pong-ping-hash
                        (ethereum-lisp.p2p:decode-discv4-pong pong-data)))))
         (is (not (discv4-table-bonded-p table their-id 100)))
+        ;; The reciprocal probe is already outstanding. Receiving the same
+        ;; Ping again must still produce its Pong, but never another Ping-back
+        ;; that would make two responders amplify each other forever.
+        (multiple-value-bind (repeat-pong repeat-ping-back)
+            (discv4-serve-ping
+             our-key table ping data sender "127.0.0.1" 40404 100
+             :local-endpoint endpoint)
+          (is (not (null repeat-pong)))
+          (is (null repeat-ping-back)))
         (is (null (ethereum-lisp.p2p:discv4-table-accept-pong
                    table their-id "127.0.0.1" 40404
                    (subseq ping 0 32) 100)))
@@ -204,6 +213,15 @@
              table their-id "127.0.0.1" 40404
              (subseq ping-back 0 32) 100))))
     (is (discv4-table-bonded-p table their-id 100))
+    (multiple-value-bind (type data sender)
+        (ethereum-lisp.p2p:decode-discv4-packet ping)
+      (declare (ignore type))
+      (multiple-value-bind (bonded-pong bonded-ping-back)
+          (discv4-serve-ping
+           our-key table ping data sender "127.0.0.1" 40404 101
+           :local-endpoint endpoint)
+        (is (not (null bonded-pong)))
+        (is (null bonded-ping-back))))
     ;; Now bonded, the same FindNode is answered -- with our other known nodes.
     (dotimes (n 6)
       (discv4-table-put table (node-table-test-id n) "127.0.0.1" 30303 30303

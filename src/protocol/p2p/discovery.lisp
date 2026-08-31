@@ -623,7 +623,16 @@ back is returned as the second value and only its matching Pong may bond it."
                                    :ping-hash (subseq packet 0 32)
                                    :expiration (discv4-expiration)))))
              (ping-back
-               (when (and entry local-endpoint)
+               ;; A Ping is not an endpoint proof, so a stranger needs one
+               ;; reciprocal probe.  Do not recursively probe a peer that is
+               ;; already bonded or already answering our outstanding Ping:
+               ;; two conforming responders would otherwise turn each
+               ;; other's Ping-back into an unbounded Ping storm.
+               (when (and entry
+                          local-endpoint
+                          (not (discv4-table-bonded-p table sender now))
+                          (null
+                           (discv4-table-entry-pending-ping-hash entry)))
                  (encode-discv4-packet
                   private-key +discv4-packet-ping+
                   (encode-discv4-ping
