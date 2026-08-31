@@ -2363,7 +2363,12 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
                        :expected-parent-hash head-hash
                        :expected-target-hash target-parent-hash
                        :fetch-receipts-p nil
-                       :request-timeout-seconds 10)
+                       :request-timeout-seconds 10
+                       :import-batch
+                       (lambda (blocks)
+                         (devnet-peer-sync-import-batch
+                          node blocks nil
+                          :invalid-head-hash target-hash)))
                       0)))
             ;; Reprocess the local Engine target only after its parent chain is
             ;; available.  This is the seam that converts a downloaded invalid

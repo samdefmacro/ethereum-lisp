@@ -552,7 +552,8 @@ bodies were never admitted after the downloader stopped at the bad block."
       node block :peer-id peer-id :require-valid-p require-valid-p
       :invalid-head-hash invalid-head-hash))))
 
-(defun devnet-peer-sync-import-batch (node blocks peer-id)
+(defun devnet-peer-sync-import-batch
+    (node blocks peer-id &key invalid-head-hash)
   "Execute and durably commit one verified peer response as one transaction.
 
 All blocks execute oldest-first inside a common outer rollback frame. Only the
@@ -565,7 +566,11 @@ rolls the whole in-memory response batch back."
   (call-with-devnet-node-store-guard
    node
    (lambda ()
-     (let ((store (devnet-node-store node)))
+     (let ((store (devnet-node-store node))
+           (durability-function
+             (devnet-node-candidate-persistence-function node))
+           (invalid-status nil)
+           (invalid-block nil))
        (chain-store-atomic-commit
         store
         (lambda ()
@@ -573,13 +578,37 @@ rolls the whole in-memory response batch back."
                 for block = (car tail)
                 for last-p = (null (cdr tail))
                 do
-              (devnet-peer-sync-import-block-without-guard
-               node block
-               :peer-id (and last-p peer-id)
-               :require-valid-p t
-               :durability-function
-               (and last-p
-                    (devnet-node-candidate-persistence-function node))))))
+                   (multiple-value-bind (status candidate receipts)
+                       (devnet-peer-sync-import-block-without-guard
+                        node block
+                        :peer-id (and last-p peer-id)
+                        :invalid-head-hash invalid-head-hash
+                        :durability-function
+                        (and last-p durability-function))
+                     (declare (ignore candidate receipts))
+                     (when (string= +payload-status-invalid+
+                                    (payload-status-status status))
+                       ;; An invalid intermediate block did not receive the
+                       ;; last-candidate callback. Preserve its deterministic
+                       ;; verdict and the CL-head alias in this transaction,
+                       ;; then stop before admitting descendants.
+                       (when (and (not last-p) durability-function)
+                         (funcall durability-function
+                                  store block :source :p2p
+                                  :candidate-kind :invalid
+                                  :payload-status status))
+                       (setf invalid-status status
+                             invalid-block block)
+                       (loop-finish))))))
+       (when invalid-status
+         (error
+          'devnet-peer-sync-invalid
+          :message
+          (format
+           nil "Peer range block ~A was invalid: ~A~@[ (~A)~]"
+           (hash32-to-hex (block-hash invalid-block))
+           (payload-status-status invalid-status)
+           (payload-status-validation-error invalid-status))))
        (length blocks)))))
 
 (defun devnet-peer-sync-status (node)
