@@ -534,6 +534,7 @@ BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix.
          (server-static-pub (secp256k1-private-key-public-key server-static))
          (chain-length 5)
          (imported '())
+         (import-batches '())
          (listener (make-instance 'sb-bsd-sockets:inet-socket
                                   :type :stream :protocol :tcp)))
     (flet ((hello (client-id)
@@ -584,12 +585,29 @@ BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix.
                                     (lambda (block)
                                       (push (block-header-number (block-header block))
                                             imported))
-                                    :start-number 1 :batch-size 5)))
+                                    :start-number 1 :batch-size 5
+                                    :import-batch
+                                    (lambda (blocks)
+                                      (push
+                                       (mapcar
+                                        (lambda (block)
+                                          (block-header-number
+                                           (block-header block)))
+                                        blocks)
+                                       import-batches)
+                                      (dolist (block blocks)
+                                        (push
+                                         (block-header-number
+                                          (block-header block))
+                                         imported))))))
                        ;; Tell the server we are done so it stops serving.
                        (rlpx-send-disconnect connection +devp2p-message-disconnect+)
                        (is (= chain-length count))
                        ;; Blocks were imported in ascending order across batches.
-                       (is (equal '(1 2 3 4 5) (nreverse imported)))))
+                       (is (equal '(1 2 3 4 5) (nreverse imported)))
+                       ;; Each soft-limited response stays one import boundary.
+                       (is (equal '((1 2) (3 4) (5))
+                                  (nreverse import-batches)))))
                    (sb-thread:join-thread server-thread)
                    (when server-error
                      (error "eth sync server side failed: ~A" server-error))))))

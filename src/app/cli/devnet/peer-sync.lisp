@@ -478,13 +478,18 @@ persisted before this condition is signaled.  Sync coordinators may therefore
 stop the rejected branch without treating it as a node-fatal implementation or
 storage failure; subsequent Engine requests can read the cached verdict."))
 
-(defun devnet-peer-sync-import-block
-    (node block &key peer-id require-valid-p invalid-head-hash)
-  "Import BLOCK as a validated, durable, noncanonical candidate.
+(defun devnet-peer-sync-import-block-without-guard
+    (node block &key peer-id require-valid-p invalid-head-hash
+                     (durability-function
+                       (devnet-node-candidate-persistence-function node)))
+  "Import BLOCK as a validated, noncanonical candidate without taking the guard.
 
 PEER-ID, when supplied by a forward downloader, is recorded in the same
 database batch as the candidate so a restarted session resumes after this
-block.  Gap-fill and propagation imports omit it because they are not a
+block. DURABILITY-FUNCTION controls whether that batch is written; batch
+callers omit it from intermediate blocks and commit their last candidate's
+whole new ancestry instead. Gap-fill and propagation imports omit PEER-ID
+because they are not a
 contiguous forward cursor. REQUIRE-VALID-P rejects a deterministic INVALID
 verdict; ACCEPTED and SYNCING remain successful durable-buffering outcomes.
 Those statuses are expected while SNAP has not yet made the candidate's parent
@@ -494,12 +499,7 @@ binds a deterministic bad ancestor to the bounded Engine/CL target whose
 backfill discovered it, so Engine can answer INVALID even when later descendant
 bodies were never admitted after the downloader stopped at the bad block."
   (let ((store (devnet-node-store node))
-        (config (devnet-node-config node))
-        (durability-function
-          (devnet-node-candidate-persistence-function node)))
-    (call-with-devnet-node-store-guard
-     node
-     (lambda ()
+        (config (devnet-node-config node)))
        ;; Exercise the same fork/version adapter used by Engine RPC without
        ;; round-tripping the canonical eth body through a representation that
        ;; cannot carry derived requests/BAL side data.
@@ -540,7 +540,47 @@ bodies were never admitted after the downloader stopped at the bad block."
                (hash32-to-hex (block-hash block))
                (payload-status-status status)
                (payload-status-validation-error status))))
-           (values status candidate receipts)))))))
+           (values status candidate receipts)))))
+
+(defun devnet-peer-sync-import-block
+    (node block &key peer-id require-valid-p invalid-head-hash)
+  "Import one peer block under NODE's serialization guard."
+  (call-with-devnet-node-store-guard
+   node
+   (lambda ()
+     (devnet-peer-sync-import-block-without-guard
+      node block :peer-id peer-id :require-valid-p require-valid-p
+      :invalid-head-hash invalid-head-hash))))
+
+(defun devnet-peer-sync-import-batch (node blocks peer-id)
+  "Execute and durably commit one verified peer response as one transaction.
+
+All blocks execute oldest-first inside a common outer rollback frame. Only the
+last candidate invokes the durable exporter: it walks newly executed ancestry
+back to the existing durable boundary, so every candidate and the final resume
+cursor enter one synchronized WAL batch. A failure in execution or durability
+rolls the whole in-memory response batch back."
+  (when (null blocks)
+    (return-from devnet-peer-sync-import-batch 0))
+  (call-with-devnet-node-store-guard
+   node
+   (lambda ()
+     (let ((store (devnet-node-store node)))
+       (chain-store-atomic-commit
+        store
+        (lambda ()
+          (loop for tail on blocks
+                for block = (car tail)
+                for last-p = (null (cdr tail))
+                do
+              (devnet-peer-sync-import-block-without-guard
+               node block
+               :peer-id (and last-p peer-id)
+               :require-valid-p t
+               :durability-function
+               (and last-p
+                    (devnet-node-candidate-persistence-function node))))))
+       (length blocks)))))
 
 (defun devnet-peer-sync-status (node)
   "Return STATUS, HEAD-NUMBER, CHAIN-CONTEXT, and canonical HEAD-HASH.
@@ -675,7 +715,7 @@ An anchor mismatch happens before the downloader imports a block.  When the
 anchor came from an ahead-of-canonical peer cursor, delete that cursor durably
 and retry exactly once from the local canonical anchor.  A second mismatch, or
 a mismatch of the canonical anchor itself, is a peer delivery failure and is
-allowed to escape."
+  allowed to escape."
   (labels ((download (start-number expected-parent-hash)
              (eth-sync-download-blocks
               peer
@@ -683,7 +723,10 @@ allowed to escape."
                 (devnet-peer-sync-import-block
                  node block :peer-id peer-id :require-valid-p t))
               :start-number start-number
-              :expected-parent-hash expected-parent-hash))
+              :expected-parent-hash expected-parent-hash
+              :import-batch
+              (lambda (blocks)
+                (devnet-peer-sync-import-batch node blocks peer-id))))
            (peer-has-cursor-p (number hash)
              (let ((headers
                      (eth-peer-get-block-headers

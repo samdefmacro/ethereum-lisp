@@ -104,15 +104,19 @@ than recomputing them, since the header was received rather than built here."
           (batch-size +eth-sync-default-batch-size+)
           (max-blocks nil)
           (expected-parent-hash nil)
+          (import-batch nil)
           (progress nil))
   "Download blocks forward from START-NUMBER, importing each in order.
 
 Requests headers from PEER in batches, fetches their bodies, assembles each
 block, and calls IMPORT-BLOCK on it. IMPORT-BLOCK receives one assembled block
 and is expected to execute and commit it; an error it signals propagates and
-stops the download. EXPECTED-PARENT-HASH anchors the first returned header to a
-durable local cursor, so restart cannot silently continue on another branch.
-PROGRESS, if given, is called with each block after import.
+stops the download. When IMPORT-BATCH is supplied, each verified response
+prefix is instead handed to it oldest-first as one list. This lets a durable
+consumer preserve the network batch as its rollback and WAL boundary.
+EXPECTED-PARENT-HASH anchors the first returned header to a durable local
+cursor, so restart cannot silently continue on another branch. PROGRESS, if
+given, is called with each block only after its containing import finishes.
 Stops when the peer returns no further headers, or after MAX-BLOCKS blocks.
 Returns the number of blocks imported."
   (let ((next start-number)
@@ -143,14 +147,20 @@ Returns the number of blocks imported."
             (when (or (null bodies) (> (length bodies) (length headers)))
               (error "peer returned ~D bodies for ~D headers"
                      (length bodies) (length headers)))
-            (let ((served-headers (subseq headers 0 (length bodies))))
-              (loop for header in served-headers
-                  for body in bodies
-                  do (eth-sync-validate-body header body)
-                     (let ((block (eth-sync-assemble-block header body)))
-                       (funcall import-block block)
-                       (incf imported)
-                       (when progress (funcall progress block))))
+            (let* ((served-headers (subseq headers 0 (length bodies)))
+                   (blocks
+                     (loop for header in served-headers
+                           for body in bodies
+                           do (eth-sync-validate-body header body)
+                           collect (eth-sync-assemble-block header body))))
+              (if import-batch
+                  (funcall import-batch blocks)
+                  (dolist (block blocks)
+                    (funcall import-block block)))
+              (incf imported (length blocks))
+              (when progress
+                (dolist (block blocks)
+                  (funcall progress block)))
               (setf previous-header (car (last served-headers)))
               (incf next (length served-headers))
               ;; Only a short HEADER batch proves the peer reached its tip.

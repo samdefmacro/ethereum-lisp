@@ -1101,6 +1101,82 @@ really reopens the directory instead of observing the first handle's memory."
          (ethereum-lisp.cli::devnet-peer-sync-import-block
           node block :require-valid-p t))))))
 
+(deftest devnet-peer-range-batch-uses-one-durable-cursor-boundary
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (blocks
+           (eth-sync-produce-empty-blocks
+            (ethereum-lisp.cli::devnet-node-genesis-block node)
+            (ethereum-lisp.cli::devnet-node-config node) 3))
+         (last-block (car (last blocks)))
+         (peer-id
+           (secp256k1-private-key-public-key
+            #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee))
+         (durability-calls 0)
+         (durable-candidate nil)
+         (durable-progress nil))
+    (setf (ethereum-lisp.cli::devnet-node-candidate-persistence-function node)
+          (lambda (seen-store candidate &key progress &allow-other-keys)
+            (is (eq store seen-store))
+            (incf durability-calls)
+            (setf durable-candidate candidate
+                  durable-progress progress)))
+    (is (= 3
+           (ethereum-lisp.cli::devnet-peer-sync-import-batch
+            node blocks peer-id)))
+    (is (= 1 durability-calls))
+    (is (hash32= (block-hash last-block)
+                 (block-hash durable-candidate)))
+    (is (= 3
+           (ethereum-lisp.node-store.persistence:node-store-peer-sync-progress-last-number
+            durable-progress)))
+    (is (hash32=
+         (block-hash last-block)
+         (ethereum-lisp.node-store.persistence:node-store-peer-sync-progress-last-hash
+          durable-progress)))
+    (dolist (block blocks)
+      (is (chain-store-known-block store (block-hash block)))
+      (is (chain-store-state-available-p store (block-hash block))))))
+
+(deftest devnet-peer-range-batch-failure-rolls-back-earlier-blocks
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (blocks
+           (eth-sync-produce-empty-blocks
+            (ethereum-lisp.cli::devnet-node-genesis-block node)
+            (ethereum-lisp.cli::devnet-node-config node) 3))
+         (peer-id
+           (secp256k1-private-key-public-key
+            #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee))
+         (name 'ethereum-lisp.block-import:import-p2p-block-candidate)
+         (original (fdefinition name))
+         (calls 0))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       name
+       (lambda (seen-store block config &rest arguments)
+         (incf calls)
+         (when (= 2 calls)
+           (error "injected middle-of-batch failure"))
+         (apply original seen-store block config arguments))))
+     (lambda ()
+       (signals error
+         (ethereum-lisp.cli::devnet-peer-sync-import-batch
+          node blocks peer-id))))
+    (is (= 2 calls))
+    (dolist (block blocks)
+      (is (null (chain-store-known-block store (block-hash block))))
+      (is (not (chain-store-state-available-p store (block-hash block)))))))
+
 (defun devnet-peer-sync-durable-resume-case
     (database-path db-engine &key before-restart)
   "Exercise peer candidate and cursor durability for one database backend."
