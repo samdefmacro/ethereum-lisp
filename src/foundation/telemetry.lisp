@@ -18,24 +18,15 @@
 
 (defstruct (stream-telemetry-sink
             (:constructor %make-stream-telemetry-sink
-                (&key stream flush-batch-size buffer)))
+                (&key stream)))
   stream
-  (flush-batch-size 1 :type (integer 1 *))
-  buffer
-  (pending-count 0 :type (integer 0 *))
   #+sbcl
   (lock (sb-thread:make-mutex :name "telemetry stream sink")))
 
-(defun make-stream-telemetry-sink
-    (&key (stream *standard-output*) (flush-batch-size 1))
+(defun make-stream-telemetry-sink (&key (stream *standard-output*))
   (unless (output-stream-p stream)
     (error "Telemetry stream sink requires an output stream"))
-  (unless (and (integerp flush-batch-size) (plusp flush-batch-size))
-    (error "Telemetry stream sink flush batch size must be positive"))
-  (%make-stream-telemetry-sink
-   :stream stream
-   :flush-batch-size flush-batch-size
-   :buffer (make-string-output-stream)))
+  (%make-stream-telemetry-sink :stream stream))
 
 (defstruct (counting-telemetry-sink
             (:constructor %make-counting-telemetry-sink (counts lock delegate)))
@@ -107,61 +98,21 @@ being mutated by a worker thread underneath it."
         :value (telemetry-event-value event)
         :fields (telemetry-event-fields event)))
 
-(defun telemetry-write-event-record (stream event &key (flush-p t))
+(defun telemetry-write-event-record (stream event)
   (write (telemetry-event-record event)
          :stream stream
          :pretty nil)
   (terpri stream)
-  (when flush-p
-    (finish-output stream)))
-
-(defun stream-telemetry-event-urgent-p (event)
-  "Return true for log levels that must cross the backing stream immediately."
-  (and (eq :log (telemetry-event-kind event))
-       (member (telemetry-event-value event)
-               '(:warning :warn :error :fatal))))
-
-(defun stream-telemetry-sink-flush-locked (sink)
-  (when (plusp (stream-telemetry-sink-pending-count sink))
-    (write-string
-     (get-output-stream-string (stream-telemetry-sink-buffer sink))
-     (stream-telemetry-sink-stream sink))
-    (finish-output (stream-telemetry-sink-stream sink))
-    (setf (stream-telemetry-sink-pending-count sink) 0))
-  sink)
-
-(defun flush-stream-telemetry-sink (sink)
-  "Publish every buffered event to SINK's backing stream."
-  (unless (typep sink 'stream-telemetry-sink)
-    (error "Telemetry flush requires a stream telemetry sink"))
-  #+sbcl
-  (sb-thread:with-mutex ((stream-telemetry-sink-lock sink))
-    (stream-telemetry-sink-flush-locked sink))
-  #-sbcl
-  (stream-telemetry-sink-flush-locked sink))
+  (finish-output stream))
 
 (defmethod telemetry-emit
     ((sink stream-telemetry-sink) (event telemetry-event))
-  (flet ((emit-locked ()
-           (if (= 1 (stream-telemetry-sink-flush-batch-size sink))
-               ;; Preserve the original zero-staging path for ordinary sinks.
-               ;; Only the long-running CLI opts into batching.
-               (telemetry-write-event-record
-                (stream-telemetry-sink-stream sink) event)
-               (progn
-                 (telemetry-write-event-record
-                  (stream-telemetry-sink-buffer sink) event :flush-p nil)
-                 (incf (stream-telemetry-sink-pending-count sink))
-                 (when (or
-                        (>= (stream-telemetry-sink-pending-count sink)
-                            (stream-telemetry-sink-flush-batch-size sink))
-                        (stream-telemetry-event-urgent-p event))
-                   (stream-telemetry-sink-flush-locked sink))))))
+  (let ((stream (stream-telemetry-sink-stream sink)))
     #+sbcl
     (sb-thread:with-mutex ((stream-telemetry-sink-lock sink))
-      (emit-locked))
+      (telemetry-write-event-record stream event))
     #-sbcl
-    (emit-locked))
+    (telemetry-write-event-record stream event))
   event)
 
 (defun telemetry-events (sink)

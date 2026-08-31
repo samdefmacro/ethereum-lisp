@@ -2,14 +2,6 @@
 
 ;;;; CLI telemetry sink selection and error logging.
 
-(defconstant +devnet-cli-telemetry-flush-batch-size+ 64
-  "Events per backing-stream flush for a long-running node.
-
-The Engine API can handle thousands of small requests per minute. Flushing the
-Docker or file stream after every request serializes that hot path on logging.
-Warnings and errors still flush immediately, and the CLI drains every partial
-batch on exit.")
-
 (defun devnet-cli-error-log-file (args)
   (when (and args (string= "devnet" (first args)))
     (setf args (rest args)))
@@ -52,24 +44,19 @@ batch on exit.")
                    ("logPath" . ,log-file)))))))
 
 (defun call-with-devnet-cli-telemetry-sink (options output-stream thunk)
-  (labels ((call-with-sink (stream)
-             (let ((sink
-                     (ethereum-lisp.telemetry:make-stream-telemetry-sink
-                      :stream stream
-                      :flush-batch-size
-                      +devnet-cli-telemetry-flush-batch-size+)))
-               (unwind-protect
-                    (funcall thunk sink)
-                 (ethereum-lisp.telemetry:flush-stream-telemetry-sink sink)))))
-    (let ((log-file (getf options :log-file)))
-      (if log-file
-          (with-open-file (stream (devnet-cli-ensure-path-parent-directory
-                                   log-file)
-                                  :direction :output
-                                  :if-exists :append
-                                  :if-does-not-exist :create)
-            (call-with-sink stream))
-          (call-with-sink output-stream)))))
+  (let ((log-file (getf options :log-file)))
+    (if log-file
+        (with-open-file (stream (devnet-cli-ensure-path-parent-directory
+                                 log-file)
+                                :direction :output
+                                :if-exists :append
+                                :if-does-not-exist :create)
+          (funcall thunk
+                   (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                    :stream stream)))
+        (funcall thunk
+                 (ethereum-lisp.telemetry:make-stream-telemetry-sink
+                  :stream output-stream)))))
 
 (defun devnet-cli-report-ignored-options (options error-stream)
   (declare (ignore error-stream))

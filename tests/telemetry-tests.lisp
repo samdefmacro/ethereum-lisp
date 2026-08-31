@@ -65,39 +65,6 @@
       (is (equal '(("endpoint" . "localhost:8551"))
                  (getf record :fields))))))
 
-(deftest stream-telemetry-sink-batches-backing-stream-flushes
-  (let* ((output (make-string-output-stream))
-         (sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
-                :stream output :flush-batch-size 2)))
-    (ethereum-lisp.telemetry:telemetry-log :info "batch.first" :sink sink)
-    (is (string= "" (get-output-stream-string output)))
-    (ethereum-lisp.telemetry:telemetry-log :info "batch.second" :sink sink)
-    (let ((records (make-string-input-stream
-                    (get-output-stream-string output))))
-      (is (string= "batch.first" (getf (read records) :name)))
-      (is (string= "batch.second" (getf (read records) :name)))
-      (is (eq :eof (read records nil :eof))))))
-
-(deftest stream-telemetry-sink-flushes-urgent-and-explicit-events
-  (let* ((output (make-string-output-stream))
-         (sink (ethereum-lisp.telemetry:make-stream-telemetry-sink
-                :stream output :flush-batch-size 64)))
-    (ethereum-lisp.telemetry:telemetry-log :info "before.warning" :sink sink)
-    (is (string= "" (get-output-stream-string output)))
-    (ethereum-lisp.telemetry:telemetry-log :warning "warning" :sink sink)
-    (let ((flushed (get-output-stream-string output)))
-      (is (search "before.warning" flushed))
-      (is (search "warning" flushed)))
-    (ethereum-lisp.telemetry:telemetry-metric "pending.metric" 1 :sink sink)
-    (is (string= "" (get-output-stream-string output)))
-    (ethereum-lisp.telemetry:flush-stream-telemetry-sink sink)
-    (is (search "pending.metric" (get-output-stream-string output)))))
-
-(deftest stream-telemetry-sink-rejects-invalid-flush-batch-size
-  (signals error
-    (ethereum-lisp.telemetry:make-stream-telemetry-sink
-     :stream (make-string-output-stream) :flush-batch-size 0)))
-
 #+sbcl
 (deftest stream-telemetry-sink-serializes-concurrent-writes
   (let* ((output (make-string-output-stream))

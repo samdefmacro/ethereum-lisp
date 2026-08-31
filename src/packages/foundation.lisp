@@ -118,7 +118,6 @@
    #:stream-telemetry-sink
    #:make-stream-telemetry-sink
    #:stream-telemetry-sink-stream
-   #:flush-stream-telemetry-sink
    #:telemetry-events
    #:telemetry-emit
    #:telemetry-log
