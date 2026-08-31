@@ -198,6 +198,17 @@
             (chain-store-account-balance direct (block-hash block) target)
           (is present-p)
           (is (= 1072 balance)))
+        (let ((reads-after-first-account
+                (direct-store-test-database-get-count database)))
+          (multiple-value-bind (balance present-p)
+              (chain-store-account-balance direct (block-hash block) target)
+            (is present-p)
+            (is (= 1072 balance)))
+          ;; A block hash identifies immutable state.  Repeated public RPC and
+          ;; txpool reads must reuse its decoded account instead of traversing
+          ;; the persisted secure trie again.
+          (is (= reads-after-first-account
+                 (direct-store-test-database-get-count database))))
         (multiple-value-bind (nonce present-p)
             (chain-store-account-nonce direct (block-hash block) target)
           (is present-p)
@@ -227,6 +238,30 @@
         ;; bounded point reads; the iterator method above fails immediately if
         ;; startup or access tries to hydrate history.
         (is (< (direct-store-test-database-get-count database) 80))))))
+
+(deftest database-chain-store-account-cache-keeps-two-bounded-generations
+  (let* ((database (make-memory-key-value-database))
+         (store
+           (ethereum-lisp.node-store.persistence::make-empty-database-chain-store
+            database))
+         (limit
+           ethereum-lisp.node-store.persistence::+node-store-direct-account-cache-generation-limit+))
+    (dotimes (index (+ (* 2 limit) 3))
+      (ethereum-lisp.node-store.persistence::node-store-direct-account-cache-put
+       store
+       (write-to-string index)
+       nil))
+    (let ((current
+            (ethereum-lisp.node-store.persistence::database-chain-store-account-cache
+             store))
+          (previous
+            (ethereum-lisp.node-store.persistence::database-chain-store-previous-account-cache
+             store)))
+      (is (<= (hash-table-count current) limit))
+      (is (<= (hash-table-count previous) limit))
+      (is (<= (+ (hash-table-count current)
+                 (hash-table-count previous))
+              (* 2 limit))))))
 
 (deftest direct-account-point-reads-see-pending-and-persisted-tries
   (let* ((bootstrap (make-engine-payload-memory-store))

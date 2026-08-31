@@ -8,10 +8,18 @@
 ;;;; database.  Reads below are point lookups.  No iterator or whole-database
 ;;;; import is part of construction or ordinary lookup.
 
+(defconstant +node-store-direct-account-cache-generation-limit+ 4096
+  "Maximum immutable account snapshots retained in one cache generation.")
+
 (defstruct (database-chain-store
             (:include memory-chain-store))
   (database (error "Database chain store requires a database")
-            :type key-value-database))
+            :type key-value-database)
+  (account-cache (make-hash-table :test 'equal) :type hash-table)
+  (previous-account-cache (make-hash-table :test 'equal) :type hash-table)
+  (account-cache-lock
+    #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-account-cache")
+    #-sbcl nil))
 
 (defun make-empty-database-chain-store (database)
   "Construct a direct provider with fresh memory-overlay slot defaults.
@@ -225,25 +233,56 @@ hash-table slot can start as NIL."
   (lambda (hash)
     (chain-store-backing-trie-node store hash)))
 
-(defun node-store-direct-account-trie (store block-hash)
-  "Return BLOCK-HASH's account trie, pending tries, and a state-presence flag.
+(defun node-store-direct-account-cache-key (block-hash address)
+  (engine-payload-store-account-key block-hash address))
 
-The transaction-local dirty trie must win before its RocksDB batch is applied;
-after a successful batch (or restart), the same lookup opens the persisted root
-without hydrating any other account."
-  (let ((pending-tries
-          (chain-store-state-persistence-tries store block-hash)))
-    (if pending-tries
-        (values (first pending-tries) pending-tries t)
-        (multiple-value-bind (root present-p)
-            (chain-store-backing-state-root store block-hash)
-          (if present-p
-              (values
-               (make-persisted-mpt
-                root (node-store-direct-trie-node-loader store))
-               nil
-               t)
-              (values nil nil nil))))))
+(defun node-store-direct-account-cache-lookup-unlocked (store key)
+  (multiple-value-bind (account present-p)
+      (gethash key (database-chain-store-account-cache store))
+    (if present-p
+        (values account t)
+        (gethash key (database-chain-store-previous-account-cache store)))))
+
+(defun node-store-direct-account-cache-lookup (store key)
+  #+sbcl
+  (sb-thread:with-mutex ((database-chain-store-account-cache-lock store))
+    (node-store-direct-account-cache-lookup-unlocked store key))
+  #-sbcl
+  (node-store-direct-account-cache-lookup-unlocked store key))
+
+(defun node-store-direct-account-cache-put-unlocked (store key account)
+  (when (>= (hash-table-count (database-chain-store-account-cache store))
+            +node-store-direct-account-cache-generation-limit+)
+    (setf (database-chain-store-previous-account-cache store)
+          (database-chain-store-account-cache store)
+          (database-chain-store-account-cache store)
+          (make-hash-table :test 'equal)))
+  (setf (gethash key (database-chain-store-account-cache store)) account)
+  account)
+
+(defun node-store-direct-account-cache-put (store key account)
+  #+sbcl
+  (sb-thread:with-mutex ((database-chain-store-account-cache-lock store))
+    (node-store-direct-account-cache-put-unlocked store key account))
+  #-sbcl
+  (node-store-direct-account-cache-put-unlocked store key account))
+
+(defun node-store-direct-account-from-trie
+    (account-trie pending-tries address)
+  (multiple-value-bind (record account-present-p)
+      (mpt-get account-trie (keccak-256 (address-bytes address)))
+    (if account-present-p
+        (values
+         (handler-case
+             (ethereum-lisp.state:decode-state-account-rlp record)
+           (storage-error (condition) (error condition))
+           (error (condition)
+             (storage-fail
+              "Durable account record is invalid: ~A" condition)))
+         pending-tries
+         t
+         t)
+        (values nil pending-tries nil t))))
 
 (defun node-store-direct-account (store block-hash address)
   "Resolve one secure-trie account and preserve state/account absence separately."
@@ -253,24 +292,36 @@ without hydrating any other account."
   (unless (address-p address)
     (block-validation-fail
      "Durable account lookup requires an address"))
-  (multiple-value-bind (account-trie pending-tries state-present-p)
-      (node-store-direct-account-trie store block-hash)
-    (if state-present-p
-        (multiple-value-bind (record account-present-p)
-            (mpt-get account-trie (keccak-256 (address-bytes address)))
-          (if account-present-p
-              (values
-               (handler-case
-                   (ethereum-lisp.state:decode-state-account-rlp record)
-                 (storage-error (condition) (error condition))
-                 (error (condition)
-                   (storage-fail
-                    "Durable account record is invalid: ~A" condition)))
-               pending-tries
-               t
-               t)
-              (values nil pending-tries nil t)))
-        (values nil nil nil nil))))
+  (let ((pending-tries
+          (chain-store-state-persistence-tries store block-hash)))
+    (if pending-tries
+        ;; A dirty trie is transaction-local and mutable until its block batch
+        ;; commits.  Never publish it into the immutable durable read cache.
+        (node-store-direct-account-from-trie
+         (first pending-tries) pending-tries address)
+        (let ((key
+                (node-store-direct-account-cache-key block-hash address)))
+          (multiple-value-bind (cached-account cached-p)
+              (node-store-direct-account-cache-lookup store key)
+            (if cached-p
+                (values cached-account nil (not (null cached-account)) t)
+                (multiple-value-bind (root state-present-p)
+                    (chain-store-backing-state-root store block-hash)
+                  (if state-present-p
+                      (multiple-value-bind
+                          (account ignored-tries account-present-p
+                                   ignored-state-present-p)
+                          (node-store-direct-account-from-trie
+                           (make-persisted-mpt
+                            root (node-store-direct-trie-node-loader store))
+                           nil
+                           address)
+                        (declare
+                         (ignore ignored-tries ignored-state-present-p))
+                        (node-store-direct-account-cache-put
+                         store key account)
+                        (values account nil account-present-p t))
+                      (values nil nil nil nil)))))))))
 
 (defmethod chain-store-backing-account-state
     ((store database-chain-store) block-hash address)
