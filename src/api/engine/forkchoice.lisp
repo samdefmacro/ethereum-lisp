@@ -93,13 +93,17 @@
     (store parent-block payload-attributes config transactions
      &key gas-limit-target)
   "Build a validated payload candidate that remains private until newPayload."
-  (build-private-block-candidate
-   store
-   (lambda ()
-     (engine-rpc-build-prepared-payload-detached
-      store parent-block payload-attributes config transactions
-      :gas-limit-target gas-limit-target))
-   config))
+  ;; The Engine builder already executes on a fresh lazy STATE-DB and returns
+  ;; that private post-state explicitly. Validate the resulting detached block
+  ;; directly, as geth validates its independent payload environment, instead
+  ;; of wrapping a second whole-store rollback boundary around a trusted
+  ;; side-effect-free builder.
+  (multiple-value-bind (block receipts execution-state)
+      (engine-rpc-build-prepared-payload-detached
+       store parent-block payload-attributes config transactions
+       :gas-limit-target gas-limit-target)
+    (validate-private-block-candidate store block config)
+    (values block receipts execution-state)))
 
 (defun engine-rpc-transaction-sender-key (transaction expected-chain-id)
   (let ((sender (transaction-sender
