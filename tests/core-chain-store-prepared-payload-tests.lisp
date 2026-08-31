@@ -1,5 +1,37 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest chain-store-prepared-payload-retains-only-newest-execution-state
+  (let* ((store (make-engine-payload-memory-store))
+         (first-id #(1 0 0 0 0 0 0 1))
+         (second-id #(1 0 0 0 0 0 0 2))
+         (first-state (make-state-db))
+         (second-state (make-state-db)))
+    (chain-store-put-prepared-payload
+     store
+     (make-engine-prepared-payload
+      :payload-id first-id
+      :version 1
+      :block (make-block :header (make-block-header :number 1))
+      :execution-state first-state))
+    (chain-store-put-prepared-payload
+     store
+     (make-engine-prepared-payload
+      :payload-id second-id
+      :version 1
+      :block (make-block :header (make-block-header :number 2))
+      :execution-state second-state))
+    (is (null
+         (engine-prepared-payload-execution-state
+          (chain-store-prepared-payload store first-id))))
+    (let ((retained
+            (engine-prepared-payload-execution-state
+             (chain-store-prepared-payload store second-id))))
+      (is retained)
+      (is (not (eq retained second-state)))
+      (is (hash32=
+           (state-db-root retained)
+           (state-db-root second-state))))))
+
 (deftest chain-store-export-import-kv-restores-prepared-payloads
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -31,7 +63,8 @@
               :payload-id payload-id
               :version 5
               :block block
-              :blobs-bundle sidecar))
+              :blobs-bundle sidecar
+              :execution-state (make-state-db)))
            (payload-id-bytes (ensure-byte-vector payload-id)))
       (unwind-protect
            (progn
@@ -55,6 +88,9 @@
                (is (= 5
                       (ethereum-lisp.engine-payloads:engine-prepared-payload-version
                        restored-payload)))
+               (is (null
+                    (engine-prepared-payload-execution-state
+                     restored-payload)))
                (is (bytes= (block-rlp block)
                            (block-rlp
                             (ethereum-lisp.engine-payloads:engine-prepared-payload-block

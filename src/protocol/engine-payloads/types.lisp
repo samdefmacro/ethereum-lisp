@@ -100,6 +100,7 @@
                 (&key payload-id version block blobs-bundle
                       parent-hash payload-attributes gas-limit-target
                       candidate-transactions-root
+                      execution-state
                       (open-p nil))))
   payload-id
   version
@@ -109,6 +110,10 @@
   payload-attributes
   gas-limit-target
   candidate-transactions-root
+  ;; Process-local post-state produced while building BLOCK.  It is copied
+  ;; with the prepared payload but deliberately omitted from durable codecs:
+  ;; after restart, newPayload safely falls back to ordinary execution.
+  execution-state
   (open-p nil :type boolean))
 
 (defun validate-engine-prepared-payload-blobs-bundle (bundle)

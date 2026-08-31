@@ -112,6 +112,10 @@
       :candidate-transactions-root
       (maybe-copy-hash32
        (engine-prepared-payload-candidate-transactions-root prepared-payload))
+      :execution-state
+      (let ((state
+              (engine-prepared-payload-execution-state prepared-payload)))
+        (and state (ethereum-lisp.state:state-db-copy state)))
       :open-p (engine-prepared-payload-open-p prepared-payload)))
     (t prepared-payload)))
 

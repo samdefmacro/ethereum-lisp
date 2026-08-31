@@ -54,6 +54,39 @@
       (error (condition)
         (storage-fail "New payload persistence failed: ~A" condition)))))
 
+(defun engine-rpc-prepared-execution-for-block (store block)
+  "Return a copied prepared block and post-state matching BLOCK exactly."
+  (loop with hash = (block-hash block)
+        for prepared-payload in (chain-store-prepared-payloads store)
+        for prepared-block = (engine-prepared-payload-block prepared-payload)
+        for execution-state =
+          (engine-prepared-payload-execution-state prepared-payload)
+        when (and (typep execution-state 'ethereum-lisp.state:state-db)
+                  (hash32= hash (block-hash prepared-block)))
+          do (return (values prepared-block execution-state))))
+
+(defun engine-rpc-import-with-prepared-execution
+    (store block config fallback-import-function)
+  "Publish an exact process-local build result, or execute BLOCK normally."
+  (multiple-value-bind (prepared-block execution-state)
+      (engine-rpc-prepared-execution-for-block store block)
+    (if execution-state
+        (let ((state (ethereum-lisp.state:state-db-copy execution-state)))
+          (unless (hash32=
+                   (ethereum-lisp.state:state-db-root state)
+                   (block-header-state-root (block-header prepared-block)))
+            (storage-fail
+             "Prepared payload execution state does not match its block"))
+          (execute-and-commit-block
+           store state
+           (lambda ()
+             (values prepared-block (block-receipts prepared-block)))
+           :state-available-p t
+           :canonicalize-p nil))
+        (funcall (or fallback-import-function
+                     #'execute-and-commit-engine-payload)
+                 store block config))))
+
 (defun engine-rpc-handle-new-payload
     (version params store config
      &key import-function new-payload-persistence-function)
@@ -107,7 +140,10 @@
            (append
             (list
              :source :engine
-             :import-function import-function
+             :import-function
+             (lambda (candidate-store candidate candidate-config)
+               (engine-rpc-import-with-prepared-execution
+                candidate-store candidate candidate-config import-function))
              :durability-function
              (and
               new-payload-persistence-function

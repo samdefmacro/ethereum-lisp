@@ -723,7 +723,63 @@
           (is (= 2 (length pending-transactions)))
           (is (every (lambda (hash)
                        (member hash pending-hashes :test #'string=))
-                     selected-hashes)))))))
+                     selected-hashes))
+          (is (engine-prepared-payload-execution-state prepared-payload))
+          (let ((failed-fallback-calls 0)
+                (failed-persistence-calls 0))
+            (let ((failed-response
+                    (engine-rpc-handle-request
+                     (list (cons "jsonrpc" "2.0")
+                           (cons "id" 1051)
+                           (cons "method" "engine_newPayloadV1")
+                           (cons "params" (list payload)))
+                     store
+                     config
+                     :import-function
+                     (lambda (current-store candidate current-config)
+                       (declare
+                        (ignore current-store candidate current-config))
+                       (incf failed-fallback-calls)
+                       (error "Matching prepared payload was re-executed"))
+                     :new-payload-persistence-function
+                     (lambda (&rest arguments)
+                       (declare (ignore arguments))
+                       (incf failed-persistence-calls)
+                       (storage-fail "Injected prepared payload write failure")))))
+              (is (field failed-response "error")))
+            (is (= 0 failed-fallback-calls))
+            (is (= 1 failed-persistence-calls))
+            (is (null (chain-store-known-block store prepared-hash)))
+            (is (not (chain-store-state-available-p store prepared-hash)))
+            ;; The import used a copy.  A failed durable callback therefore
+            ;; leaves the cached post-state intact for an idempotent retry.
+            (is (engine-prepared-payload-execution-state
+                 (chain-store-prepared-payload
+                  store (hex-to-bytes payload-id)))))
+          (let* ((fallback-calls 0)
+                 (new-payload-response
+                   (engine-rpc-handle-request
+                    (list (cons "jsonrpc" "2.0")
+                          (cons "id" 106)
+                          (cons "method" "engine_newPayloadV1")
+                          (cons "params" (list payload)))
+                    store
+                    config
+                    :import-function
+                    (lambda (current-store candidate current-config)
+                      (declare
+                       (ignore current-store candidate current-config))
+                      (incf fallback-calls)
+                      (error "Matching prepared payload was re-executed"))))
+                 (new-payload-status
+                   (field new-payload-response "result")))
+            (is (= 0 fallback-calls))
+            (is (string= +payload-status-valid+
+                         (field new-payload-status "status")))
+            (is (string= (hash32-to-hex prepared-hash)
+                         (field new-payload-status "latestValidHash")))
+            (is (chain-store-known-block store prepared-hash))
+            (is (chain-store-state-available-p store prepared-hash))))))))
 
 (deftest engine-rpc-forkchoice-updated-v1-improves-stable-payload-before-get
   (labels ((field (object name)

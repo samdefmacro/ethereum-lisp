@@ -676,6 +676,15 @@ transient or raced verdict can be retried without restarting the node."
   (validate-engine-prepared-payload prepared-payload)
   (engine-payload-store-synchronize-cache-metadata
    store :prepared-payload now)
+  ;; A post-state can be much larger than the encoded payload whose byte
+  ;; budget protects this cache.  Retain an execution shortcut for only the
+  ;; newest payload environment; older payload ids remain fully usable and
+  ;; safely fall back to ordinary newPayload execution.
+  (when (engine-prepared-payload-execution-state prepared-payload)
+    (loop for existing
+            being the hash-values of
+              (memory-chain-store-prepared-payloads store)
+          do (setf (engine-prepared-payload-execution-state existing) nil)))
   (let ((stored-payload
           (engine-payload-store-copy-prepared-payload prepared-payload)))
     (engine-payload-store-cache-put

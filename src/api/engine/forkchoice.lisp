@@ -53,20 +53,22 @@
           (when (chain-config-cancun-p config block-number timestamp)
             (setf (block-header-blob-gas-used header)
                   (blob-gas-used transactions)))
-          (apply
-           #'execute-signed-block
-           state
-           transactions
-           (append
-            (list
-             :expected-chain-id (chain-config-chain-id config)
-             :header header
-             :parent-header (block-header parent-block)
-             :chain-config config
-             :block-hashes
-             (chain-store-block-hashes-for-header store header))
-            (engine-rpc-prepared-payload-body-arguments
-             payload-attributes config block-number timestamp)))))))
+          (multiple-value-bind (built-block receipts)
+              (apply
+               #'execute-signed-block
+               state
+               transactions
+               (append
+                (list
+                 :expected-chain-id (chain-config-chain-id config)
+                 :header header
+                 :parent-header (block-header parent-block)
+                 :chain-config config
+                 :block-hashes
+                 (chain-store-block-hashes-for-header store header))
+                (engine-rpc-prepared-payload-body-arguments
+                 payload-attributes config block-number timestamp)))
+            (values built-block receipts state))))))
 
 (defun engine-rpc-build-prepared-payload
     (store parent-block payload-attributes config transactions
@@ -123,57 +125,65 @@ for the rest of this payload; other senders are still considered."
   ;; aggregate candidate is invalid or exceeds Osaka's encoded-size cap.
   (when transactions
     (handler-case
-        (let* ((candidate
-                 (engine-rpc-build-prepared-payload
-                  store parent-block payload-attributes config transactions
-                  :gas-limit-target gas-limit-target))
-               (header (block-header candidate)))
-          (unless (and
-                   (chain-config-osaka-p
-                    config
-                    (block-header-number header)
-                    (block-header-timestamp header))
-                   (> (length (block-rlp candidate))
-                      +max-rlp-block-size-eip7934+))
-            (return-from engine-rpc-build-viable-prepared-payload
-              (values candidate (copy-list transactions)))))
+        (multiple-value-bind (candidate ignored-receipts execution-state)
+            (engine-rpc-build-prepared-payload
+             store parent-block payload-attributes config transactions
+             :gas-limit-target gas-limit-target)
+          (declare (ignore ignored-receipts))
+          (let ((header (block-header candidate)))
+            (unless (and
+                     (chain-config-osaka-p
+                      config
+                      (block-header-number header)
+                      (block-header-timestamp header))
+                     (> (length (block-rlp candidate))
+                        +max-rlp-block-size-eip7934+))
+              (return-from engine-rpc-build-viable-prepared-payload
+                (values candidate (copy-list transactions)
+                        execution-state)))))
       (transaction-validation-error ())
       (block-validation-error ())))
-  (let ((block
-          (engine-rpc-build-prepared-payload
-           store parent-block payload-attributes config nil
-           :gas-limit-target gas-limit-target))
-        (selected '())
-        (blocked-senders (make-hash-table :test #'equal))
-        (expected-chain-id (chain-config-chain-id config)))
-    (dolist (transaction transactions)
-      (let ((sender-key
-              (engine-rpc-transaction-sender-key
-               transaction expected-chain-id)))
-        (unless (gethash sender-key blocked-senders)
-          (handler-case
-              (let ((candidate
-                      (engine-rpc-build-prepared-payload
-                       store parent-block payload-attributes config
-                       (append selected (list transaction))
-                       :gas-limit-target gas-limit-target)))
-                (let ((header (block-header candidate)))
-                  (when (and
-                         (chain-config-osaka-p
-                          config
-                          (block-header-number header)
-                          (block-header-timestamp header))
-                         (> (length (block-rlp candidate))
-                            +max-rlp-block-size-eip7934+))
-                    (block-validation-fail
-                     "Block RLP size exceeds the EIP-7934 cap")))
-                (setf selected (append selected (list transaction))
-                      block candidate))
-            (transaction-validation-error ()
-              (setf (gethash sender-key blocked-senders) t))
-            (block-validation-error ()
-              (setf (gethash sender-key blocked-senders) t))))))
-    (values block selected)))
+  (multiple-value-bind (empty-block ignored-receipts empty-execution-state)
+      (engine-rpc-build-prepared-payload
+       store parent-block payload-attributes config nil
+       :gas-limit-target gas-limit-target)
+    (declare (ignore ignored-receipts))
+    (let ((block empty-block)
+          (execution-state empty-execution-state)
+          (selected '())
+          (blocked-senders (make-hash-table :test #'equal))
+          (expected-chain-id (chain-config-chain-id config)))
+      (dolist (transaction transactions)
+        (let ((sender-key
+                (engine-rpc-transaction-sender-key
+                 transaction expected-chain-id)))
+          (unless (gethash sender-key blocked-senders)
+            (handler-case
+                (multiple-value-bind
+                      (candidate ignored-candidate-receipts candidate-state)
+                    (engine-rpc-build-prepared-payload
+                     store parent-block payload-attributes config
+                     (append selected (list transaction))
+                     :gas-limit-target gas-limit-target)
+                  (declare (ignore ignored-candidate-receipts))
+                  (let ((header (block-header candidate)))
+                    (when (and
+                           (chain-config-osaka-p
+                            config
+                            (block-header-number header)
+                            (block-header-timestamp header))
+                           (> (length (block-rlp candidate))
+                              +max-rlp-block-size-eip7934+))
+                      (block-validation-fail
+                       "Block RLP size exceeds the EIP-7934 cap")))
+                  (setf selected (append selected (list transaction))
+                        block candidate
+                        execution-state candidate-state))
+              (transaction-validation-error ()
+                (setf (gethash sender-key blocked-senders) t))
+              (block-validation-error ()
+                (setf (gethash sender-key blocked-senders) t))))))
+      (values block selected execution-state))))
 
 (defun engine-rpc-pending-build-transactions (store config parent-header)
   (engine-payload-store-pending-mining-transactions
@@ -223,7 +233,8 @@ for the rest of this payload; other senders are still considered."
              (engine-prepared-payload-candidate-transactions-root
               prepared-payload))
             prepared-payload
-            (multiple-value-bind (block viable-transactions)
+            (multiple-value-bind
+                  (block viable-transactions execution-state)
                 (engine-rpc-build-viable-prepared-payload
                  store
                  parent-block
@@ -251,6 +262,7 @@ for the rest of this payload; other senders are still considered."
                        (engine-prepared-payload-gas-limit-target
                         prepared-payload)
                        :candidate-transactions-root candidate-root
+                       :execution-state execution-state
                        :open-p t)))
                 (chain-store-put-prepared-payload store improved)
                 improved))))))
@@ -411,7 +423,8 @@ for the rest of this payload; other senders are still considered."
                       (chain-store-prepared-payload store candidate-id)))
                 (and existing
                      (engine-prepared-payload-open-p existing)))
-            (multiple-value-bind (block viable-transactions)
+            (multiple-value-bind
+                  (block viable-transactions execution-state)
                 (handler-case
                     (engine-rpc-build-viable-prepared-payload
                      store parent-block payload-attributes config nil
@@ -438,6 +451,7 @@ for the rest of this payload; other senders are still considered."
                 :gas-limit-target gas-limit-target
                 :candidate-transactions-root
                 (transaction-list-root nil)
+                :execution-state execution-state
                 :open-p t))))
           (setf payload-id candidate-id)))
       (engine-rpc-forkchoice-response-object

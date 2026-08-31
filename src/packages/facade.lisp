@@ -1028,6 +1028,7 @@
    #:engine-prepared-payload-payload-id
    #:engine-prepared-payload-version
    #:engine-prepared-payload-block
+   #:engine-prepared-payload-execution-state
    #:block-to-executable-data
    #:executable-data-decoded-transactions
    #:executable-data-to-block-no-hash

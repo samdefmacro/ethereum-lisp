@@ -88,6 +88,7 @@
    #:engine-prepared-payload-payload-attributes
    #:engine-prepared-payload-gas-limit-target
    #:engine-prepared-payload-candidate-transactions-root
+   #:engine-prepared-payload-execution-state
    #:engine-prepared-payload-open-p
    #:validate-engine-prepared-payload
    #:maybe-copy-bytes

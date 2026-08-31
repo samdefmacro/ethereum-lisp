@@ -148,7 +148,10 @@ handler because those faults are properties of the committed block itself."
     :reader block-import-private-candidate-ready-block)
    (receipts
     :initarg :receipts
-    :reader block-import-private-candidate-ready-receipts))
+    :reader block-import-private-candidate-ready-receipts)
+   (execution-state
+    :initarg :execution-state
+    :reader block-import-private-candidate-ready-execution-state))
   (:report
    (lambda (condition stream)
      (declare (ignore condition))
@@ -166,7 +169,8 @@ back after successful validation, so accidental candidate, state, canonical,
 txpool, or prepared-cache writes made by the builder cannot become visible.
 
 The builder must not perform external side effects: only in-memory STORE writes
-participate in the rollback.  Returns the detached block and builder receipts."
+participate in the rollback.  Returns the detached block, builder receipts, and
+an optional process-local post-state which a matching newPayload may reuse."
   (unless (or (functionp block-or-builder)
               (typep block-or-builder 'ethereum-block))
     (block-validation-fail
@@ -178,7 +182,7 @@ participate in the rollback.  Returns the detached block and builder receipts."
       (chain-store-atomic-commit
        store
        (lambda ()
-         (multiple-value-bind (block receipts)
+         (multiple-value-bind (block receipts execution-state)
              (if (functionp block-or-builder)
                  (funcall block-or-builder)
                  (values block-or-builder nil))
@@ -186,11 +190,13 @@ participate in the rollback.  Returns the detached block and builder receipts."
             store block config :sidecar sidecar)
            (error 'block-import-private-candidate-ready
                   :block block
-                  :receipts receipts))))
+                  :receipts receipts
+                  :execution-state execution-state))))
     (block-import-private-candidate-ready (condition)
       (values
        (block-import-private-candidate-ready-block condition)
-       (block-import-private-candidate-ready-receipts condition)))))
+       (block-import-private-candidate-ready-receipts condition)
+       (block-import-private-candidate-ready-execution-state condition)))))
 
 (defun block-import-require-executor-publication
     (store input-block candidate)
