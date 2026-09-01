@@ -89,3 +89,23 @@ remote-after-readiness-sha256: c084a7a7cb9343f8815dfe4ef074dee8c329fff3396d94df5
 # before inspect and OOM logs are mode-0400 remote evidence, and the matching
 # static configuration hashes prove that image, command, host configuration,
 # mounts, network identities, and aliases were unchanged by the start.
+
+# Subsequent execution-client OOM
+# The preserved execution container independently OOM-stopped after the
+# Lighthouse recovery. It was not restarted.
+execution-after-recovery-running: false
+execution-after-recovery-exit-code: 137
+execution-after-recovery-oom-killed: true
+execution-after-recovery-finished: 2026-09-01T11:13:01.886979385Z
+execution-memory-limit-bytes: 7516192768
+execution-memory-swap-limit-bytes: 7516192768
+execution-restart-count: 0
+execution-oom-evidence: /data/hoodi-sec5-hive/evidence/hoodi-el-oom-a565a5b4-20260901T1113Z
+execution-oom-inspect-sha256: 5c3c9a05b98a21d6ddd5a1cbd4ce949162fb47d40df81a3d444b503a6b7a248b
+execution-oom-log-sha256: c566ffee1416f0c604a1e75b84f2c6a5c55ae2008b105eff6ece7c00ff1419b6
+#
+# The execution container and datadir remain preserved. This report does not
+# authorize or claim an execution-client restart. Lighthouse remained running
+# from the exact recovered container but had no online execution endpoint. The
+# live SNAP gate became infrastructure-blocked again. No shadow or validator
+# clock was started.
