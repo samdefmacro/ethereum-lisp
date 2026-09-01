@@ -224,3 +224,27 @@
           (is (string= (quantity-to-hex 3)
                        (field (first later-changes) "blockNumber"))))))))
 
+(deftest eth-rpc-log-filter-rejects-a-future-block-range
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (head
+             (make-block
+              :header (make-block-header :number 1 :timestamp 12))))
+      (engine-payload-store-put-block store head :state-available-p t)
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 (concatenate
+                  'string
+                  "{\"jsonrpc\":\"2.0\",\"id\":102,"
+                  "\"method\":\"eth_getLogs\","
+                  "\"params\":[{\"fromBlock\":\"0x1\","
+                  "\"toBlock\":\"0x2\"}]}")
+                 store
+                 config)))
+             (error-object (field response "error")))
+        (is (= -32602 (field error-object "code")))
+        (is (search "beyond current head" (field error-object "message")))))))
+

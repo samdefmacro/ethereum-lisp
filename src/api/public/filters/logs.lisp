@@ -171,10 +171,14 @@ drop real results."
                         (list (or (json-object-field filter "toBlock")
                                   "latest"))
                         store
-                        method)))
+                        method))
+            (head-number (chain-store-head-number store)))
        (when (> from-number to-number)
          (block-validation-fail
           "~A fromBlock must be less than or equal to toBlock" method))
+       (when (and head-number (> to-number head-number))
+         (block-validation-fail
+          "~A block range extends beyond current head block" method))
        (when (> (- to-number from-number) +eth-rpc-max-log-block-range+)
          (block-validation-fail
           "~A block range exceeds the ~D-block limit"
