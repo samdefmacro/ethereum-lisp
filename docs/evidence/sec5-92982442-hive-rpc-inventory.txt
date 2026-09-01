@@ -1,0 +1,43 @@
+# Hive conformance evidence
+#
+# This first exact Execution APIs pin run discovered that the pinned inventory
+# is 234, not the 243-test moving-main baseline previously documented. The
+# result is preserved as an inventory-discovery failure and is not called green.
+
+report-version: 1
+job: sec5-rpc-compat-inventory
+generated-utc: 2026-09-01T10:11:20Z
+
+revision-under-test: 92982442f6a72e3bc73fa5e7487d537afdf51ea9
+revision-tree: 4043cb9711ff18eda51b56a1728f5b4e48b3e35b
+runner-source-revision: 6a1736e9716da5d5e26e13f5dd2af748fe7c92b6
+hive-commit: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+execution-apis-commit: e5d1bb60e6c064e4b15080da07b4370d0baadf92
+hive-binary-sha256: 8d9be9b752de01180093534de30a85918ca37ad7b7b9f1f1d6cef16786ca624b
+runtime-image-id: sha256:c8bc50667581cafc9285ad618bb35cd27231aa47ac9329433025e701e57ecb1d
+remote-results: /data/hoodi-sec5-hive/results-6a1736e9-rpc-full
+started: 2026-09-01T18:06:59.793565664+08:00
+finished: 2026-09-01T18:07:14.605711996+08:00
+
+inventory-previous-moving-baseline: 243
+inventory-selected-at-exact-pin: 234
+passed: 125
+failed: 109
+gate-result: failed
+inventory-action: pin 234 and require a fresh confirmation run
+
+suite rpc-compat: selected=234 passed=125 failed=109 sha256=7681ace23eb75416c8491ee70e641a25f302f9c283d751eeca10ef8031802c77 file=1788257234-45c755e0a2a64465f6bc856aeb911a71.json
+manifest sha256=b8727d225f8b6baa9fd3dd8b7dc1948e6cc3c4e4a347659c84c4174176550f2a file=hive.json
+simulator-log sha256=d665a63c93490fe3fa45aaa9bdfb247a0cf2f96ece8bc3b6b66172e8ba1cbb81 file=1788257219-simulator-5c2bac37256b1edad9511eee35835f1f7e44775b91793e652c31013bf71528e5.log
+details-log sha256=b48a593a65f8e3abafa3c57ce6ab31df7d241ba63f4d1949b2ae7bd114d14480 file=details/1788257219-5c2bac37256b1edad9511eee35835f1f7e44775b91793e652c31013bf71528e5-0.log
+
+failure-groups:
+debug_traceBlockByHash selected=3 passed=0 failed=3
+debug_traceBlockByNumber selected=7 passed=1 failed=6
+debug_traceTransaction selected=3 passed=2 failed=1
+eth_config selected=1 passed=0 failed=1
+eth_getLogs selected=10 passed=8 failed=2
+eth_sendRawTransaction selected=5 passed=4 failed=1
+eth_simulateV1 selected=91 passed=0 failed=91
+testing_buildBlockV1 selected=4 passed=0 failed=4
+all-other-groups selected=110 passed=110 failed=0

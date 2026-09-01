@@ -284,7 +284,7 @@ expected_test_count="${HIVE_EXPECTED_TESTS:-}"
 if [ -z "$expected_test_count" ] && [ -z "$sim_limit" ]; then
     case "$sim" in
         ethereum/engine) expected_test_count=403 ;;
-        ethereum/rpc-compat|rpc-compat) expected_test_count=243 ;;
+        ethereum/rpc-compat|rpc-compat) expected_test_count=234 ;;
     esac
 fi
 if [ -n "$expected_test_count" ] \

@@ -34,7 +34,7 @@ from. For rpc-compat it also overrides the simulator Dockerfile's moving
 `execution-apis/main` default with the reviewed
 `e5d1bb60e6c064e4b15080da07b4370d0baadf92` commit. It requires a fresh result
 directory, rejects missing or zero-test result manifests, and checks the pinned
-full-suite inventories (403 Engine tests and 243 rpc-compat tests). Bumping the
+full-suite inventories (403 Engine tests and 234 rpc-compat tests). Bumping the
 Hive pin means re-reading its
 `docs/clients.md` for contract changes, re-diffing `tools/hive/mapper.jq`
 against `clients/go-ethereum/mapper.jq`, and deliberately updating those
@@ -243,3 +243,17 @@ then passed 96/243. The remaining 147 failures are still open; the largest
 groups include `eth_simulateV1`, tracing, blob/set-code transaction and receipt
 coverage, and exact RPC error/parameter semantics. No full Engine result has
 yet been recorded for `6543ad11`, and none of these runs completes Section 5.
+
+The exact Section 5 client revision `92982442` selected all 403 pinned Engine
+cases and passed 401. One failure is ethereum/hive#1351's known harness race:
+the detail log removes ethereum-lisp before the Modified Geth payload producer
+fails to include the transaction that the test setup needs. The other is a
+client-visible Cancun blob-ordering failure (`expected 6 blob, got 5`). Both
+remain failures in `docs/evidence/sec5-92982442-hive-engine.txt`.
+
+The first rpc-compat run that actually supplied the pinned Execution APIs
+commit selected 234 cases, not the older 243-case moving-main baseline. It
+passed 125 and failed 109. The immutable discovery evidence is archived in
+`docs/evidence/sec5-92982442-hive-rpc-inventory.txt`; the runner now pins 234
+and requires a fresh confirmation result rather than retroactively treating the
+discovery run as a passing inventory check.

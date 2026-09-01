@@ -1,0 +1,45 @@
+# Hive conformance evidence
+#
+# The result counts below were read from the preserved Hive JSON manifests.
+# Failures remain failures; classification does not change the gate result.
+
+report-version: 1
+job: sec5-engine-full
+generated-utc: 2026-09-01T10:11:20Z
+
+revision-under-test: 92982442f6a72e3bc73fa5e7487d537afdf51ea9
+revision-tree: 4043cb9711ff18eda51b56a1728f5b4e48b3e35b
+runner-source-revision: de8eb811f7fa14e39e4e3d5f73f0f1e67f687291
+hive-commit: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+hive-binary-sha256: 8d9be9b752de01180093534de30a85918ca37ad7b7b9f1f1d6cef16786ca624b
+runtime-image-id: sha256:c8bc50667581cafc9285ad618bb35cd27231aa47ac9329433025e701e57ecb1d
+remote-results: /data/hoodi-sec5-hive/results-de8eb811-engine-full
+started: 2026-09-01T16:04:27.493075229+08:00
+finished: 2026-09-01T18:05:49.674087833+08:00
+
+inventory-expected: 403
+inventory-selected: 403
+passed: 401
+failed: 2
+gate-result: failed
+
+suite engine-api: selected=129 passed=128 failed=1 sha256=d1ff3bde4e1ef290f2122c26c4feeaef2ae4846d1a95686e3b5c424fd2b3226e file=1788252150-ad6a8220cc3f546efeae5dd26b4768d0.json
+suite engine-auth: selected=8 passed=8 failed=0 sha256=0186e7ce283367f4770ad35ea18e90e43a025ca0f34fa6ecc4281b704dc21ab6 file=1788252199-bbc718cfa8b9e09137bca9f6b7914063.json
+suite engine-exchange-capabilities: selected=5 passed=5 failed=0 sha256=b03040910aca6d41944e68b364b1e13749804e7bcef9bfb27e942c5b5f7a8ecc file=1788252227-ede4ed01e48f5e101ce8aba436a9c47f.json
+suite engine-withdrawals: selected=35 passed=35 failed=0 sha256=b170307a5cb6f9b4adc02725f613caccd374853182654fcba9cd3f383c518498 file=1788253252-66113cdc4006175efeddc2255d9d1189.json
+suite engine-cancun: selected=226 passed=225 failed=1 sha256=c241986e04e516c2ad77f5cf1a8e4cd4797d98a074d1ef4efe4941223df4461b file=1788257149-cc630c443971b295359eb5a4779ed10d.json
+manifest sha256=e2c22ffd1fbe78f03f4ba50ea781338174c7a5992a480bd6836776619ab97158 file=hive.json
+simulator-log sha256=f48fd3b18a8b69eee2896e91ab5861aac676d29a273d847f25bb0729fb77dc3e file=1788249867-simulator-b4b4f6f4b54a69e8c2d6f056c4dae106317649450102118fc72b3ce2fd1344c2.log
+engine-api-details sha256=c7c66e1499c5bc2a451d459fba2fe83ffbedc9335bf69977bcbda21e40189664 file=details/1788249867-b4b4f6f4b54a69e8c2d6f056c4dae106317649450102118fc72b3ce2fd1344c2-0.log
+engine-cancun-details sha256=3944e872eaae05a0ecdfead9c169e92ae5eaaca260c08bc22171ab930675b6cc file=details/1788253252-b4b4f6f4b54a69e8c2d6f056c4dae106317649450102118fc72b3ce2fd1344c2-4.log
+
+failure engine-api/104: Invalid Missing Ancestor Syncing ReOrg, Transaction Gas, EmptyTxs=False, CanonicalReOrg=False, Invalid P9 (Paris)
+failure-detail: Unable to customize payload: no transactions available for modification
+classification: pinned-Hive harness setup failure before the client under test was exercised
+classification-evidence: the detail log removes engine client 2595b4bf before selecting Modified Geth Module as payload producer; block 14 then has no transaction to modify
+upstream-issue: https://github.com/ethereum/hive/issues/1351
+upstream-fix-open: https://github.com/ethereum/hive/pull/1561
+
+failure engine-cancun/184: Blob Transaction Ordering, Multiple Clients (Cancun)
+failure-detail: Error verifying blob bundle (payload 1/5): expected 6 blob, got 5
+classification: client-visible conformance failure
