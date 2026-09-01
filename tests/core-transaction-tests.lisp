@@ -333,6 +333,43 @@
       (is (equalp (blob-sidecar-proofs sidecar)
                   (blob-sidecar-proofs decoded-sidecar))))))
 
+(deftest blob-pooled-transaction-wrapper-roundtrips-cell-proofs
+  (let* ((commitment (make-byte-vector 48 :initial-element 7))
+         (transaction
+           (fixture-sign-blob-transaction
+            (make-blob-transaction
+             :chain-id 1
+             :nonce 2
+             :max-priority-fee-per-gas 3
+             :max-fee-per-gas 4
+             :gas-limit 21000
+             :to (zero-address)
+             :max-fee-per-blob-gas 5
+             :blob-versioned-hashes
+             (list (kzg-commitment-to-versioned-hash commitment)))
+            1))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list (make-byte-vector 3 :initial-element 1))
+            :commitments (list commitment)
+            :proofs
+            (loop repeat +blob-sidecar-cell-proofs-per-blob+
+                  collect (make-byte-vector 48 :initial-element 9))))
+         (encoding
+           (blob-network-transaction-encoding
+            (make-blob-network-transaction transaction sidecar))))
+    (multiple-value-bind (decoded decoded-sidecar)
+        (pooled-transaction-from-encoding encoding)
+      (is (typep decoded 'blob-transaction))
+      (is (equalp (transaction-encoding transaction)
+                  (transaction-encoding decoded)))
+      (is (equalp (blob-sidecar-blobs sidecar)
+                  (blob-sidecar-blobs decoded-sidecar)))
+      (is (equalp (blob-sidecar-commitments sidecar)
+                  (blob-sidecar-commitments decoded-sidecar)))
+      (is (equalp (blob-sidecar-proofs sidecar)
+                  (blob-sidecar-proofs decoded-sidecar))))))
+
 (deftest typed-transaction-signing-hash-vectors
   (let ((empty-access
           (make-access-list-transaction :chain-id 1 :nonce 1))

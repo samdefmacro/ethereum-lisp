@@ -244,33 +244,14 @@ Returns the canonical signed transaction and its sidecar as separate values."
       (block-validation-fail
        "Blob pooled transaction encoding must start with type 3"))
     (handler-case
-        (let ((value
-                (rlp-decode-one
-                 (subseq bytes 1)
-                 :max-list-items +transaction-max-rlp-list-items+)))
-          (unless (rlp-list-p value)
-            (block-validation-fail
-             "Blob pooled transaction wrapper must be an RLP list"))
-          (let ((fields (rlp-list-items value)))
-            (unless (= 4 (length fields))
-              (block-validation-fail
-               "Blob pooled transaction wrapper must contain 4 fields"))
-            (unless (rlp-list-p (first fields))
-              (block-validation-fail
-               "Blob pooled transaction wrapper transaction must be an RLP list"))
-            (values
-             (blob-transaction-from-rlp
-              (rlp-encode (first fields)))
-             (make-blob-sidecar
-              :blobs
-              (blob-sidecar-byte-list-from-rlp
-               (second fields) "Blob pooled transaction blobs")
-              :commitments
-              (blob-sidecar-byte-list-from-rlp
-               (third fields) "Blob pooled transaction commitments")
-              :proofs
-              (blob-sidecar-byte-list-from-rlp
-               (fourth fields) "Blob pooled transaction proofs")))))
+        (let ((decoded
+                (blob-network-transaction-from-rlp (subseq bytes 1))))
+          (etypecase decoded
+            (blob-transaction
+             (values decoded nil))
+            (blob-network-transaction
+             (values (blob-network-transaction-transaction decoded)
+                     (blob-network-transaction-sidecar decoded)))))
       (block-validation-error (condition)
         (error condition))
       (rlp-error (condition)
