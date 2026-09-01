@@ -1338,10 +1338,10 @@ names have no defaults and must all identify the reviewed deployment. Beacon
 REST must be explicitly loopback-only (default `http://127.0.0.1:5052`), and
 must report the CL
 synchronized, non-optimistic, and its EL online before the unique state file is
-created. Override `HOODI_VALIDATOR_CL_CONTAINER`,
-`HOODI_VALIDATOR_EL_CONTAINER`, `HOODI_VALIDATOR_BEACON_URL`, or
-`HOODI_VALIDATOR_HOST` only to identify the reviewed deployment; `curl`, `jq`,
-and `sha256sum` are required on that host.
+created. Set `HOODI_VALIDATOR_CL_CONTAINER` and
+`HOODI_VALIDATOR_EL_CONTAINER` explicitly. Override
+`HOODI_VALIDATOR_BEACON_URL` or `HOODI_VALIDATOR_HOST` only to identify the
+reviewed deployment; `curl`, `jq`, and `sha256sum` are required on that host.
 
 `status` and `complete` are read-only. With no state path, `status` reports live
 preflight health but labels identity pins unchecked. With a state path, it
