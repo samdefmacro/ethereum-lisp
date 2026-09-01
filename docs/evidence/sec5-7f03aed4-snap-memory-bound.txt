@@ -1,0 +1,95 @@
+# Section 5 Hoodi EL OOM analysis and bounded SNAP repair
+
+base-revision: 7f03aed4fbd5d89cad4cd8d9d09f122a94e6dfcd
+preserved-container: hoodi-el-sec5-92982442
+preserved-datadir: /data/hoodi-sec5-20260814/datadir-92982442
+preserved-datadir-bytes: 47227392874
+remote-oom-evidence: /data/hoodi-sec5-hive/evidence/hoodi-el-oom-a565a5b4-20260901T1113Z
+remote-log-sha256: c566ffee1416f0c604a1e75b84f2c6a5c55ae2008b105eff6ece7c00ff1419b6
+
+## Preserved failure
+
+The old container remains stopped and untouched:
+
+- running=false
+- OOMKilled=true
+- exit=137
+- restart-count=0
+- memory.max=7 GiB
+- memory.swap.max=7 GiB
+
+Its 47,227,392,874-byte datadir remains in place. It was not restarted, copied,
+renamed, truncated, or deleted.
+
+## Profile evidence
+
+The preserved log contains 194 page-level SBCL allocation samples. Parsing those
+samples produced:
+
+- minimum dynamic usage: 1,853,540,368 bytes
+- maximum dynamic usage: 3,951,562,064 bytes
+- final sampled dynamic usage: 3,518,174,704 bytes
+- sampled bytes-consed range: 4,472,877,395,488 to 4,727,988,539,040 bytes
+- maximum storage write batch: 500,862 operations
+- maximum storage write batch logical size: 43,443,218 bytes
+
+The process was still importing SNAP storage pages immediately before the cgroup
+OOM kill. The evidence therefore does not support treating the event as an
+unrelated idle-node failure. The live Lisp heap alone approached four GiB while
+RocksDB memtables, its bounded block cache, native write-batch copies, thread
+stacks, and charged filesystem pages shared the same hard seven-GiB cgroup.
+
+The storage scheduler retained up to sixteen expanded verified page batches and
+could merge all sixteen into one native RocksDB write batch. The account pipeline
+also retained up to sixteen decoded 512-KiB account responses after expansion
+into trie records and storage/code dependency graphs. Those were finite bounds,
+but the preserved profile disproved that they fit the accepted cgroup.
+
+## Repair
+
+The repaired scheduler keeps the same 512-KiB wire request bounds and the same
+seven-GiB deployment memory/swap limits. It does not add swap or weaken cgroup
+acceptance.
+
+- account pages retained across the dependency pipeline: 16 -> 8
+- verified storage pages queued behind the writer: 16 -> 4
+- storage pages coalesced into one write: 16 -> 4
+- additional storage write-batch operation cap: 100,000
+- additional storage write-batch logical-byte cap: 8 MiB
+
+One protocol-bounded verified storage response remains atomic even if it alone
+exceeds a commit threshold. No second response is admitted unless the combined
+batch fits both the operation and logical-byte caps. This prevents a dense page
+from being multiplied into the 500,862-operation/43-MiB native batch observed in
+the failed run.
+
+Focused TDD evidence:
+
+- SNAP-STORAGE-RESULT-DRAIN-BOUNDS-WRITE-BATCH-MEMORY failed before the drain
+  accepted operation/byte limits (`invalid number of arguments: 7`).
+- The same focused test passed after the bounded prefix drain was implemented.
+- SNAP-MULTI-ACCOUNT-PAGES-APPLY-MEMORY-BACKPRESSURE passed with the new
+  eight-page invariant.
+- SNAP-GLOBAL-STORAGE-CURSORS-SHARE-ONE-BUFFERED-BATCH passed, preserving the
+  atomic buffered cursor/content seam.
+- parenthesis and `git diff --check` checks passed.
+
+A fresh live Hoodi run is still required to validate the profile under public
+traffic. The code-level bounds are prerequisites for that run, not a substitute
+for it.
+
+## Capacity gate
+
+Reviewed remote filesystems before any fresh datadir mutation:
+
+- `/`: 4,254,797,824 bytes available
+- `/data`: 60,515,749,888 bytes available (92% used)
+- `/home`, `/srv`, `/mnt`, and `/var/lib/docker` are on `/` and therefore have
+  the same approximately 4.25-GB capacity.
+
+The only large filesystem is `/data`. Its approximately 60.5 GB free is only
+13.3 GB greater than the preserved 47.23-GB incomplete datadir. That is not a
+safe fresh-run capacity margin, and there is no separate reviewed filesystem on
+the host. The fresh Hoodi EL container/datadir was therefore not created. This
+is a fail-closed capacity blocker; no preserved evidence was deleted to make
+space.

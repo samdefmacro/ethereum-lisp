@@ -36,8 +36,22 @@ hash set after the peer reaches its soft byte cap.")
   "Global account-page dependency jobs advanced independently of range peers.")
 (defconstant +snap-sync-cursor-batch-pages+ 16
   "Maximum ready account cursors published by one synchronous WAL batch.")
-(defconstant +snap-sync-storage-cursor-batch-pages+ 16
-  "Maximum verified storage partition cursors in one durable WAL batch.")
+(defconstant +snap-sync-storage-cursor-batch-pages+ 4
+  "Maximum verified storage partition cursors in one buffered WAL batch.
+
+The preserved seven-GiB Hoodi OOM run reached 500,862 operations and 43 MiB of
+logical data in one sixteen-page batch while the Lisp heap was near four GiB.
+Four pages retain write coalescing but bound the queued expanded page graphs and
+the temporary native RocksDB write batch to one quarter of that page width.")
+(defconstant +snap-sync-storage-commit-batch-operations+ 100000
+  "Maximum operations coalesced into one storage commit batch.")
+(defconstant +snap-sync-storage-commit-batch-bytes+ (* 8 1024 1024)
+  "Maximum logical key/value bytes coalesced into one storage commit batch.
+
+A single verified response may exceed either commit threshold because its
+nodes, proof metadata, and exact cursor are atomic.  Every additional response
+must fit both limits, so peer input cannot multiply an exceptional page into a
+large native write batch.")
 (defconstant +snap-sync-storage-result-buffer-pages+
   +snap-sync-storage-cursor-batch-pages+
   "Maximum verified storage pages waiting behind the single RocksDB writer.
@@ -56,15 +70,17 @@ response type, while range-proof verification and RocksDB writes happen on
 workers after their response is routed. Sixty-four logical partitions bound the
 global dependency backlog and keep newly admitted account peers busy without
 changing the durable page bound.")
-(defconstant +snap-sync-account-inflight-pages+ 16
+(defconstant +snap-sync-account-inflight-pages+ 8
   "Maximum verified account pages retained across the dependency pipeline.
 
 The sixty-four durable partitions are scheduler granularity, not permission to
 retain sixty-four decoded 512-KiB responses. A page expands into account trie
 records plus storage/code dependency graphs, and slow StorageRanges work can
-otherwise promote dozens of those graphs into SBCL's old generation. Sixteen
-matches geth's accountConcurrency while the immediate record/closure release
-and phase-boundary collection keep the live heap inside the remote budget.")
+otherwise promote dozens of those graphs into SBCL's old generation. The
+preserved Hoodi OOM evidence measured a nearly four-GiB live Lisp heap with the
+former sixteen-page limit inside a seven-GiB cgroup. Eight keeps independent
+range and dependency work pipelined while halving that dominant expanded-page
+retention bound.")
 (defparameter *snap-sync-range-full-gc-pages* nil
   "Optional committed-page interval for an in-phase full collection.
 
@@ -7145,15 +7161,55 @@ Return NIL when the generation stopped before the result could be queued."
        (snap-sync-multi-runtime-lock runtime)))))
 
 #+sbcl
-(defun snap-sync-multi-storage-result-batch (runtime)
+(defun snap-sync-take-storage-result-batch-locked
+    (runtime max-pages max-operations max-logical-bytes)
+  "Take a prefix bounded by page, operation, and logical-byte limits.
+
+The caller owns RUNTIME's lock. Always admit the first atomic page so an
+exceptionally dense but protocol-bounded response cannot deadlock the writer."
+  (unless (and (plusp max-pages) (plusp max-operations)
+               (plusp max-logical-bytes))
+    (error "Snap storage commit bounds must be positive"))
+  (let ((entries '())
+        (operations 0)
+        (logical-bytes 0))
+    (loop while
+            (and
+             (snap-sync-multi-runtime-storage-results runtime)
+             (< (length entries) max-pages))
+          for entry =
+            (first (snap-sync-multi-runtime-storage-results runtime))
+          do
+             (multiple-value-bind (entry-operations entry-logical-bytes)
+                 (kv-write-batch-statistics
+                  (snap-sync-global-storage-result-batch entry))
+               (when
+                   (and entries
+                        (or
+                         (> (+ operations entry-operations) max-operations)
+                         (> (+ logical-bytes entry-logical-bytes)
+                            max-logical-bytes)))
+                 (return))
+               (pop (snap-sync-multi-runtime-storage-results runtime))
+               (push entry entries)
+               (incf operations entry-operations)
+               (incf logical-bytes entry-logical-bytes)))
+    (nreverse entries)))
+
+#+sbcl
+(defun snap-sync-multi-storage-result-batch
+    (runtime
+     &key
+       (max-pages +snap-sync-storage-cursor-batch-pages+)
+       (max-operations +snap-sync-storage-commit-batch-operations+)
+       (max-logical-bytes +snap-sync-storage-commit-batch-bytes+))
   "Take one bounded verified response batch, or signal a latched fatal error."
   (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
     (when (snap-sync-multi-runtime-storage-fatal-condition runtime)
       (error (snap-sync-multi-runtime-storage-fatal-condition runtime)))
     (prog1
-        (loop repeat +snap-sync-storage-cursor-batch-pages+
-              while (snap-sync-multi-runtime-storage-results runtime)
-              collect (pop (snap-sync-multi-runtime-storage-results runtime)))
+        (snap-sync-take-storage-result-batch-locked
+         runtime max-pages max-operations max-logical-bytes)
       (snap-sync-multi-notify runtime))))
 
 #+sbcl
@@ -7168,10 +7224,11 @@ Return NIL when the generation stopped before the result could be queued."
       (when (snap-sync-multi-runtime-storage-results runtime)
         (return
           (prog1
-              (loop repeat +snap-sync-storage-cursor-batch-pages+
-                    while (snap-sync-multi-runtime-storage-results runtime)
-                    collect
-                    (pop (snap-sync-multi-runtime-storage-results runtime)))
+              (snap-sync-take-storage-result-batch-locked
+               runtime
+               +snap-sync-storage-cursor-batch-pages+
+               +snap-sync-storage-commit-batch-operations+
+               +snap-sync-storage-commit-batch-bytes+)
             (snap-sync-multi-notify runtime))))
       (sb-thread:condition-wait
        (snap-sync-multi-runtime-changed runtime)

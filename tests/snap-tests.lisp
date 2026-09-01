@@ -2615,6 +2615,38 @@
               target-database))))))
 
 #+sbcl
+(deftest snap-storage-result-drain-bounds-write-batch-memory
+  (:layer :unit :module :p2p)
+  (let ((runtime
+          (ethereum-lisp.snap-sync::make-snap-sync-multi-runtime nil 0 nil)))
+    (labels ((entry (octet)
+               (let ((batch (make-kv-write-batch)))
+                 (kv-batch-put batch (vector octet) #(1 2 3))
+                 (ethereum-lisp.snap-sync::make-snap-sync-global-storage-result
+                  nil 0 nil nil batch nil 0))))
+      (setf
+       (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results runtime)
+       (list (entry 1) (entry 2) (entry 3)))
+      (let ((first
+              (ethereum-lisp.snap-sync::snap-sync-multi-storage-result-batch
+               runtime :max-pages 16 :max-operations 1
+               :max-logical-bytes 6)))
+        (is (= 1 (length first)))
+        (is (= 2
+               (length
+                (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results
+                 runtime)))))
+      (let ((second
+              (ethereum-lisp.snap-sync::snap-sync-multi-storage-result-batch
+               runtime :max-pages 16 :max-operations 16
+               :max-logical-bytes 8)))
+        (is (= 2 (length second)))
+        (is
+         (null
+          (ethereum-lisp.snap-sync::snap-sync-multi-runtime-storage-results
+           runtime)))))))
+
+#+sbcl
 (deftest snap-global-storage-cursors-share-one-buffered-batch
   (:layer :integration :module :p2p)
   (let* ((source-state (make-state-db))
@@ -3055,9 +3087,10 @@
 #+sbcl
 (deftest snap-multi-account-pages-apply-memory-backpressure
   (:layer :unit :module :p2p)
-  ;; Match geth's accountConcurrency while retaining a hard bound below the
-  ;; sixty-four durable scheduling partitions.
-  (is (= 16 ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+))
+  ;; Retain a hard expanded-page bound below both geth's accountConcurrency and
+  ;; the sixty-four durable scheduling partitions. The remote seven-GiB OOM
+  ;; profile disproved the former sixteen-page live-heap assumption.
+  (is (= 8 ethereum-lisp.snap-sync::+snap-sync-account-inflight-pages+))
   (let* ((progress
            (ethereum-lisp.snap-sync::snap-sync-make-progress
             :pivot-hash (make-hash32 (snap-test-hash 231))
