@@ -41,3 +41,16 @@ eth_sendRawTransaction selected=5 passed=4 failed=1
 eth_simulateV1 selected=91 passed=0 failed=91
 testing_buildBlockV1 selected=4 passed=0 failed=4
 all-other-groups selected=110 passed=110 failed=0
+
+confirmation-runner-revision: 852afa1f
+confirmation-remote-results: /data/hoodi-sec5-hive/results-852afa1f-rpc-confirm234
+confirmation-started: 2026-09-01T18:21:43.893712748+08:00
+confirmation-finished: 2026-09-01T18:21:59.927622153+08:00
+confirmation-selected: 234
+confirmation-passed: 125
+confirmation-failed: 109
+confirmation-gate-result: failed
+confirmation-suite sha256=8ee3756dbb427fe8e88cda94168a0cf5edb981dbb09b857078e942b21f554ba4 file=1788258120-db6fe7eca5265fb2595bb45f45d99c4f.json
+confirmation-manifest sha256=b8727d225f8b6baa9fd3dd8b7dc1948e6cc3c4e4a347659c84c4174176550f2a file=hive.json
+confirmation-simulator-log sha256=d665a63c93490fe3fa45aaa9bdfb247a0cf2f96ece8bc3b6b66172e8ba1cbb81 file=1788258103-simulator-7d4a3254eef6417ee199c50db61e52ea2347e245996b0f7d4a6f9a88ad6da960.log
+confirmation-details-log sha256=b48a593a65f8e3abafa3c57ce6ab31df7d241ba63f4d1949b2ae7bd114d14480 file=details/1788258103-7d4a3254eef6417ee199c50db61e52ea2347e245996b0f7d4a6f9a88ad6da960-0.log
