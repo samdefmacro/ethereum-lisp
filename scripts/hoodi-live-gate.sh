@@ -361,12 +361,16 @@ REMOTE
 start_gate() {
     require_mutation
     note "cutting the existing Lighthouse alias over to the exact-revision EL"
+    # ssh constructs a remote command string and does not preserve an empty
+    # positional argument. Keep the optional revision slot present so every
+    # following ownership argument retains its reviewed position.
+    local old_revision_arg="${old_revision:-none}"
     ssh "$host" bash -s -- \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
         "$cl_alias" "$p2p_port" "$memory_limit_bytes" \
-        "$allocation_profile_seconds" "$rocksdb_async_read_io" "$old_revision" <<'REMOTE'
+        "$allocation_profile_seconds" "$rocksdb_async_read_io" "$old_revision_arg" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
@@ -375,6 +379,7 @@ memory_limit="${15}"
 allocation_profile_seconds="${16}"
 rocksdb_async_read_io="${17}"
 old_expected_revision="${18}"
+[ "$old_expected_revision" != none ] || old_expected_revision=""
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
