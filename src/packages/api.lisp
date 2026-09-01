@@ -85,6 +85,7 @@
    #:engine-rpc-error-code
    #:engine-rpc-error-message
    #:engine-rpc-error-data
+   #:engine-rpc-fail
    #:engine-rpc-fail-with-data
    #:+engine-rpc-error-execution-reverted+
    #:engine-rpc-handle-engine-method))

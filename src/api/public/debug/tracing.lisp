@@ -212,7 +212,8 @@ broadly would quietly start collecting frames for block import."
             (first params) "debug_traceTransaction transaction hash"))
          (location (chain-store-transaction-location store hash)))
     (unless location
-      (block-validation-fail "debug_traceTransaction transaction not found"))
+      (engine-rpc-fail -32000
+                       "debug_traceTransaction transaction not found"))
     (eth-rpc-trace-transaction-location location store config)))
 
 (defun eth-rpc-debug-trace-block (block store config)
@@ -223,6 +224,7 @@ broadly would quietly start collecting frames for block import."
             store (transaction-hash transaction))
          collect
          (list
+          (cons "txHash" (hash32-to-hex (transaction-hash transaction)))
           (cons "result"
                 (eth-rpc-trace-transaction-location
                  location store config))))))
@@ -238,7 +240,7 @@ broadly would quietly start collecting frames for block import."
            (json-rpc-hash32
             (first params) "debug_traceBlockByHash block hash"))))
     (unless block
-      (block-validation-fail "debug_traceBlockByHash block not found"))
+      (engine-rpc-fail -32000 "debug_traceBlockByHash block not found"))
     (eth-rpc-debug-trace-block block store config)))
 
 (defun engine-rpc-handle-debug-trace-block-by-number (params store config)
@@ -250,7 +252,7 @@ broadly would quietly start collecting frames for block import."
           (eth-rpc-block-param
            (list (first params)) store "debug_traceBlockByNumber")))
     (unless block
-      (block-validation-fail "debug_traceBlockByNumber block not found"))
+      (engine-rpc-fail -32000 "debug_traceBlockByNumber block not found"))
     (eth-rpc-debug-trace-block block store config)))
 
 (defun engine-rpc-handle-debug-set-head (params store config)

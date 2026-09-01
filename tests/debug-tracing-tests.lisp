@@ -106,6 +106,65 @@
         (is (= -32602 (field error-object "code")))
         (is (search "callTracer" (field error-object "message")))))))
 
+(deftest debug-trace-block-results-carry-transaction-hashes
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1 :gas-price 7 :gas-limit 21000 :value 3)
+              1
+              1))
+           (block (make-block :transactions (list transaction)))
+           (original-location
+             (symbol-function 'chain-store-transaction-location))
+           (original-trace
+             (symbol-function
+              'ethereum-lisp.public-api::eth-rpc-trace-transaction-location)))
+      (unwind-protect
+           (progn
+             (setf (symbol-function 'chain-store-transaction-location)
+                   (lambda (store hash)
+                     (declare (ignore store hash))
+                     :location)
+                   (symbol-function
+                    'ethereum-lisp.public-api::eth-rpc-trace-transaction-location)
+                   (lambda (location store config)
+                     (declare (ignore location store config))
+                     (list (cons "type" "CALL"))))
+             (let* ((result
+                      (ethereum-lisp.public-api::eth-rpc-debug-trace-block
+                       block
+                       (make-engine-payload-memory-store)
+                       (make-chain-config)))
+                    (entry (first result)))
+               (is (equal (hash32-to-hex (transaction-hash transaction))
+                          (field entry "txHash")))
+               (is (equal "CALL" (field (field entry "result") "type")))))
+        (setf (symbol-function 'chain-store-transaction-location)
+              original-location
+              (symbol-function
+               'ethereum-lisp.public-api::eth-rpc-trace-transaction-location)
+              original-trace)))))
+
+(deftest debug-trace-block-not-found-uses-server-error
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((response
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" 3)
+                    (cons "method" "debug_traceBlockByHash")
+                    (cons "params"
+                          (list
+                           "0x0000000000000000000000000000000000000000000000000000000000000000")))
+              (make-engine-payload-memory-store)
+              (make-chain-config)
+              :allowed-method-p #'engine-rpc-public-method-p))
+           (error-object (field response "error")))
+      (is (= -32000 (field error-object "code")))
+      (is (search "not found" (field error-object "message"))))))
+
 (deftest evm-call-tracer-tree-is-well-formed
   ;; The tracer itself, with no EVM involved: entering and exiting frames must
   ;; nest, and a frame whose exit was skipped must not swallow its siblings.
