@@ -1,0 +1,63 @@
+# Section 5 Engine payload-status witness repair evidence
+
+revision: a565a5b4dc28b31ea3c27c917262d112271e78c0
+base-revision: 2b84a86a67401a017777b4cf599898d234b541bf
+issue: payload-status JSON included nonstandard witness:null
+
+preserved-pinned-eels-run:
+- remote-pid: 3785542
+- simulator: ethereum/eels/consume-engine
+- results: /data/hoodi-sec5-hive/results-852afa1f-eels-consume-engine-inventory
+- collected-tests: 55275
+- observed-running-test-at-2026-09-01T11:20Z: 94
+- repeated-failure: payloadStatus.witness: Extra inputs are not permitted
+- disposition: preserved and still running; no duplicate EELS run was launched
+- sequential-controller-pid: 3789466
+
+red:
+- command: cl-workbench validation run cold-unit --match ENGINE-RPC-PAYLOAD-STATUS-OMITS-NULL-WITNESS
+- result: exit 1
+- failure: nonstandard witness association was present
+
+green:
+- command: cl-workbench validation run cold-unit --match ENGINE-RPC-PAYLOAD-STATUS-OMITS-NULL-WITNESS
+- result: exit 0; 1 test passed
+- command: cl-workbench validation run cold-unit --match ENGINE-RPC
+- result: exit 0; 78 tests passed
+- command: cl-workbench validation run cold-unit
+- result: exit 0; 1280 tests passed, 3 skipped
+- command: cl-workbench validation run cold-integration --match ENGINE-RPC
+- result: exit 0; 4 tests passed
+- command: cl-workbench docs verify
+- result: exit 0
+- command: cl-workbench validation run cold-docs
+- result: exit 0
+
+repair:
+- Keep latestValidHash and validationError as required nullable payload-status
+  members.
+- Omit witness when no witness value exists instead of serializing witness:null.
+- Preserve serialization of a real witness value for a schema that supplies one.
+- HTTP coverage now distinguishes an absent witness member from a JSON null.
+
+exact-runtime:
+- image: ethereum-lisp-runtime:sec5-a565a5b4-amd64
+- platform: linux/amd64
+- revision-label: a565a5b4dc28b31ea3c27c917262d112271e78c0
+- local-manifest-list-id: sha256:46ee179bc15d8c13f7fd46a447fe422657bec637ef5d5d0e7c38143f1666cebe
+- exported-archive: /private/tmp/ethereum-lisp-runtime-sec5-a565a5b4-amd64.tar
+- exported-archive-bytes: 71919616
+- exported-archive-sha256: 2bae6a39834857913db203725ddf780264714953409d23971206a6e1753ce7d5
+- runtime-smoke: passed
+- smoke-client-version: ethereum-lisp/0.1.0/CL/0xa565a5b4
+- smoke-engine-client-revision: a565a5b4dc28b31ea3c27c917262d112271e78c0
+- remote-artifact: /data/hoodi-sec5-hive/runtime-a565a5b4/runtime.tar
+- remote-loaded-image-id: sha256:ea0b7efb1b2e6cb58a98e7f858f25ecb6efad712e23af2b3b3a405b6ddc7cb33
+- remote-revision-label: a565a5b4dc28b31ea3c27c917262d112271e78c0
+
+qualification-status:
+- The runtime is prepared but was not launched as a duplicate Hive client.
+- No fresh Hoodi datadir was created because Engine and rpc-compat still fail
+  and the preserved EELS run/controller still own their lanes.
+- Engine remains 401/403 and rpc-compat remains 125/234.
+- This repair is not a Hive pass and does not start shadow or validator clocks.
