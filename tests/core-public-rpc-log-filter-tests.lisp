@@ -94,7 +94,9 @@
         (is (string= (address-to-hex address)
                      (field (first first-position-logs) "address")))
         (is (null missing-second-position-logs))
-        (is (null empty-topic-set-logs))
+        ;; An empty alternatives array is a wildcard, as used by
+        ;; execution-apis to constrain a later topic position.
+        (is (= 1 (length empty-topic-set-logs)))
         (is (null empty-address-set-logs))))))
 
 (deftest eth-rpc-log-filter-defaults-to-latest

@@ -99,7 +99,7 @@ drop real results."
       ((stringp value)
        (list (eth-rpc-hash-param (list value) method "topic")))
       ((json-empty-array-p value)
-       :empty-topic-set)
+       nil)
       ((json-array-p value)
        (let ((values (json-array-values value)))
          (when (> (length values) +eth-rpc-max-log-subtopics+)
