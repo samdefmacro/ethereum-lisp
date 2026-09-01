@@ -775,9 +775,11 @@ REMOTE
 remote_status() {
     note "remote gate status"
     ssh "$host" bash -s -- \
-        "$revision" "$image" "$container" "$remote_root" "$memory_limit_bytes" <<'REMOTE'
+        "$revision" "$image" "$container" "$remote_root" "$memory_limit_bytes" \
+        "$lighthouse_container" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; remote_root="$4"; memory_limit="$5"
+lighthouse="$6"
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 [ "$image_revision" = "$revision" ] || { echo "image revision mismatch: $image_revision" >&2; exit 1; }
@@ -825,6 +827,16 @@ rpc() {
 printf 'eth_blockNumber='; rpc eth_blockNumber; printf '\n'
 printf 'eth_syncing='; rpc eth_syncing; printf '\n'
 printf 'net_peerCount='; rpc net_peerCount; printf '\n'
+cl_rpc_port="$(docker port "$lighthouse" 5052/tcp 2>/dev/null |
+    awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
+if [ -n "$cl_rpc_port" ]; then
+    printf 'cl_node_syncing='
+    curl --silent --show-error --max-time 10 \
+        "http://127.0.0.1:$cl_rpc_port/eth/v1/node/syncing"
+    printf '\n'
+else
+    printf '%s\n' 'cl_node_syncing=unavailable-no-loopback-port'
+fi
 REMOTE
 }
 
@@ -983,7 +995,10 @@ fi
 # Local database faults never reach dependency_failed: the importer re-signals
 # STORAGE-ERROR and emits peer.snap.storage_failed instead. Do not classify a
 # dependency as "storage" merely because its request lane is StorageRanges.
-for event in peer.snap.dependency_failed peer.snap.import_failed
+for event in \
+    peer.snap.pivot_unavailable \
+    peer.snap.dependency_failed \
+    peer.snap.import_failed
 do
     failure_lines="$(grep -F "$event" "$el_log" || true)"
     [ -n "$failure_lines" ] || continue
@@ -1017,6 +1032,22 @@ do
             }
         }'
 done
+pivot_unavailable_lines="$(grep -F 'peer.snap.pivot_unavailable' "$el_log" || true)"
+if [ -n "$pivot_unavailable_lines" ]; then
+    printf '%s\n' "$pivot_unavailable_lines" |
+        sed -n 's/.*("pivot" \. "\([0-9][0-9]*\)").*/\1/p' |
+        awk '
+            NR == 1 { first = $1; minimum = $1; maximum = $1 }
+            $1 < minimum { minimum = $1 }
+            $1 > maximum { maximum = $1 }
+            { latest = $1 }
+            END {
+                if (NR > 0) {
+                    printf "el-pivot-unavailable samples=%d first=%d latest=%d min=%d max=%d\n",
+                           NR, first, latest, minimum, maximum
+                }
+            }'
+fi
 discovery_crawl="$(grep -F 'peer.discovery.crawl' "$el_log" | tail -1 || true)"
 if [ -n "$discovery_crawl" ]; then
     for field in offered routingSeeds
