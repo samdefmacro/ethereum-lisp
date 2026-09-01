@@ -1,0 +1,64 @@
+# Section 5 obsolete EELS consume-engine stop evidence
+
+operator-revision: 6b9725611cf20ccf046d04a5c9e04bb75853581c
+remote-host: test-ethereum-server
+recorded-at: 2026-09-01T19:40Z
+remote-evidence: /data/hoodi-sec5-hive/evidence/eels-obsolete-stop-6b972561-20260901T1940Z
+preserved-results: /data/hoodi-sec5-hive/results-852afa1f-eels-consume-engine-inventory
+
+ownership-before-stop:
+- requested historical controller PID 63146 was absent.
+- live controller PID 3789466 command was exactly:
+  bash /data/hoodi-sec5-hive/run-sequence-852afa1f.sh
+- controller script SHA256:
+  defa1167bed6fdc76b96fbeed92bceb8b763451b00ef6116c2e1ff785a5e703d
+- Hive PID 3785542 command selected only ethereum/eels/consume-engine and
+  wrote only the preserved results directory above.
+- Hive executable SHA256:
+  8d9be9b752de01180093534de30a85918ca37ad7b7b9f1f1d6cef16786ca624b
+- Hive process ancestry was 3785465 -> 3785541 -> 3785542, all under the
+  same source-852afa1f hive-run.sh invocation.
+- simulator container carried Hive instance PID 3785542, simulator
+  ethereum/eels/consume-engine, and Hive revision dde4f59d.
+
+preserved-progress:
+- selected: 55275
+- completed-at-snapshot: 176
+- failed-at-snapshot: 115
+- passed-at-snapshot: 61
+- payloadStatus.witness schema failures in the detail snapshot: 109
+- client logs present at snapshot: 162
+- disposition: interrupted; this is not a complete EELS inventory or pass.
+
+revision-integrity-warning:
+- The run began on the obsolete 92982442 runtime and produced the known
+  witness:null schema failures.
+- A later focused Engine attempt rebuilt Hive's mutable
+  hive/clients/ethereum-lisp_ethereum-lisp:latest tag from the repaired runtime.
+  Because consume-engine creates a new client container per case, subsequent
+  cases in this old run no longer had a single exact client revision.
+- The 176-case snapshot is therefore preserved as operational/debug evidence
+  only. It cannot qualify either revision.
+
+stop-operation:
+- The owned sequential controller was terminated first so it could not launch
+  consume-rlp, devp2p, or sync after consume-engine exited.
+- SIGINT was then sent only to owned Hive PID 3785542.
+- PIDs 3785463, 3785465, 3785541, 3785542, 3789464, and 3789466 all exited.
+- No obsolete consume-rlp, devp2p, or sync process was launched.
+- No obsolete Hive simulator/client container remained running.
+- No unrelated process or container was signalled.
+- The original results directory was retained; no evidence was deleted.
+
+immutable-snapshot-sha256:
+- hive.json:
+  b8727d225f8b6baa9fd3dd8b7dc1948e6cc3c4e4a347659c84c4174176550f2a
+- simulator log:
+  cebe342b65bb150978d429baa1ff435b474ea5f1951c55ecca6f030771f9a408
+- detail log:
+  c71086352a90eb52d82ab56b38fc3a7ae107dafa3150f7d2ced3c22e002916a7
+- pre-stop manifest:
+  5f5b0da8b3b5d507a9f844346d7d1d454da3f047edc930fd919cfe5d15bd9327
+
+All immutable snapshot files are mode 0400. The preserved live results occupied
+4,033,442 bytes after shutdown. No result is represented as a passing full gate.
