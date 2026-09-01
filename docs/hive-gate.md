@@ -92,11 +92,16 @@ cl-workbench validation run runtime-smoke ethereum-lisp-runtime:local
 RUNTIME_PREBUILT=1 RUNTIME_TAG=local scripts/hive-run.sh --sim ethereum/engine
 ```
 
-Hive itself does not run on macOS: it needs a Go toolchain on the host and it
-dials each client container's bridge address for its liveness check, which is
-not routable from a macOS host into the Docker Desktop VM. `scripts/hive-run.sh`
-prepares everything and stops with that explanation; `--prepare-only` makes that
-the intended outcome. Linux, and CI, run the suite for real.
+Hive itself does not run on macOS: it dials each client container's bridge
+address for its liveness check, which is not routable from a macOS host into the
+Docker Desktop VM. `scripts/hive-run.sh` prepares everything and stops with that
+explanation; `--prepare-only` makes that the intended outcome. Linux, and CI,
+run the suite for real. A Linux release runner without a host Go toolchain may
+set `HIVE_PREBUILT_BINARY_SHA256` to the exact checksum of an executable
+`$HIVE_WORKDIR/hive/hive`; the runner still verifies the pinned checkout and
+fails if either the binary or checksum is absent or mismatched. This permits a
+binary built by a bounded reviewed Go container without silently trusting a
+different executable.
 
 ## The `HIVE_*` contract, as this client implements it
 

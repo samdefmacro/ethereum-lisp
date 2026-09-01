@@ -21,6 +21,10 @@
 #   HIVE_EXTRA_ARGS    appended to the hive command line verbatim
 #   HIVE_EXPECTED_TESTS exact executed-test count; full pinned engine and
 #                       rpc-compat runs select their known inventories
+#   HIVE_PREBUILT_BINARY_SHA256
+#                       exact checksum of an existing $HIVE_WORKDIR/hive/hive;
+#                       permits a reviewed Go-less Linux release runner while
+#                       still failing closed on both source pin and executable
 #
 # Running Hive needs a Go toolchain and a dockerd on the same host, because
 # Hive dials the client containers by their bridge address for its liveness
@@ -73,10 +77,24 @@ docker info >/dev/null 2>&1 || {
     echo "FATAL: Hive requires a reachable Docker daemon on the Linux runner" >&2
     exit 1
 }
-command -v go >/dev/null 2>&1 || {
-    echo "FATAL: Hive requires a Go toolchain on the Linux runner; use the reviewed CI/remote runner rather than installing one on a control-plane host" >&2
-    exit 1
-}
+prebuilt_hive_sha256="${HIVE_PREBUILT_BINARY_SHA256:-}"
+if [ -z "$prebuilt_hive_sha256" ]; then
+    command -v go >/dev/null 2>&1 || {
+        echo "FATAL: Hive requires a Go toolchain or HIVE_PREBUILT_BINARY_SHA256 on the reviewed Linux runner" >&2
+        exit 1
+    }
+else
+    case "$prebuilt_hive_sha256" in
+        *[!0-9a-f]*|'')
+            echo "FATAL: HIVE_PREBUILT_BINARY_SHA256 must be lowercase hexadecimal" >&2
+            exit 1
+            ;;
+    esac
+    [ "${#prebuilt_hive_sha256}" -eq 64 ] || {
+        echo "FATAL: HIVE_PREBUILT_BINARY_SHA256 must contain 64 hexadecimal characters" >&2
+        exit 1
+    }
+fi
 command -v jq >/dev/null 2>&1 || {
     echo "FATAL: Hive result validation requires jq on the Linux runner" >&2
     exit 1
@@ -115,6 +133,18 @@ actual_commit="$(git -C "$hive_dir" rev-parse HEAD)"
 if [ "$actual_commit" != "$HIVE_COMMIT" ]; then
     echo "FATAL: hive checkout is $actual_commit, expected $HIVE_COMMIT" >&2
     exit 1
+fi
+if [ -n "$prebuilt_hive_sha256" ]; then
+    [ -x "$hive_dir/hive" ] || {
+        echo "FATAL: checksummed prebuilt Hive binary is absent: $hive_dir/hive" >&2
+        exit 1
+    }
+    actual_hive_sha256="$(sha256sum "$hive_dir/hive" | awk '{print $1}')"
+    [ "$actual_hive_sha256" = "$prebuilt_hive_sha256" ] || {
+        echo "FATAL: prebuilt Hive checksum is $actual_hive_sha256, expected $prebuilt_hive_sha256" >&2
+        exit 1
+    }
+    log "using checksummed prebuilt Hive binary $actual_hive_sha256"
 fi
 
 # --- client definition ------------------------------------------------------
@@ -178,8 +208,10 @@ MSG
     exit 1
 fi
 
-log "building hive"
-(cd "$hive_dir" && go build .)
+if [ -z "$prebuilt_hive_sha256" ]; then
+    log "building hive"
+    (cd "$hive_dir" && go build .)
+fi
 
 log "hive --sim $sim (hive $HIVE_COMMIT)"
 hive_status=0
