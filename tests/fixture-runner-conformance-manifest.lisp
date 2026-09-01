@@ -140,6 +140,32 @@ build never ran is a failure."
             (push (cons category 1) counts))))
     (sort counts #'string< :key #'car)))
 
+(defun phase-a-eest-expected-skip-categories (family)
+  "Reviewed structural skips which do not claim that a vector executed.
+
+Only in-scope, unexecuted records are classified. Unsupported fork trees stay
+outside the configured claim, while an unreadable or newly unmaterializable
+in-scope shape is always unexpected."
+  (cond
+    ((string= family "state_tests") '("noTransactionCombinations"))
+    ((string= family "blockchain_replay") '("multiPayloadChain"))
+    ((string= family "blockchain_rlp")
+     '("multiBlockChain" "requestsNotInBlockRlp"))
+    (t '())))
+
+(defun phase-a-eest-skip-counts (family records)
+  (let ((expected 0)
+        (unexpected 0)
+        (expected-categories (phase-a-eest-expected-skip-categories family)))
+    (dolist (record records)
+      (when (and (eest-conformance-field record "inScope")
+                 (not (eest-conformance-field record "executed")))
+        (if (member (eest-conformance-field record "category")
+                    expected-categories :test #'string=)
+            (incf expected)
+            (incf unexpected))))
+    (values expected unexpected)))
+
 (defun eest-conformance-discovery-exclusions
     (root paths feature-directories max-file-bytes networks)
   "Counts of fixture FILES the discovery filter never opened, by reason.
@@ -301,24 +327,28 @@ blockchain_test count instead of only whatever the in-tree fixture root holds."
                    (lambda (record)
                      (eest-conformance-field record "inScope"))
                    records)))
-    (list
-     (cons "family" family)
-     (cons "discovered" (length records))
-     (cons "inScope" (length in-scope))
-     (cons "selected" selected)
-     (cons "skipped" (- (length records) selected))
-     (cons "executedByFork"
-           (eest-conformance-executed-counts records fork-field forks))
-     (cons "executedByFormat"
-           (eest-conformance-executed-counts
-            in-scope "format"
-            (eest-conformance-discovered-keys in-scope "format")))
-     (cons "executedByValidity"
-           (eest-conformance-executed-counts
-            in-scope "validity"
-            (eest-conformance-discovered-keys in-scope "validity")))
-     (cons "categories" (eest-conformance-category-counts records))
-     (cons "unopenedFiles" exclusions))))
+    (multiple-value-bind (expected-skipped unexpected-skipped)
+        (phase-a-eest-skip-counts family records)
+      (list
+       (cons "family" family)
+       (cons "discovered" (length records))
+       (cons "inScope" (length in-scope))
+       (cons "selected" selected)
+       (cons "skipped" (- (length records) selected))
+       (cons "expectedSkipped" expected-skipped)
+       (cons "unexpectedSkipped" unexpected-skipped)
+       (cons "executedByFork"
+             (eest-conformance-executed-counts records fork-field forks))
+       (cons "executedByFormat"
+             (eest-conformance-executed-counts
+              in-scope "format"
+              (eest-conformance-discovered-keys in-scope "format")))
+       (cons "executedByValidity"
+             (eest-conformance-executed-counts
+              in-scope "validity"
+              (eest-conformance-discovered-keys in-scope "validity")))
+       (cons "categories" (eest-conformance-category-counts records))
+       (cons "unopenedFiles" exclusions)))))
 
 (defun phase-a-eest-format-count-entries (entries)
   (mapcar (lambda (entry) (format nil "~A:~D" (car entry) (cdr entry)))
@@ -329,12 +359,15 @@ blockchain_test count instead of only whatever the in-tree fixture root holds."
   "Emit the manifest lines for one family so the CI log records what ran."
   (format stream
           "~&EEST-CONFORMANCE ~A: discovered=~D inScope=~D selected=~D ~
-           skipped=~D forks=[~{~A~^ ~}] formats=[~{~A~^ ~}] validity=[~{~A~^ ~}]~%"
+           skipped=~D expectedSkipped=~D unexpectedSkipped=~D ~
+           forks=[~{~A~^ ~}] formats=[~{~A~^ ~}] validity=[~{~A~^ ~}]~%"
           (eest-conformance-field report "family")
           (eest-conformance-field report "discovered")
           (eest-conformance-field report "inScope")
           (eest-conformance-field report "selected")
           (eest-conformance-field report "skipped")
+          (eest-conformance-field report "expectedSkipped")
+          (eest-conformance-field report "unexpectedSkipped")
           (phase-a-eest-format-count-entries
            (eest-conformance-field report "executedByFork"))
           (phase-a-eest-format-count-entries
@@ -376,6 +409,13 @@ formats that fork ships in, and per-fork counts alone call that a pass."
     (phase-a-eest-assert-family-non-vacuous
      (format nil "~A validity" family)
      (eest-conformance-field report "executedByValidity"))))
+
+(defun phase-a-eest-assert-conformance-report-no-unexpected-skips (report)
+  "Signal when an in-scope vector did not execute for an unreviewed reason."
+  (let ((count (eest-conformance-field report "unexpectedSkipped")))
+    (unless (zerop count)
+      (error "~A conformance has ~D unexpected in-scope skip~:P"
+             (eest-conformance-field report "family") count))))
 
 (defun phase-a-eest-state-conformance-report (root)
   (phase-a-eest-conformance-family-report
@@ -451,6 +491,48 @@ formats that fork ships in, and per-fork counts alone call that a pass."
            (cons "executedByFormat" '(("blockchain_test_engine" . 4)))
            (cons "executedByValidity" '(("valid" . 4) ("invalid" . 0)))))))
 
+(deftest phase-a-eest-unexpected-skip-guard-fails-closed
+  ;; A named category is evidence only when the gate has reviewed that exact
+  ;; limitation.  Adding a new materializer failure must not turn into another
+  ;; green count merely because the manifest prints its name.
+  (let* ((expected-records
+           (list
+            (list (cons "network" "Osaka") (cons "inScope" t)
+                  (cons "format" "blockchain_test_engine")
+                  (cons "validity" "valid") (cons "executed" t)
+                  (cons "category" "executed"))
+            (list (cons "network" "Osaka") (cons "inScope" t)
+                  (cons "format" "blockchain_test_engine")
+                  (cons "validity" "valid") (cons "executed" nil)
+                  (cons "category" "multiPayloadChain"))))
+         (expected-report
+           (phase-a-eest-conformance-family-report
+            "blockchain_replay" expected-records "network" '("Osaka") '())))
+    (is (= 1 (eest-conformance-field expected-report "expectedSkipped")))
+    (is (zerop
+         (eest-conformance-field expected-report "unexpectedSkipped")))
+    (is (null
+         (phase-a-eest-assert-conformance-report-no-unexpected-skips
+          expected-report)))
+    (let* ((unexpected-records
+             (append
+              expected-records
+              (list
+               (list (cons "network" "Osaka") (cons "inScope" t)
+                     (cons "format" "blockchain_test_engine")
+                     (cons "validity" "invalid") (cons "executed" nil)
+                     (cons "category" "unmaterializableShape")))))
+           (unexpected-report
+             (phase-a-eest-conformance-family-report
+              "blockchain_replay" unexpected-records
+              "network" '("Osaka") '())))
+      (is (= 1
+             (eest-conformance-field unexpected-report
+                                     "unexpectedSkipped")))
+      (signals error
+        (phase-a-eest-assert-conformance-report-no-unexpected-skips
+         unexpected-report)))))
+
 (deftest phase-a-eest-conformance-axes-are-keyed-on-the-mounted-corpus
   ;; A format or validity the corpus does not ship must not be demanded, and one
   ;; it does ship must appear even when nothing executed it. Both directions
@@ -503,13 +585,15 @@ formats that fork ships in, and per-fork counts alone call that a pass."
   (with-execution-spec-tests-state-test-root (root)
     (let ((report (phase-a-eest-state-conformance-report root)))
       (phase-a-eest-report-conformance-family report)
-      (phase-a-eest-assert-conformance-report-non-vacuous report))))
+      (phase-a-eest-assert-conformance-report-non-vacuous report)
+      (phase-a-eest-assert-conformance-report-no-unexpected-skips report))))
 
 (deftest phase-a-eest-blockchain-conformance-is-non-vacuous
   (with-execution-spec-tests-blockchain-test-root (root)
     (let ((report (phase-a-eest-blockchain-conformance-report root)))
       (phase-a-eest-report-conformance-family report)
-      (phase-a-eest-assert-conformance-report-non-vacuous report))))
+      (phase-a-eest-assert-conformance-report-non-vacuous report)
+      (phase-a-eest-assert-conformance-report-no-unexpected-skips report))))
 
 (deftest phase-a-eest-blockchain-rlp-conformance-is-non-vacuous
   ;; The standard RLP tree is the one the engine tree hid, so "we cover
@@ -524,4 +608,5 @@ formats that fork ships in, and per-fork counts alone call that a pass."
                +execution-spec-tests-fixture-root-env+)))
     (let ((report (phase-a-eest-blockchain-rlp-conformance-report root)))
       (phase-a-eest-report-conformance-family report)
-      (phase-a-eest-assert-conformance-report-non-vacuous report))))
+      (phase-a-eest-assert-conformance-report-non-vacuous report)
+      (phase-a-eest-assert-conformance-report-no-unexpected-skips report))))
