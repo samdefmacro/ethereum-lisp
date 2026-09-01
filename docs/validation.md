@@ -1296,6 +1296,79 @@ After later commits advance the checkout, set `HOODI_SHADOW_PROXY_REVISION` to
 the deployed full Git id for `status`, `complete`, or `restore`; the broker
 accepts only a revision that remains an ancestor of the checkout.
 
+### Hoodi fourteen-day validator soak
+
+`scripts/hoodi-validator-soak.sh` brokers the final proposer-duty observation
+without entering the validator container. It never reads container environment,
+mount contents, validator APIs, keys, keystores, passwords, or the slashing
+protection database. The only mutation is `start` creating one new state file
+named `/data/hoodi-sec5-validator-soak-*` under a mode-0600 creation mask and
+sealing it read-only at mode 0400; no action overwrites or
+deletes one of these files. Set the validator container and decimal validator
+indices explicitly, and pin the exact full Git revision on both the running EL
+container and its image:
+
+```sh
+export HOODI_VALIDATOR_CONTAINER=hoodi-validator-EXPLICIT
+export HOODI_VALIDATOR_INDICES=12345,67890
+export HOODI_VALIDATOR_CL_CONTAINER=hoodi-lighthouse-public
+export HOODI_VALIDATOR_EL_CONTAINER=hoodi-el-sec5-QUALIFYING
+export HOODI_VALIDATOR_EL_REVISION=0123456789abcdef0123456789abcdef01234567
+# If the deployed shadow proxy predates the checkout, also export its deployed
+# full revision for the prerequisite read-only shadow completion gate.
+export HOODI_SHADOW_PROXY_REVISION=89abcdef0123456789abcdef0123456789abcdef
+
+scripts/hoodi-validator-soak.sh status
+HOODI_VALIDATOR_ALLOW_MUTATION=1 scripts/hoodi-validator-soak.sh start
+
+# Copy the unique path printed by start. The state contains only timestamps,
+# counts, the pinned EL revision, and SHA-256 identity fingerprints; it contains
+# no validator index, pubkey, key material, or raw container identity.
+export HOODI_VALIDATOR_STATE=/data/hoodi-sec5-validator-soak-START-NONCE
+scripts/hoodi-validator-soak.sh status
+scripts/hoodi-validator-soak.sh complete
+```
+
+`start` first executes `scripts/hoodi-shadow-gate.sh complete`, so a failed or
+incomplete seven-day shadow comparison cannot establish the validator clock. It
+then requires the separate `HOODI_VALIDATOR_ALLOW_MUTATION=1` authorization and
+a clean checkout. On the remote host it inspects only selected Docker identity,
+running-state, image, and revision fields. The validator, CL, and EL container
+names have no defaults and must all identify the reviewed deployment. Beacon
+REST must be explicitly loopback-only (default `http://127.0.0.1:5052`), and
+must report the CL
+synchronized, non-optimistic, and its EL online before the unique state file is
+created. Override `HOODI_VALIDATOR_CL_CONTAINER`,
+`HOODI_VALIDATOR_EL_CONTAINER`, `HOODI_VALIDATOR_BEACON_URL`, or
+`HOODI_VALIDATOR_HOST` only to identify the reviewed deployment; `curl`, `jq`,
+and `sha256sum` are required on that host.
+
+`status` and `complete` are read-only. With no state path, `status` reports live
+preflight health but labels identity pins unchecked. With a state path, it
+rechecks the validator-index digest, validator/CL/EL container fingerprints,
+Beacon genesis fingerprint, and exact EL revision, and fails on a mismatch.
+`complete` requires at least 1,209,600 real seconds and waits until the final
+Beacon epoch intersecting that window has ended. The synchronized Beacon head
+must have reached the final slot intersecting the window. The broker retrieves
+the official
+`/eth/v1/validator/duties/proposer/{epoch}` response for every intersecting
+epoch, selects the configured indices, requires at least one selected duty, and
+requires a canonical `/eth/v1/beacon/headers/{slot}` whose proposer index
+matches every selected duty. A missing block, non-canonical header, proposer
+mismatch, malformed response, or any REST/RPC error fails the gate; this is
+strictly stronger than counting only misses attributed to the EL client. The
+successful compact stdout record contains timestamps and counts only, including
+zero missed duties and zero RPC errors, and is the archival evidence; it never
+prints raw indices or pubkeys.
+
+For shell-only changes to this broker, run the host-safe controls below. They do
+not contact the Hoodi host and do not invoke an application toolchain:
+
+```sh
+bash -n scripts/hoodi-validator-soak.sh
+shellcheck scripts/hoodi-validator-soak.sh  # when shellcheck is installed
+```
+
 The reviewed runtime image must also pass
 `cl-workbench validation run runtime-smoke IMAGE`: this delegates to the
 reviewed runtime smoke broker and checks non-root/read-only Hoodi startup,
