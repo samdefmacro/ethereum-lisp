@@ -16,6 +16,7 @@ recorded here rather than implied by the presence of a YAML file.
 |---|---|
 | `ethereum/hive` | `dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c` |
 | Execution APIs | `e5d1bb60e6c064e4b15080da07b4370d0baadf92` |
+| execution-specs EELS and fixtures | `tests@v20.0.2`, `abbe05777ab83fb94ce18c425daaa7ab79e779c1`, fixture SHA-256 `1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788` |
 | devp2p specs | `51dc101fddd52b5d90e59a2d695a92e4d600cfaf` |
 | Runtime base image | `debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241` |
 | c-kzg-4844 (with bundled blst) | tag `v2.1.1` |
@@ -38,6 +39,14 @@ Hive pin means re-reading its
 `docs/clients.md` for contract changes, re-diffing `tools/hive/mapper.jq`
 against `clients/go-ethereum/mapper.jq`, and deliberately updating those
 inventory counts.
+
+The two EELS consume suites also fail closed instead of using their Dockerfiles'
+moving default branch and `stable@latest` fixture download. Set
+`HIVE_EELS_FIXTURE_ARCHIVE` to the pinned `tests@v20.0.2` `fixtures.tar.gz`.
+The runner verifies its SHA-256, hard-links it temporarily into the selected
+simulator context without duplicating the multi-gigabyte archive, and passes
+both the exact execution-specs commit and `/fixtures` build arguments. The
+temporary context link is removed on exit; the source archive is never changed.
 
 ## Pieces
 

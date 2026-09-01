@@ -25,6 +25,9 @@
 #                       exact checksum of an existing $HIVE_WORKDIR/hive/hive;
 #                       permits a reviewed Go-less Linux release runner while
 #                       still failing closed on both source pin and executable
+#   HIVE_EELS_FIXTURE_ARCHIVE
+#                       exact tests@v20.0.2 fixtures.tar.gz for either pinned
+#                       ethereum/eels consume suite; checksum is mandatory
 #
 # Running Hive needs a Go toolchain and a dockerd on the same host, because
 # Hive dials the client containers by their bridge address for its liveness
@@ -40,6 +43,8 @@ set -euo pipefail
 HIVE_COMMIT="dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c"
 HIVE_REPO="https://github.com/ethereum/hive"
 EXECUTION_APIS_COMMIT="e5d1bb60e6c064e4b15080da07b4370d0baadf92"
+EELS_COMMIT="abbe05777ab83fb94ce18c425daaa7ab79e779c1"
+EELS_FIXTURE_SHA256="1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workdir="${HIVE_WORKDIR:-$repo_root/.dev-runtime/hive-gate}"
@@ -176,6 +181,35 @@ case "$sim" in
         # reviewed commit explicitly so rpc-compat is reproducible over time.
         hive_args+=(--sim.buildarg "branch=$EXECUTION_APIS_COMMIT")
         log "pinning execution-apis $EXECUTION_APIS_COMMIT"
+        ;;
+    ethereum/eels/consume-engine|ethereum/eels/consume-rlp)
+        fixture_archive="${HIVE_EELS_FIXTURE_ARCHIVE:-}"
+        [ -f "$fixture_archive" ] && [ ! -L "$fixture_archive" ] || {
+            echo "FATAL: $sim requires a regular non-symlink HIVE_EELS_FIXTURE_ARCHIVE" >&2
+            exit 1
+        }
+        fixture_sha256="$(sha256sum "$fixture_archive" | awk '{print $1}')"
+        [ "$fixture_sha256" = "$EELS_FIXTURE_SHA256" ] || {
+            echo "FATAL: EELS fixture checksum is $fixture_sha256, expected $EELS_FIXTURE_SHA256" >&2
+            exit 1
+        }
+        simulator_dir="$hive_dir/simulators/$sim"
+        staged_fixture="$simulator_dir/fixtures.tar.gz"
+        [ ! -e "$staged_fixture" ] && [ ! -L "$staged_fixture" ] || {
+            echo "FATAL: refusing an existing EELS staged fixture: $staged_fixture" >&2
+            exit 1
+        }
+        ln "$fixture_archive" "$staged_fixture" || {
+            echo "FATAL: EELS fixture and Hive checkout must share a filesystem for bounded hard-link staging" >&2
+            exit 1
+        }
+        trap 'rm -f "$staged_fixture"' EXIT
+        [ "$(sha256sum "$staged_fixture" | awk '{print $1}')" = "$EELS_FIXTURE_SHA256" ] || {
+            echo "FATAL: staged EELS fixture checksum changed" >&2
+            exit 1
+        }
+        hive_args+=(--sim.buildarg "branch=$EELS_COMMIT" --sim.buildarg fixtures=/fixtures)
+        log "pinning execution-specs and fixtures at tests@v20.0.2 ($EELS_COMMIT)"
         ;;
 esac
 if [ -n "$sim_limit" ]; then
