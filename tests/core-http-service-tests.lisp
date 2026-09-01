@@ -912,8 +912,9 @@ Content-Type: application/json
       (is (null (new-payload-persistence-test-field response "error")))
       (is (string= +payload-status-syncing+
                    (new-payload-persistence-test-field status "status")))
-      (dolist (field '("latestValidHash" "validationError" "witness"))
+      (dolist (field '("latestValidHash" "validationError"))
         (is (null (new-payload-persistence-test-field status field))))
+      (is (null (assoc "witness" status :test #'string=)))
       (is (null (engine-payload-store-known-block store child-hash)))
       (is (typep (engine-payload-store-remote-block store child-hash)
                  'ethereum-block))

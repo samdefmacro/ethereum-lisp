@@ -179,9 +179,11 @@
                  (bytes-to-hex (block-encoded-block-access-list block)))))))
 
 (defun engine-rpc-payload-status-object (status)
-  (list (cons "status" (payload-status-status status))
-        (cons "latestValidHash"
-              (when (payload-status-latest-valid-hash status)
-                (hash32-to-hex (payload-status-latest-valid-hash status))))
-        (cons "validationError" (payload-status-validation-error status))
-        (cons "witness" (payload-status-witness status))))
+  (append
+   (list (cons "status" (payload-status-status status))
+         (cons "latestValidHash"
+               (when (payload-status-latest-valid-hash status)
+                 (hash32-to-hex (payload-status-latest-valid-hash status))))
+         (cons "validationError" (payload-status-validation-error status)))
+   (when (payload-status-witness status)
+     (list (cons "witness" (payload-status-witness status))))))

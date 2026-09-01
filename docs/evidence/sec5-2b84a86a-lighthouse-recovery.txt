@@ -1,0 +1,91 @@
+# Hoodi Lighthouse recovery evidence
+#
+# The existing beacon-node container was started in place. It was not recreated,
+# and the execution-layer container was not restarted or mutated.
+
+report-version: 1
+recorded-at: 2026-09-01T10:52:30Z
+operator-revision: 2b84a86a67401a017777b4cf599898d234b541bf
+remote-host: test-ethereum-server
+remote-evidence: /data/hoodi-sec5-hive/evidence/lighthouse-recovery-2b84a86a-20260901T1040Z
+
+beacon-container-id: c77a7083abc16f7caf2ed4db1fbe82557945145c1b6dd9b255a0659071ef24ff
+beacon-container-name: hoodi-lighthouse-public
+beacon-image-id: sha256:0ca1d382721543686f137083aa417753c973146c6fe07bbd037166274569e101
+beacon-image-digest: sigp/lighthouse@sha256:9538f53d8e11766e3cb5de1889b292074f8e518e0dabe6df13d9054d504d1d62
+beacon-version-after-start: Lighthouse/v8.2.1-b263df5
+
+before-running: false
+before-status: exited
+before-exit-code: 137
+before-oom-killed: true
+before-started: 2026-08-24T06:42:26.962957875Z
+before-finished: 2026-09-01T09:51:10.302927729Z
+before-restart-count: 0
+memory-limit-bytes: 8589934592
+memory-swap-limit-bytes: 17179869184
+restart-policy: no
+
+recovery-operation: docker start c77a7083abc16f7caf2ed4db1fbe82557945145c1b6dd9b255a0659071ef24ff
+after-running: true
+after-started: 2026-09-01T10:38:59.0974869Z
+after-restart-count: 0
+after-oom-killed: false
+static-config-sha256-before: db29037d8597d9ca0a4e40aa0c71410eca70acb893c385e06b36c8cff6e5eb6a
+static-config-sha256-after: db29037d8597d9ca0a4e40aa0c71410eca70acb893c385e06b36c8cff6e5eb6a
+
+mount-jwt: /data/hoodi/jwt:/jwt:ro
+mount-beacon-data: /data/hoodi-sec5-20260812/lighthouse:/root/.lighthouse:rw
+network-1: hoodi-frozen
+network-2: hoodi-net
+validator-container-guard: no validator or validator-client containers found
+validator-keys-touched: false
+beacon-container-recreated: false
+execution-container-restarted: false
+execution-container-restart-count: 0
+
+readiness-first-http-status: 206
+readiness-first-response: {"data":{"is_syncing":true,"is_optimistic":true,"el_offline":false,"head_slot":"3836896","sync_distance":"251"}}
+readiness-caught-up-response: {"data":{"is_syncing":false,"is_optimistic":true,"el_offline":false,"head_slot":"3837212","sync_distance":"0"}}
+readiness-caught-up-at: 2026-09-01T10:52:25Z
+lighthouse-memory-first: 4.544GiB / 8GiB
+lighthouse-memory-caught-up: 3.82GiB / 8GiB
+
+execution-container-id: 2749c0529684e3ad63d1a4c497fbe36e10b7b29ec089900c52f28c70114721a9
+execution-container-name: hoodi-el-sec5-92982442
+execution-revision: 92982442f6a72e3bc73fa5e7487d537afdf51ea9
+execution-started: 2026-09-01T07:42:24.059671496Z
+execution-canonical-block: 0x0
+execution-highest-target: 0x35f632
+execution-peer-count: 50
+execution-datadir-bytes: 41292330573
+execution-target-completed: 0
+execution-gate-result: incomplete
+
+remote-before-inspect-sha256: ad101d7950c62c78133e4d0a534bc1f26746b9db2e6f0960d7899c34f1371546
+remote-before-oom-log-sha256: 4e669d52a46a477a182b3466241f57e8794ba442d5dde40f756b694ac49af45f
+remote-after-inspect-sha256: 592a5413c9021e4ce2dc702695637d071a3ab4160c4d3ba83e5944caa8f980b4
+remote-after-start-log-sha256: eb73980eb47e2f871743321d6a5334327698927e54cabf1ef617273801bf38c6
+remote-after-readiness-sha256: c084a7a7cb9343f8815dfe4ef074dee8c329fff3396d94df5471bb16cea2b84f
+
+# Diagnosis
+# Docker retained OOMKilled=true and exit code 137 for the old process. The
+# container had an 8-GiB memory cgroup and had run for more than eight days.
+# Its final logs contain no Lighthouse panic: it continued following Hoodi while
+# recording slow/timed-out Engine calls, then stopped abruptly. Starting the
+# same container put Lighthouse at 4.544 GiB during catch-up and 3.82 GiB once
+# caught up. These facts establish cgroup exhaustion, but no pre-OOM heap profile
+# or retained cgroup peak identifies the allocating Lighthouse subsystem. The
+# bounded diagnosis is therefore long-lived Lighthouse memory growth reaching
+# its 8-GiB cgroup, with Engine latency as concurrent pressure rather than a
+# proven allocator root cause.
+#
+# After recovery, Lighthouse occasionally logged Engine JWT 401 responses and
+# Engine timeouts even though the node readiness endpoint reported
+# el_offline=false. The beacon head remains optimistic and the SNAP gate remains
+# incomplete; recovery readiness is not a Hoodi gate pass.
+#
+# Rollback remains in-place and reversible: stop the same container ID. The
+# before inspect and OOM logs are mode-0400 remote evidence, and the matching
+# static configuration hashes prove that image, command, host configuration,
+# mounts, network identities, and aliases were unchanged by the start.

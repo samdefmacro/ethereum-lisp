@@ -1,5 +1,14 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-rpc-payload-status-omits-null-witness
+  (let* ((status (make-payload-status :status +payload-status-syncing+))
+         (object (engine-rpc-payload-status-object status)))
+    (is (string= +payload-status-syncing+
+                 (cdr (assoc "status" object :test #'string=))))
+    (is (assoc "latestValidHash" object :test #'string=))
+    (is (assoc "validationError" object :test #'string=))
+    (is (null (assoc "witness" object :test #'string=)))))
+
 (deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
