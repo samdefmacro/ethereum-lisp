@@ -94,15 +94,12 @@ gate."
   (cond
     (stop-p :stop)
     (request-p :request)
-    ;; An eth/72 pooled wrapper without its payload cannot enter the pool.  A
-    ;; talkative peer can keep READABLE-P true indefinitely, so its GetCells
-    ;; fetch is a correctness dependency rather than ordinary periodic gossip.
-    ;; ETH-PEER-AWAIT still consumes and serves interleaved messages while the
-    ;; sole writer waits for the cell response.
-    ((and urgent-drainable-p
-          (eth-pump-due-p (eth-pump-policy-drain-interval-seconds policy)
-                          (eth-pump-state-last-drain-at state) now))
-     :drain)
+    ;; An announced transaction is a block-building dependency, and an eth/72
+    ;; pooled wrapper cannot enter the pool without its payload. A talkative peer
+    ;; can keep READABLE-P true indefinitely, so neither fetch may wait for the
+    ;; periodic drain interval. ETH-PEER-AWAIT still consumes and serves
+    ;; interleaved messages while the sole writer waits for a cell response.
+    (urgent-drainable-p :drain)
     (readable-p :read)
     ((eth-pump-due-p (eth-pump-policy-idle-timeout-seconds policy)
                      (eth-pump-state-last-read-at state) now)
@@ -158,6 +155,7 @@ ON-EVENT, when given, is called with a keyword for each action taken, which is
 how a caller observes the session without this file knowing what telemetry is."
   (let* ((now (funcall now-function))
          (state (or state (make-eth-pump-state :now now)))
+         (broadcast-backlog nil)
          (actions 0))
     (loop
       (when (and max-actions (>= actions max-actions))
@@ -183,8 +181,14 @@ how a caller observes the session without this file knowing what telemetry is."
              (chain-update (and (not stopping) (not readable) (null request)
                                 pending-chain-update
                                 (funcall pending-chain-update)))
-             (broadcast (unless stopping
-                          (when pending-broadcast (funcall pending-broadcast))))
+             ;; PENDING-BROADCAST advances a per-peer txpool cursor. Retain its
+             ;; returned batch until this sole writer actually sends it; a read
+             ;; or coordinator request may legitimately outrank it this turn.
+             (broadcast
+               (unless stopping
+                 (when (and (null broadcast-backlog) pending-broadcast)
+                   (setf broadcast-backlog (funcall pending-broadcast)))
+                 broadcast-backlog))
              (action (eth-pump-next-action
                       policy state now
                       :readable-p readable
@@ -196,7 +200,9 @@ how a caller observes the session without this file knowing what telemetry is."
                           (plusp
                            (eth-peer-pending-blob-cell-fetch-count peer)))
                       :urgent-drainable-p
-                      (plusp (eth-peer-pending-blob-cell-fetch-count peer))
+                      (or
+                       (plusp (eth-peer-pending-blob-cell-fetch-count peer))
+                       (plusp (eth-peer-announced-hash-count peer)))
                       :chain-update-p (and chain-update t)
                       :broadcast-p (and broadcast t))))
         (when on-event (funcall on-event action))
@@ -222,9 +228,9 @@ how a caller observes the session without this file knowing what telemetry is."
            (rlpx-send-ping (eth-peer-connection peer))
            (setf (eth-pump-state-last-ping-at state) now))
           (:drain
-           (eth-peer-fetch-announced-block peer)
-           (eth-peer-fetch-omitted-blob-transaction peer)
            (eth-peer-request-announced-transactions peer)
+           (eth-peer-fetch-omitted-blob-transaction peer)
+           (eth-peer-fetch-announced-block peer)
            (setf (eth-pump-state-last-drain-at state) now))
           (:chain-update (funcall chain-update))
           (:broadcast
@@ -232,6 +238,7 @@ how a caller observes the session without this file knowing what telemetry is."
            ;; known, so the second pass announces only the remaining large
            ;; transactions by hash.
            (eth-peer-broadcast-transactions peer broadcast)
-           (eth-peer-announce-transactions peer broadcast))
+           (eth-peer-announce-transactions peer broadcast)
+           (setf broadcast-backlog nil))
           (:wait nil))
         (incf actions)))))

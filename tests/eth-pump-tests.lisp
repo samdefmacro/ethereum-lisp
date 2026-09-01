@@ -53,6 +53,11 @@
   (is (eq :drain
           (eth-pump-test-action :readable-p t :drainable-p t
                                 :urgent-drainable-p t :now 3)))
+  ;; Transaction hashes are a block-building dependency, not a two-second
+  ;; maintenance job. Fetch them on the first loop turn after announcement.
+  (is (eq :drain
+          (eth-pump-test-action :readable-p t :drainable-p t
+                                :urgent-drainable-p t :now 0)))
   ;; ...and in particular, a peer whose data is already waiting can never be
   ;; timed out as idle.
   (is (eq :read (eth-pump-test-action :readable-p t :now 100000)))
@@ -112,6 +117,62 @@
       (is (eq :max-actions reason))
       (is (= 1 request-calls))
       (is (zerop readiness-calls)))))
+
+(deftest eth-peer-run-session-retains-broadcast-behind-request
+  (:layer :unit :module :p2p)
+  (let* ((peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (broadcast-symbol
+           'ethereum-lisp.eth-sync:eth-peer-broadcast-transactions)
+         (announce-symbol
+           'ethereum-lisp.eth-sync:eth-peer-announce-transactions)
+         (real-broadcast (fdefinition broadcast-symbol))
+         (real-announce (fdefinition announce-symbol))
+         (request-pending-p t)
+         (broadcast-pending-p t)
+         (pending-calls 0)
+         (sent '()))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition broadcast-symbol)
+            (lambda (candidate transactions)
+              (is (eq peer candidate))
+              (push (list :full transactions) sent)
+              0)
+            (fdefinition announce-symbol)
+            (lambda (candidate transactions)
+              (is (eq peer candidate))
+              (push (list :announce transactions) sent)
+              1))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session
+                peer
+                :policy
+                (make-eth-pump-policy
+                 :ping-interval-seconds nil
+                 :idle-timeout-seconds nil
+                 :drain-interval-seconds nil)
+                :pending-request
+                (lambda ()
+                  (when request-pending-p
+                    (setf request-pending-p nil)
+                    (lambda () nil)))
+                :pending-broadcast
+                (lambda ()
+                  (incf pending-calls)
+                  (when broadcast-pending-p
+                    (setf broadcast-pending-p nil)
+                    (list :blob-transaction)))
+                :max-actions 2)
+             (is (= 2 actions))
+             (is (eq :max-actions reason)))
+           (is (= 1 pending-calls))
+           (is
+            (equal
+             '((:full (:blob-transaction)) (:announce (:blob-transaction)))
+             (nreverse sent))))
+      (setf (fdefinition broadcast-symbol) real-broadcast
+            (fdefinition announce-symbol) real-announce))))
 
 (deftest eth-peer-run-session-routes-a-pipelined-snap-response
   (:layer :unit :module :p2p)
