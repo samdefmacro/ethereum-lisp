@@ -2297,3 +2297,75 @@
           (is (string= expected-topic-hex
                        (first (field log "topics"))))
           (is (string= "0x42" (field log "data"))))))))
+
+(deftest eth-rpc-simulate-v1-includes-error-on-revert
+  ;; Geth includes an `error` field in eth_simulateV1 call results when a
+  ;; call reverts: {message, code: 3, data: hex(revertBytes)}. Our call
+  ;; result currently omits it.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :byzantium-block 0
+                                      :london-block 0))
+           (sender
+             (address-from-hex
+              "0xcccccccccccccccccccccccccccccccccccccc01"))
+           (contract
+             (address-from-hex
+              "0xcccccccccccccccccccccccccccccccccccccc02"))
+           ;; MSTORE 0 := 0x09; REVERT mem[0:32].
+           (code #(96 9 96 0 82 96 32 96 0 253))
+           (state (make-state-db))
+           (block nil)
+           (expected-data
+             (let ((bytes (make-byte-vector 32)))
+               (setf (aref bytes 31) 9)
+               (bytes-to-hex bytes))))
+      (state-db-set-account
+       state sender (make-state-account :balance 1000000))
+      (state-db-set-code state contract code)
+      (setf block
+            (make-block
+             :header
+             (make-block-header
+              :number 55 :timestamp 550 :gas-limit 100000
+              :base-fee-per-gas 0 :state-root (state-db-root state))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 422)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list
+                       (cons
+                        "calls"
+                        (list
+                         (list
+                          (cons "from" (address-to-hex sender))
+                          (cons "to" (address-to-hex contract))
+                          (cons "gas" (quantity-to-hex 100000)))))))))
+                   "latest")))
+                store config))
+             (block-result (first (field response "result")))
+             (call-result (and block-result
+                               (first (field block-result "calls"))))
+             (error-field (and call-result
+                               (field call-result "error"))))
+        (is (null (field response "error")))
+        (is (string= "0x0" (field call-result "status")))
+        (is (string= expected-data (field call-result "returnData")))
+        (is (not (null error-field)))
+        (is (= 3 (field error-field "code")))
+        (is (string= "execution reverted"
+                     (field error-field "message")))
+        (is (string= expected-data (field error-field "data")))))))

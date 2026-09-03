@@ -547,6 +547,24 @@ explicit empty blocks, and the expanded span remains bounded by
           (mapcar #'hash32-to-hex (log-entry-topics log))))
    (cons "data" (bytes-to-hex (log-entry-data log)))))
 
+(defun eth-rpc-simulate-error-object (status return-data)
+  "Build the eth_simulateV1 call-result error object for a failed call.
+Matches go-ethereum's callError shape: {message, code, data} for reverts
+(code 3) and VM errors (code -32015)."
+  (let ((hex-data (bytes-to-hex (ensure-byte-vector return-data))))
+    (if (eq status :reverted)
+        (let ((reason (eth-rpc-decode-revert-reason return-data)))
+          (list
+           (cons "message"
+                 (if reason
+                     (format nil "execution reverted: ~A" reason)
+                     "execution reverted"))
+           (cons "code" 3)
+           (cons "data" hex-data)))
+        (list
+         (cons "message" "execution failed")
+         (cons "code" -32015)))))
+
 (defun eth-rpc-simulate-call-result
     (call block store config state block-overrides gas-limit
      &key validation-p)
@@ -563,17 +581,23 @@ explicit empty blocks, and the expanded span remains bounded by
        :commit-state-p t
        :validation-p validation-p)
     (declare (ignore accessed-addresses accessed-storage))
-    (values
-     (list
-      (cons "status"
-            (if (eth-rpc-call-status-success-p status) "0x1" "0x0"))
-      (cons "returnData" (bytes-to-hex return-data))
-      (cons "gasUsed" (quantity-to-hex gas-used))
-      (cons "maxUsedGas" (quantity-to-hex max-used-gas))
-      (cons "logs"
-            (eth-rpc-json-array
-             (mapcar #'eth-rpc-simulate-log-object logs))))
-     gas-used)))
+    (let* ((success-p (eth-rpc-call-status-success-p status))
+           (result
+            (list
+             (cons "status" (if success-p "0x1" "0x0"))
+             (cons "returnData" (bytes-to-hex return-data))
+             (cons "gasUsed" (quantity-to-hex gas-used))
+             (cons "maxUsedGas" (quantity-to-hex max-used-gas))
+             (cons "logs"
+                   (eth-rpc-json-array
+                    (mapcar #'eth-rpc-simulate-log-object logs))))))
+      (unless success-p
+        (setf result
+              (append result
+                      (list (cons "error"
+                                  (eth-rpc-simulate-error-object
+                                   status return-data))))))
+      (values result gas-used))))
 
 (defun eth-rpc-simulate-required-call-gas (call remaining-gas)
   (unless (json-object-p call)
