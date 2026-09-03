@@ -265,8 +265,7 @@ decodes, and the raw revert data in the error object's data member."
          "eth_simulateV1 blockStateCalls must be an array"))
       (when (> (length (json-array-values block-state-calls))
                +eth-rpc-simulate-max-blocks+)
-        (block-validation-fail
-         "eth_simulateV1 blockStateCalls exceeds 256 blocks"))
+        (engine-rpc-fail -38026 "too many blocks"))
       (when (eq t (json-object-field payload "traceTransfers"))
         (block-validation-fail
          "eth_simulateV1 traceTransfers is not supported"))

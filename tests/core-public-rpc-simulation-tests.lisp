@@ -1258,3 +1258,30 @@
         (is (= 7
                (bytes-to-integer
                 (hex-to-bytes (field call "returnData")))))))))
+
+(deftest eth-rpc-simulate-v1-refuses-too-many-blocks-with-specific-error
+  ;; Execution APIs e5d1bb60 `ethSimulate-big-block-state-calls-array.io`
+  ;; requires the dedicated limit error rather than generic invalid params.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((response
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" 403)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons "blockStateCalls"
+                        (loop repeat 300 collect '()))))))
+              (make-engine-payload-memory-store)
+              (make-chain-config)))
+           (error-object (field response "error")))
+      (is (null (field response "result")))
+      (is (not (null error-object)))
+      (when error-object
+        (is (= -38026 (field error-object "code")))
+        (is (string= "too many blocks"
+                     (field error-object "message")))))))
