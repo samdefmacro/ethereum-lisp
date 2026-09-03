@@ -115,7 +115,10 @@
                :nonce 1 :gas-price 7 :gas-limit 21000 :value 3)
               1
               1))
-           (block (make-block :transactions (list transaction)))
+           (block
+             (make-block
+              :header (make-block-header :number 1)
+              :transactions (list transaction)))
            (original-location
              (symbol-function 'chain-store-transaction-location))
            (original-trace
@@ -164,6 +167,35 @@
            (error-object (field response "error")))
       (is (= -32000 (field error-object "code")))
       (is (search "not found" (field error-object "message"))))))
+
+(deftest debug-trace-block-refuses-genesis-without-parent-state
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config))
+           (genesis
+             (make-block
+              :header (make-block-header :number 0 :timestamp 1))))
+      (chain-store-put-block store genesis :state-available-p t)
+      (dolist (request
+               (list
+                (list "debug_traceBlockByHash"
+                      (hash32-to-hex (block-hash genesis)))
+                (list "debug_traceBlockByNumber" "0x0")))
+        (let* ((response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 4)
+                        (cons "method" (first request))
+                        (cons "params" (list (second request))))
+                  store config
+                  :allowed-method-p #'engine-rpc-public-method-p))
+               (error-object (field response "error")))
+          (is (not (null error-object)))
+          (when error-object
+            (is (= -32000 (field error-object "code")))
+            (is (string= "genesis is not traceable"
+                         (field error-object "message")))))))))
 
 (deftest evm-call-tracer-tree-is-well-formed
   ;; The tracer itself, with no EVM involved: entering and exiting frames must

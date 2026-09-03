@@ -217,6 +217,11 @@ broadly would quietly start collecting frames for block import."
     (eth-rpc-trace-transaction-location location store config)))
 
 (defun eth-rpc-debug-trace-block (block store config)
+  ;; Execution APIs e5d1bb60 `src/debug/trace.yaml` requires an error here:
+  ;; genesis has no parent state from which a trace can replay. Reject it even
+  ;; when it contains no transactions, before the empty loop returns `[]`.
+  (when (zerop (block-header-number (block-header block)))
+    (engine-rpc-fail -32000 "genesis is not traceable"))
   (eth-rpc-json-array
    (loop for transaction in (block-transactions block)
          for location =
