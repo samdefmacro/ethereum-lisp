@@ -137,7 +137,8 @@ fork-id fold, in canonical order and dropping unset forks and the genesis."
          (chain-config-berlin-block config)
          (chain-config-london-block config)
          (chain-config-arrow-glacier-block config)
-         (chain-config-gray-glacier-block config))))
+         (chain-config-gray-glacier-block config)
+         (chain-config-merge-netsplit-block config))))
 
 (defun chain-config-time-fork-schedule (config &optional (genesis-timestamp 0))
   "Return the ascending, de-duplicated timestamps at which CONFIG's time-based

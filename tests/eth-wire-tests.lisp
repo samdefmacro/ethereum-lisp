@@ -569,6 +569,34 @@
       ;; Cancun, no further scheduled fork.
       (is (equal '("0x9f3d2254" 0) (fork-id-at 20000000 1710338135))))))
 
+(deftest chain-config-fork-id-matches-rpc-compat-merge-vector
+  (:layer :unit :module :eth-wire)
+  ;; Byte-exact against execution-apis e5d1bb60's eth_config/get-config Hive
+  ;; fixture. MergeNetsplitBlock is a *Block field in go-ethereum's ChainConfig,
+  ;; so gatherForks folds it just like every other block transition. Omitting
+  ;; block 36 produced 0xb22c635f at this fixture's head instead of 0xe272ecbe.
+  (let* ((genesis
+           (hex-to-bytes
+            "0x44fd89d504659cd58f48f4796b77a7e7012cf296a2409afa2f6c3cb99b5b3d99"))
+         (config
+           (make-chain-config
+            :homestead-block 0 :eip150-block 3
+            :eip155-block 6 :eip158-block 6
+            :byzantium-block 9 :constantinople-block 12
+            :petersburg-block 15 :istanbul-block 18
+            :muir-glacier-block 21 :berlin-block 24
+            :london-block 27 :arrow-glacier-block 30
+            :gray-glacier-block 33 :merge-netsplit-block 36
+            :shanghai-time 390 :cancun-time 420 :prague-time 450
+            :osaka-time 480 :bpo1-time 510 :bpo2-time 540))
+         (fork-id
+           (ethereum-lisp.eth-wire:chain-config-eth-fork-id
+            config genesis 54 540)))
+    (is (string= "0xe272ecbe"
+                 (bytes-to-hex
+                  (ethereum-lisp.eth-wire:eth-fork-id-hash fork-id))))
+    (is (= 0 (ethereum-lisp.eth-wire:eth-fork-id-next fork-id)))))
+
 (deftest eth-status-69-matches-geth-live-wire-bytes
   ;; Byte-exact against a real geth v1.17.4 eth/69 Status captured live on the
   ;; testnet box: [version, networkid, genesis, forkid, earliest, latest,
