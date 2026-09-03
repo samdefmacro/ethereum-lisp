@@ -1592,3 +1592,66 @@
       (let ((response (request store config :false 411)))
         (is (null (field response "error")))
         (is (= 1 (length (field response "result"))))))))
+
+(deftest eth-rpc-simulate-v1-derives-base-fee-for-each-synthetic-block
+  ;; Execution APIs e5d1bb60 pins the three base-fee modes: no-validation
+  ;; blocks default to zero, explicit overrides are retained, and validation
+  ;; derives each omitted value from its synthetic parent.  With a 100000 gas
+  ;; limit, zero gas used, and parent fees 100 then 88, EIP-1559 yields 88 then
+  ;; 77 for the two validation blocks.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (store config validation overrides id)
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" id)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons
+                   "blockStateCalls"
+                   (mapcar
+                    (lambda (block-overrides)
+                      (append
+                       (when block-overrides
+                         (list (cons "blockOverrides" block-overrides)))
+                       (list (cons "calls" #()))))
+                    overrides))
+                  (cons "validation" validation))
+                 "latest")))
+              store config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000 :gas-used 0
+               :base-fee-per-gas 100 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response (request store config :false '(nil nil) 412))
+             (blocks (field response "result")))
+        (is (null (field response "error")))
+        (is (equal '("0x0" "0x0")
+                   (mapcar (lambda (result)
+                             (field result "baseFeePerGas"))
+                           blocks))))
+      (let* ((response (request store config t '(nil nil) 413))
+             (blocks (field response "result")))
+        (is (null (field response "error")))
+        (is (equal '("0x58" "0x4d")
+                   (mapcar (lambda (result)
+                             (field result "baseFeePerGas"))
+                           blocks))))
+      (let* ((response
+               (request store config :false
+                        (list (list (cons "baseFeePerGas" "0x7")))
+                        414))
+             (blocks (field response "result")))
+        (is (null (field response "error")))
+        (is (string= "0x7" (field (first blocks) "baseFeePerGas")))))))

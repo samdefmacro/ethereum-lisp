@@ -265,6 +265,26 @@ decodes, and the raw revert data in the error object's data member."
             name))))
       nil))
 
+(defun eth-rpc-simulate-block-base-fee
+    (parent-header block-overrides config validation-p)
+  "Return the EIP-1559 base fee for one synthetic block, or NIL pre-London."
+  (let ((number
+          (eth-rpc-block-override-quantity
+           block-overrides "number" (1+ (block-header-number parent-header)))))
+    (cond
+      ((json-object-field-present-p block-overrides "baseFeePerGas")
+       (eth-rpc-block-override-quantity block-overrides "baseFeePerGas" 0))
+      ((and config (not (chain-config-london-p config number)))
+       nil)
+      (validation-p
+       (expected-base-fee-per-gas
+        parent-header
+        :london-parent-p
+        (or (null config)
+            (chain-config-london-p config
+                                   (block-header-number parent-header)))))
+      (t 0))))
+
 (defun eth-rpc-simulated-block-state-call
     (block-state-call block-overrides number timestamp)
   "Copy BLOCK-STATE-CALL with explicit NUMBER and TIMESTAMP overrides."
@@ -386,14 +406,11 @@ explicit empty blocks, and the expanded span remains bounded by
     required))
 
 (defun eth-rpc-simulate-block-call-results
-    (calls block store config state block-overrides &key validation-p)
-  (let* ((header (block-header block))
-         (block-gas-limit
-           (eth-rpc-block-override-quantity
-            block-overrides "gasLimit" (block-header-gas-limit header)))
-         (remaining-gas block-gas-limit)
-         (gas-used 0)
-         (results '()))
+    (calls block store config state block-overrides block-gas-limit
+     &key validation-p)
+  (let ((remaining-gas block-gas-limit)
+        (gas-used 0)
+        (results '()))
     (dolist (call calls (values (nreverse results) gas-used))
       (let ((call-gas
               (eth-rpc-simulate-required-call-gas call remaining-gas)))
@@ -406,7 +423,7 @@ explicit empty blocks, and the expanded span remains bounded by
           (push result results))))))
 
 (defun eth-rpc-simulate-block-result
-    (block results block-overrides index gas-used)
+    (block results block-overrides index gas-used base-fee block-gas-limit)
   (let* ((header (block-header block))
          (object (eth-rpc-block-object block nil))
          (number
@@ -421,9 +438,10 @@ explicit empty blocks, and the expanded span remains bounded by
     (eth-rpc-set-object-field object "timestamp" (quantity-to-hex timestamp))
     (eth-rpc-set-object-field
      object "gasLimit"
-     (quantity-to-hex
-      (eth-rpc-block-override-quantity
-       block-overrides "gasLimit" (block-header-gas-limit header))))
+     (quantity-to-hex block-gas-limit))
+    (when base-fee
+      (eth-rpc-set-object-field
+       object "baseFeePerGas" (quantity-to-hex base-fee)))
     (eth-rpc-set-object-field object "gasUsed" (quantity-to-hex gas-used))
     (eth-rpc-set-object-field object "hash" nil)
     (eth-rpc-set-object-field object "nonce" nil)
@@ -462,6 +480,7 @@ explicit empty blocks, and the expanded span remains bounded by
                 (json-array-values block-state-calls) block)))
         (eth-rpc-json-array
          (loop for block-state-call in sanitized-block-state-calls
+               with parent-header = (block-header block)
                for index from 0
                collect
                (progn
@@ -476,7 +495,29 @@ explicit empty blocks, and the expanded span remains bounded by
                            block-state-call "blockOverrides"))
                         (calls
                           (or (json-object-field block-state-call "calls")
-                              (eth-rpc-json-array '()))))
+                              (eth-rpc-json-array '())))
+                        (number
+                          (eth-rpc-block-override-quantity
+                           block-overrides "number"
+                           (1+ (block-header-number parent-header))))
+                        (timestamp
+                          (eth-rpc-block-override-quantity
+                           block-overrides "time"
+                           (1+ (block-header-timestamp parent-header))))
+                        (block-gas-limit
+                          (eth-rpc-block-override-quantity
+                           block-overrides "gasLimit"
+                           (block-header-gas-limit parent-header)))
+                        (base-fee
+                          (eth-rpc-simulate-block-base-fee
+                           parent-header block-overrides config validation-p))
+                        (effective-block-overrides
+                          (if base-fee
+                              (eth-rpc-set-object-field
+                               (copy-tree block-overrides)
+                               "baseFeePerGas"
+                               (quantity-to-hex base-fee))
+                              block-overrides)))
                    (unless (json-array-p calls)
                      (block-validation-fail
                       "eth_simulateV1 calls must be an array"))
@@ -485,9 +526,17 @@ explicit empty blocks, and the expanded span remains bounded by
                    (multiple-value-bind (results gas-used)
                        (eth-rpc-simulate-block-call-results
                         (json-array-values calls)
-                        block store config state block-overrides
+                        block store config state effective-block-overrides
+                        block-gas-limit
                         :validation-p validation-p)
-                     (eth-rpc-simulate-block-result
-                      block
-                      results
-                      block-overrides index gas-used))))))))))
+                     (prog1
+                         (eth-rpc-simulate-block-result
+                          block results block-overrides index gas-used
+                          base-fee block-gas-limit)
+                       (setf parent-header
+                             (make-block-header
+                              :number number
+                              :timestamp timestamp
+                              :gas-limit block-gas-limit
+                              :gas-used gas-used
+                              :base-fee-per-gas base-fee))))))))))))
