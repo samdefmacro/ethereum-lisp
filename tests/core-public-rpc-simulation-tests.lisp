@@ -2227,3 +2227,73 @@
         (is (string= "0x52dc" (field block-result "gasUsed")))
         (is (string= (state-db-root-hex expected-state)
                      (field block-result "stateRoot")))))))
+
+(deftest eth-rpc-simulate-v1-captures-evm-logs
+  ;; Commit fa6d2dc3 threaded evm-result-logs through execute-message-call
+  ;; → eth-rpc-simulate-call-object → the call result. This deploys a
+  ;; LOG1-emitting contract and asserts the log entry appears in the response.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (sender
+             (address-from-hex
+              "0xc000000000000000000000000000000000000000"))
+           (contract
+             (address-from-hex
+              "0xc100000000000000000000000000000000000000"))
+           ;; PUSH1 0x42; PUSH1 0x01; PUSH1 0x00;
+           ;; PUSH1 0x42; PUSH1 0x00; MSTORE8; LOG1; STOP
+           (code #(96 66 96 1 96 0 96 66 96 0 83 161 0))
+           (state (make-state-db))
+           (block nil)
+           (expected-topic-hex
+             "0x0000000000000000000000000000000000000000000000000000000000000042"))
+      (state-db-set-account
+       state sender (make-state-account :balance 1000000))
+      (state-db-set-code state contract code)
+      (setf block
+            (make-block
+             :header
+             (make-block-header
+              :number 54 :timestamp 540 :gas-limit 100000
+              :base-fee-per-gas 0 :state-root (state-db-root state))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 421)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list
+                       (cons
+                        "calls"
+                        (list
+                         (list
+                          (cons "from" (address-to-hex sender))
+                          (cons "to" (address-to-hex contract))
+                          (cons "gas" (quantity-to-hex 100000)))))))))
+                   "latest")))
+                store config))
+             (block-result (first (field response "result")))
+             (call-result (and block-result
+                               (first (field block-result "calls"))))
+             (logs (and call-result (field call-result "logs"))))
+        (is (null (field response "error")))
+        (is (string= "0x1" (field call-result "status")))
+        (is (= 1 (length logs)))
+        (let ((log (first logs)))
+          (is (string= (address-to-hex contract)
+                       (field log "address")))
+          (is (= 1 (length (field log "topics"))))
+          (is (string= expected-topic-hex
+                       (first (field log "topics"))))
+          (is (string= "0x42" (field log "data"))))))))
