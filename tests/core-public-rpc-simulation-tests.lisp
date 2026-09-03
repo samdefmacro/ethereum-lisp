@@ -1285,3 +1285,77 @@
         (is (= -38026 (field error-object "code")))
         (is (string= "too many blocks"
                      (field error-object "message")))))))
+
+(deftest eth-rpc-simulate-v1-rejects-non-increasing-block-overrides
+  ;; Execution APIs e5d1bb60 pins these codes in
+  ;; `ethSimulate-block-num-order-38020.io` and
+  ;; `ethSimulate-block-timestamp-{order-38021,non-increment}.io`.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (store config overrides)
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" 404)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons
+                   "blockStateCalls"
+                   (loop for block-overrides in overrides
+                         collect
+                         (list (cons "blockOverrides"
+                                     block-overrides))))))))
+              store config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (dolist (case
+               (list
+                (list -38020 "block numbers must be in order"
+                      (list (list (cons "number" "0xa"))
+                            (list (cons "number" "0x9"))))
+                (list -38021 "block timestamps must be in order"
+                      (list (list (cons "time" "0x14"))
+                            (list (cons "time" "0x14"))))
+                ;; A number gap implicitly inserts blocks at timestamps 22 and
+                ;; 34. The requested block at 34 must therefore be rejected.
+                (list -38021 "block timestamps must be in order"
+                      (list (list (cons "number" "0x4")
+                                  (cons "time" "0x22"))))))
+        (destructuring-bind (expected-code expected-message overrides) case
+          (let* ((response (request store config overrides))
+                 (error-object (field response "error")))
+            (is (null (field response "result")))
+            (is (not (null error-object)))
+            (when error-object
+              (is (= expected-code (field error-object "code")))
+              (is (search expected-message
+                          (field error-object "message")))))))
+      ;; A blanket two-block rejection would satisfy both negative controls.
+      (let ((response
+              (request store config
+                       (list (list (cons "number" "0x2")
+                                   (cons "time" "0x14"))
+                             (list (cons "number" "0x3")
+                                   (cons "time" "0x15"))))))
+        (is (null (field response "error")))
+        (is (= 2 (length (field response "result")))))
+      ;; The same gap is valid once its explicit timestamp is later than every
+      ;; implicit predecessor timestamp.
+      (let ((response
+              (request store config
+                       (list (list (cons "number" "0x4")
+                                   (cons "time" "0x23"))))))
+        (is (null (field response "error")))
+        (is (= 1 (length (field response "result"))))))))

@@ -209,6 +209,52 @@ decodes, and the raw revert data in the error object's data member."
       (bytes-to-hex return-data))))
 
 (defconstant +eth-rpc-simulate-max-blocks+ 256)
+(defconstant +eth-rpc-simulate-timestamp-increment+ 12)
+
+(defun eth-rpc-validate-simulated-block-sequence (block-state-calls block)
+  "Reject non-increasing simulated block numbers and timestamps.
+
+Missing values advance from the preceding simulated block. A number gap also
+advances the predecessor timestamp by twelve seconds for each implicit empty
+block, matching go-ethereum
+`38271784c2b31926563806da9a2e023b88f5e7a8` `simulator.sanitizeChain`."
+  (let* ((header (block-header block))
+         (previous-number (block-header-number header))
+         (previous-timestamp (block-header-timestamp header)))
+    (dolist (block-state-call block-state-calls)
+      (unless (json-object-p block-state-call)
+        (block-validation-fail
+         "eth_simulateV1 blockStateCalls entries must be objects"))
+      (let ((block-overrides
+              (json-object-field block-state-call "blockOverrides")))
+        (when (and block-overrides (not (json-object-p block-overrides)))
+          (block-validation-fail
+           "eth_simulateV1 block overrides must be an object"))
+        (let ((number
+                (eth-rpc-block-override-quantity
+                 block-overrides "number" (1+ previous-number))))
+          (when (<= number previous-number)
+            (engine-rpc-fail
+             -38020
+             (format nil "block numbers must be in order: ~D <= ~D"
+                     number previous-number)))
+          (let* ((implicit-block-count (- number previous-number 1))
+                 (predecessor-timestamp
+                   (+ previous-timestamp
+                      (* implicit-block-count
+                         +eth-rpc-simulate-timestamp-increment+)))
+                 (timestamp
+                   (eth-rpc-block-override-quantity
+                    block-overrides "time"
+                    (+ predecessor-timestamp
+                       +eth-rpc-simulate-timestamp-increment+))))
+            (when (<= timestamp predecessor-timestamp)
+              (engine-rpc-fail
+               -38021
+               (format nil "block timestamps must be in order: ~D <= ~D"
+                       timestamp predecessor-timestamp)))
+            (setf previous-number number
+                  previous-timestamp timestamp)))))))
 
 (defun eth-rpc-simulate-call-result
     (call block store config state block-overrides)
@@ -276,6 +322,8 @@ decodes, and the raw revert data in the error object's data member."
              (state
                (ethereum-lisp.execution-service:chain-store-state-db
                 store (block-hash block))))
+        (eth-rpc-validate-simulated-block-sequence
+         (json-array-values block-state-calls) block)
         (eth-rpc-json-array
          (loop for block-state-call
                  in (json-array-values block-state-calls)
