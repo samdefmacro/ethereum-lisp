@@ -1352,10 +1352,97 @@
         (is (null (field response "error")))
         (is (= 2 (length (field response "result")))))
       ;; The same gap is valid once its explicit timestamp is later than every
-      ;; implicit predecessor timestamp.
+      ;; implicit predecessor timestamp, and both implicit blocks are returned.
       (let ((response
               (request store config
                        (list (list (cons "number" "0x4")
                                    (cons "time" "0x23"))))))
         (is (null (field response "error")))
-        (is (= 1 (length (field response "result"))))))))
+        (is (= 3 (length (field response "result"))))))))
+
+(deftest eth-rpc-simulate-v1-materializes-implicit-number-gap-blocks
+  ;; Execution APIs e5d1bb60's
+  ;; `ethSimulate-add-more-non-defined-BlockStateCalls-than-fit-but-now-with-fit.io`
+  ;; returns every implicit empty block, not only the caller-supplied entries.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 405)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list
+                       (cons "blockOverrides"
+                             (list (cons "number" "0x4"))))))))))
+                store config))
+             (blocks (field response "result")))
+        (is (null (field response "error")))
+        (is (= 3 (length blocks)))
+        (is (equal '("0x2" "0x3" "0x4")
+                   (mapcar (lambda (result) (field result "number")) blocks)))
+        (is (equal '("0x16" "0x22" "0x2e")
+                   (mapcar (lambda (result) (field result "timestamp"))
+                           blocks)))))))
+
+(deftest eth-rpc-simulate-v1-bounds-implicit-number-gap-blocks
+  ;; `maxSimulateBlocks` bounds the sanitized span, not just the supplied array.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (store config number)
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" 406)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons
+                   "blockStateCalls"
+                   (list
+                    (list
+                     (cons "blockOverrides"
+                           (list (cons "number" number))))))))))
+              store config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response (request store config "0x102"))
+             (error-object (field response "error")))
+        (is (null (field response "result")))
+        (is (not (null error-object)))
+        (when error-object
+          (is (= -38026 (field error-object "code")))
+          (is (string= "too many blocks"
+                       (field error-object "message")))))
+      ;; Exactly 256 simulated blocks remains the permitted positive boundary.
+      (let ((response (request store config "0x101")))
+        (is (null (field response "error")))))))

@@ -211,17 +211,39 @@ decodes, and the raw revert data in the error object's data member."
 (defconstant +eth-rpc-simulate-max-blocks+ 256)
 (defconstant +eth-rpc-simulate-timestamp-increment+ 12)
 
-(defun eth-rpc-validate-simulated-block-sequence (block-state-calls block)
-  "Reject non-increasing simulated block numbers and timestamps.
+(defun eth-rpc-simulated-block-state-call
+    (block-state-call block-overrides number timestamp)
+  "Copy BLOCK-STATE-CALL with explicit NUMBER and TIMESTAMP overrides."
+  (let ((result
+          (if (json-empty-object-p block-state-call)
+              '()
+              (copy-tree block-state-call)))
+        (overrides
+          (if (or (null block-overrides)
+                  (json-empty-object-p block-overrides))
+              '()
+              (copy-tree block-overrides))))
+    (setf overrides
+          (eth-rpc-set-object-field
+           overrides "number" (quantity-to-hex number)))
+    (setf overrides
+          (eth-rpc-set-object-field
+           overrides "time" (quantity-to-hex timestamp)))
+    (eth-rpc-set-object-field result "blockOverrides" overrides)))
 
-Missing values advance from the preceding simulated block. A number gap also
-advances the predecessor timestamp by twelve seconds for each implicit empty
-block, matching go-ethereum
-`38271784c2b31926563806da9a2e023b88f5e7a8` `simulator.sanitizeChain`."
+(defun eth-rpc-sanitize-simulated-block-sequence (block-state-calls block)
+  "Validate and expand the simulated block sequence.
+
+Missing values advance from the preceding simulated block. Number gaps become
+explicit empty blocks, and the expanded span remains bounded by
+`+eth-rpc-simulate-max-blocks+`. This follows Execution APIs e5d1bb60's
+`ethSimulate-add-more-non-defined-BlockStateCalls-than-fit*` fixtures."
   (let* ((header (block-header block))
-         (previous-number (block-header-number header))
-         (previous-timestamp (block-header-timestamp header)))
-    (dolist (block-state-call block-state-calls)
+         (base-number (block-header-number header))
+         (previous-number base-number)
+         (previous-timestamp (block-header-timestamp header))
+         (result '()))
+    (dolist (block-state-call block-state-calls (nreverse result))
       (unless (json-object-p block-state-call)
         (block-validation-fail
          "eth_simulateV1 blockStateCalls entries must be objects"))
@@ -238,23 +260,33 @@ block, matching go-ethereum
              -38020
              (format nil "block numbers must be in order: ~D <= ~D"
                      number previous-number)))
-          (let* ((implicit-block-count (- number previous-number 1))
-                 (predecessor-timestamp
+          (when (> (- number base-number) +eth-rpc-simulate-max-blocks+)
+            (engine-rpc-fail -38026 "too many blocks"))
+          (loop while (> number (1+ previous-number))
+                do (incf previous-number)
+                   (incf previous-timestamp
+                         +eth-rpc-simulate-timestamp-increment+)
+                   (push
+                    (eth-rpc-simulated-block-state-call
+                     +json-empty-object+ nil
+                     previous-number previous-timestamp)
+                    result))
+          (let ((timestamp
+                  (eth-rpc-block-override-quantity
+                   block-overrides "time"
                    (+ previous-timestamp
-                      (* implicit-block-count
-                         +eth-rpc-simulate-timestamp-increment+)))
-                 (timestamp
-                   (eth-rpc-block-override-quantity
-                    block-overrides "time"
-                    (+ predecessor-timestamp
-                       +eth-rpc-simulate-timestamp-increment+))))
-            (when (<= timestamp predecessor-timestamp)
+                      +eth-rpc-simulate-timestamp-increment+))))
+            (when (<= timestamp previous-timestamp)
               (engine-rpc-fail
                -38021
                (format nil "block timestamps must be in order: ~D <= ~D"
-                       timestamp predecessor-timestamp)))
+                       timestamp previous-timestamp)))
             (setf previous-number number
-                  previous-timestamp timestamp)))))))
+                  previous-timestamp timestamp)
+            (push
+             (eth-rpc-simulated-block-state-call
+              block-state-call block-overrides number timestamp)
+             result)))))))
 
 (defun eth-rpc-simulate-call-result
     (call block store config state block-overrides)
@@ -321,12 +353,12 @@ block, matching go-ethereum
                 store "eth_simulateV1"))
              (state
                (ethereum-lisp.execution-service:chain-store-state-db
-                store (block-hash block))))
-        (eth-rpc-validate-simulated-block-sequence
-         (json-array-values block-state-calls) block)
+                store (block-hash block)))
+             (sanitized-block-state-calls
+               (eth-rpc-sanitize-simulated-block-sequence
+                (json-array-values block-state-calls) block)))
         (eth-rpc-json-array
-         (loop for block-state-call
-                 in (json-array-values block-state-calls)
+         (loop for block-state-call in sanitized-block-state-calls
                for index from 0
                collect
                (progn
