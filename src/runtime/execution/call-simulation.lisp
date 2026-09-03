@@ -33,15 +33,17 @@
             gas-used
             (or accessed-addresses empty-addresses)
             (or accessed-storage empty-storage)
-            0)))
+            0
+            '())))
 
 (defun execution-call-values
     (state call-state commit-state-p status return-data gas-used
-     accessed-addresses accessed-storage &optional (refund-counter 0))
+     accessed-addresses accessed-storage &optional (refund-counter 0)
+     (logs '()))
   (when (and commit-state-p (execution-call-status-success-p status))
     (state-db-restore state call-state))
   (values status return-data gas-used accessed-addresses accessed-storage
-          refund-counter))
+          refund-counter logs))
 
 (defun execute-contract-creation-call
     (state sender tx effective-chain-rules
@@ -117,7 +119,8 @@
                              tx result effective-chain-rules)
                             accessed-addresses
                             accessed-storage
-                            (evm-result-refund-counter result))
+                            (evm-result-refund-counter result)
+                            (evm-result-logs result))
                     (let ((gas-used
                             (+ (transaction-evm-gas-used
                                 tx result effective-chain-rules)
@@ -139,7 +142,8 @@
                              gas-used
                              accessed-addresses
                              accessed-storage
-                             (evm-result-refund-counter result))))))))
+                             (evm-result-refund-counter result)
+                             (evm-result-logs result))))))))
           (evm-error ()
             (execution-failed-call-values gas-limit))))))
 
@@ -162,7 +166,7 @@
   "Execute a call-style transaction against a copied state DB.
 
 Returns status, return data, pre-refund gas used, accessed-address table,
-accessed-storage table, and the refund counter as multiple values. The caller's
+accessed-storage table, refund counter, and logs as multiple values. The caller's
 state object is not mutated unless COMMIT-STATE-P is true, in which case only a
 successful call's resulting state is installed."
   (let* ((effective-chain-rules
@@ -267,6 +271,7 @@ successful call's resulting state is installed."
                      tx result effective-chain-rules)
                     accessed-addresses
                     accessed-storage
-                    (evm-result-refund-counter result)))))
+                    (evm-result-refund-counter result)
+                    (evm-result-logs result)))))
            (evm-error ()
              (execution-failed-call-values gas-limit))))))))

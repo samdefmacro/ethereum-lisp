@@ -339,7 +339,7 @@ decodes, and the raw revert data in the error object's data member."
                  simulation-state sender tx base-fee eip1559-enabled-p))
               (multiple-value-bind
                     (status return-data gas-used
-                     accessed-addresses accessed-storage refund-counter)
+                     accessed-addresses accessed-storage refund-counter logs)
                   (ethereum-lisp.execution:execute-message-call
                    simulation-state
                    sender
@@ -370,9 +370,10 @@ decodes, and the raw revert data in the error object's data member."
                          base-fee eip1559-enabled-p gas-used
                          refund-counter rules)
                       (values status return-data billed-gas
-                              accessed-addresses accessed-storage max-used-gas))
+                              accessed-addresses accessed-storage max-used-gas
+                              logs))
                     (values status return-data gas-used
-                            accessed-addresses accessed-storage gas-used)))))))
+                            accessed-addresses accessed-storage gas-used logs)))))))
     (ethereum-lisp.execution:transaction-validation-error ()
       (block-validation-fail
        "~A transaction is invalid" method))))
@@ -537,12 +538,21 @@ explicit empty blocks, and the expanded span remains bounded by
               block-state-call block-overrides number timestamp)
              result)))))))
 
+(defun eth-rpc-simulate-log-object (log)
+  "Serialize a single log-entry into the eth_simulateV1 call-result format."
+  (list
+   (cons "address" (address-to-hex (log-entry-address log)))
+   (cons "topics"
+         (eth-rpc-json-array
+          (mapcar #'hash32-to-hex (log-entry-topics log))))
+   (cons "data" (bytes-to-hex (log-entry-data log)))))
+
 (defun eth-rpc-simulate-call-result
     (call block store config state block-overrides gas-limit
      &key validation-p)
   (multiple-value-bind
         (status return-data gas-used accessed-addresses accessed-storage
-         max-used-gas)
+         max-used-gas logs)
       (eth-rpc-simulate-call-object
        call block store config "eth_simulateV1"
        :gas-limit gas-limit
@@ -560,7 +570,9 @@ explicit empty blocks, and the expanded span remains bounded by
       (cons "returnData" (bytes-to-hex return-data))
       (cons "gasUsed" (quantity-to-hex gas-used))
       (cons "maxUsedGas" (quantity-to-hex max-used-gas))
-      (cons "logs" (eth-rpc-json-array '())))
+      (cons "logs"
+            (eth-rpc-json-array
+             (mapcar #'eth-rpc-simulate-log-object logs))))
      gas-used)))
 
 (defun eth-rpc-simulate-required-call-gas (call remaining-gas)

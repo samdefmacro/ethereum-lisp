@@ -1,0 +1,44 @@
+Section 5 eth_simulateV1 EVM log capture evidence
+report-version: 1
+generated-utc: 2026-09-04
+
+scope
+- Thread EVM-emitted logs through the simulation call path so eth_simulateV1
+  returns real log entries instead of an empty array.
+- Base revision: 1e2aa178ef0ba3e858ce93faefd0e30578ac3cfd.
+
+changes
+- execution layer (src/runtime/execution/call-simulation.lisp):
+  - execution-failed-call-values returns an empty log list as the 7th value.
+  - execution-call-values accepts an optional logs parameter and returns it
+    as the 7th value.
+  - execute-contract-creation-call threads evm-result-logs through both the
+    reverted and successful paths.
+  - execute-message-call threads evm-result-logs through the EVM-execution
+    path; docstring updated to document the 7th return value.
+- API layer (src/api/public/state/call-simulation.lisp):
+  - eth-rpc-simulate-call-object receives logs from execute-message-call
+    and returns them to its caller.
+  - eth-rpc-simulate-call-result receives logs and serializes them via the
+    new eth-rpc-simulate-log-object helper.
+  - eth-rpc-simulate-log-object serializes a single log-entry as {address,
+    topics, data}.
+
+green
+- Focused cold unit ETH-RPC-SIMULATE selector: 17 selected; 17 passed; 0
+  failed.
+- Block-import cold unit selector: 31 selected; 31 passed; 0 failed.
+- Debug-tracing cold unit selector: 5 selected; 5 passed; 0 failed.
+- git diff --check: PASS.
+
+limits
+- This is deterministic local implementation evidence. The archived Hive
+  rpc-compat baseline (137/234) remains unchanged, as do the 91 recorded
+  eth_simulateV1 failures.
+- A dedicated RED test that deploys a LOG1-emitting contract and asserts
+  logs appear in the response is pending (paren-balance difficulties);
+  17 existing simulation tests remain green.
+- Simulated transfer traces still return "not supported" (traceTransfers).
+- Block identity assembly (hash, nonce, transactions) remains stub.
+- A fresh pinned Hive rpc-compat rerun is still required before changing
+  Section 5 external-conformance status.
