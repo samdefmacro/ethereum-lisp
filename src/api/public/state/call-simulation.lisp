@@ -178,6 +178,25 @@ decodes, and the raw revert data in the error object's data member."
                 state-nonce
                 (transaction-gas-limit tx)))))))
 
+(defun eth-rpc-validate-simulation-funds (state sender tx)
+  "Require SENDER to cover the simulated transaction's maximum upfront cost."
+  (let* ((account (eth-rpc-simulation-account state sender))
+         (balance (state-account-balance account))
+         (required
+           (+ (transaction-value tx)
+              (* (transaction-gas-limit tx)
+                 (transaction-max-fee-per-gas tx)))))
+    (when (< balance required)
+      (engine-rpc-fail
+       -38014
+       (format nil
+               "insufficient funds for gas * price + value: address ~A ~
+                have ~D want ~D (supplied gas ~D)"
+               (address-to-hex sender)
+               balance
+               required
+               (transaction-gas-limit tx))))))
+
 (defun eth-rpc-advance-simulation-nonce (state sender)
   "Advance SENDER after an included simulated call, wrapping like uint64."
   (let ((account (eth-rpc-simulation-account state sender)))
@@ -255,6 +274,9 @@ decodes, and the raw revert data in the error object's data member."
                            (transaction-max-fee-per-gas tx)
                            base-fee
                            (transaction-gas-limit tx))))))
+            (when simulate-v1-p
+              (eth-rpc-validate-simulation-funds
+               simulation-state sender tx))
             ;; Transaction prechecks have passed. Advance before EVM execution so
             ;; sender code observes the included transaction's nonce, while the
             ;; copied call-state still rolls all later execution changes back on

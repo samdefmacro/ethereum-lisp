@@ -1,0 +1,68 @@
+Section 5 eth_simulateV1 insufficient-funds admission evidence
+report-version: 1
+generated-utc: 2026-09-03T09:48:11Z
+
+scope
+- Advance one pinned rpc-compat `eth_simulateV1` transaction-admission slice:
+  reject a call whose sender cannot cover maximum execution gas plus value.
+- Base revision: abf3da5df61f10d2c6f88a2a30c3c2b7e1aa4948.
+- The implementation, tests, plan update, and this report are committed together.
+
+references
+- execution-apis e5d1bb60e6c064e4b15080da07b4370d0baadf92:
+  - `tests/eth_simulateV1/ethSimulate-gas-fees-and-value-error-38014.io`
+    requires JSON-RPC error -38014 when a zero-balance sender attempts a
+    value-bearing simulation while validation is disabled.
+  - `docs-api/docs/ethsimulatev1-notes.mdx` specifies zero fee defaults in
+    no-validation mode but still describes invalid transaction failures as
+    request errors.
+- The read-only, non-normative go-ethereum comparator is checked out at local
+  revision 8a0223e8da596a409df02c11027320df97327e83:
+  - `core/state_transition.go:stateTransition.buyGas` checks balance against
+    `gasLimit * gasFeeCap + value` before buying gas, including call-style
+    execution with transaction checks disabled.
+  - `internal/ethapi/errors.go:txValidationError` maps both insufficient gas
+    funds and insufficient transfer funds to -38014.
+  - `internal/ethapi/api_test.go` pins the simulation error message and code for
+    a zero-balance, value-bearing call.
+
+red
+- Strict Common Lisp Workbench doctor passed before the first Lisp operation.
+- The reviewed warm-container selector
+  `ETH-RPC-SIMULATE-V1-REJECTS-INSUFFICIENT-FUNDS` selected the new test and
+  failed its first error-code assertion: the implementation returned a generic
+  error instead of -38014.
+
+repair
+- `eth_simulateV1` now computes each sender's maximum upfront execution cost as
+  `gasLimit * maxFeePerGas + value` after block state overrides are applied.
+- Calls whose request-local balance is below that amount fail with -38014 and a
+  deterministic address/have/want/supplied-gas message before nonce mutation or
+  EVM execution.
+- The check applies in both validation modes. Validation-mode base-fee rejection
+  remains earlier, preserving the pinned -38012 result when zero fee fields are
+  below the synthetic block base fee.
+- Equality remains admissible; ordinary `eth_call` behavior is unchanged.
+
+green-local
+- Focused reviewed warm selector after the final test expansion: 1 named test;
+  Pass: 1; Fail: 0.
+- Complete `ETH-RPC-SIMULATE-V1` cold selector: 12 selected; Pass: 12; Skip: 0;
+  Fail: 0.
+- Four adjacent warm-container simulation admission/state regressions passed.
+- Full cold unit gate through Common Lisp Workbench: 1,299 passed, 3 optional
+  skips; Fail: 0.
+- Common Lisp Workbench parenthesis gate for both changed Lisp files: PASS.
+- Reviewed warm-container documentation verification: PASS, including its
+  required broken-transcript negative control.
+- `git diff --check`: PASS.
+
+limits
+- This is deterministic local implementation evidence for one rpc-compat slice,
+  not a claim that all 91 archived `eth_simulateV1` failures now pass.
+- It adds maximum-cost admission only. Deducting and refunding gas fees, paying
+  priority fees to the synthetic fee recipient, transfer traces, full simulated
+  transaction/block assembly, and the other unimplemented simulation fixtures
+  remain separate slices.
+- A fresh pinned Hive rpc-compat rerun and immutable results directory are still
+  required before changing the archived 137/234 baseline or Section 5 status.

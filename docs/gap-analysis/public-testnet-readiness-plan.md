@@ -554,6 +554,17 @@ exact Execution APIs fixtures, and remaining limits are recorded in
 evidence only: the pinned Hive rpc-compat suite must be rerun before reducing
 the 91-case simulation baseline or changing Section 5 status.
 
+A further local transaction-admission slice now rejects `eth_simulateV1` calls
+whose request-local sender balance cannot cover
+`gasLimit * maxFeePerGas + value`. The check runs after state overrides, applies
+when validation is disabled as well as enabled, preserves the validation-mode
+base-fee error precedence, and returns the pinned -38014 error before nonce or
+EVM mutation. The zero-balance fixture, an explicit fee-plus-value boundary,
+all 12 local simulation regressions, and the 1,299-case cold unit gate are
+recorded in `docs/evidence/sec5-abf3da5d-simulate-funds.txt`. The archived Hive
+baseline remains unchanged until a pinned rerun; gas deduction/refund and fee
+recipient payment are still separate unfinished simulation work.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob

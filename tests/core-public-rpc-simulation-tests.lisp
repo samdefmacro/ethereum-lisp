@@ -1535,6 +1535,88 @@
           (is (search "intrinsic gas too low"
                       (field error-object "message"))))))))
 
+(deftest eth-rpc-simulate-v1-rejects-insufficient-funds
+  ;; Execution APIs e5d1bb60 `ethSimulate-gas-fees-and-value-error-38014.io`
+  ;; and pinned geth's `stateTransition.buyGas` require max-fee gas plus value
+  ;; to fit the sender balance even when transaction validation is disabled.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (store config balance gas max-fee value validation id)
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" id)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (append
+                  (list
+                   (cons
+                    "blockStateCalls"
+                    (list
+                     (append
+                      (when balance
+                        (list
+                         (cons
+                          "stateOverrides"
+                          (list
+                           (cons
+                            "0xc000000000000000000000000000000000000000"
+                            (list (cons "balance"
+                                        (quantity-to-hex balance))))))))
+                      (list
+                       (cons
+                        "calls"
+                        (list
+                         (append
+                          (list
+                           (cons "from"
+                                 "0xc000000000000000000000000000000000000000")
+                           (cons "to"
+                                 "0xc100000000000000000000000000000000000000")
+                           (cons "value" (quantity-to-hex value)))
+                          (when gas
+                            (list (cons "gas" (quantity-to-hex gas))))
+                          (when max-fee
+                            (list
+                             (cons "maxFeePerGas"
+                                   (quantity-to-hex max-fee))))))))))))
+                  (list (cons "validation" validation)))
+                 "latest")))
+              store config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (dolist (case
+               (list (list nil nil nil 1000 :false 415)
+                     (list 21999 21000 1 1000 :false 416)
+                     (list 21999 21000 1 1000 t 417)))
+        (destructuring-bind (balance gas max-fee value validation id) case
+          (let* ((response
+                   (request store config balance gas max-fee value
+                            validation id))
+                 (error-object (field response "error")))
+            (is (null (field response "result")))
+            (is (not (null error-object)))
+            (when error-object
+              (is (= -38014 (field error-object "code")))
+              (is (search "insufficient funds for gas * price + value"
+                          (field error-object "message")))))))
+      ;; Equality is the positive admission boundary: 21000 * 1 + 1000.
+      (let ((response
+              (request store config 22000 21000 1 1000 :false 418)))
+        (is (null (field response "error")))
+        (is (= 1 (length (field response "result"))))))))
+
 (deftest eth-rpc-simulate-v1-validation-enforces-base-fee-admission
   ;; Execution APIs e5d1bb60 pins the validation-mode failure to -38012 in
   ;; `ethSimulate-basefee-too-low-with-validation-38012.io`, while the paired
