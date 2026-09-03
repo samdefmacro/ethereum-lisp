@@ -1534,3 +1534,61 @@
           (is (= -38013 (field error-object "code")))
           (is (search "intrinsic gas too low"
                       (field error-object "message"))))))))
+
+(deftest eth-rpc-simulate-v1-validation-enforces-base-fee-admission
+  ;; Execution APIs e5d1bb60 pins the validation-mode failure to -38012 in
+  ;; `ethSimulate-basefee-too-low-with-validation-38012.io`, while the paired
+  ;; no-validation fixture permits the same zero-fee call.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (store config validation id)
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" id)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons
+                   "blockStateCalls"
+                   (list
+                    (list
+                     (cons "blockOverrides"
+                           (list (cons "baseFeePerGas" "0xa")))
+                     (cons
+                      "calls"
+                      (list
+                       (list
+                        (cons "from"
+                              "0xc000000000000000000000000000000000000000")
+                        (cons "to"
+                              "0xc100000000000000000000000000000000000000")
+                        (cons "maxFeePerGas" "0x0")
+                        (cons "maxPriorityFeePerGas" "0x0")))))))
+                  (cons "validation" validation))
+                 "latest")))
+              store config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response (request store config t 410))
+             (error-object (field response "error")))
+        (is (null (field response "result")))
+        (is (not (null error-object)))
+        (when error-object
+          (is (= -38012 (field error-object "code")))
+          (is (search "max fee per gas less than block base fee"
+                      (field error-object "message")))))
+      (let ((response (request store config :false 411)))
+        (is (null (field response "error")))
+        (is (= 1 (length (field response "result"))))))))

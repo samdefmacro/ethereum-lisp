@@ -151,7 +151,7 @@ decodes, and the raw revert data in the error object's data member."
 (defun eth-rpc-simulate-call-object
     (object block store config method
      &key gas-limit state-overrides block-overrides state
-          intrinsic-gas-error-code)
+          intrinsic-gas-error-code base-fee-error-code)
   (when (and block-overrides (not (json-object-p block-overrides)))
     (block-validation-fail "~A block overrides must be an object" method))
   (multiple-value-bind (sender tx)
@@ -169,6 +169,21 @@ decodes, and the raw revert data in the error object's data member."
                    "intrinsic gas too low: have ~D, want ~D (supplied gas ~D)"
                    (transaction-gas-limit tx)
                    intrinsic-gas
+                   (transaction-gas-limit tx))))))
+    (when base-fee-error-code
+      (let ((base-fee
+              (eth-rpc-block-override-quantity
+               block-overrides "baseFeePerGas"
+               (or (block-header-base-fee-per-gas (block-header block)) 0))))
+        (when (< (transaction-max-fee-per-gas tx) base-fee)
+          (engine-rpc-fail
+           base-fee-error-code
+           (format nil
+                   "max fee per gas less than block base fee: address ~A, ~
+                    maxFeePerGas: ~D, baseFee: ~D (supplied gas ~D)"
+                   (address-to-hex sender)
+                   (transaction-max-fee-per-gas tx)
+                   base-fee
                    (transaction-gas-limit tx))))))
     (handler-case
         (let* ((header (block-header block))
@@ -237,6 +252,18 @@ decodes, and the raw revert data in the error object's data member."
 
 (defconstant +eth-rpc-simulate-max-blocks+ 256)
 (defconstant +eth-rpc-simulate-timestamp-increment+ 12)
+
+(defun eth-rpc-simulate-boolean-option (payload name)
+  (if (json-object-field-present-p payload name)
+      (let ((value (json-object-field payload name)))
+        (cond
+          ((eq value t) t)
+          ((json-false-p value) nil)
+          (t
+           (block-validation-fail
+            "eth_simulateV1 ~A must be a boolean"
+            name))))
+      nil))
 
 (defun eth-rpc-simulated-block-state-call
     (block-state-call block-overrides number timestamp)
@@ -316,7 +343,8 @@ explicit empty blocks, and the expanded span remains bounded by
              result)))))))
 
 (defun eth-rpc-simulate-call-result
-    (call block store config state block-overrides gas-limit)
+    (call block store config state block-overrides gas-limit
+     &key validation-p)
   (multiple-value-bind
         (status return-data gas-used accessed-addresses accessed-storage)
       (eth-rpc-simulate-call-object
@@ -324,7 +352,8 @@ explicit empty blocks, and the expanded span remains bounded by
        :gas-limit gas-limit
        :state state
        :block-overrides block-overrides
-       :intrinsic-gas-error-code -38013)
+       :intrinsic-gas-error-code -38013
+       :base-fee-error-code (and validation-p -38012))
     (declare (ignore accessed-addresses accessed-storage))
     (values
      (list
@@ -357,7 +386,7 @@ explicit empty blocks, and the expanded span remains bounded by
     required))
 
 (defun eth-rpc-simulate-block-call-results
-    (calls block store config state block-overrides)
+    (calls block store config state block-overrides &key validation-p)
   (let* ((header (block-header block))
          (block-gas-limit
            (eth-rpc-block-override-quantity
@@ -370,7 +399,8 @@ explicit empty blocks, and the expanded span remains bounded by
               (eth-rpc-simulate-required-call-gas call remaining-gas)))
         (multiple-value-bind (result call-gas-used)
             (eth-rpc-simulate-call-result
-             call block store config state block-overrides call-gas)
+             call block store config state block-overrides call-gas
+             :validation-p validation-p)
           (incf gas-used call-gas-used)
           (decf remaining-gas call-gas-used)
           (push result results))))))
@@ -425,6 +455,8 @@ explicit empty blocks, and the expanded span remains bounded by
              (state
                (ethereum-lisp.execution-service:chain-store-state-db
                 store (block-hash block)))
+             (validation-p
+               (eth-rpc-simulate-boolean-option payload "validation"))
              (sanitized-block-state-calls
                (eth-rpc-sanitize-simulated-block-sequence
                 (json-array-values block-state-calls) block)))
@@ -453,7 +485,8 @@ explicit empty blocks, and the expanded span remains bounded by
                    (multiple-value-bind (results gas-used)
                        (eth-rpc-simulate-block-call-results
                         (json-array-values calls)
-                        block store config state block-overrides)
+                        block store config state block-overrides
+                        :validation-p validation-p)
                      (eth-rpc-simulate-block-result
                       block
                       results
