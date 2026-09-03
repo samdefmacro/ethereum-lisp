@@ -1741,3 +1741,178 @@
              (chain-store-account-balance
               store (block-hash block)
               (address-from-hex first-recipient)))))))
+
+(deftest eth-rpc-simulate-v1-defaults-and-advances-sender-nonce
+  ;; Execution APIs e5d1bb60 specifies that an omitted call nonce comes from the
+  ;; current account and advances after every included call. Contract creation
+  ;; makes that state transition observable without relying on response hashes;
+  ;; starting at uint64 maximum also pins its no-validation overflow fixture.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (created-address (sender nonce)
+             (make-address
+              (subseq
+               (keccak-256
+                (rlp-encode
+                 (make-rlp-list (address-bytes sender) nonce)))
+               12 32)))
+           (address-word-hex (address)
+             (let ((bytes (make-byte-vector 32)))
+               (replace bytes (address-bytes address) :start1 12)
+               (bytes-to-hex bytes))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (sender
+             (address-from-hex
+              "0xc000000000000000000000000000000000000000"))
+           ;; ADDRESS; MSTORE(0); RETURN(0, 32).
+           (initcode #(#x30 #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
+           (start-nonce (1- (ash 1 64)))
+           (call
+             (list (cons "from" (address-to-hex sender))
+                   (cons "gas" "0x186a0")
+                   (cons "input" (bytes-to-hex initcode))))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 54 :timestamp 540 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (state-db-set-account
+       state sender (make-state-account :nonce start-nonce))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 416)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list (list (cons "calls" (list call)))
+                           (list (cons "calls" (list call))))))
+                   "latest")))
+                store config))
+             (blocks (field response "result"))
+             (call-results
+               (mapcar (lambda (result)
+                         (first (field result "calls")))
+                       blocks)))
+        (is (null (field response "error")))
+        (is (= 2 (length call-results)))
+        (is (every (lambda (result)
+                     (string= "0x1" (field result "status")))
+                   call-results))
+        (is (equal
+             (list (address-word-hex
+                    (created-address sender start-nonce))
+                   (address-word-hex (created-address sender 0)))
+             (mapcar (lambda (result) (field result "returnData"))
+                     call-results))))
+      ;; Simulation state remains request-local.
+      (is (= start-nonce
+             (chain-store-account-nonce
+              store (block-hash block) sender))))))
+
+(deftest eth-rpc-simulate-v1-validates-sender-nonce
+  ;; Pinned geth `simulate.go` fills omitted nonces from state before its state
+  ;; transition. Validation mode then exposes the standardized -38010/-38011
+  ;; nonce mismatch errors and rejects the uint64 maximum before incrementing.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request
+               (store config sender nonce
+                &key override-nonce override-base-fee)
+             (let ((call
+                     (append
+                      (list (cons "from" (address-to-hex sender))
+                            (cons "to" (address-to-hex (zero-address))))
+                      (when nonce
+                        (list (cons "nonce" (quantity-to-hex nonce)))))))
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 417)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (append
+                    (list
+                     (cons
+                      "blockStateCalls"
+                      (list
+                       (append
+                        (when override-base-fee
+                          (list
+                           (cons "blockOverrides"
+                                 (list
+                                  (cons "baseFeePerGas"
+                                        (quantity-to-hex
+                                         override-base-fee))))))
+                        (when override-nonce
+                          (list
+                           (cons
+                            "stateOverrides"
+                            (list
+                             (cons
+                              (address-to-hex sender)
+                              (list
+                               (cons "nonce"
+                                     (quantity-to-hex override-nonce))))))))
+                        (list (cons "calls" (list call)))))))
+                    (list (cons "validation" t)))
+                   "latest")))
+                store config))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (sender
+             (address-from-hex
+              "0xc000000000000000000000000000000000000000"))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 54 :timestamp 540 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (state-db-set-account state sender (make-state-account :nonce 7))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (dolist (case (list (list 6 -38010 "nonce too low")
+                          (list 8 -38011 "nonce too high")))
+        (destructuring-bind (nonce expected-code expected-message) case
+          (let* ((response (request store config sender nonce))
+                 (error-object (field response "error")))
+            (is (null (field response "result")))
+            (is (not (null error-object)))
+            (when error-object
+              (is (= expected-code (field error-object "code")))
+              (is (search expected-message
+                          (field error-object "message")))))))
+      ;; A matching explicit nonce is the positive control.
+      (let ((response (request store config sender 7)))
+        (is (null (field response "error")))
+        (is (= 1 (length (field response "result")))))
+      ;; Validation must not wrap a sender nonce beyond uint64.
+      (let* ((response
+               (request store config sender nil
+                        :override-nonce (1- (ash 1 64))
+                        :override-base-fee 1))
+             (error-object (field response "error")))
+        (is (null (field response "result")))
+        (is (not (null error-object)))
+        (when error-object
+          (is (= -32603 (field error-object "code")))
+          (is (search "nonce has max value"
+                      (field error-object "message"))))))))

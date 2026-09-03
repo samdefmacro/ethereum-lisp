@@ -542,6 +542,18 @@ Every other selected group passed. Immutable commands, pins, artifact hashes,
 results, and the unrelated cold-E2E caveat are in
 `docs/evidence/sec5-63408ce2-rpc-config-fork-id.txt`.
 
+The branch's local `eth_simulateV1` burn-down has continued without changing
+that archived Hive count. Building on the request-local state carry at
+`99329e9b`, omitted call nonces now come from the overridden evolving sender
+account and advance across calls and synthetic blocks. Validation mode returns
+-38010/-38011 for low/high explicit nonces, rejects uint64 maximum with -32603,
+and preserves nonce-before-gas/fee error precedence; no-validation mode retains
+the specified uint64 wrap. Focused RED/GREEN output, adjacent regression gates,
+exact Execution APIs fixtures, and remaining limits are recorded in
+`docs/evidence/sec5-99329e9b-simulate-nonce.txt`. This is local implementation
+evidence only: the pinned Hive rpc-compat suite must be rerun before reducing
+the 91-case simulation baseline or changing Section 5 status.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob

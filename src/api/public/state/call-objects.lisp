@@ -128,7 +128,7 @@
     chain-id))
 
 (defun eth-rpc-call-object-transaction
-    (object header method config &key gas-limit-override)
+    (object header method config &key gas-limit-override (nonce-default 0))
   (unless (json-object-p object)
     (block-validation-fail "~A call object must be a JSON object" method))
   (let* ((sender (or (eth-rpc-call-object-optional-address object "from" method)
@@ -151,7 +151,7 @@
             object "value" :default 0))
          (nonce
            (eth-rpc-call-object-quantity-field
-            object "nonce" :default 0))
+            object "nonce" :default nonce-default))
          (data (eth-rpc-call-object-data object method))
          (chain-id (eth-rpc-call-object-chain-id object method config)))
     (multiple-value-bind (access-list access-list-present-p)

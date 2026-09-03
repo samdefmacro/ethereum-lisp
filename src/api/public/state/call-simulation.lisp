@@ -148,88 +148,161 @@ decodes, and the raw revert data in the error object's data member."
      :eip3860-p (or (null rules) (chain-rules-shanghai-p rules))
      :chain-rules rules)))
 
+(defconstant +eth-rpc-max-account-nonce+ (1- (ash 1 64)))
+
+(defun eth-rpc-simulation-account (state address)
+  (or (state-db-get-account state address)
+      (make-state-account)))
+
+(defun eth-rpc-validate-simulation-nonce (state sender tx)
+  "Reject a simulated transaction whose nonce cannot enter the current state."
+  (let* ((account (eth-rpc-simulation-account state sender))
+         (state-nonce (state-account-nonce account))
+         (tx-nonce (transaction-nonce tx)))
+    (cond
+      ((< tx-nonce state-nonce)
+       (engine-rpc-fail
+        -38010
+        (format nil "nonce too low: address ~A, tx: ~D state: ~D"
+                (address-to-hex sender) tx-nonce state-nonce)))
+      ((> tx-nonce state-nonce)
+       (engine-rpc-fail
+        -38011
+        (format nil "nonce too high: address ~A, tx: ~D state: ~D"
+                (address-to-hex sender) tx-nonce state-nonce)))
+      ((= state-nonce +eth-rpc-max-account-nonce+)
+       (engine-rpc-fail
+        -32603
+        (format nil "nonce has max value: address ~A, nonce: ~D (supplied gas ~D)"
+                (address-to-hex sender)
+                state-nonce
+                (transaction-gas-limit tx)))))))
+
+(defun eth-rpc-advance-simulation-nonce (state sender)
+  "Advance SENDER after an included simulated call, wrapping like uint64."
+  (let ((account (eth-rpc-simulation-account state sender)))
+    (state-db-set-account
+     state sender
+     (make-state-account
+      :nonce (mod (1+ (state-account-nonce account)) (ash 1 64))
+      :balance (state-account-balance account)
+      :storage-root (state-account-storage-root account)
+      :code-hash (state-account-code-hash account)))))
+
 (defun eth-rpc-simulate-call-object
     (object block store config method
      &key gas-limit state-overrides block-overrides state
-          intrinsic-gas-error-code base-fee-error-code commit-state-p)
+          intrinsic-gas-error-code base-fee-error-code commit-state-p
+          validation-p)
   (when (and block-overrides (not (json-object-p block-overrides)))
     (block-validation-fail "~A block overrides must be an object" method))
-  (multiple-value-bind (sender tx)
-      (eth-rpc-call-object-transaction
-       object (block-header block) method config
-       :gas-limit-override gas-limit)
-    (when intrinsic-gas-error-code
-      (let ((intrinsic-gas
-              (eth-rpc-simulate-intrinsic-gas
-               tx block block-overrides config)))
-        (when (< (transaction-gas-limit tx) intrinsic-gas)
-          (engine-rpc-fail
-           intrinsic-gas-error-code
-           (format nil
-                   "intrinsic gas too low: have ~D, want ~D (supplied gas ~D)"
-                   (transaction-gas-limit tx)
-                   intrinsic-gas
-                   (transaction-gas-limit tx))))))
-    (when base-fee-error-code
-      (let ((base-fee
-              (eth-rpc-block-override-quantity
-               block-overrides "baseFeePerGas"
-               (or (block-header-base-fee-per-gas (block-header block)) 0))))
-        (when (< (transaction-max-fee-per-gas tx) base-fee)
-          (engine-rpc-fail
-           base-fee-error-code
-           (format nil
-                   "max fee per gas less than block base fee: address ~A, ~
-                    maxFeePerGas: ~D, baseFee: ~D (supplied gas ~D)"
-                   (address-to-hex sender)
-                   (transaction-max-fee-per-gas tx)
-                   base-fee
-                   (transaction-gas-limit tx))))))
-    (handler-case
-        (let* ((header (block-header block))
-               (simulation-state
-                 (or state
-                     (ethereum-lisp.execution-service:chain-store-state-db
-                      store (block-hash block)))))
-          (eth-rpc-apply-state-overrides
-           simulation-state state-overrides method)
-          (ethereum-lisp.execution:execute-message-call
-           simulation-state
-           sender
-           tx
-           :base-fee
-           (eth-rpc-block-override-quantity
-            block-overrides "baseFeePerGas"
-            (or (block-header-base-fee-per-gas header) 0))
-           :chain-id (if config (chain-config-chain-id config) 0)
-           :chain-config config
-           :coinbase
-           (eth-rpc-block-override-address
-            block-overrides "feeRecipient"
-            (or (block-header-beneficiary header) (zero-address))
-            method)
-           :timestamp
-           (eth-rpc-block-override-quantity
-            block-overrides "time" (block-header-timestamp header))
-           :block-number
-           (eth-rpc-block-override-quantity
-            block-overrides "number" (block-header-number header))
-           :prev-randao
-           (eth-rpc-block-override-hash
-            block-overrides "prevRandao"
-            (or (block-header-mix-hash header) (zero-hash32)))
-           :difficulty (block-header-difficulty header)
-           :random-p t
-           :commit-state-p commit-state-p
-           :context-gas-limit
-           (eth-rpc-block-override-quantity
-            block-overrides "gasLimit" (block-header-gas-limit header))
-           :block-hashes
-           (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
-            store header)))
-      (ethereum-lisp.execution:transaction-validation-error ()
-        (block-validation-fail
-         "~A transaction is invalid" method)))))
+  (unless (json-object-p object)
+    (block-validation-fail "~A call object must be a JSON object" method))
+  (handler-case
+      (let* ((header (block-header block))
+             (simulation-state
+               (or state
+                   (ethereum-lisp.execution-service:chain-store-state-db
+                    store (block-hash block))))
+             (simulate-v1-p (string= method "eth_simulateV1")))
+        (eth-rpc-apply-state-overrides
+         simulation-state state-overrides method)
+        (let* ((default-sender
+                 (or (eth-rpc-call-object-optional-address
+                      object "from" method)
+                     (zero-address)))
+               (nonce-default
+                 (if simulate-v1-p
+                     (state-account-nonce
+                      (eth-rpc-simulation-account
+                       simulation-state default-sender))
+                     0)))
+          (multiple-value-bind (sender tx)
+              (eth-rpc-call-object-transaction
+               object header method config
+               :gas-limit-override gas-limit
+               :nonce-default nonce-default)
+            (when (and simulate-v1-p validation-p)
+              ;; Geth's state transition checks nonce mismatch/overflow before
+              ;; intrinsic-gas and fee-cap admission. The standardized nonce
+              ;; error must therefore win when several fields are invalid.
+              (eth-rpc-validate-simulation-nonce
+               simulation-state sender tx))
+            (when intrinsic-gas-error-code
+              (let ((intrinsic-gas
+                      (eth-rpc-simulate-intrinsic-gas
+                       tx block block-overrides config)))
+                (when (< (transaction-gas-limit tx) intrinsic-gas)
+                  (engine-rpc-fail
+                   intrinsic-gas-error-code
+                   (format nil
+                           "intrinsic gas too low: have ~D, want ~D (supplied gas ~D)"
+                           (transaction-gas-limit tx)
+                           intrinsic-gas
+                           (transaction-gas-limit tx))))))
+            (when base-fee-error-code
+              (let ((base-fee
+                      (eth-rpc-block-override-quantity
+                       block-overrides "baseFeePerGas"
+                       (or (block-header-base-fee-per-gas header) 0))))
+                (when (< (transaction-max-fee-per-gas tx) base-fee)
+                  (engine-rpc-fail
+                   base-fee-error-code
+                   (format nil
+                           "max fee per gas less than block base fee: address ~A, ~
+                            maxFeePerGas: ~D, baseFee: ~D (supplied gas ~D)"
+                           (address-to-hex sender)
+                           (transaction-max-fee-per-gas tx)
+                           base-fee
+                           (transaction-gas-limit tx))))))
+            ;; Transaction prechecks have passed. Advance before EVM execution so
+            ;; sender code observes the included transaction's nonce, while the
+            ;; copied call-state still rolls all later execution changes back on
+            ;; failure or revert.
+            (when simulate-v1-p
+              (eth-rpc-advance-simulation-nonce simulation-state sender))
+            (multiple-value-bind
+                  (status return-data gas-used
+                   accessed-addresses accessed-storage)
+                (ethereum-lisp.execution:execute-message-call
+                 simulation-state
+                 sender
+                 tx
+                 :base-fee
+                 (eth-rpc-block-override-quantity
+                  block-overrides "baseFeePerGas"
+                  (or (block-header-base-fee-per-gas header) 0))
+                 :chain-id (if config (chain-config-chain-id config) 0)
+                 :chain-config config
+                 :coinbase
+                 (eth-rpc-block-override-address
+                  block-overrides "feeRecipient"
+                  (or (block-header-beneficiary header) (zero-address))
+                  method)
+                 :timestamp
+                 (eth-rpc-block-override-quantity
+                  block-overrides "time" (block-header-timestamp header))
+                 :block-number
+                 (eth-rpc-block-override-quantity
+                  block-overrides "number" (block-header-number header))
+                 :prev-randao
+                 (eth-rpc-block-override-hash
+                  block-overrides "prevRandao"
+                  (or (block-header-mix-hash header) (zero-hash32)))
+                 :difficulty (block-header-difficulty header)
+                 :random-p t
+                 :commit-state-p commit-state-p
+                 :context-gas-limit
+                 (eth-rpc-block-override-quantity
+                  block-overrides "gasLimit" (block-header-gas-limit header))
+                 :block-hashes
+                 (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
+                  store header))
+              (values status return-data gas-used
+                      accessed-addresses accessed-storage)))))
+    (ethereum-lisp.execution:transaction-validation-error ()
+      (block-validation-fail
+       "~A transaction is invalid" method))))
 
 (defun engine-rpc-handle-eth-call (params store config)
   (unless (<= 1 (length params) 4)
@@ -375,7 +448,8 @@ explicit empty blocks, and the expanded span remains bounded by
        :block-overrides block-overrides
        :intrinsic-gas-error-code -38013
        :base-fee-error-code (and validation-p -38012)
-       :commit-state-p t)
+       :commit-state-p t
+       :validation-p validation-p)
     (declare (ignore accessed-addresses accessed-storage))
     (values
      (list

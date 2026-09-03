@@ -1,0 +1,67 @@
+Section 5 eth_simulateV1 sender-nonce evidence
+report-version: 1
+generated-utc: 2026-09-03T09:16:28Z
+
+scope
+- Advance the remaining pinned rpc-compat `eth_simulateV1` failures with one
+  transaction-state slice: omitted sender nonces, nonce progression, validation
+  mismatch errors, and maximum-nonce handling.
+- Base revision: 99329e9b969dbb299acc424fd309426be99e4ad5.
+- The implementation, tests, plan update, and this report are committed together.
+
+references
+- execution-apis e5d1bb60e6c064e4b15080da07b4370d0baadf92:
+  - `docs-api/docs/ethsimulatev1-notes.mdx` says an omitted transaction nonce is
+    the account's current nonce and advances once per transaction.
+  - `tests/eth_simulateV1/ethSimulate-check-that-nonce-increases.io` exercises
+    consecutive validation-mode nonces.
+  - `tests/eth_simulateV1/ethSimulate-overflow-nonce-validation.io` requires
+    error -32603 for a sender at uint64 maximum.
+  - `tests/eth_simulateV1/ethSimulate-overflow-nonce.io` preserves the
+    no-validation uint64 wrap behavior.
+- The read-only, non-normative go-ethereum comparator currently checked out at
+  local revision 8a0223e8da596a409df02c11027320df97327e83:
+  - `internal/ethapi/simulate.go:sanitizeCall` fills an omitted nonce from the
+    evolving StateDB before constructing the transaction.
+  - `core/state_transition.go:preCheck` checks nonce high/low/max before fee-cap
+    and intrinsic-gas admission.
+  - `internal/ethapi/errors.go:txValidationError` maps low/high nonce failures to
+    -38010/-38011 and otherwise maps nonce-max to -32603.
+
+red
+- Strict workbench doctor passed before the first Lisp operation.
+- After adding the progression regression, the reviewed warm-container selector
+  `ETH-RPC-SIMULATE-V1-DEFAULTS-AND-ADVANCES-SENDER-NONCE` failed: both calls
+  still synthesized nonce zero instead of the expected creation addresses for
+  state nonces 7 and 8.
+
+repair
+- `eth-rpc-call-object-transaction` now accepts an explicit default nonce while
+  preserving zero as the default for existing `eth_call`, estimate, and access
+  list paths.
+- `eth_simulateV1` derives omitted nonces after block state overrides and from
+  the request-local state carried by preceding calls and synthetic blocks.
+- Every included simulated call advances the sender's uint64 nonce, including
+  failed EVM execution; non-validation mode wraps uint64 maximum as the pinned
+  fixture does. Canonical retained state is not mutated.
+- Validation mode rejects low and high explicit nonces with -38010 and -38011,
+  rejects uint64 maximum with -32603, and preserves geth's nonce-before-gas/fee
+  error precedence.
+
+green-local
+- Focused selectors: 2 selected; Pass: 2; Skip: 0; Fail: 0.
+- Six adjacent RPC simulation/call regressions: Pass: 6; Fail: 0.
+- Common Lisp Workbench parenthesis gate for all three changed Lisp files: PASS.
+- `git diff --check`: PASS.
+- Full cold unit gate through Common Lisp Workbench: 1,298 passed, 3 optional
+  skips; Fail: 0.
+- Reviewed warm-container documentation verification: PASS (including its
+  required broken-transcript negative control).
+
+limits
+- This is deterministic local implementation evidence for one rpc-compat slice,
+  not a claim that all 91 baseline `eth_simulateV1` cases pass.
+- A fresh pinned Hive rpc-compat rerun and immutable results directory are still
+  required before changing the archived 137/234 baseline or Section 5 status.
+- Fee charging, transfer traces, full simulated transaction/block assembly, and
+  the other unimplemented simulation fixtures remain separate slices.
