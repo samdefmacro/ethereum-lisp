@@ -151,7 +151,7 @@ decodes, and the raw revert data in the error object's data member."
 (defun eth-rpc-simulate-call-object
     (object block store config method
      &key gas-limit state-overrides block-overrides state
-          intrinsic-gas-error-code base-fee-error-code)
+          intrinsic-gas-error-code base-fee-error-code commit-state-p)
   (when (and block-overrides (not (json-object-p block-overrides)))
     (block-validation-fail "~A block overrides must be an object" method))
   (multiple-value-bind (sender tx)
@@ -220,6 +220,7 @@ decodes, and the raw revert data in the error object's data member."
             (or (block-header-mix-hash header) (zero-hash32)))
            :difficulty (block-header-difficulty header)
            :random-p t
+           :commit-state-p commit-state-p
            :context-gas-limit
            (eth-rpc-block-override-quantity
             block-overrides "gasLimit" (block-header-gas-limit header))
@@ -373,7 +374,8 @@ explicit empty blocks, and the expanded span remains bounded by
        :state state
        :block-overrides block-overrides
        :intrinsic-gas-error-code -38013
-       :base-fee-error-code (and validation-p -38012))
+       :base-fee-error-code (and validation-p -38012)
+       :commit-state-p t)
     (declare (ignore accessed-addresses accessed-storage))
     (values
      (list
@@ -423,7 +425,8 @@ explicit empty blocks, and the expanded span remains bounded by
           (push result results))))))
 
 (defun eth-rpc-simulate-block-result
-    (block results block-overrides index gas-used base-fee block-gas-limit)
+    (block results block-overrides index gas-used base-fee block-gas-limit
+     state-root)
   (let* ((header (block-header block))
          (object (eth-rpc-block-object block nil))
          (number
@@ -443,6 +446,7 @@ explicit empty blocks, and the expanded span remains bounded by
       (eth-rpc-set-object-field
        object "baseFeePerGas" (quantity-to-hex base-fee)))
     (eth-rpc-set-object-field object "gasUsed" (quantity-to-hex gas-used))
+    (eth-rpc-set-object-field object "stateRoot" (hash32-to-hex state-root))
     (eth-rpc-set-object-field object "hash" nil)
     (eth-rpc-set-object-field object "nonce" nil)
     (eth-rpc-set-object-field object "transactions" (eth-rpc-json-array '()))
@@ -532,11 +536,12 @@ explicit empty blocks, and the expanded span remains bounded by
                      (prog1
                          (eth-rpc-simulate-block-result
                           block results block-overrides index gas-used
-                          base-fee block-gas-limit)
+                          base-fee block-gas-limit (state-db-root state))
                        (setf parent-header
                              (make-block-header
                               :number number
                               :timestamp timestamp
                               :gas-limit block-gas-limit
                               :gas-used gas-used
-                              :base-fee-per-gas base-fee))))))))))))
+                              :base-fee-per-gas base-fee
+                              :state-root (state-db-root state)))))))))))))

@@ -31,6 +31,13 @@
             (or accessed-addresses empty-addresses)
             (or accessed-storage empty-storage))))
 
+(defun execution-call-values
+    (state call-state commit-state-p status return-data gas-used
+     accessed-addresses accessed-storage)
+  (when (and commit-state-p (eq status :successful))
+    (state-db-restore state call-state))
+  (values status return-data gas-used accessed-addresses accessed-storage))
+
 (defun execute-contract-creation-call
     (state sender tx effective-chain-rules
      &key (base-fee 0)
@@ -43,6 +50,7 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
+          (commit-state-p nil)
           (context-gas-limit 0)
           (block-hashes (make-hash-table :test 'eql)))
   (let* ((call-state (state-db-copy state))
@@ -114,11 +122,16 @@
                               (> gas-used gas-limit))
                           (execution-failed-call-values
                            gas-limit accessed-addresses accessed-storage)
-                          (values (evm-result-status result)
-                                  return-data
-                                  gas-used
-                                  accessed-addresses
-                                  accessed-storage))))))
+                          (progn
+                            (when (eq (evm-result-status result) :successful)
+                              (state-db-set-code call-state contract return-data))
+                            (execution-call-values
+                             state call-state commit-state-p
+                             (evm-result-status result)
+                             return-data
+                             gas-used
+                             accessed-addresses
+                             accessed-storage)))))))
           (evm-error ()
             (execution-failed-call-values gas-limit))))))
 
@@ -135,13 +148,15 @@
           (prev-randao (zero-hash32))
           (difficulty 0)
           (random-p t)
+          (commit-state-p nil)
           (context-gas-limit 0)
           (block-hashes (make-hash-table :test 'eql)))
   "Execute a call-style transaction against a copied state DB.
 
 Returns status, return data, gas used, accessed-address table, and
-accessed-storage table as multiple values. The caller's state object is never
-mutated."
+accessed-storage table as multiple values. The caller's state object is not
+mutated unless COMMIT-STATE-P is true, in which case only a successful call's
+resulting state is installed."
   (let* ((effective-chain-rules
            (execution-chain-rules
             chain-rules chain-config block-number timestamp))
@@ -161,6 +176,7 @@ mutated."
          :prev-randao prev-randao
          :difficulty difficulty
          :random-p random-p
+         :commit-state-p commit-state-p
          :context-gas-limit context-gas-limit
          :block-hashes block-hashes)))
     (let* ((call-state (state-db-copy state))
@@ -190,21 +206,25 @@ mutated."
                (declare (ignore active-p))
                (multiple-value-bind (accessed-addresses accessed-storage)
                    (execution-empty-access-tables)
-                 (values :successful
-                         (copy-seq output)
-                         (+ intrinsic-gas precompile-gas-used)
-                         accessed-addresses
-                         accessed-storage)))
+                 (execution-call-values
+                  state call-state commit-state-p
+                  :successful
+                  (copy-seq output)
+                  (+ intrinsic-gas precompile-gas-used)
+                  accessed-addresses
+                  accessed-storage)))
            (evm-error ()
              (execution-failed-call-values gas-limit))))
         ((zerop (length code))
          (multiple-value-bind (accessed-addresses accessed-storage)
              (execution-empty-access-tables)
-           (values :successful
-                   (make-byte-vector 0)
-                   intrinsic-gas
-                   accessed-addresses
-                   accessed-storage)))
+           (execution-call-values
+            state call-state commit-state-p
+            :successful
+            (make-byte-vector 0)
+            intrinsic-gas
+            accessed-addresses
+            accessed-storage)))
         (t
          (handler-case
              (let ((context
@@ -231,11 +251,13 @@ mutated."
                         :gas-limit (- gas-limit intrinsic-gas))))
                  (multiple-value-bind (accessed-addresses accessed-storage)
                      (execution-context-access-tables context)
-                   (values (evm-result-status result)
-                           (copy-seq (evm-result-return-data result))
-                           (transaction-evm-gas-used
-                            tx result effective-chain-rules)
-                           accessed-addresses
-                           accessed-storage))))
+                   (execution-call-values
+                    state call-state commit-state-p
+                    (evm-result-status result)
+                    (copy-seq (evm-result-return-data result))
+                    (transaction-evm-gas-used
+                     tx result effective-chain-rules)
+                    accessed-addresses
+                    accessed-storage))))
            (evm-error ()
              (execution-failed-call-values gas-limit))))))))

@@ -1655,3 +1655,89 @@
              (blocks (field response "result")))
         (is (null (field response "error")))
         (is (string= "0x7" (field (first blocks) "baseFeePerGas")))))))
+
+(deftest eth-rpc-simulate-v1-carries-successful-state-across-calls-and-blocks
+  ;; Execution APIs e5d1bb60 `ethSimulate-transfer-over-BlockStateCalls.io`
+  ;; requires each successful call to feed the next call and each resulting
+  ;; block state to feed the next synthetic block. Keep the fixture's addresses,
+  ;; balances, values, and two-block shape so drift remains auditable.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 54 :timestamp 540 :gas-limit 200000000
+               :base-fee-per-gas 0 :state-root (state-db-root state))))
+           (sender "0xc000000000000000000000000000000000000000")
+           (first-recipient "0xc100000000000000000000000000000000000000")
+           (second-recipient "0xc200000000000000000000000000000000000000")
+           (override-recipient "0xc300000000000000000000000000000000000000")
+           (response nil))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (setf response
+            (engine-rpc-handle-request
+             (list
+              (cons "jsonrpc" "2.0")
+              (cons "id" 415)
+              (cons "method" "eth_simulateV1")
+              (cons
+               "params"
+               (list
+                (list
+                 (cons
+                  "blockStateCalls"
+                  (list
+                   (list
+                    (cons "stateOverrides"
+                          (list
+                           (cons sender
+                                 (list (cons "balance" "0x1388")))))
+                    (cons
+                     "calls"
+                     (list
+                      (list (cons "from" sender)
+                            (cons "to" first-recipient)
+                            (cons "value" "0x7d0"))
+                      (list (cons "from" sender)
+                            (cons "to" override-recipient)
+                            (cons "value" "0x7d0")))))
+                   (list
+                    (cons "stateOverrides"
+                          (list
+                           (cons override-recipient
+                                 (list (cons "balance" "0x1388")))))
+                    (cons
+                     "calls"
+                     (list
+                      (list (cons "from" first-recipient)
+                            (cons "to" second-recipient)
+                            (cons "value" "0x3e8"))
+                      (list (cons "from" override-recipient)
+                            (cons "to" second-recipient)
+                            (cons "value" "0x3e8"))))))))
+                "latest")))
+             store config))
+      (let ((blocks (field response "result")))
+        (is (null (field response "error")))
+        (is (= 2 (length blocks)))
+        (is (every (lambda (result)
+                     (every (lambda (call)
+                              (string= "0x1" (field call "status")))
+                            (field result "calls")))
+                   blocks))
+        (is (not (string= (hash32-to-hex (block-header-state-root
+                                          (block-header block)))
+                          (field (first blocks) "stateRoot"))))
+        (is (not (string= (field (first blocks) "stateRoot")
+                          (field (second blocks) "stateRoot")))))
+      ;; The mutable simulation state is request-local; canonical retained state
+      ;; remains unchanged after the response is assembled.
+      (is (= 0
+             (chain-store-account-balance
+              store (block-hash block)
+              (address-from-hex first-recipient)))))))
