@@ -562,8 +562,18 @@ base-fee error precedence, and returns the pinned -38014 error before nonce or
 EVM mutation. The zero-balance fixture, an explicit fee-plus-value boundary,
 all 12 local simulation regressions, and the 1,299-case cold unit gate are
 recorded in `docs/evidence/sec5-abf3da5d-simulate-funds.txt`. The archived Hive
-baseline remains unchanged until a pinned rerun; gas deduction/refund and fee
-recipient payment are still separate unfinished simulation work.
+baseline remains unchanged until a pinned rerun.
+
+The next local transaction-state slice now buys each included call's gas at its
+effective price, refunds unused gas and fork-capped EVM refunds, burns the base
+fee, and credits the overridden/default synthetic fee recipient with billed
+priority fees. `gasUsed` and block gas-pool consumption now reflect billed gas
+after refunds and the EIP-7623 floor, while `maxUsedGas` preserves peak gas.
+Two settlement regressions, all 14 local simulation regressions, and the
+1,301-case cold unit gate are recorded in
+`docs/evidence/sec5-f8894386-simulate-fees.txt`. The archived Hive baseline is
+still unchanged pending a pinned rerun; simulated logs, transaction/block
+identity assembly, transfer traces, and other fixture gaps remain unfinished.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
 

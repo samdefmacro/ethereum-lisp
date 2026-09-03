@@ -1998,3 +1998,188 @@
           (is (= -32603 (field error-object "code")))
           (is (search "nonce has max value"
                       (field error-object "message"))))))))
+
+(deftest eth-rpc-simulate-v1-settles-gas-fees
+  ;; Execution APIs e5d1bb60 `ethSimulate-fee-recipient-receiving-funds.io`
+  ;; and pinned geth's
+  ;; state transition charge the effective gas price, refund unused gas, burn
+  ;; the base fee, and credit only the priority fee to the synthetic coinbase.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (sender
+             (address-from-hex
+              "0xc000000000000000000000000000000000000000"))
+           (recipient
+             (address-from-hex
+              "0xc100000000000000000000000000000000000000"))
+           (fee-recipient
+             (address-from-hex
+              "0xc200000000000000000000000000000000000000"))
+           (state (make-state-db))
+           (block nil)
+           (expected-state nil))
+      (state-db-set-account
+       state sender (make-state-account :balance 500000))
+      (setf block
+            (make-block
+             :header
+             (make-block-header
+              :number 54 :timestamp 540 :gas-limit 100000
+              :base-fee-per-gas 0 :state-root (state-db-root state))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (setf expected-state (state-db-copy state))
+      ;; effective gas price = min(10, 2 + 3) = 5. The EOA transfer uses 21000
+      ;; gas, so sender pays 105000 gas + 1000 value, coinbase receives the
+      ;; 63000 priority fee, and the remaining 42000 base fee is burned.
+      (state-db-set-account
+       expected-state sender
+       (make-state-account :nonce 1 :balance 394000))
+      (state-db-set-account
+       expected-state recipient
+       (make-state-account :balance 1000))
+      (state-db-set-account
+       expected-state fee-recipient
+       (make-state-account :balance 63000))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 419)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list
+                       (cons
+                        "blockOverrides"
+                        (list
+                         (cons "baseFeePerGas" "0x2")
+                         (cons "feeRecipient"
+                               (address-to-hex fee-recipient))))
+                       (cons
+                        "calls"
+                        (list
+                         (list
+                          (cons "from" (address-to-hex sender))
+                          (cons "to" (address-to-hex recipient))
+                          (cons "gas" "0x7530")
+                          (cons "value" "0x3e8")
+                          (cons "maxFeePerGas" "0xa")
+                          (cons "maxPriorityFeePerGas" "0x3")))))))
+                    (cons "validation" t))
+                   "latest")))
+                store config))
+             (block-result (first (field response "result")))
+             (call-result (and block-result
+                               (first (field block-result "calls")))))
+        (is (null (field response "error")))
+        (is (string= "0x1" (field call-result "status")))
+        (is (string= "0x5208" (field call-result "gasUsed")))
+        (is (string= "0x5208" (field call-result "maxUsedGas")))
+        (is (string= (state-db-root-hex expected-state)
+                     (field block-result "stateRoot"))))
+      ;; Fee settlement, like every simulation mutation, remains request-local.
+      (is (= 500000
+             (chain-store-account-balance
+              store (block-hash block) sender)))
+      (is (= 0
+             (chain-store-account-balance
+              store (block-hash block) fee-recipient))))))
+
+(deftest eth-rpc-simulate-v1-applies-evm-gas-refunds
+  ;; Geth state_transition.go records MaxUsedGas before the EIP-3529 refund,
+  ;; bills UsedGas after it, and settles balances using that billed amount.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :berlin-block 0
+                                      :london-block 0))
+           (sender
+             (address-from-hex
+              "0xc000000000000000000000000000000000000000"))
+           (contract
+             (address-from-hex
+              "0xc100000000000000000000000000000000000000"))
+           (fee-recipient
+             (address-from-hex
+              "0xc200000000000000000000000000000000000000"))
+           (slot
+             (hash32-from-hex
+              "0x0000000000000000000000000000000000000000000000000000000000000001"))
+           ;; SSTORE slot 1 := 0; RETURN(0, 0).
+           (code #(96 0 96 1 85 96 0 96 0 243))
+           (state (make-state-db))
+           (block nil)
+           (expected-state nil))
+      (state-db-set-account
+       state sender (make-state-account :balance 1000000))
+      (state-db-set-code state contract code)
+      (state-db-set-storage state contract slot 7)
+      (setf block
+            (make-block
+             :header
+             (make-block-header
+              :number 54 :timestamp 540 :gas-limit 100000
+              :base-fee-per-gas 0 :state-root (state-db-root state))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (setf expected-state (state-db-copy state))
+      ;; Pre-refund gas is 26012. Clearing the slot earns a 4800 refund, below
+      ;; the London one-fifth cap, so billed gas is 21212. At effective price 5
+      ;; the sender retains 893940 and the synthetic coinbase earns 63636.
+      (state-db-set-account
+       expected-state sender
+       (make-state-account :nonce 1 :balance 893940))
+      (state-db-set-account
+       expected-state fee-recipient
+       (make-state-account :balance 63636))
+      (state-db-set-storage expected-state contract slot 0)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 420)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list
+                       (cons
+                        "blockOverrides"
+                        (list
+                         (cons "baseFeePerGas" "0x2")
+                         (cons "feeRecipient"
+                               (address-to-hex fee-recipient))))
+                       (cons
+                        "calls"
+                        (list
+                         (list
+                          (cons "from" (address-to-hex sender))
+                          (cons "to" (address-to-hex contract))
+                          (cons "gas" "0x186a0")
+                          (cons "maxFeePerGas" "0xa")
+                          (cons "maxPriorityFeePerGas" "0x3"))))))))
+                   "latest")))
+                store config))
+             (block-result (first (field response "result")))
+             (call-result (and block-result
+                               (first (field block-result "calls")))))
+        (is (null (field response "error")))
+        (is (string= "0x1" (field call-result "status")))
+        (is (string= "0x52dc" (field call-result "gasUsed")))
+        (is (string= "0x659c" (field call-result "maxUsedGas")))
+        (is (string= "0x52dc" (field block-result "gasUsed")))
+        (is (string= (state-db-root-hex expected-state)
+                     (field block-result "stateRoot")))))))

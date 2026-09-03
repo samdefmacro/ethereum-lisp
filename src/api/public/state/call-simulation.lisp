@@ -197,16 +197,46 @@ decodes, and the raw revert data in the error object's data member."
                required
                (transaction-gas-limit tx))))))
 
-(defun eth-rpc-advance-simulation-nonce (state sender)
-  "Advance SENDER after an included simulated call, wrapping like uint64."
-  (let ((account (eth-rpc-simulation-account state sender)))
+(defun eth-rpc-charge-simulation-upfront
+    (state sender tx base-fee eip1559-enabled-p)
+  "Buy gas and advance SENDER before an included simulated transaction."
+  (let* ((account (eth-rpc-simulation-account state sender))
+         (gas-price
+           (call-transaction-effective-gas-price
+            tx :base-fee base-fee
+               :eip1559-enabled-p eip1559-enabled-p)))
     (state-db-set-account
      state sender
      (make-state-account
       :nonce (mod (1+ (state-account-nonce account)) (ash 1 64))
-      :balance (state-account-balance account)
+      :balance (- (state-account-balance account)
+                  (* (transaction-gas-limit tx) gas-price))
       :storage-root (state-account-storage-root account)
-      :code-hash (state-account-code-hash account)))))
+      :code-hash (state-account-code-hash account)))
+    gas-price))
+
+(defun eth-rpc-finalize-simulation-fees
+    (state sender fee-recipient tx base-fee eip1559-enabled-p
+     gas-used refund-counter rules)
+  "Refund unused gas, burn the base fee, and credit the synthetic coinbase."
+  (multiple-value-bind (billed-gas max-used-gas)
+      (finalized-transaction-gas-values
+       tx gas-used refund-counter rules)
+    (let* ((gas-price
+             (call-transaction-effective-gas-price
+              tx :base-fee base-fee
+                 :eip1559-enabled-p eip1559-enabled-p))
+           (priority-fee-per-gas
+             (if eip1559-enabled-p
+                 (max 0 (- gas-price base-fee))
+                 gas-price))
+           (unused-gas (- (transaction-gas-limit tx) billed-gas)))
+      (when (plusp unused-gas)
+        (state-db-add-balance state sender (* unused-gas gas-price)))
+      (when (plusp priority-fee-per-gas)
+        (state-db-add-balance
+         state fee-recipient (* billed-gas priority-fee-per-gas)))
+      (values billed-gas max-used-gas))))
 
 (defun eth-rpc-simulate-call-object
     (object block store config method
@@ -274,54 +304,75 @@ decodes, and the raw revert data in the error object's data member."
                            (transaction-max-fee-per-gas tx)
                            base-fee
                            (transaction-gas-limit tx))))))
-            (when simulate-v1-p
-              (eth-rpc-validate-simulation-funds
-               simulation-state sender tx))
-            ;; Transaction prechecks have passed. Advance before EVM execution so
-            ;; sender code observes the included transaction's nonce, while the
-            ;; copied call-state still rolls all later execution changes back on
-            ;; failure or revert.
-            (when simulate-v1-p
-              (eth-rpc-advance-simulation-nonce simulation-state sender))
-            (multiple-value-bind
-                  (status return-data gas-used
-                   accessed-addresses accessed-storage)
-                (ethereum-lisp.execution:execute-message-call
-                 simulation-state
-                 sender
-                 tx
-                 :base-fee
-                 (eth-rpc-block-override-quantity
-                  block-overrides "baseFeePerGas"
-                  (or (block-header-base-fee-per-gas header) 0))
-                 :chain-id (if config (chain-config-chain-id config) 0)
-                 :chain-config config
-                 :coinbase
-                 (eth-rpc-block-override-address
-                  block-overrides "feeRecipient"
-                  (or (block-header-beneficiary header) (zero-address))
-                  method)
-                 :timestamp
-                 (eth-rpc-block-override-quantity
-                  block-overrides "time" (block-header-timestamp header))
-                 :block-number
-                 (eth-rpc-block-override-quantity
-                  block-overrides "number" (block-header-number header))
-                 :prev-randao
-                 (eth-rpc-block-override-hash
-                  block-overrides "prevRandao"
-                  (or (block-header-mix-hash header) (zero-hash32)))
-                 :difficulty (block-header-difficulty header)
-                 :random-p t
-                 :commit-state-p commit-state-p
-                 :context-gas-limit
-                 (eth-rpc-block-override-quantity
-                  block-overrides "gasLimit" (block-header-gas-limit header))
-                 :block-hashes
-                 (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
-                  store header))
-              (values status return-data gas-used
-                      accessed-addresses accessed-storage)))))
+            (let* ((base-fee
+                     (eth-rpc-block-override-quantity
+                      block-overrides "baseFeePerGas"
+                      (or (block-header-base-fee-per-gas header) 0)))
+                   (block-number
+                     (eth-rpc-block-override-quantity
+                      block-overrides "number"
+                      (block-header-number header)))
+                   (block-timestamp
+                     (eth-rpc-block-override-quantity
+                      block-overrides "time"
+                      (block-header-timestamp header)))
+                   (rules
+                     (and config
+                          (chain-config-rules
+                           config block-number block-timestamp)))
+                   (eip1559-enabled-p
+                     (or (null config)
+                         (chain-config-london-p config block-number)))
+                   (fee-recipient
+                     (eth-rpc-block-override-address
+                      block-overrides "feeRecipient"
+                      (or (block-header-beneficiary header) (zero-address))
+                      method)))
+              (when simulate-v1-p
+                (eth-rpc-validate-simulation-funds
+                 simulation-state sender tx))
+              ;; Transaction prechecks have passed. Buy gas and advance before
+              ;; EVM execution so both effects survive a revert, while the
+              ;; copied call-state still rolls later execution changes back.
+              (when simulate-v1-p
+                (eth-rpc-charge-simulation-upfront
+                 simulation-state sender tx base-fee eip1559-enabled-p))
+              (multiple-value-bind
+                    (status return-data gas-used
+                     accessed-addresses accessed-storage refund-counter)
+                  (ethereum-lisp.execution:execute-message-call
+                   simulation-state
+                   sender
+                   tx
+                   :base-fee base-fee
+                   :chain-id (if config (chain-config-chain-id config) 0)
+                   :chain-config config
+                   :coinbase fee-recipient
+                   :timestamp block-timestamp
+                   :block-number block-number
+                   :prev-randao
+                   (eth-rpc-block-override-hash
+                    block-overrides "prevRandao"
+                    (or (block-header-mix-hash header) (zero-hash32)))
+                   :difficulty (block-header-difficulty header)
+                   :random-p t
+                   :commit-state-p commit-state-p
+                   :context-gas-limit
+                   (eth-rpc-block-override-quantity
+                    block-overrides "gasLimit" (block-header-gas-limit header))
+                   :block-hashes
+                   (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
+                    store header))
+                (if simulate-v1-p
+                    (multiple-value-bind (billed-gas max-used-gas)
+                        (eth-rpc-finalize-simulation-fees
+                         simulation-state sender fee-recipient tx
+                         base-fee eip1559-enabled-p gas-used
+                         refund-counter rules)
+                      (values status return-data billed-gas
+                              accessed-addresses accessed-storage max-used-gas))
+                    (values status return-data gas-used
+                            accessed-addresses accessed-storage gas-used)))))))
     (ethereum-lisp.execution:transaction-validation-error ()
       (block-validation-fail
        "~A transaction is invalid" method))))
@@ -462,7 +513,8 @@ explicit empty blocks, and the expanded span remains bounded by
     (call block store config state block-overrides gas-limit
      &key validation-p)
   (multiple-value-bind
-        (status return-data gas-used accessed-addresses accessed-storage)
+        (status return-data gas-used accessed-addresses accessed-storage
+         max-used-gas)
       (eth-rpc-simulate-call-object
        call block store config "eth_simulateV1"
        :gas-limit gas-limit
@@ -479,9 +531,7 @@ explicit empty blocks, and the expanded span remains bounded by
             (if (eth-rpc-call-status-success-p status) "0x1" "0x0"))
       (cons "returnData" (bytes-to-hex return-data))
       (cons "gasUsed" (quantity-to-hex gas-used))
-      ;; execute-message-call reports pre-refund gas, so it is also the maximum
-      ;; gas consumed during this simulation path.
-      (cons "maxUsedGas" (quantity-to-hex gas-used))
+      (cons "maxUsedGas" (quantity-to-hex max-used-gas))
       (cons "logs" (eth-rpc-json-array '())))
      gas-used)))
 

@@ -1,0 +1,73 @@
+Section 5 eth_simulateV1 gas-fee settlement evidence
+report-version: 1
+generated-utc: 2026-09-03T10:32:03Z
+
+scope
+- Advance one pinned rpc-compat `eth_simulateV1` state-transition slice: buy
+  execution gas, refund unused and EVM-refunded gas, burn the base-fee portion,
+  and credit the synthetic fee recipient with the priority fee.
+- Base revision: f889438651d9349a09d3e8b033e82ee8624c92d0.
+- The implementation, tests, plan update, and this report are committed together.
+
+references
+- execution-apis e5d1bb60e6c064e4b15080da07b4370d0baadf92:
+  - `tests/eth_simulateV1/ethSimulate-fee-recipient-receiving-funds.io`
+    exercises an overridden synthetic fee recipient and balance reads from
+    transactions included in the evolving simulated state.
+  - `tests/eth_simulateV1/ethSimulate-run-gas-spending.io` exercises billed gas
+    consumption across calls in one synthetic block.
+- The read-only, non-normative go-ethereum comparator is checked out at local
+  revision 8a0223e8da596a409df02c11027320df97327e83:
+  - `core/state_transition.go:stateTransition.buyGas` buys the full gas limit at
+    the effective gas price before execution.
+  - `core/state_transition.go:stateTransition.refundGas` applies the active fork
+    refund quotient, returns remaining gas at the effective price, and returns
+    block gas-pool capacity.
+  - `core/state_transition.go:TransitionDb` pays `UsedGas * EffectiveGasTip` to
+    the block author while leaving the base-fee portion burned, and keeps peak
+    gas before refunds distinct from billed gas after refunds/flooring.
+  - `internal/ethapi/simulate.go:simCallResult` exposes `gasUsed` and
+    `maxUsedGas`; `simulator.execute` debits the block gas pool by billed gas.
+
+red
+- Strict Common Lisp Workbench doctor passed before the first Lisp operation.
+- The reviewed warm-container selector
+  `ETH-RPC-SIMULATE-V1-SETTLES-GAS-FEES` selected one nonzero case and failed
+  its state-root assertion: the sender retained 499000 after the value transfer,
+  rather than paying 105000 gas, and the overridden fee recipient received no
+  63000 priority-fee credit. Result: 0 passed, 1 failed.
+
+repair
+- Included simulated calls now buy the complete call gas limit at their effective
+  gas price while advancing the sender nonce before EVM execution. Both effects
+  survive EVM revert/failure; ordinary call-state changes remain transactional.
+- Successful STOP, RETURN, SELFDESTRUCT, and ordinary completion statuses now
+  install their copied simulated state before fee finalization.
+- The runtime call result now carries the EVM refund counter. Simulation applies
+  the fork-specific refund cap and EIP-7623 calldata floor, returns the balance
+  for unused gas, credits only the billed priority fee to the overridden/default
+  synthetic fee recipient, and leaves the base-fee portion burned.
+- `gasUsed` and synthetic block gas consumption now use billed gas after refunds;
+  `maxUsedGas` preserves peak pre-refund/floor gas. Canonical retained state is
+  still unchanged.
+
+green-local
+- Focused reviewed warm selectors: 2 named tests; Pass: 2; Fail: 0.
+- Complete `ETH-RPC-SIMULATE-V1` reviewed warm selector: 14 selected; Pass: 14;
+  Skip: 0; Fail: 0.
+- Full cold unit gate through Common Lisp Workbench: 1,301 passed, 3 optional
+  skips; Fail: 0.
+- Common Lisp Workbench parenthesis gate for all five changed Lisp files: PASS.
+- Reviewed documentation verification: PASS, including its required broken-
+  transcript negative control.
+- `git diff --check`: PASS.
+
+limits
+- This is deterministic local implementation evidence for one rpc-compat slice,
+  not a claim that the archived 137/234 Hive rpc-compat baseline changed.
+- Simulation receipts still expose placeholder transaction/block identities and
+  empty logs, and transfer tracing/full synthetic transaction assembly remain
+  separate unfinished slices.
+- A fresh pinned Hive rpc-compat rerun and immutable results directory are still
+  required before reducing the archived 91-case `eth_simulateV1` failure count
+  or changing Section 5 status.

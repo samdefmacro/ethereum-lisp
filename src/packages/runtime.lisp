@@ -338,6 +338,8 @@
         #:ethereum-lisp.evm)
   (:export
    #:execute-message-call
+   #:call-transaction-effective-gas-price
+   #:finalized-transaction-gas-values
    #:apply-withdrawal
    #:apply-withdrawals
    #:transaction-validation-error

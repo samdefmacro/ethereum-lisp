@@ -14,6 +14,9 @@
   (values (execution-empty-access-table)
           (execution-empty-access-table)))
 
+(defun execution-call-status-success-p (status)
+  (member status '(:stopped :returned :selfdestructed :successful)))
+
 (defun execution-context-access-tables (context)
   (values (execution-copy-equalp-table
            (evm-context-accessed-addresses context))
@@ -29,14 +32,16 @@
             (make-byte-vector 0)
             gas-used
             (or accessed-addresses empty-addresses)
-            (or accessed-storage empty-storage))))
+            (or accessed-storage empty-storage)
+            0)))
 
 (defun execution-call-values
     (state call-state commit-state-p status return-data gas-used
-     accessed-addresses accessed-storage)
-  (when (and commit-state-p (eq status :successful))
+     accessed-addresses accessed-storage &optional (refund-counter 0))
+  (when (and commit-state-p (execution-call-status-success-p status))
     (state-db-restore state call-state))
-  (values status return-data gas-used accessed-addresses accessed-storage))
+  (values status return-data gas-used accessed-addresses accessed-storage
+          refund-counter))
 
 (defun execute-contract-creation-call
     (state sender tx effective-chain-rules
@@ -111,7 +116,8 @@
                             (transaction-evm-gas-used
                              tx result effective-chain-rules)
                             accessed-addresses
-                            accessed-storage)
+                            accessed-storage
+                            (evm-result-refund-counter result))
                     (let ((gas-used
                             (+ (transaction-evm-gas-used
                                 tx result effective-chain-rules)
@@ -123,7 +129,8 @@
                           (execution-failed-call-values
                            gas-limit accessed-addresses accessed-storage)
                           (progn
-                            (when (eq (evm-result-status result) :successful)
+                            (when (execution-call-status-success-p
+                                   (evm-result-status result))
                               (state-db-set-code call-state contract return-data))
                             (execution-call-values
                              state call-state commit-state-p
@@ -131,7 +138,8 @@
                              return-data
                              gas-used
                              accessed-addresses
-                             accessed-storage)))))))
+                             accessed-storage
+                             (evm-result-refund-counter result))))))))
           (evm-error ()
             (execution-failed-call-values gas-limit))))))
 
@@ -153,10 +161,10 @@
           (block-hashes (make-hash-table :test 'eql)))
   "Execute a call-style transaction against a copied state DB.
 
-Returns status, return data, gas used, accessed-address table, and
-accessed-storage table as multiple values. The caller's state object is not
-mutated unless COMMIT-STATE-P is true, in which case only a successful call's
-resulting state is installed."
+Returns status, return data, pre-refund gas used, accessed-address table,
+accessed-storage table, and the refund counter as multiple values. The caller's
+state object is not mutated unless COMMIT-STATE-P is true, in which case only a
+successful call's resulting state is installed."
   (let* ((effective-chain-rules
            (execution-chain-rules
             chain-rules chain-config block-number timestamp))
@@ -258,6 +266,7 @@ resulting state is installed."
                     (transaction-evm-gas-used
                      tx result effective-chain-rules)
                     accessed-addresses
-                    accessed-storage))))
+                    accessed-storage
+                    (evm-result-refund-counter result)))))
            (evm-error ()
              (execution-failed-call-values gas-limit))))))))

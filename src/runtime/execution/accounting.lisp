@@ -90,6 +90,21 @@
                       :logs (receipt-logs receipt)))
       receipt))
 
+(defun finalized-transaction-gas-values
+    (transaction gas-used refund-counter chain-rules)
+  "Return billed and peak gas after the fork refund cap and calldata floor."
+  (let* ((floor-gas (transaction-effective-floor-gas transaction chain-rules))
+         (receipt
+           (make-receipt :status 1 :cumulative-gas-used gas-used))
+         (refunded
+           (apply-refund-counter-to-receipt
+            receipt refund-counter chain-rules))
+         (floored
+           (apply-floor-gas-to-receipt
+            refunded floor-gas)))
+    (values (receipt-cumulative-gas-used floored)
+            (max gas-used floor-gas))))
+
 ;; EIP-7623 calldata floor for the transaction currently being finalized.
 ;; Bound per transaction by apply-message / apply-contract-creation so the
 ;; floor is applied after refunds without threading it through every receipt
