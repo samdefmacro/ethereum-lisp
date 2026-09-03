@@ -575,6 +575,15 @@ Two settlement regressions, all 14 local simulation regressions, and the
 still unchanged pending a pinned rerun; simulated logs, transaction/block
 identity assembly, transfer traces, and other fixture gaps remain unfinished.
 
+A request-admission resource slice now also matches the local geth comparator's
+5,000-call per-block cap and 10,000-call aggregate cap. Both limits are checked
+before base-state lookup, return -38026 with the comparator's specific message,
+and retain equality as the accepted boundary. The focused control, all 15 local
+simulation regressions, and the 1,302-case cold unit gate are recorded in
+`docs/evidence/sec5-8a0223e8-simulate-call-limits.txt`. This additive local guard
+does not change the archived Hive result; the unfinished response and
+external-rerun work above remains open.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob

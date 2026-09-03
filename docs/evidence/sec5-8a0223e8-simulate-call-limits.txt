@@ -1,0 +1,63 @@
+Section 5 eth_simulateV1 call-count limit evidence
+report-version: 1
+generated-utc: 2026-09-03T11:01:47Z
+
+scope
+- Close one bounded request-admission gap in the Section 5 eth_simulateV1
+  implementation: reject more than 5,000 calls in one synthetic block and more
+  than 10,000 calls across the complete request.
+- Base revision: aeb316268efd77aa30d7580eac5b154b9a177dac.
+- The implementation, regression, plan update, and this report are committed
+  together.
+
+references
+- The read-only, non-normative go-ethereum comparator is checked out at local
+  revision 8a0223e8da596a409df02c11027320df97327e83:
+  - `internal/ethapi/simulate.go:maxSimulateCallsPerBlock` fixes the per-block
+    budget at 5,000 calls.
+  - `internal/ethapi/simulate.go:maxSimulateTotalCalls` fixes the aggregate
+    request budget at 10,000 calls.
+  - `internal/ethapi/api.go:BlockChainAPI.SimulateV1` checks each block and the
+    running aggregate before defaulting or resolving the base block, returning
+    `clientLimitExceededError` for either breach.
+- The pinned Execution APIs revision remains
+  e5d1bb60e6c064e4b15080da07b4370d0baadf92. Its
+  `ethSimulate-big-block-state-calls-array.io` fixture pins the same -38026
+  client-limit error family for oversized simulation requests; the aggregate
+  call cap is an additional comparator-aligned resource guard, not a claim of a
+  new pinned fixture pass.
+
+red
+- Strict Common Lisp Workbench doctor passed before the first Lisp operation.
+- The exact warm selector
+  `ETH-RPC-SIMULATE-V1-BOUNDS-CALL-COUNTS-BEFORE-STATE-LOOKUP` selected one
+  nonzero case and failed. A 5,001-call block reached missing-base-state lookup
+  and returned -32602 instead of the expected -38026 limit error. Workbench
+  exited 1 with the failed equality in the selected test.
+
+green-local
+- The handler now validates call arrays before base-state lookup, rejects a
+  5,001-call block as `too many calls in block: 5001 > 5000`, and rejects an
+  otherwise valid 5,000 + 5,000 + 1 request as
+  `too many calls: 10001 > 10000`, both with -38026.
+- The 5,000 + 5,000 positive boundary clears both call-count limits and reaches
+  the deliberately absent base-block lookup, proving the guard is not an
+  off-by-one blanket rejection.
+- Focused cold unit selector: 1 selected; 1 passed; 0 failed.
+- Complete `ETH-RPC-SIMULATE-V1` cold unit selector: 15 selected; 15 passed;
+  0 failed.
+- Full cold unit gate through Common Lisp Workbench: 1,302 passed, 3 optional
+  skips; 0 failed.
+- Common Lisp Workbench parenthesis gate for both changed Lisp files: PASS.
+- Reviewed documentation verification: PASS, including its required broken-
+  transcript negative control.
+- `git diff --check`: PASS.
+
+limits
+- This is deterministic local implementation evidence for a resource-safety
+  slice. It does not change the archived 137/234 Hive rpc-compat baseline or
+  reduce its 91 recorded eth_simulateV1 failures.
+- Simulated logs, transfer traces, and canonical transaction/block identity
+  assembly remain separate unfinished Section 5 slices.
+- A fresh pinned Hive rpc-compat rerun and immutable results directory are still
+  required before changing the Section 5 external-conformance status.

@@ -1286,6 +1286,50 @@
         (is (string= "too many blocks"
                      (field error-object "message")))))))
 
+(deftest eth-rpc-simulate-v1-bounds-call-counts-before-state-lookup
+  ;; Geth 8a0223e8 caps one synthetic block at 5,000 calls and the complete
+  ;; request at 10,000 calls before resolving the base block. This prevents a
+  ;; valid per-block shape from bypassing the aggregate request budget.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (block-state-call (count)
+             (list
+              (cons "calls"
+                    (loop repeat count collect '()))))
+           (request (counts id)
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" id)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons "blockStateCalls"
+                        (mapcar #'block-state-call counts))))))
+              (make-engine-payload-memory-store)
+              (make-chain-config)))
+           (assert-limit-error (response message)
+             (let ((error-object (field response "error")))
+               (is (null (field response "result")))
+               (is (not (null error-object)))
+               (when error-object
+                 (is (= -38026 (field error-object "code")))
+                 (is (string= message (field error-object "message")))))))
+    (assert-limit-error
+     (request '(5001) 421)
+     "too many calls in block: 5001 > 5000")
+    (assert-limit-error
+     (request '(5000 5000 1) 422)
+     "too many calls: 10001 > 10000")
+    ;; Exactly 10,000 calls clear both limits and continue to base-block lookup.
+    (let* ((response (request '(5000 5000) 423))
+           (error-object (field response "error")))
+      (is (not (null error-object)))
+      (when error-object
+        (is (= -32602 (field error-object "code")))))))
+
 (deftest eth-rpc-simulate-v1-rejects-non-increasing-block-overrides
   ;; Execution APIs e5d1bb60 pins these codes in
   ;; `ethSimulate-block-num-order-38020.io` and

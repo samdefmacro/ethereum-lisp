@@ -398,7 +398,35 @@ decodes, and the raw revert data in the error object's data member."
       (bytes-to-hex return-data))))
 
 (defconstant +eth-rpc-simulate-max-blocks+ 256)
+(defconstant +eth-rpc-simulate-max-calls-per-block+ 5000)
+(defconstant +eth-rpc-simulate-max-total-calls+ 10000)
 (defconstant +eth-rpc-simulate-timestamp-increment+ 12)
+
+(defun eth-rpc-validate-simulate-call-counts (block-state-calls)
+  "Enforce Geth's per-block and request-wide eth_simulateV1 call budgets."
+  (let ((total-calls 0))
+    (dolist (block-state-call block-state-calls total-calls)
+      (unless (json-object-p block-state-call)
+        (block-validation-fail
+         "eth_simulateV1 blockStateCalls entries must be objects"))
+      (let ((calls
+              (or (json-object-field block-state-call "calls")
+                  (eth-rpc-json-array '()))))
+        (unless (json-array-p calls)
+          (block-validation-fail
+           "eth_simulateV1 calls must be an array"))
+        (let ((call-count (length (json-array-values calls))))
+          (when (> call-count +eth-rpc-simulate-max-calls-per-block+)
+            (engine-rpc-fail
+             -38026
+             (format nil "too many calls in block: ~D > ~D"
+                     call-count +eth-rpc-simulate-max-calls-per-block+)))
+          (incf total-calls call-count)
+          (when (> total-calls +eth-rpc-simulate-max-total-calls+)
+            (engine-rpc-fail
+             -38026
+             (format nil "too many calls: ~D > ~D"
+                     total-calls +eth-rpc-simulate-max-total-calls+))))))))
 
 (defun eth-rpc-simulate-boolean-option (payload name)
   (if (json-object-field-present-p payload name)
@@ -613,6 +641,8 @@ explicit empty blocks, and the expanded span remains bounded by
       (when (> (length (json-array-values block-state-calls))
                +eth-rpc-simulate-max-blocks+)
         (engine-rpc-fail -38026 "too many blocks"))
+      (eth-rpc-validate-simulate-call-counts
+       (json-array-values block-state-calls))
       (when (eq t (json-object-field payload "traceTransfers"))
         (block-validation-fail
          "eth_simulateV1 traceTransfers is not supported"))
