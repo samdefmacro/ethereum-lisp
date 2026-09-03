@@ -134,21 +134,48 @@ decodes, and the raw revert data in the error object's data member."
        (format nil "block override ~A" name))
       default))
 
+(defun eth-rpc-simulate-intrinsic-gas (tx block block-overrides config)
+  (let* ((header (block-header block))
+         (number
+           (eth-rpc-block-override-quantity
+            block-overrides "number" (block-header-number header)))
+         (timestamp
+           (eth-rpc-block-override-quantity
+            block-overrides "time" (block-header-timestamp header)))
+         (rules (and config (chain-config-rules config number timestamp))))
+    (ethereum-lisp.execution:transaction-intrinsic-gas
+     tx
+     :eip3860-p (or (null rules) (chain-rules-shanghai-p rules))
+     :chain-rules rules)))
+
 (defun eth-rpc-simulate-call-object
     (object block store config method
-     &key gas-limit state-overrides block-overrides state)
+     &key gas-limit state-overrides block-overrides state
+          intrinsic-gas-error-code)
   (when (and block-overrides (not (json-object-p block-overrides)))
     (block-validation-fail "~A block overrides must be an object" method))
   (multiple-value-bind (sender tx)
       (eth-rpc-call-object-transaction
        object (block-header block) method config
        :gas-limit-override gas-limit)
+    (when intrinsic-gas-error-code
+      (let ((intrinsic-gas
+              (eth-rpc-simulate-intrinsic-gas
+               tx block block-overrides config)))
+        (when (< (transaction-gas-limit tx) intrinsic-gas)
+          (engine-rpc-fail
+           intrinsic-gas-error-code
+           (format nil
+                   "intrinsic gas too low: have ~D, want ~D (supplied gas ~D)"
+                   (transaction-gas-limit tx)
+                   intrinsic-gas
+                   (transaction-gas-limit tx))))))
     (handler-case
         (let* ((header (block-header block))
                (simulation-state
                  (or state
-                 (ethereum-lisp.execution-service:chain-store-state-db
-                  store (block-hash block)))))
+                     (ethereum-lisp.execution-service:chain-store-state-db
+                      store (block-hash block)))))
           (eth-rpc-apply-state-overrides
            simulation-state state-overrides method)
           (ethereum-lisp.execution:execute-message-call
@@ -289,24 +316,67 @@ explicit empty blocks, and the expanded span remains bounded by
              result)))))))
 
 (defun eth-rpc-simulate-call-result
-    (call block store config state block-overrides)
+    (call block store config state block-overrides gas-limit)
   (multiple-value-bind
         (status return-data gas-used accessed-addresses accessed-storage)
       (eth-rpc-simulate-call-object
        call block store config "eth_simulateV1"
+       :gas-limit gas-limit
        :state state
-       :block-overrides block-overrides)
+       :block-overrides block-overrides
+       :intrinsic-gas-error-code -38013)
     (declare (ignore accessed-addresses accessed-storage))
-    (list
-     (cons "status"
-           (if (eth-rpc-call-status-success-p status) "0x1" "0x0"))
-     (cons "returnData" (bytes-to-hex return-data))
-     (cons "gasUsed" (quantity-to-hex gas-used))
-     (cons "logs" (eth-rpc-json-array '())))))
+    (values
+     (list
+      (cons "status"
+            (if (eth-rpc-call-status-success-p status) "0x1" "0x0"))
+      (cons "returnData" (bytes-to-hex return-data))
+      (cons "gasUsed" (quantity-to-hex gas-used))
+      ;; execute-message-call reports pre-refund gas, so it is also the maximum
+      ;; gas consumed during this simulation path.
+      (cons "maxUsedGas" (quantity-to-hex gas-used))
+      (cons "logs" (eth-rpc-json-array '())))
+     gas-used)))
+
+(defun eth-rpc-simulate-required-call-gas (call remaining-gas)
+  (unless (json-object-p call)
+    (block-validation-fail
+     "eth_simulateV1 call object must be a JSON object"))
+  (let ((required
+          (if (json-object-field-present-p call "gas")
+              (parse-json-quantity
+               (json-object-field call "gas")
+               "eth_simulateV1 gas"
+               :required-p t)
+              remaining-gas)))
+    (when (> required remaining-gas)
+      (engine-rpc-fail
+       -38015
+       (format nil "block gas limit reached: remaining: ~D, required: ~D"
+               remaining-gas required)))
+    required))
+
+(defun eth-rpc-simulate-block-call-results
+    (calls block store config state block-overrides)
+  (let* ((header (block-header block))
+         (block-gas-limit
+           (eth-rpc-block-override-quantity
+            block-overrides "gasLimit" (block-header-gas-limit header)))
+         (remaining-gas block-gas-limit)
+         (gas-used 0)
+         (results '()))
+    (dolist (call calls (values (nreverse results) gas-used))
+      (let ((call-gas
+              (eth-rpc-simulate-required-call-gas call remaining-gas)))
+        (multiple-value-bind (result call-gas-used)
+            (eth-rpc-simulate-call-result
+             call block store config state block-overrides call-gas)
+          (incf gas-used call-gas-used)
+          (decf remaining-gas call-gas-used)
+          (push result results))))))
 
 (defun eth-rpc-simulate-block-result
-    (block calls results block-overrides index)
-  (declare (ignore calls))
+    (block results block-overrides index gas-used)
   (let* ((header (block-header block))
          (object (eth-rpc-block-object block nil))
          (number
@@ -324,6 +394,7 @@ explicit empty blocks, and the expanded span remains bounded by
      (quantity-to-hex
       (eth-rpc-block-override-quantity
        block-overrides "gasLimit" (block-header-gas-limit header))))
+    (eth-rpc-set-object-field object "gasUsed" (quantity-to-hex gas-used))
     (eth-rpc-set-object-field object "hash" nil)
     (eth-rpc-set-object-field object "nonce" nil)
     (eth-rpc-set-object-field object "transactions" (eth-rpc-json-array '()))
@@ -379,11 +450,11 @@ explicit empty blocks, and the expanded span remains bounded by
                       "eth_simulateV1 calls must be an array"))
                    (eth-rpc-apply-state-overrides
                     state state-overrides "eth_simulateV1")
-                   (eth-rpc-simulate-block-result
-                    block
-                    (json-array-values calls)
-                    (loop for call in (json-array-values calls)
-                          collect
-                          (eth-rpc-simulate-call-result
-                           call block store config state block-overrides))
-                    block-overrides index)))))))))
+                   (multiple-value-bind (results gas-used)
+                       (eth-rpc-simulate-block-call-results
+                        (json-array-values calls)
+                        block store config state block-overrides)
+                     (eth-rpc-simulate-block-result
+                      block
+                      results
+                      block-overrides index gas-used))))))))))

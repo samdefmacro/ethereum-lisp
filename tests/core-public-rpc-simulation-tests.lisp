@@ -1446,3 +1446,91 @@
       ;; Exactly 256 simulated blocks remains the permitted positive boundary.
       (let ((response (request store config "0x101")))
         (is (null (field response "error")))))))
+
+(deftest eth-rpc-simulate-v1-enforces-per-block-gas-admission
+  ;; Execution APIs e5d1bb60 defines omitted call gas as the remaining gas in
+  ;; the current block. Pinned geth `simulate.go` rejects an explicit call gas
+  ;; above that remainder with -38015; `errors.go` pins intrinsic-gas failures
+  ;; to -38013.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (store config gas-limit calls id)
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" id)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons
+                   "blockStateCalls"
+                   (list
+                    (list
+                     (cons "blockOverrides"
+                           (list (cons "gasLimit"
+                                       (quantity-to-hex gas-limit))))
+                     (cons "calls" calls))))))))
+              store config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (recipient (address-to-hex (zero-address)))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      ;; Two omitted gas values consume exactly the block allowance. Besides
+      ;; the aggregate, maxUsedGas is required on each call result.
+      (let* ((response
+               (request
+                store config 42000
+                (list (list (cons "to" recipient))
+                      (list (cons "to" recipient)))
+                407))
+             (block-result (first (field response "result")))
+             (calls (and block-result (field block-result "calls"))))
+        (is (null (field response "error")))
+        (is (= 2 (length calls)))
+        (is (string= "0xa410" (field block-result "gasUsed")))
+        (dolist (call calls)
+          (is (string= "0x1" (field call "status")))
+          (is (string= "0x5208" (field call "gasUsed")))
+          (is (string= "0x5208" (field call "maxUsedGas")))))
+      ;; Admission uses the requested gas against the current remainder, not the
+      ;; full block limit or the smaller amount an EOA call would consume.
+      (let* ((response
+               (request
+                store config 42000
+                (list
+                 (list (cons "to" recipient))
+                 (list (cons "to" recipient)
+                       (cons "gas" (quantity-to-hex 21001))))
+                408))
+             (error-object (field response "error")))
+        (is (null (field response "result")))
+        (is (not (null error-object)))
+        (when error-object
+          (is (= -38015 (field error-object "code")))
+          (is (search "block gas limit reached"
+                      (field error-object "message")))))
+      ;; The block has room, but the call cannot pay its intrinsic gas.
+      (let* ((response
+               (request
+                store config 42000
+                (list
+                 (list (cons "to" recipient)
+                       (cons "gas" "0x0")))
+                409))
+             (error-object (field response "error")))
+        (is (null (field response "result")))
+        (is (not (null error-object)))
+        (when error-object
+          (is (= -38013 (field error-object "code")))
+          (is (search "intrinsic gas too low"
+                      (field error-object "message"))))))))
