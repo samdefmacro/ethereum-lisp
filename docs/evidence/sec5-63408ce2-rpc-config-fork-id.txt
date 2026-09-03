@@ -1,0 +1,121 @@
+Section 5 rpc-compat eth_config fork-id repair evidence
+report-version: 1
+generated-utc: 2026-09-03T03:10:02Z
+
+scope
+- Repair the pinned Execution APIs `eth_config/get-config` divergence without
+  weakening the simulator, selector, inventory, or exact response comparison.
+- Client revision under test:
+  63408ce270f2c70014727e219e34683a8c42b398
+- Base revision:
+  1d79e7536089981497d62363a1120ccfea516db9
+- Client source tree:
+  edce88ce201daf05858d3b790668455c40da16ad
+
+references
+- references/go-ethereum/core/forkid/forkid.go at repository pin
+  214bb7398eac7089ab9a9e467c5671a00580cb86
+  - `gatherForks` reflects every `Block` activation from ChainConfig, including
+    `MergeNetsplitBlock`, before sorting and de-duplicating activations.
+- execution-apis e5d1bb60e6c064e4b15080da07b4370d0baadf92
+  - tests/eth_config/get-config.io expects current forkId `0xe272ecbe`.
+  - tests/genesis.json activates `mergeNetsplitBlock` at block 36.
+- Hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+
+red
+- The preserved pinned full-suite baseline at revision 92982442 selected all
+  234 cases and passed 125. `eth_config/get-config` failed because the client
+  returned forkId `0xb22c635f` while the fixture expected `0xe272ecbe`:
+  /data/hoodi-sec5-hive/results-852afa1f-rpc-confirm234/details/
+  1788258103-7d4a3254eef6417ee199c50db61e52ea2347e245996b0f7d4a304cc3e6483d-0.log
+  SHA-256:
+  b48d8687b1e0647c92cc010bf4204c8b10f4a082d0f1e87d2aa099aa8ff2fb0c
+- Focused local selector:
+  ./scripts/dev.sh test \
+    CHAIN-CONFIG-FORK-ID-MATCHES-RPC-COMPAT-MERGE-VECTOR
+- Before the implementation change it selected one FiveAM case and failed:
+  Pass: 0; Skip: 0; Fail: 1.
+- Actual fork hash was `#(178 44 99 95)` (`0xb22c635f`); expected was
+  `#(226 114 236 190)` (`0xe272ecbe`).
+
+repair
+- `chain-config-block-fork-schedule` now includes
+  `chain-config-merge-netsplit-block`.
+- The regression test reproduces the pinned rpc-compat genesis fork schedule,
+  genesis hash, head number 54, and timestamp 540, then requires the exact
+  `0xe272ecbe` fork hash and zero next activation.
+
+green-local
+- Strict workbench doctor: PASS before the first build/test/eval.
+- Warm focused selector: 1 selected; Pass: 1; Skip: 0; Fail: 0.
+- Cold focused selector through cl-workbench: 1 selected; Pass: 1; Skip: 0;
+  Fail: 0.
+- Full cold unit gate: 1,287 tests; 3 optional skips; Fail: 0.
+- Parenthesis checks for both changed Lisp files: PASS.
+- `git diff --check`: PASS.
+- Cold documentation gate: PASS.
+- Runtime image smoke through cl-workbench: PASS.
+
+full-cold-gate-caveat
+- `cl-workbench validation run cold-all` was attempted. Its unit and
+  integration workers completed with Fail: 0 (1,287 unit tests with 3 optional
+  skips; 553 integration tests with 9 optional skips).
+- The unrelated E2E layer did not complete: the engine-only serve-mode smoke
+  reported a restored-head mismatch, the phase-a devnet-inclusion smoke failed,
+  and two workers hit their 900-second deadlines. An isolated rerun of the
+  engine-only selector also hit the caller's 600-second deadline. No E2E code
+  changed in this repair; this remains a separate gate investigation.
+
+runtime-artifact
+- Image: ethereum-lisp-runtime:sec5-63408ce2-amd64
+- Image ID:
+  sha256:cf65b949b8507b703e8913b4ed7ffa377bba02e6005261ee49ab44619a0868e8
+- Embedded revision:
+  63408ce270f2c70014727e219e34683a8c42b398
+- Archive: /data/hoodi-sec5-hive/runtime-63408ce2/runtime.tar
+- Archive bytes: 72,345,600
+- Archive SHA-256:
+  c1cf3c489a5acc649196a43d9b5a95f54af580230717013280577a26bca13630
+
+focused-hive-green
+- Runner: test-ethereum-server
+- Command selector: rpc-compat/eth_config/get-config
+- Valid executed inventory: selected=2 passed=2 failed=0. This consists of the
+  simulator's mandatory client-launch case and `eth_config/get-config`.
+- `eth_config/get-config` passed its byte-exact response comparison.
+- Results:
+  /data/hoodi-sec5-hive/results-63408ce2-rpc-config-confirm2/
+  1788404853-e2dfb3936c7306c4bf1c4d113b85612c.json
+- Results SHA-256:
+  78160c64d9ccc3487cc354e72b4189f2013498aaca8e531eebbf023ff1a293be
+- Details SHA-256:
+  ca12a484ab756cb70274dce194cefbfdcf4f527658610203a8891dd6c79e42af
+- Two earlier selector attempts are preserved but excluded from qualification:
+  one selected zero cases, and one selected only the AlwaysRun launch case.
+
+full-rpc-compat-regression
+- Start: 2026-09-03T11:07:55.29272959+08:00
+- End: 2026-09-03T11:08:10.102716193+08:00
+- selected=234 passed=137 failed=97
+- `eth_config/get-config`: PASS, returning current forkId `0xe272ecbe`.
+- Remaining failing groups:
+  - debug_traceBlockByHash: selected=3 passed=2 failed=1
+  - debug_traceBlockByNumber: selected=7 passed=6 failed=1
+  - eth_simulateV1: selected=91 passed=0 failed=91
+  - testing_buildBlockV1: selected=4 passed=0 failed=4
+- Every other selected group passed: selected=129 passed=129 failed=0.
+- Results:
+  /data/hoodi-sec5-hive/results-63408ce2-rpc-full/
+  1788404890-b87678a719aaa2b497767f79d8e903ab.json
+- Results SHA-256:
+  97394b364e21dab59e52ec78d2edf2db9d59312053ff0927164f6cc8366a88b2
+- Details SHA-256:
+  18bc7b4816464b35c0f1b6a122aa7656ced5623e338b576584cf67dd17021c56
+- Full-suite Hive exited nonzero because 97 known failures remain. The runner
+  nevertheless validated the exact nonzero 234-case pinned inventory.
+
+result
+- PASS for the scoped `eth_config` repair and its full rpc-compat regression.
+- NOT a Section 5 completion claim. The 97 pinned rpc-compat failures, broader
+  conformance work, fresh public sync completion, shadow comparison, and soak
+  requirements remain open.

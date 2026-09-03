@@ -530,6 +530,18 @@ with zero unexpected skips before its seven-day shadow comparison may count as
 Section 10 evidence. The fourteen-day validator soak starts only after that
 shadow gate passes.
 
+**Section 5 RPC conformance evidence (2026-09-03; not completion).** Revision
+`63408ce270f2c70014727e219e34683a8c42b398` added the omitted
+`mergeNetsplitBlock` activation to EIP-2124 fork-ID construction. This repaired
+the pinned Execution APIs `eth_config/get-config` mismatch from `0xb22c635f`
+to the expected `0xe272ecbe`. A focused Hive run selected the mandatory launch
+case plus `eth_config/get-config` and passed 2/2. The full pinned rpc-compat run
+then selected all 234 cases and passed 137, leaving 97 failures confined to
+`eth_simulateV1` (91), `testing_buildBlockV1` (4), and genesis tracing (2).
+Every other selected group passed. Immutable commands, pins, artifact hashes,
+results, and the unrelated cold-E2E caveat are in
+`docs/evidence/sec5-63408ce2-rpc-config-fork-id.txt`.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob

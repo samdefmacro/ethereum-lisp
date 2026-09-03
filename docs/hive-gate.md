@@ -257,3 +257,12 @@ passed 125 and failed 109. The immutable discovery evidence is archived in
 `docs/evidence/sec5-92982442-hive-rpc-inventory.txt`; the runner now pins 234
 and requires a fresh confirmation result rather than retroactively treating the
 discovery run as a passing inventory check.
+
+Revision `63408ce2` repaired the remaining pinned `eth_config/get-config`
+fork-ID mismatch by including `mergeNetsplitBlock` in the EIP-2124 activation
+schedule. Its focused run passed the mandatory launch plus exact `eth_config`
+case 2/2. A fresh full pinned run then passed 137/234; the 97 remaining
+failures are `eth_simulateV1` (91), `testing_buildBlockV1` (4), and the two
+genesis-tracing cases. Every other selected group passed. The immutable result
+paths, hashes, runtime identity, local gates, and validation caveat are in
+`docs/evidence/sec5-63408ce2-rpc-config-fork-id.txt`.

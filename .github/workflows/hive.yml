@@ -23,7 +23,7 @@ name: hive
 # Non-blocking (continue-on-error), with exact executed-test inventories
 # enforced by hive-run.sh, because none has a pinned zero-failure run yet:
 #   ethereum/engine      403 tests, including the engine-auth suite.
-#   ethereum/rpc-compat  243 tests through the canonical offline block importer.
+#   ethereum/rpc-compat  234 pinned tests through the canonical offline importer.
 #   devp2p              exercises the real admin_nodeInfo/enode route and
 #                        bridge-address advertisement. It may still fail once
 #                        its simulator supplies a preloaded chain; those
