@@ -485,6 +485,18 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
       t)))
 
 #+sbcl
+(define-condition devnet-peer-request-queue-closed (error) ()
+  (:report
+   (lambda (condition stream)
+     (declare (ignore condition))
+     (write-string "peer session request queue is closed" stream)))
+  (:documentation
+   "A coordinator request lost its transport-owned peer session.
+
+This is a typed lifecycle signal rather than an import failure.  The session
+supervisor owns peer scoring and replacement after closing the queue."))
+
+#+sbcl
 (defun devnet-peer-request-queue-close (queue)
   "Close QUEUE and fail every queued or in-flight coordinator job."
   (let ((jobs nil))
@@ -496,10 +508,7 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
             (devnet-peer-request-queue-active queue) nil))
     (dolist (job jobs)
       (devnet-peer-request-job-finish
-       job nil
-       (make-condition 'simple-error
-                       :format-control "peer session closed"
-                       :format-arguments nil))))
+       job nil (make-condition 'devnet-peer-request-queue-closed))))
   (devnet-snap-qos-forget-queue
    (devnet-peer-request-queue-snap-qos queue) queue)
   t)
@@ -509,7 +518,7 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
   "Queue JOB, wait for its session-owned completion, and return its values."
   (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
     (when (devnet-peer-request-queue-closed-p queue)
-      (error "peer session request queue is closed"))
+      (error 'devnet-peer-request-queue-closed))
     (setf (devnet-peer-request-queue-pending queue)
           (nconc (devnet-peer-request-queue-pending queue) (list job))))
   (sb-thread:with-mutex ((devnet-peer-request-job-lock job))

@@ -2059,6 +2059,15 @@ must prove the new state root before either record can authorize publication."
                node "peer.snap.pivot_unavailable"
                "peer" (devnet-peer-entry-id-hex entry)
                "pivot" pivot-number "error" condition))
+             ((typep condition 'devnet-peer-request-queue-closed)
+              ;; Queue closure is session lifecycle, not failed authenticated
+              ;; state import.  The session supervisor already accounts for
+              ;; the disconnect; avoid both a false Section 5 failure marker
+              ;; and a second peer-score penalty here.
+              (devnet-peer-manager-log
+               node "peer.snap.source_closed"
+               "peer" (devnet-peer-entry-id-hex entry)
+               "pivot" pivot-number "error" condition))
              ((typep condition 'storage-error)
               ;; The importer re-signals local storage faults after this
               ;; observation; never score a peer for them.
