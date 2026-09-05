@@ -538,12 +538,25 @@ put call supplied BLOCK-NUMBER."
 
 (defun engine-payload-store-forkchoice-sync-targets
     (store &key (now (unix-time)))
+  "Return target hashes and, as a second value, their highest known metadata
+height."
   (setf store (chain-store-require-memory-store store))
   (engine-payload-store-enforce-cache-bounds
    store :forkchoice-target now nil)
-  (loop for hash being the hash-values
-          of (memory-chain-store-forkchoice-sync-targets store)
-        collect (make-hash32 (copy-seq (hash32-bytes hash)))))
+  (let ((targets nil)
+        (highest nil)
+        (metadata (memory-chain-store-forkchoice-sync-target-metadata store)))
+    (maphash
+     (lambda (key hash)
+       (push (make-hash32 (copy-seq (hash32-bytes hash))) targets)
+       (let* ((entry (gethash key metadata))
+              (block-number
+                (and (typep entry 'chain-store-cache-entry-metadata)
+                     (chain-store-cache-entry-metadata-block-number entry))))
+         (when block-number
+           (setf highest (if highest (max highest block-number) block-number)))))
+     (memory-chain-store-forkchoice-sync-targets store))
+    (values targets highest)))
 
 (defun engine-payload-store-prune-prepared-payloads-for-block
     (store block-key &key (now (unix-time)))

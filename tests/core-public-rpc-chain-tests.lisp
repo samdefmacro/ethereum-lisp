@@ -1,5 +1,56 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest eth-syncing-reports-a-pending-forkchoice-target-at-genesis
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (target-hash
+             (make-hash32 (make-byte-vector 32 :initial-element #x42))))
+      (engine-payload-store-put-forkchoice-sync-target store target-hash)
+      (let* ((response-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":200,\"method\":\"eth_syncing\",\"params\":[]}"
+                store
+                (make-chain-config)))
+             (response (parse-json response-json))
+             (progress (field response "result")))
+        (is (= 200 (field response "id")))
+        (is (listp progress))
+        (is (string= "0x0" (field progress "startingBlock")))
+        (is (string= "0x0" (field progress "currentBlock")))
+        ;; The target height is not known yet. Reporting the current height is
+        ;; honest; reporting FALSE would discard the pending CL-authorized work.
+        (is (string= "0x0" (field progress "highestBlock")))))))
+
+(deftest eth-syncing-reports-known-state-unavailable-forkchoice-height
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :parent-hash (zero-hash32)
+               :number 7
+               :timestamp 1
+               :gas-limit 30000000)))
+           (target-hash (block-hash block)))
+      (engine-payload-store-put-block
+       store block :state-available-p nil :canonicalize-p nil)
+      (engine-payload-store-put-forkchoice-sync-target
+       store target-hash :block-number 7)
+      (let* ((response-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":201,\"method\":\"eth_syncing\",\"params\":[]}"
+                store
+                (make-chain-config)))
+             (response (parse-json response-json))
+             (progress (field response "result")))
+        (is (= 201 (field response "id")))
+        (is (listp progress))
+        (is (string= "0x0" (field progress "currentBlock")))
+        (is (string= "0x7" (field progress "highestBlock")))))))
+
 (deftest eth-rpc-chain-id-and-block-number
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
