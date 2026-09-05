@@ -4814,8 +4814,15 @@ loop cannot block on a message that never comes."
              (is (not (eq :timeout
                           (sb-thread:join-thread
                            submitter :timeout 2 :default :timeout))))
-             (is (typep submitted-condition 'serious-condition)))
-        (ethereum-lisp.cli::devnet-peer-request-queue-close queue))))
+             (is (typep
+                  submitted-condition
+                  'ethereum-lisp.cli::devnet-peer-request-queue-closed)))
+        (ethereum-lisp.cli::devnet-peer-request-queue-close queue)))
+    (let ((queue (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+      (ethereum-lisp.cli::devnet-peer-request-queue-close queue)
+      (signals ethereum-lisp.cli::devnet-peer-request-queue-closed
+        (ethereum-lisp.cli::devnet-peer-request-queue-submit
+         queue (lambda () nil)))))
   #-sbcl
   (is t))
 
