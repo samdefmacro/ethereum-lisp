@@ -484,8 +484,14 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
        (devnet-peer-request-job-changed job))
       t)))
 
-#+sbcl
-(define-condition devnet-peer-request-queue-closed (error) ()
+(define-condition devnet-peer-request-queue-closed (error)
+    ((peer-id
+      :initarg :peer-id
+      :initform nil
+      :accessor devnet-peer-request-queue-closed-peer-id)
+     (lifecycle-event-reported-p
+      :initform nil
+      :accessor devnet-peer-request-queue-closed-lifecycle-event-reported-p))
   (:report
    (lambda (condition stream)
      (declare (ignore condition))
@@ -494,7 +500,9 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
    "A coordinator request lost its transport-owned peer session.
 
 This is a typed lifecycle signal rather than an import failure.  The session
-supervisor owns peer scoring and replacement after closing the queue."))
+supervisor owns peer scoring and replacement after closing the queue.  Composed
+callers may attach the exact transport identity and mark their lifecycle event
+as reported while preserving this condition's type."))
 
 #+sbcl
 (defun devnet-peer-request-queue-close (queue)

@@ -1544,6 +1544,30 @@ really reopens the directory instead of observing the first handle's memory."
       (dolist (binding originals)
         (setf (fdefinition (car binding)) (cdr binding))))))
 
+(defun devnet-snap-test-source (&key
+                                  (account-range #'identity)
+                                  (storage-ranges #'identity)
+                                  (bytecodes #'identity)
+                                  (trie-nodes #'identity))
+  "Build a focused SNAP source fixture with identity defaults."
+  (ethereum-lisp.snap-sync:make-snap-sync-source
+   :account-range account-range
+   :storage-ranges storage-ranges
+   :bytecodes bytecodes
+   :trie-nodes trie-nodes))
+
+#+sbcl
+(defun devnet-snap-test-stop-owned-threads (threads release-function)
+  "Release and boundedly stop only test-owned THREADS."
+  (ignore-errors (funcall release-function))
+  (dolist (thread threads)
+    (when (and thread (sb-thread:thread-alive-p thread))
+      (when (eq :timeout
+                (sb-thread:join-thread thread :timeout 1 :default :timeout))
+        (ignore-errors (sb-thread:terminate-thread thread))
+        (ignore-errors
+          (sb-thread:join-thread thread :timeout 1 :default :timeout))))))
+
 (deftest devnet-chain-update-baselines-status-and-matches-geth-range-cadence
   (:layer :unit :module :p2p)
   (let* ((node
@@ -4826,6 +4850,100 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
+(deftest devnet-snap-queue-close-lifecycle-drives-the-import-callback
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (database (make-memory-key-value-database))
+         (pivot-header
+           (block-header (ethereum-lisp.cli::devnet-node-genesis-block node)))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 94)))
+         (account-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "account-page-source"))
+         (dependency-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "closed-dependency-source"))
+         (account-source (devnet-snap-test-source))
+         (dependency-source
+           (devnet-snap-test-source
+            :storage-ranges
+            (lambda (request)
+              (declare (ignore request))
+              (error 'ethereum-lisp.cli::devnet-peer-request-queue-closed))))
+         (live-entry-calls 0)
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (if (= 1 (incf live-entry-calls))
+                  (list account-entry dependency-entry)
+                  (list dependency-entry))))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (seen-entry)
+              (cond
+                ((eq account-entry seen-entry) account-source)
+                ((eq dependency-entry seen-entry) dependency-source)
+                (t (error "unexpected SNAP entry")))))
+      (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+            (lambda (seen-database sources &rest arguments)
+              (is (eq database seen-database))
+              (is (= 2 (length sources)))
+              (let ((callback (getf arguments :on-source-error)))
+                (is (functionp callback))
+                ;; The account-page source invokes a composed dependency source.
+                ;; Its queue closure must retain the dependency transport's
+                ;; identity while flowing through the importer's callback.
+                (handler-case
+                    (funcall
+                     (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                      (first sources))
+                     :request)
+                  (ethereum-lisp.cli::devnet-peer-request-queue-closed
+                      (condition)
+                    (funcall callback (first sources) condition)))
+                (is (= 1 (count "peer.snap.source_closed" logs
+                                :key #'first :test #'string=)))
+                (let ((event
+                        (find "peer.snap.source_closed" logs
+                              :key #'first :test #'string=)))
+                  (is (string=
+                       "closed-dependency-source"
+                       (second (member "peer" (rest event) :test #'string=)))))
+                (is (= 0 (count "peer.snap.import_failed" logs
+                                :key #'first :test #'string=)))
+                (is (= 0
+                       (ethereum-lisp.cli::devnet-peer-score
+                        (ethereum-lisp.cli:devnet-node-peer-table node)
+                        "account-page-source")))
+                ;; Positive control: the same callback must retain the generic
+                ;; import-failure event and score policy for an ordinary error.
+                (funcall callback (first sources)
+                         (make-condition 'simple-error
+                                         :format-control "injected import error"
+                                         :format-arguments nil))
+                (is (= 1 (count "peer.snap.import_failed" logs
+                                :key #'first :test #'string=)))
+                (is (= -50
+                       (ethereum-lisp.cli::devnet-peer-score
+                        (ethereum-lisp.cli:devnet-node-peer-table node)
+                        "account-page-source"))))
+              :callback-driven))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       (is (eq :callback-driven
+               (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+                node database pivot-header target-hash)))))))
+
 (deftest devnet-snap-wire-request-ids-are-unique-and-logical-ids-survive
   (:layer :unit :module :p2p)
   #+sbcl
@@ -5678,6 +5796,125 @@ loop cannot block on a message that never comes."
                 :third "storage ranges")))
        (is (= 2 failed-calls))
        (is (= 3 healthy-calls)))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-queue-close-lifecycle-releases-pooled-dependency
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "closed-dependency-peer"
+            :request-queue
+            (ethereum-lisp.cli::make-devnet-peer-request-queue)))
+         (pool (ethereum-lisp.cli::make-devnet-snap-source-pool node))
+         (response-id ethereum-lisp.snap:+snap-message-storage-ranges+)
+         (entered (sb-thread:make-semaphore :count 0))
+         (continue (sb-thread:make-semaphore :count 0))
+         (waiters-entered (sb-thread:make-semaphore :count 0))
+         (track-waiters-p nil)
+         (live-p t)
+         (degraded-calls '())
+         (logs '())
+         (source
+           (devnet-snap-test-source
+            :storage-ranges
+            (lambda (request)
+              (declare (ignore request))
+              (sb-thread:signal-semaphore entered)
+              (sb-thread:wait-on-semaphore continue)
+              (error 'ethereum-lisp.cli::devnet-peer-request-queue-closed)))))
+    (ethereum-lisp.cli::devnet-snap-source-pool-register pool entry source)
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (when track-waiters-p
+                (sb-thread:signal-semaphore waiters-entered))
+              (and live-p (list entry))))
+      (cons 'ethereum-lisp.cli::devnet-node-set-snap-peer-degraded
+            (lambda (&rest arguments)
+              (push arguments degraded-calls)))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       (let ((caller-condition nil)
+             (threads '()))
+         (unwind-protect
+              (progn
+                (push
+                 (sb-thread:make-thread
+                  (lambda ()
+                    (handler-case
+                        (ethereum-lisp.cli::devnet-snap-source-pool-call
+                         pool response-id
+                         #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                         :request "storage ranges")
+                      (serious-condition (condition)
+                        (setf caller-condition condition))))
+                  :name "snap-closed-dependency-caller")
+                 threads)
+                (is (sb-thread:wait-on-semaphore entered :timeout 5))
+                (setf track-waiters-p t)
+                (dotimes (index 2)
+                  (let ((waiter-index index))
+                    (push
+                     (sb-thread:make-thread
+                      (lambda ()
+                        (multiple-value-list
+                         (ethereum-lisp.cli::devnet-snap-source-pool-acquire
+                          pool response-id)))
+                      :name (format nil "snap-closed-dependency-waiter-~D"
+                                    waiter-index))
+                     threads)))
+                ;; Each signal occurs under the pool lock immediately before
+                ;; that waiter enters CONDITION-WAIT. The releasing caller
+                ;; cannot acquire the lock and notify until both are asleep.
+                (dotimes (index 2)
+                  (declare (ignore index))
+                  (is (sb-thread:wait-on-semaphore waiters-entered :timeout 5)))
+                (setf live-p nil)
+                (sb-thread:signal-semaphore continue)
+                (dolist (thread threads)
+                  (is (not (eq :timeout
+                               (sb-thread:join-thread
+                                thread :timeout 5 :default :timeout)))))
+                (is (typep
+                     caller-condition
+                     'ethereum-lisp.cli::devnet-peer-request-queue-closed))
+                (is (= 0
+                       (gethash
+                        response-id
+                        (ethereum-lisp.cli::devnet-snap-source-pool-reservation-table
+                         pool entry)
+                        0)))
+                (is (not
+                     (nth-value
+                      1
+                      (gethash
+                       entry
+                       (ethereum-lisp.cli::devnet-snap-source-pool-failed-entries
+                        pool)))))
+                (is (null degraded-calls))
+                (is (= 1 (count "peer.snap.source_closed" logs
+                                :key #'first :test #'string=)))
+                (is (= 0 (count "peer.snap.dependency_failed" logs
+                                :key #'first :test #'string=))))
+           (setf live-p nil)
+           (devnet-snap-test-stop-owned-threads
+            threads
+            (lambda ()
+              (dotimes (index 3)
+                (declare (ignore index))
+                (sb-thread:signal-semaphore continue)))))))))
   #-sbcl
   (is t))
 
