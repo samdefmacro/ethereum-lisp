@@ -37,6 +37,11 @@
      (cons "removed" (if removed-p t :false)))))
 
 (defun eth-rpc-receipt-blob-fields (transaction header config)
+  "Derive EIP-4844 receipt fields from TRANSACTION and its containing HEADER.
+
+These values are execution artifacts: blob gas comes from the type-3
+transaction's versioned hashes and its price comes from the block's excess blob
+gas under the active schedule.  Neither value is accepted from RPC input."
   (when (typep transaction 'blob-transaction)
     (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
         (chain-config-blob-schedule

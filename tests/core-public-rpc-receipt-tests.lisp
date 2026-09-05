@@ -128,6 +128,128 @@
         (is (null (field missing-response "result")))
         (is (= -32602 (field invalid-error "code")))))))
 
+(deftest eth-rpc-blob-receipts-derive-gas-fields-and-preserve-legacy-shape
+  (labels ((field-entry (object name)
+             (assoc name object :test #'string=))
+           (field (object name)
+             (cdr (field-entry object name)))
+           (receipt-request (store config transaction id)
+             (engine-rpc-handle-request-json
+              (format nil
+                      "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"~A\"]}"
+                      id (hash32-to-hex (transaction-hash transaction)))
+              store config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1337
+                                      :london-block 0
+                                      :cancun-time 0))
+           (recipient
+             (address-from-hex
+              "0x0000000000000000000000000000000000000042"))
+           (legacy-transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 0
+                                       :gas-price 7
+                                       :gas-limit 21000
+                                       :to recipient)
+              1 1337))
+           (one-blob-transaction
+             (transaction-from-encoding
+              (transaction-encoding
+               (fixture-sign-blob-transaction
+                (make-blob-transaction
+                 :chain-id 1337
+                 :nonce 1
+                 :max-priority-fee-per-gas 1
+                 :max-fee-per-gas 100
+                 :gas-limit 21000
+                 :to recipient
+                 :max-fee-per-blob-gas 3
+                 :blob-versioned-hashes
+                 (list
+                  (hash32-from-hex
+                   "0x0100000000000000000000000000000000000000000000000000000000000001")))
+                1))))
+           (two-blob-transaction
+             (transaction-from-encoding
+              (transaction-encoding
+               (fixture-sign-blob-transaction
+                (make-blob-transaction
+                 :chain-id 1337
+                 :nonce 2
+                 :max-priority-fee-per-gas 1
+                 :max-fee-per-gas 100
+                 :gas-limit 21000
+                 :to recipient
+                 :max-fee-per-blob-gas 3
+                 :blob-versioned-hashes
+                 (list
+                  (hash32-from-hex
+                   "0x0100000000000000000000000000000000000000000000000000000000000002")
+                  (hash32-from-hex
+                   "0x0100000000000000000000000000000000000000000000000000000000000003")))
+                1))))
+           (legacy-receipt
+             (make-receipt :status 1 :cumulative-gas-used 21000))
+           ;; Receipts do not carry trusted blob gas fields.  Serialization must
+           ;; derive them from each transaction and its containing block header.
+           (one-blob-receipt
+             (make-receipt :status 1 :cumulative-gas-used 42000))
+           (two-blob-receipt
+             (make-receipt :status 1 :cumulative-gas-used 63000))
+           (block
+             (make-block
+              :header (make-block-header
+                       :number 17
+                       :timestamp 170
+                       :gas-limit 30000000
+                       :base-fee-per-gas 1
+                       :blob-gas-used (* 3 +blob-gas-per-blob+)
+                       :excess-blob-gas +blob-base-fee-update-fraction+)
+              :transactions (list legacy-transaction
+                                  one-blob-transaction
+                                  two-blob-transaction)
+              :receipts (list legacy-receipt
+                              one-blob-receipt
+                              two-blob-receipt))))
+      (engine-payload-store-put-block store block :state-available-p t)
+      (let* ((legacy-result
+               (field (parse-json
+                       (receipt-request store config legacy-transaction 69))
+                      "result"))
+             (one-blob-result
+               (field (parse-json
+                       (receipt-request store config one-blob-transaction 70))
+                      "result"))
+             (two-blob-result
+               (field (parse-json
+                       (receipt-request store config two-blob-transaction 71))
+                      "result"))
+             (block-results
+               (field
+                (parse-json
+                 (engine-rpc-handle-request-json
+                  "{\"jsonrpc\":\"2.0\",\"id\":72,\"method\":\"eth_getBlockReceipts\",\"params\":[\"latest\"]}"
+                  store config))
+                "result"))
+             (block-legacy-result (first block-results))
+             (block-one-blob-result (second block-results))
+             (block-two-blob-result (third block-results)))
+        (is (null (field-entry legacy-result "blobGasUsed")))
+        (is (null (field-entry legacy-result "blobGasPrice")))
+        (is (null (field-entry block-legacy-result "blobGasUsed")))
+        (is (null (field-entry block-legacy-result "blobGasPrice")))
+        (is (equal "0x20000" (field one-blob-result "blobGasUsed")))
+        (is (equal "0x2" (field one-blob-result "blobGasPrice")))
+        (is (equal "0x40000" (field two-blob-result "blobGasUsed")))
+        (is (equal "0x2" (field two-blob-result "blobGasPrice")))
+        (is (equal "0x20000"
+                   (field block-one-blob-result "blobGasUsed")))
+        (is (equal "0x2" (field block-one-blob-result "blobGasPrice")))
+        (is (equal "0x40000"
+                   (field block-two-blob-result "blobGasUsed")))
+        (is (equal "0x2" (field block-two-blob-result "blobGasPrice")))))))
+
 (deftest eth-rpc-get-block-receipts
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
