@@ -1001,9 +1001,13 @@ that exact old container.
 the broker refuses another daemon version or profile checksum. `start` and
 `upgrade` retain a non-root/read-only container, drop every capability, set
 `no-new-privileges`, use that profile, and set both Docker memory and memory-swap
-to exactly 7 GiB around the runtime's 6 GiB SBCL heap. `status` and `restart`
-fail closed unless both limits remain present, so a host-wide Docker default
-cannot silently replace the documented whole-process boundary. `status` also
+to the broker's exact reviewed limit around the runtime's 6 GiB SBCL heap. The
+default remains 7 GiB; a dedicated host may explicitly set
+`HOODI_GATE_MEMORY_BYTES` from 7 through 12 GiB when live evidence shows that
+native RocksDB, stacks, and runtime metadata need more headroom. `status` and
+`restart` fail closed unless both limits equal that selected value, so a
+host-wide Docker default cannot silently replace the documented whole-process
+boundary. `status` also
 reports the datadir filesystem's total, used, available, and utilization bytes
 so a long fresh sync cannot exhaust `/data` between separate operator checks.
 This lets RocksDB issue concurrent random reads without replacing Docker's

@@ -70,10 +70,12 @@ jwt_dir="${HOODI_GATE_JWT_DIR:-/data/hoodi/jwt}"
 public_ip="${HOODI_GATE_PUBLIC_IP:-165.154.224.110}"
 p2p_port="${HOODI_GATE_P2P_PORT:-30303}"
 restart_ready_timeout="${HOODI_GATE_RESTART_READY_TIMEOUT:-600}"
-# The saved SBCL core reserves a 6 GiB dynamic space.  Leave one GiB for the
-# native database, stacks, and runtime metadata, but never let an accidental
-# regression consume the whole dedicated host.
-memory_limit_bytes=7516192768
+# The saved SBCL core reserves a 6 GiB dynamic space.  The original 7 GiB
+# whole-container limit proved too small during a long fresh Hoodi import, where
+# RocksDB, stacks, and runtime metadata pushed the process into the cgroup OOM
+# killer.  Keep 7 GiB as the conservative default for reproducibility, but let
+# an explicitly reviewed dedicated-host run raise the exact enforced limit.
+memory_limit_bytes="${HOODI_GATE_MEMORY_BYTES:-7516192768}"
 allocation_profile_seconds="${HOODI_GATE_ALLOC_PROFILE_SECONDS:-0}"
 allow_same_revision_profile="${HOODI_GATE_ALLOW_SAME_REVISION_PROFILE:-0}"
 rocksdb_async_read_io="${HOODI_GATE_ROCKSDB_ASYNC_READ_IO:-1}"
@@ -124,6 +126,13 @@ case "$rocksdb_async_read_io" in
     0|1) ;;
     *) fail "RocksDB async-read-I/O override must be zero or one" ;;
 esac
+case "$memory_limit_bytes" in
+    *[!0-9]*|'') fail "memory limit must be an integer number of bytes" ;;
+esac
+[ "$memory_limit_bytes" -ge 7516192768 ] ||
+    fail "memory limit must be at least 7 GiB"
+[ "$memory_limit_bytes" -le 12884901888 ] ||
+    fail "memory limit must not exceed 12 GiB"
 
 if [ "$actual_head" != "$revision" ]; then
     git -C "$repo_root" merge-base --is-ancestor "$revision" "$actual_head" ||
