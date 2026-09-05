@@ -47,14 +47,14 @@ Theirs: `eth/catalyst/api.go`, `beacon/engine/errors.go`, `internal/ethapi/api.g
 
 ## Executive summary
 
-The ten gaps that matter most, ordered by how directly they block a real caller.
+The ten items that mattered most at audit time, ordered by how directly they
+blocked a real caller. Resolved entries remain here as an audit trail.
 
-1. **`eth_syncing` always answers `false`** (`src/api/public/metadata/metadata.lisp:67`).
-   It is on the mandatory Engine-port method list precisely because a consensus
-   client uses it as its execution-layer upcheck, and the docstring in
-   `src/api/engine/methods.lisp:81` records that a live Lighthouse already got
-   stuck here once. Answering `false` while blocks are buffered and unexecuted
-   tells the consensus client the node is caught up when it is not.
+1. **RESOLVED — `eth_syncing` now reports honest cached progress.** It combines
+   the canonical head with buffered remote blocks, retained forkchoice targets,
+   known target-header heights, and the durable SNAP skeleton target. A pending
+   target therefore remains visible even at genesis or while the store guard is
+   contended; only a genuinely idle snapshot returns `false`.
 2. **Engine version-vs-fork violations return an `INVALID` payload status
    instead of a JSON-RPC error.** geth returns `-32602`/`-38005` with no result
    for every one of these cases (`eth/catalyst/api.go:171`, `:786`, `:527`); we
@@ -161,8 +161,8 @@ The mandatory `eth_*` methods on the authenticated port
 (`+engine-rpc-required-eth-methods+`, `src/api/engine/methods.lisp:58-67`) are
 exactly the nine that `execution-apis`' `src/engine/common.md` requires, and the
 docstring explains why the list is not wider. That is a correct and deliberately
-narrow choice, and it is one of the better-documented decisions in the area — but
-see RPC-01: one of the nine is a stub.
+narrow choice, and it is one of the better-documented decisions in the area.
+RPC-01 records the now-resolved reporting gap that used to affect one of the nine.
 
 ### `eth_*`
 
@@ -170,7 +170,7 @@ see RPC-01: one of the nine is a stub.
 | --- | --- | --- | --- | --- |
 | `eth_chainId` | yes | yes | full | — |
 | `eth_blockNumber` | yes | yes | full | — |
-| `eth_syncing` | yes | yes | partial | Hardcoded `false` (RPC-01). |
+| `eth_syncing` | yes | yes | full | Cached non-blocking progress object from canonical, remote, forkchoice, and SNAP targets; `false` only when idle (RPC-01). |
 | `eth_coinbase` | yes | yes | full | — |
 | `eth_accounts` | yes | yes | full | Empty array; no key management, by design. |
 | `eth_mining` / `eth_hashrate` | yes | yes | full | `false` / `0x0`, as post-merge geth. |
@@ -197,13 +197,13 @@ see RPC-01: one of the nine is a stub.
 | `eth_getTransactionByHash` | yes | yes | full | — |
 | `eth_getTransactionByBlockHashAndIndex` / `ByNumber...` | yes | yes | full | — |
 | `eth_getRawTransactionByHash` | yes | yes | UNVERIFIED | Dispatched; encoding not compared. Also the `ByBlock*AndIndex` pair. |
-| `eth_getTransactionReceipt` | yes | yes | partial | Blob fields are emitted; pinned Hive typed-receipt cases still fail exact conformance (RPC-18). |
+| `eth_getTransactionReceipt` | yes | yes | partial | Type-3 blob gas fields are emitted and regression-covered; pinned Hive typed-receipt cases still fail elsewhere (RPC-18). |
 | `eth_getBlockReceipts` | yes | yes | partial | `pending` returns `null`; pinned Hive still has one failing case. |
 | `eth_sendRawTransaction` | yes | yes | full | Admission policy is richer than the RPC contract requires. |
 | `eth_sendRawTransactionSync` | yes | no | missing | Recent geth addition; low priority. |
 | `eth_sendTransaction` / `eth_sign` / `eth_signTransaction` | yes | yes | missing | No key management, by design. |
 | `eth_fillTransaction` | yes | no | missing | Completeness only. |
-| `eth_getLogs` | yes | yes | partial | No topic-count cap, no range cap (RPC-25); unknown `blockHash` is `[]` (RPC-26). |
+| `eth_getLogs` | yes | yes | partial | Geth topic limits and unknown-`blockHash` error are covered; a local 5,000-block resource cap remains intentionally non-parity (RPC-25, RPC-26). |
 | `eth_newFilter` | yes | yes | partial | No deadline, sequential IDs (RPC-23). |
 | `eth_newBlockFilter` | yes | yes | partial | As above. |
 | `eth_newPendingTransactionFilter` | yes | yes | partial | As above; no full-transaction variant. |
@@ -236,20 +236,19 @@ least informative.
 
 ### Engine API
 
-**RPC-01 — `eth_syncing` is a stub on a port where it is mandatory.**
-Verdict MISSING. Severity breaks-consensus-client-integration.
-Ours: `src/api/public/metadata/metadata.lisp:67-70` returns `:false`
-unconditionally. Reference: geth `internal/ethapi/api.go:162` returns
-`api.b.SyncProgress(ctx)`, marshalled as an object with `startingBlock`,
-`currentBlock`, `highestBlock` and the snap-sync counters, or `false` only when
-genuinely synced. Consequence: a consensus client's execution-layer upcheck
-passes while the node is behind. The node's own state already carries what an
-honest answer needs — buffered blocks whose ancestors are missing are enumerated
-by `devnet-node-sync-targets` (`src/app/cli/devnet/dialer.lisp:90`) and the head
-number is trivially available — so this is a wiring gap rather than a missing
-subsystem. The docstring at `src/api/engine/methods.lisp:81-83` documents that a
-live Lighthouse already stalled on the absence of this method; it now answers,
-but with the wrong answer.
+**RPC-01 — `eth_syncing` reports live progress rather than an unconditional stub.**
+Verdict RESOLVED. Severity breaks-consensus-client-integration.
+Ours now returns a geth-shaped `startingBlock`, `currentBlock`, and
+`highestBlock` object whenever the canonical head trails a buffered remote
+block, retained forkchoice target, known target-header height, or durable SNAP
+skeleton target. The node backend maintains a small guarded snapshot so the
+mandatory Engine-port upcheck remains non-blocking; if refresh loses the store
+try-lock after an idle snapshot, it conservatively reports progress at the last
+known head rather than returning stale `false`. A target whose height is truly
+unknown uses the current height until stronger metadata arrives. Focused cold
+unit and integration tests cover genesis forkchoice, known state-unavailable
+targets, and store-guard contention. This fixes reporting only; it does not
+change downloader, import, forkchoice, networking, or SNAP mechanics.
 
 **RPC-02 — Engine version violations are reported as `INVALID`, not as an RPC error.**
 Verdict DIVERGENT. Severity breaks-consensus-client-integration.
@@ -496,17 +495,17 @@ and precompile overrides, validation error codes, and exact synthetic-block
 progression. The method is therefore implemented but is not yet a conformance
 gate; RPC-15's override machinery remains a prerequisite for closing it.
 
-**RPC-18 — Blob-transaction receipts omit `blobGasUsed` and `blobGasPrice`.**
-Verdict MISSING. Severity correctness.
-Ours: `eth-rpc-receipt-object`
-(`src/api/public/transactions/receipts.lisp:37-93`) emits a fixed field set that
-does not vary by transaction type and contains neither name. Reference: geth adds
-both for type-3 transactions (`internal/ethapi/api.go:1615-1616`). Consequence: a
-caller cannot determine what a blob transaction paid for its blobs from the
-receipt, which is the only place that information is exposed. Everything else in
-the receipt — `effectiveGasPrice`, the `root`/`status` split, per-transaction
-`gasUsed` derived from the cumulative delta, `logIndex` continuity across a block
-— matches.
+**RPC-18 — Blob-transaction receipts include `blobGasUsed` and `blobGasPrice`.**
+Verdict RESOLVED. Severity correctness.
+The original finding was stale by the reviewed baseline: type-3 serialization
+already derived `blobGasUsed` from each transaction's versioned hashes and
+`blobGasPrice` from the containing header's `excessBlobGas` plus the active chain
+configuration, while omitting both fields from legacy receipts. Regression
+coverage now proves distinct one-blob and two-blob values against a different
+three-blob block aggregate, exercises both `eth_getTransactionReceipt` and
+`eth_getBlockReceipts`, and checks field absence rather than JSON null for the
+legacy transaction. Pinned Hive failures, if any remain, must be attributed to
+their specific receipt divergence rather than these fields.
 
 **RPC-19 — The header field is named `balHash` rather than `blockAccessListHash`.**
 Verdict DIVERGENT. Severity correctness (silent, for one field).
@@ -592,25 +591,21 @@ reorg handler (`src/application/services/canonical-chain.lisp:109`) and
 (`src/api/public/transactions/receipts.lisp:35`) — so the mechanism exists and
 the subscription path simply does not use it.
 
-**RPC-25 — No topic-count or block-range limits on log queries.**
-Verdict MISSING. Severity performance.
-Ours: `eth-rpc-log-filter-topics` validates shape but not length
-(`src/api/public/filters/logs.lisp:110`), and `eth-rpc-filter-logs` iterates the
-requested range with no cap (same file). Reference: geth
-enforces `maxTopics = 4` and `maxSubTopics = 1000`
-(`eth/filters/api.go:63-65`, checked at `:448`, `:680`, `:703` and
-`filter_system.go:298`). Consequence: `eth_getLogs` from block 0 to `latest`, or
-with a thousand-entry topic list, is an unbounded unauthenticated request. The
-Bloom pre-filter (`src/api/public/filters/logs.lisp`) reduces the constant factor
-but not the bound.
+**RPC-25 — Log topic limits are geth-compatible; range work remains locally bounded.**
+Verdict PARTIAL. Severity performance.
+`eth_getLogs`, `eth_newFilter`, and log subscriptions share enforcement of
+geth's `maxTopics = 4` and `maxSubTopics = 1000`, including exact `-32000`
+`exceed max topics` errors. The earlier audit also missed the existing local
+5,000-block range-delta guard. That guard remains as a resource-safety policy and
+is not claimed as geth parity. Within the bound, range processing is still
+synchronous and materializes known blocks; streaming plus request
+deadline/cancellation remains the open part of this finding.
 
-**RPC-26 — `eth_getLogs` with an unknown `blockHash` returns `[]` instead of an error.**
-Verdict DIVERGENT. Severity cosmetic.
-Ours: the block lookup yields nil and the result is an empty array
-(`src/api/public/filters/logs.lisp`). Reference: geth returns
-`errUnknownBlock`. Consequence: a caller cannot distinguish "that block has no
-matching logs" from "I gave you a hash you do not know", which matters to an
-indexer walking by hash across a reorg.
+**RPC-26 — Unknown log-filter `blockHash` returns an explicit error.**
+Verdict RESOLVED. Severity cosmetic.
+The shared validation path now returns JSON-RPC `-32000` with message
+`unknown block` for both `eth_getLogs` and `eth_newFilter`. Regression tests
+distinguish this from a known block with no matching logs.
 
 **RPC-27 — `eth_subscribe syncing` is refused explicitly, and `newPendingTransactions` supports the full-transaction variant.**
 Verdict (no gap). Recorded because the refusal is the pattern `PROJECT.md` asks
@@ -802,12 +797,10 @@ that would prove it fixed. "Hive" refers to the `ethereum/hive` suites; the
 `engine-api` and `engine-auth` suites are the ones that exercise this area, and
 `rpc-compat` covers the public surface against `execution-apis` vectors.
 
-1. **Report real sync progress from `eth_syncing` (S).** RPC-01. No
-   dependencies. The inputs exist: head number, and the buffered-block set that
-   `devnet-node-sync-targets` already computes. Verify with a new case in
-   `tests/core-public-rpc-chain-tests.lisp` asserting the object shape while a
-   remote block is buffered and `false` when it is not, then a Lighthouse or
-   Prysm upcheck against a devnet node that is deliberately behind.
+1. **DONE — Report real sync progress from `eth_syncing` (S).** RPC-01.
+   Cold unit and integration coverage now exercises remote/forkchoice progress,
+   known target heights, genesis, and store-guard contention. The live Hoodi
+   gate remains the deployment-level proof on its pinned revision.
 2. **Convert Engine version and attribute violations to RPC errors (M).**
    RPC-02, RPC-03, RPC-04, RPC-05. No dependencies, and they share one shape:
    raise `engine-rpc-fail` with `-32602`, `-38003` or `-38005` where the code
@@ -848,11 +841,12 @@ that would prove it fixed. "Hive" refers to the `ethereum/hive` suites; the
    only its tip. Verify with a `tests/websocket-tests.lisp` case that induces a
    reorg and asserts both the `removed: true` logs and the replacement logs
    arrive.
-8. **Cap calls and bound log queries (S).** RPC-16, RPC-25, RPC-35. One theme:
-   wire the limit flags that are already parsed, add `maxTopics` and
-   `maxSubTopics`, add a block-range cap, add the batch item and response
-   limits. Verify with cases asserting the error for each limit, plus the
-   `rpc-compat` suite to confirm nothing legitimate was cut off.
+8. **PARTIAL — Cap calls and bound log queries (S).** RPC-16, RPC-25,
+   RPC-35. `maxTopics` and `maxSubTopics` now match geth and the pre-existing
+   local block-range guard remains covered. Still wire call, batch, and response
+   limits, then replace synchronous block-list materialization with streaming
+   plus a request deadline/cancellation policy before considering the range
+   behavior complete.
 9. **Reject flags we do not implement (S).** RPC-37, and the ignored options
    named in RPC-16 and RPC-35 that step 8 does not wire. Depends on step 8, so
     that only genuinely unimplemented flags remain. Verify in
@@ -874,9 +868,11 @@ that would prove it fixed. "Hive" refers to the `ethereum/hive` suites; the
 13. **Serve `eth_config` (S).** RPC-33. No dependencies; everything it reports
     is in `chain-config`. Verify against the EIP-7910 vectors in
     `execution-apis`.
-14. **Add `blobGasUsed` and `blobGasPrice` to blob receipts (S).** RPC-18.
-    Verify with a `tests/core-public-rpc-receipt-tests.lisp` case on a type-3
-    receipt and the `rpc-compat` suite.
+14. **DONE — Verify `blobGasUsed` and `blobGasPrice` on blob receipts (S).**
+    RPC-18. The implementation predated this audit revision; focused regression
+    coverage now proves both receipt RPCs, transaction-local blob gas, contextual
+    blob price, and legacy omission. Keep the broader `rpc-compat` suite as the
+    external conformance gate.
 15. **Build a real pending block (L).** RPC-20. Depends on the block-building
     path being callable outside the Engine API. This is the largest
     wallet-facing item and the one most entangled with another area, so it is
