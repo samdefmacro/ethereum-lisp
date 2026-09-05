@@ -1063,6 +1063,35 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
   t)
 
 #+sbcl
+(defun devnet-snap-source-pool-release-for-session-close
+    (pool entry response-id)
+  "Release ENTRY's exact slot and wake all waiters after session closure."
+  (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
+    (devnet-snap-source-pool-release-locked pool entry response-id)
+    ;; The supervisor closes the queue before removing the peer. Every waiter
+    ;; must therefore recheck the live set: the first one can observe removal
+    ;; and return without owning another reservation that would notify peers.
+    (sb-thread:condition-broadcast
+     (devnet-snap-source-pool-waitqueue pool response-id)))
+  t)
+
+(defun devnet-log-snap-source-closed (node condition fallback-entry &rest fields)
+  "Report CONDITION once, retaining a composed dependency's exact peer id."
+  (unless
+      (devnet-peer-request-queue-closed-lifecycle-event-reported-p condition)
+    (let ((peer-id
+            (or (devnet-peer-request-queue-closed-peer-id condition)
+                (devnet-peer-entry-id-hex fallback-entry))))
+      (setf (devnet-peer-request-queue-closed-peer-id condition) peer-id
+            (devnet-peer-request-queue-closed-lifecycle-event-reported-p
+             condition)
+            t)
+      (apply #'devnet-peer-manager-log
+             node "peer.snap.source_closed" "peer" peer-id
+             "error" condition fields)))
+  condition)
+
+#+sbcl
 (defun devnet-snap-source-pool-fail-and-release
     (pool entry response-id &key state-unavailable-p request-timeout-p)
   "Retire ENTRY for this import or cool it down, then wake global waiters."
@@ -1128,7 +1157,8 @@ the transport which supplied it."
         (let ((result-values nil)
               (request-values nil)
               (succeeded-p nil)
-              (transport-condition nil))
+              (transport-condition nil)
+              (queue-closed-p nil))
           (unwind-protect
                (handler-case
                    (progn
@@ -1156,18 +1186,28 @@ the transport which supplied it."
                    ;; peer selection problem.
                    (error condition))
                  (serious-condition (condition)
-                   (setf transport-condition condition)))
-            ;; Install the cooldown before waking waiters so the peer cannot be
-            ;; reacquired in the release/failure race.
+                   (setf transport-condition condition
+                         queue-closed-p
+                         (typep condition
+                                'devnet-peer-request-queue-closed))))
+            ;; Classify before waking waiters so ordinary failures install their
+            ;; cooldown first, while session closure only releases lifecycle work.
             (if transport-condition
-                (devnet-snap-source-pool-fail-and-release
-                 pool entry response-id
-                 :state-unavailable-p
-                 (typep
-                  transport-condition
-                  'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
-                 :request-timeout-p
-                 (typep transport-condition 'devnet-snap-request-timeout))
+                (if queue-closed-p
+                    ;; The session supervisor has already retired this
+                    ;; transport. Release its exact dependency slot and wake
+                    ;; every reservation waiter, but do not invent a
+                    ;; cooldown/degradation result.
+                    (devnet-snap-source-pool-release-for-session-close
+                     pool entry response-id)
+                    (devnet-snap-source-pool-fail-and-release
+                     pool entry response-id
+                     :state-unavailable-p
+                     (typep
+                      transport-condition
+                      'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
+                     :request-timeout-p
+                     (typep transport-condition 'devnet-snap-request-timeout)))
                 (progn
                   (devnet-snap-source-pool-release pool entry response-id)
                   (devnet-node-set-snap-peer-degraded
@@ -1175,6 +1215,11 @@ the transport which supplied it."
                    entry response-id nil))))
           (when succeeded-p
             (return (values-list result-values)))
+          (when queue-closed-p
+            (devnet-log-snap-source-closed
+             (devnet-snap-source-pool-node pool)
+             transport-condition entry "type" label)
+            (error transport-condition))
           (devnet-peer-manager-log
            (devnet-snap-source-pool-node pool)
            "peer.snap.dependency_failed"
@@ -2064,10 +2109,8 @@ must prove the new state root before either record can authorize publication."
               ;; state import.  The session supervisor already accounts for
               ;; the disconnect; avoid both a false Section 5 failure marker
               ;; and a second peer-score penalty here.
-              (devnet-peer-manager-log
-               node "peer.snap.source_closed"
-               "peer" (devnet-peer-entry-id-hex entry)
-               "pivot" pivot-number "error" condition))
+              (devnet-log-snap-source-closed
+               node condition entry "pivot" pivot-number))
              ((typep condition 'storage-error)
               ;; The importer re-signals local storage faults after this
               ;; observation; never score a peer for them.
