@@ -221,14 +221,20 @@ rather than a node's peering state."
          (backend (ethereum-lisp.cli::devnet-node-admin-backend (list node)))
          (snapshot-function
            (ethereum-lisp.public-api::admin-backend-syncing backend))
+         (start (sb-thread:make-semaphore :count 0))
          (entered (sb-thread:make-semaphore :count 0))
          (release (sb-thread:make-semaphore :count 0))
          (holder
            (sb-thread:make-thread
             (lambda ()
+              (sb-thread:wait-on-semaphore start)
               (ethereum-lisp.cli::call-with-devnet-node-store-guard
                node
                (lambda ()
+                 (engine-payload-store-put-forkchoice-sync-target
+                  (ethereum-lisp.cli:devnet-node-store node)
+                  (make-hash32
+                   (make-byte-vector 32 :initial-element #x44)))
                  (sb-thread:signal-semaphore entered)
                  (sb-thread:wait-on-semaphore release))))))
          (engine-context
@@ -239,6 +245,10 @@ rather than a node's peering state."
             engine-context)))
     (unwind-protect
          (progn
+           ;; Establish the exact stale cache state from the regression: the
+           ;; node was idle at the last successful guarded refresh.
+           (is (eq :false (funcall snapshot-function)))
+           (sb-thread:signal-semaphore start)
            (sb-thread:wait-on-semaphore entered)
            (let ((contended (funcall snapshot-function)))
              (is (listp contended))
@@ -247,9 +257,37 @@ rather than a node's peering state."
                                       :test #'string=))))))
       (sb-thread:signal-semaphore release)
       (sb-thread:join-thread holder))
-    (is (eq :false (funcall snapshot-function)))
+    (is (listp (funcall snapshot-function)))
     (is (not (funcall guard-predicate "eth_syncing")))
     (is (funcall guard-predicate "engine_newPayloadV4"))))
+
+(deftest eth-syncing-node-snapshot-reports-known-state-unavailable-target-height
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (backend (ethereum-lisp.cli::devnet-node-admin-backend (list node)))
+         (snapshot-function
+           (ethereum-lisp.public-api::admin-backend-syncing backend))
+         (block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (zero-hash32)
+             :number 7
+             :timestamp 1
+             :gas-limit 30000000)))
+         (target-hash (block-hash block)))
+    (engine-payload-store-put-block
+     store block :state-available-p nil :canonicalize-p nil)
+    (engine-payload-store-put-forkchoice-sync-target
+     store target-hash :block-number 7)
+    (let ((snapshot (funcall snapshot-function)))
+      (is (listp snapshot))
+      (is (string= "0x0"
+                   (cdr (assoc "currentBlock" snapshot :test #'string=))))
+      (is (string= "0x7"
+                   (cdr (assoc "highestBlock" snapshot :test #'string=)))))))
 
 (deftest eth-syncing-reports-the-durable-snap-skeleton-target
   (:layer :integration :module :cli)

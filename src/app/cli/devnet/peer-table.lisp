@@ -283,7 +283,7 @@ concurrent immutable read of the atomically published skeleton record."
           (node-store-snap-skeleton-progress-target-number progress))))))
 
 (defun devnet-node-sync-highest-block (node)
-  "Return the highest consensus-authorized block represented by live sync.
+  "Return the highest known live-sync block and whether forkchoice work exists.
 
 The ordinary Engine candidate remains in REMOTE-BLOCKS while its ancestry is
 unknown.  SNAP bootstrap moves that target into the durable skeleton before it
@@ -297,11 +297,20 @@ therefore a stronger source than a peer-advertised head."
                  maximize
                  (block-header-number (block-header block))))
          (snap-highest (devnet-node-durable-snap-highest-block node)))
-    (cond
-      ((and remote-highest snap-highest)
-       (max remote-highest snap-highest))
-      (remote-highest remote-highest)
-      (snap-highest snap-highest))))
+    (multiple-value-bind (targets target-highest)
+        (engine-payload-store-forkchoice-sync-targets store)
+      (dolist (target targets)
+        (let ((known (chain-store-known-block store target)))
+          (when known
+            (let ((number (block-header-number (block-header known))))
+              (setf target-highest
+                    (if target-highest
+                        (max target-highest number)
+                        number))))))
+      (let ((heights
+              (remove nil (list remote-highest snap-highest target-highest))))
+        (values (and heights (reduce #'max heights))
+                (not (null targets)))))))
 
 (defun devnet-node-admin-backend (node-box)
   "How the admin RPC namespace reaches this node's peering state.
@@ -329,25 +338,35 @@ waiting."
     (make-admin-backend
      :syncing
      (lambda ()
-       (let ((node (node)))
+       (let ((node (node))
+             (refresh-missed-p nil))
          (when node
            (multiple-value-bind (refresh refreshed-p)
                (call-with-devnet-node-store-guard-if-free
                 node
                 (lambda ()
                   (let* ((store (devnet-node-store node))
-                         (current (chain-store-head-number store))
-                         (highest (devnet-node-sync-highest-block node)))
-                    (list
-                     :snapshot
-                     (if (and highest (> highest current))
-                         (list
-                          (cons "startingBlock" (quantity-to-hex current))
-                          (cons "currentBlock" (quantity-to-hex current))
-                          (cons "highestBlock" (quantity-to-hex highest)))
-                         :false)
-                     :current current
-                     :highest highest))))
+                         (current (chain-store-head-number store)))
+                    (multiple-value-bind (highest forkchoice-target-p)
+                        (devnet-node-sync-highest-block node)
+                      (let* ((syncing-p
+                               (or forkchoice-target-p
+                                   (and highest (> highest current))))
+                             (effective-highest
+                               (and syncing-p
+                                    (max current (or highest current)))))
+                        (list
+                         :snapshot
+                         (if syncing-p
+                             (list
+                              (cons "startingBlock" (quantity-to-hex current))
+                              (cons "currentBlock" (quantity-to-hex current))
+                              (cons "highestBlock"
+                                    (quantity-to-hex effective-highest)))
+                             :false)
+                         :current current
+                         :highest effective-highest))))))
+             (setf refresh-missed-p (not refreshed-p))
              (when refreshed-p
                #+sbcl
                (sb-thread:with-mutex (syncing-lock)
@@ -367,18 +386,32 @@ waiting."
                        (devnet-node-durable-snap-highest-block node)
                      (serious-condition () nil))))
              (flet ((answer ()
-                      (if (and durable-highest
-                               (> durable-highest syncing-current))
-                          (let ((highest
-                                  (max durable-highest
-                                       (or syncing-highest durable-highest))))
-                            (list
-                             (cons "startingBlock"
-                                   (quantity-to-hex syncing-current))
-                             (cons "currentBlock"
-                                   (quantity-to-hex syncing-current))
-                             (cons "highestBlock" (quantity-to-hex highest))))
-                          syncing-snapshot)))
+                      (cond
+                        ((and durable-highest
+                              (> durable-highest syncing-current))
+                         (let ((highest
+                                 (max durable-highest
+                                      (or syncing-highest durable-highest))))
+                           (list
+                            (cons "startingBlock"
+                                  (quantity-to-hex syncing-current))
+                            (cons "currentBlock"
+                                  (quantity-to-hex syncing-current))
+                            (cons "highestBlock" (quantity-to-hex highest)))))
+                        ;; A failed try-lock cannot prove that a cached FALSE is
+                        ;; still current: the guard owner may just have inserted
+                        ;; a forkchoice target. Conservatively report progress
+                        ;; at the last known head until a refresh succeeds.
+                        ((and refresh-missed-p (eq syncing-snapshot :false))
+                         (list
+                          (cons "startingBlock"
+                                (quantity-to-hex syncing-current))
+                          (cons "currentBlock"
+                                (quantity-to-hex syncing-current))
+                          (cons "highestBlock"
+                                (quantity-to-hex
+                                 (or syncing-highest syncing-current)))))
+                        (t syncing-snapshot))))
                #+sbcl
                (sb-thread:with-mutex (syncing-lock) (answer))
                #-sbcl

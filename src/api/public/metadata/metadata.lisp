@@ -65,12 +65,21 @@ neither."
   (quantity-to-hex +eth-protocol-version+))
 
 (defun engine-rpc-sync-highest-block (store &key (now (unix-time)))
-  "Return the highest buffered remote block number, or NIL when caught up."
+  "Return the highest buffered remote block and whether forkchoice work exists."
   (let ((highest nil))
     (dolist (block (engine-payload-store-remote-block-list store :now now))
        (let ((number (block-header-number (block-header block))))
          (setf highest (if highest (max highest number) number))))
-    highest))
+    (multiple-value-bind (targets target-highest)
+        (engine-payload-store-forkchoice-sync-targets store :now now)
+      (when target-highest
+        (setf highest (if highest (max highest target-highest) target-highest)))
+      (dolist (target targets)
+        (let ((known (chain-store-known-block store target)))
+          (when known
+            (let ((number (block-header-number (block-header known))))
+              (setf highest (if highest (max highest number) number))))))
+      (values highest (not (null targets))))))
 
 (defun engine-rpc-handle-eth-syncing (params store &optional admin-backend)
   (when params
@@ -84,13 +93,20 @@ neither."
                  (admin-backend-syncing admin-backend)))))
     (if snapshot-function
         (funcall snapshot-function)
-        (let ((highest (engine-rpc-sync-highest-block store))
-              (current (chain-store-head-number store)))
-          (if (and highest (> highest current))
-              (list (cons "startingBlock" (quantity-to-hex current))
-                    (cons "currentBlock" (quantity-to-hex current))
-                    (cons "highestBlock" (quantity-to-hex highest)))
-              :false)))))
+        (let ((current (chain-store-head-number store)))
+          (multiple-value-bind (highest forkchoice-target-p)
+              (engine-rpc-sync-highest-block store)
+            (if (or forkchoice-target-p
+                    (and highest (> highest current)))
+                (list (cons "startingBlock" (quantity-to-hex current))
+                      (cons "currentBlock" (quantity-to-hex current))
+                      ;; Forkchoice may authorize an unknown hash before its
+                      ;; header reveals a height.  Current is the only honest
+                      ;; numeric target until that stronger signal arrives.
+                      (cons "highestBlock"
+                            (quantity-to-hex (max current
+                                                  (or highest current)))))
+                :false))))))
 
 (defun engine-rpc-handle-eth-accounts (params)
   (when params
