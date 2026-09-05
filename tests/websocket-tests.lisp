@@ -208,6 +208,40 @@
     (signals error (ethereum-lisp.public-api:eth-rpc-handle-eth-subscribe
                     '() registry))))
 
+(deftest eth-subscribe-log-topics-enforce-shared-parser-limits
+  (labels ((topic-json (count &key alternatives-p)
+             (let ((topic
+                     "\"0x0000000000000000000000000000000000000000000000000000000000000001\""))
+               (format nil
+                       (if alternatives-p
+                           "{\"topics\":[[~{~A~^,~}]]}"
+                           "{\"topics\":[~{~A~^,~}]}")
+                       (loop repeat count collect topic))))
+           (subscribe (count alternatives-p registry)
+             (ethereum-lisp.public-api:eth-rpc-handle-eth-subscribe
+              (list "logs"
+                    (parse-json
+                     (topic-json count :alternatives-p alternatives-p)))
+              registry))
+           (assert-limit (count alternatives-p registry)
+             (handler-case
+                 (progn
+                   (subscribe count alternatives-p registry)
+                   (is nil))
+               (ethereum-lisp.engine-api:engine-rpc-error (condition)
+                 (is (= -32000
+                        (ethereum-lisp.engine-api:engine-rpc-error-code
+                         condition)))
+                 (is (string= "exceed max topics"
+                              (ethereum-lisp.engine-api:engine-rpc-error-message
+                               condition)))))))
+    (let ((registry
+            (ethereum-lisp.public-api:make-eth-rpc-subscription-registry)))
+      (is (stringp (subscribe 4 nil registry)))
+      (assert-limit 5 nil registry)
+      (is (stringp (subscribe 1000 t registry)))
+      (assert-limit 1001 t registry))))
+
 (deftest eth-subscription-notification-shape
   (let ((json (ethereum-lisp.public-api:eth-rpc-subscription-notification-json
                "0xabc" "0xdef")))

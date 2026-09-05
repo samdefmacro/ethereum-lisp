@@ -4,6 +4,9 @@
 (defconstant +eth-rpc-max-log-subtopics+ 1000)
 (defconstant +eth-rpc-max-log-block-range+ 5000)
 
+(defun eth-rpc-log-topic-limit-fail ()
+  (engine-rpc-fail -32000 "exceed max topics"))
+
 (defun eth-rpc-address= (left right)
   (and left
        right
@@ -103,9 +106,7 @@ drop real results."
       ((json-array-p value)
        (let ((values (json-array-values value)))
          (when (> (length values) +eth-rpc-max-log-subtopics+)
-           (block-validation-fail
-            "~A topic filter slot exceeds the ~D-topic limit"
-            method +eth-rpc-max-log-subtopics+))
+           (eth-rpc-log-topic-limit-fail))
          (mapcar (lambda (topic)
                    (unless (stringp topic)
                      (block-validation-fail
@@ -123,9 +124,7 @@ drop real results."
       ((json-array-p topics)
        (let ((values (json-array-values topics)))
          (when (> (length values) +eth-rpc-max-log-topic-slots+)
-           (block-validation-fail
-            "~A topics filter exceeds the ~D-slot limit"
-            method +eth-rpc-max-log-topic-slots+))
+           (eth-rpc-log-topic-limit-fail))
          (mapcar (lambda (topic)
                    (eth-rpc-log-filter-topic topic method))
                  values)))
@@ -153,7 +152,7 @@ drop real results."
        (let ((block (chain-store-known-block store block-hash)))
          (if block
              (list block)
-             (block-validation-fail "~A blockHash is unknown" method)))))
+             (engine-rpc-fail -32000 "unknown block")))))
     ((eth-rpc-log-filter-from-pending-p filter)
      (when (json-object-field-present-p filter "toBlock")
        (eth-rpc-block-number-param

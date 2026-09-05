@@ -1,5 +1,121 @@
 (in-package #:ethereum-lisp.test)
 
+(defun rpc-log-limit-topic-json (count &key alternatives-p)
+  (let ((topic
+          "\"0x0000000000000000000000000000000000000000000000000000000000000001\""))
+    (format nil
+            (if alternatives-p "[[~{~A~^,~}]]" "[~{~A~^,~}]")
+            (loop repeat count collect topic))))
+
+(defun rpc-log-limit-request-json (id method topics)
+  (format nil
+          "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"~A\",\"params\":[{\"fromBlock\":\"0x0\",\"toBlock\":\"0x0\",\"topics\":~A}]}"
+          id method topics))
+
+(defun rpc-log-limit-accepted-result-p (response method)
+  (let ((result-field (assoc "result" response :test #'string=)))
+    (and result-field
+         (if (string= method "eth_getLogs")
+             (ethereum-lisp.json:json-array-p (cdr result-field))
+             (let ((filter-id (cdr result-field)))
+               (and (stringp filter-id)
+                    (= 16 (length (hex-to-bytes filter-id)))))))))
+
+(deftest eth-rpc-log-filters-enforce-geth-topic-position-limit
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (id method topic-count store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (rpc-log-limit-request-json
+                id method (rpc-log-limit-topic-json topic-count))
+               store
+               config))))
+    (let ((store (make-engine-payload-memory-store))
+          (config (make-chain-config)))
+      (engine-payload-store-put-block
+       store
+       (make-block :header (make-block-header :number 0 :timestamp 0))
+       :state-available-p t)
+      (loop for method in '("eth_getLogs" "eth_newFilter")
+            for id from 200
+            for accepted = (request id method 4 store config)
+            for rejected = (request (+ id 10) method 5 store config)
+            for error-object = (field rejected "error")
+            do (is (null (field accepted "error")))
+               (is (rpc-log-limit-accepted-result-p accepted method))
+               (is (= -32000 (field error-object "code")))
+               (is (string= "exceed max topics"
+                            (field error-object "message")))))))
+
+(deftest eth-rpc-log-filters-enforce-geth-topic-alternative-limit
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (id method topic-count store config)
+             (parse-json
+              (engine-rpc-handle-request-json
+               (rpc-log-limit-request-json
+                id method
+                (rpc-log-limit-topic-json topic-count :alternatives-p t))
+               store
+               config))))
+    (let ((store (make-engine-payload-memory-store))
+          (config (make-chain-config)))
+      (engine-payload-store-put-block
+       store
+       (make-block :header (make-block-header :number 0 :timestamp 0))
+       :state-available-p t)
+      (loop for method in '("eth_getLogs" "eth_newFilter")
+            for id from 220
+            for accepted = (request id method 1000 store config)
+            for rejected = (request (+ id 10) method 1001 store config)
+            for error-object = (field rejected "error")
+            do (is (null (field accepted "error")))
+               (is (rpc-log-limit-accepted-result-p accepted method))
+               (is (= -32000 (field error-object "code")))
+               (is (string= "exceed max topics"
+                            (field error-object "message")))))))
+
+(deftest eth-rpc-log-filters-reject-unknown-block-hash-like-geth
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let ((store (make-engine-payload-memory-store))
+          (config (make-chain-config)))
+      (loop for method in '("eth_getLogs" "eth_newFilter")
+            for id from 240
+            for response =
+              (parse-json
+               (engine-rpc-handle-request-json
+                (format nil
+                        "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"~A\",\"params\":[{\"blockHash\":\"0x0000000000000000000000000000000000000000000000000000000000000001\"}]}"
+                        id method)
+                store
+                config))
+            for error-object = (field response "error")
+            do (is (= -32000 (field error-object "code")))
+               (is (string= "unknown block"
+                            (field error-object "message")))))))
+
+(deftest eth-rpc-get-logs-rejects-over-limit-block-range
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let ((store (make-engine-payload-memory-store))
+          (config (make-chain-config)))
+      (engine-payload-store-put-block
+       store
+       (make-block :header (make-block-header :number 5001 :timestamp 0))
+       :state-available-p t)
+      (let ((response
+              (parse-json
+               (engine-rpc-handle-request-json
+                "{\"jsonrpc\":\"2.0\",\"id\":241,\"method\":\"eth_getLogs\",\"params\":[{\"fromBlock\":\"0x0\",\"toBlock\":\"0x1389\"}]}"
+                store
+                config))))
+        (let ((error-object (field response "error")))
+          (is (= -32602 (field error-object "code")))
+          (is (string= "eth_getLogs block range exceeds the 5000-block limit"
+                       (field error-object "message"))))))))
+
 (deftest eth-rpc-log-topic-wildcard-requires-position
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))
