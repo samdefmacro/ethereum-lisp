@@ -758,6 +758,99 @@
     (is engine-closed-p)
     (is public-closed-p)))
 
+(deftest devnet-background-failure-survives-forced-engine-listener-stop
+  (:layer :integration :module :devnet)
+  #-sbcl
+  (skip-test "Devnet background failure propagation requires SBCL threads")
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-path +devnet-cli-genesis-fixture+
+            :port 8551
+            :public-port 8545))
+         (controller
+           (ethereum-lisp.cli:make-devnet-shutdown-controller))
+         (entered (sb-thread:make-semaphore :count 0))
+         (reported-p nil)
+         (observed nil)
+         (engine-service (ethereum-lisp.cli::devnet-node-service node))
+         (engine-listener
+           (make-engine-rpc-http-listener
+            :endpoint "engine"
+            :accept-function (lambda () nil)
+            :close-function (lambda () nil)))
+         (public-listener
+           (make-engine-rpc-http-listener
+            :endpoint "public"
+            :accept-function (lambda () nil)
+            :close-function (lambda () nil))))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-start-metrics-server-thread
+            (lambda (&rest arguments) (declare (ignore arguments)) nil))
+      (cons 'ethereum-lisp.cli::devnet-start-ws-server-thread
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (values nil nil)))
+      (cons 'ethereum-lisp.cli::devnet-start-rejournal-thread
+            (lambda (&rest arguments) (declare (ignore arguments)) nil))
+      (cons 'ethereum-lisp.cli::devnet-start-txpool-maintenance-thread
+            (lambda (&rest arguments) (declare (ignore arguments)) nil))
+      (cons 'ethereum-lisp.cli::devnet-start-payload-improvement-thread
+            (lambda (&rest arguments) (declare (ignore arguments)) nil))
+      (cons 'ethereum-lisp.cli::devnet-start-dev-period-thread
+            (lambda (&rest arguments) (declare (ignore arguments)) nil))
+      (cons 'ethereum-lisp.cli::devnet-start-dial-scheduler-thread
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (values nil nil)))
+      (cons 'ethereum-lisp.cli::devnet-start-discovery-thread
+            (lambda (&rest arguments) (declare (ignore arguments)) nil))
+      (cons 'ethereum-lisp.cli::devnet-start-discovery-server-thread
+            (lambda (&rest arguments) (declare (ignore arguments)) nil))
+      (cons 'ethereum-lisp.cli::devnet-start-p2p-listener-thread
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (values nil nil)))
+      (cons 'ethereum-lisp.cli::devnet-start-sync-coordinator-thread
+            (lambda (seen-node seen-controller on-error)
+              (is (eq node seen-node))
+              (is (eq controller seen-controller))
+              (sb-thread:make-thread
+               (lambda ()
+                 (sb-thread:wait-on-semaphore entered)
+                 (sb-thread:wait-on-semaphore entered)
+                 (setf reported-p t)
+                 (funcall on-error
+                          (make-condition
+                           'simple-error
+                           :format-control "injected sync coordinator failure"
+                           :format-arguments nil))
+                 (ethereum-lisp.cli:devnet-shutdown-request seen-controller))
+               :name "ethereum-lisp-injected-sync-failure")))
+      (cons 'engine-rpc-http-service-serve-listener
+            (lambda (service listener &key max-connections stop-p concurrency)
+              (declare (ignore listener max-connections concurrency))
+              (sb-thread:signal-semaphore entered)
+              (if (eq service engine-service)
+                  ;; Simulate an Engine listener whose in-flight workers exceed
+                  ;; the bounded shutdown join and must be terminated.
+                  (loop (sleep 1))
+                  (progn
+                    (loop until (funcall stop-p) do (sleep 0.001))
+                    0)))))
+     (lambda ()
+       (handler-case
+           (ethereum-lisp.cli:start-devnet-node-listeners
+            node engine-listener public-listener
+            :shutdown-controller controller)
+         (error (condition)
+           (setf observed condition)))))
+    (is reported-p)
+    (is observed)
+    (is (search "injected sync coordinator failure"
+                (princ-to-string observed)))))
+
 (deftest devnet-shutdown-controller-stops-split-listeners
   (:layer :integration :module :devnet :requires-local-sockets t)
   #-sbcl

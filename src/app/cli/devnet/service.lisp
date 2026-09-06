@@ -208,10 +208,18 @@
                          (public-error (error public-error))
                          (engine-error (error engine-error))
                          (t
-                          (list :engine-connections engine-count
-                                :public-connections public-count
-                                :total-connections
-                                (+ engine-count public-count)))))
+                          ;; A background-worker failure requests shutdown while
+                          ;; Engine requests may still be draining.  If that
+                          ;; listener exceeds the bounded join below, its thread
+                          ;; is terminated before it can publish ENGINE-COUNT.
+                          ;; Keep result construction total so the original
+                          ;; worker condition is re-signalled after cleanup
+                          ;; instead of being masked by (+ NIL PUBLIC-COUNT).
+                          (let ((completed-engine-count (or engine-count 0)))
+                            (list :engine-connections completed-engine-count
+                                  :public-connections public-count
+                                  :total-connections
+                                  (+ completed-engine-count public-count))))))
                      (handler-case
                          (let ((engine-count
                                  (engine-rpc-http-service-serve-listener
