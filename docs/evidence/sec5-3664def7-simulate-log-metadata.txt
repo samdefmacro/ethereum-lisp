@@ -1,0 +1,47 @@
+Section 5 eth_simulateV1 log metadata evidence
+Recorded: 2026-09-09
+Implementation revision: 3664def7223bacf78baf5506c2377f315b9f0043
+Comparator: vendored go-ethereum 8a0223e8da596a409df02c11027320df97327e83
+
+Scope
+- Repair successful simulated log objects after synthetic block assembly.
+- Populate blockHash, blockNumber, blockTimestamp, transactionHash,
+  transactionIndex, logIndex, and removed=false using the materialized block,
+  ordered transaction/receipt pairs, and block-wide log order.
+- Reuse the canonical public receipt log serializer.
+
+Comparator
+- internal/ethapi/logtracer.go:118-130 assigns block, transaction, and global log
+  metadata while capturing each successful log.
+- internal/ethapi/simulate.go:421-429 repairs the final block hash after block
+  assembly.
+
+RED
+- The strengthened ETH-RPC-SIMULATE-V1-CAPTURES-EVM-LOGS regression failed on
+  its first blockHash assertion because simulation returned only
+  address/topics/data.
+
+GREEN
+- Focused log regression exited 0 and checks exact synthetic block and
+  transaction identity plus indices, timestamp, and removed=false.
+- All 21 eth_simulateV1 tests passed with 0 skips and 0 failures.
+- cl-workbench validation run cold-unit passed 1,320 with 3 optional skips and
+  0 failures.
+- Parenthesis checks and git diff --check passed.
+
+Review
+- The implementation was compared directly with pinned logtracer.go and
+  simulate.go and reuses eth-rpc-log-object rather than duplicating public log
+  formatting.
+- Failed-frame logs remain excluded before receipt and response assembly.
+
+Integration
+- Commit: 3664def7223bacf78baf5506c2377f315b9f0043
+- Commit message: fix(rpc): repair simulated log metadata
+- Local, remote-tracking, and remote branch refs were read back equal.
+
+Non-claims
+- traceTransfers, remaining simulation response/error classes, pinned Hive
+  rerun, EEST, Hoodi completion, shadow comparison, and validator soak remain
+  open.
+- No live deployment or datadir was mutated.

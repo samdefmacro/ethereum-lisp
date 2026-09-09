@@ -672,6 +672,16 @@ metadata, transfer tracing, the pinned Hive rerun, remaining response/error
 classes, and the other Section 5 external gates stay open. See
 `docs/evidence/sec5-87fe39c7-simulate-full-transactions.txt`.
 
+`3664def7223bacf78baf5506c2377f315b9f0043` closes the bounded successful-log
+metadata class against vendored geth `8a0223e8`: simulation log objects are now
+repaired after block assembly with exact block hash/number/timestamp,
+transaction hash/index, block-wide log index, and `removed=false`, using the
+canonical receipt log serializer. The focused RED regression is GREEN, all 21
+simulation tests pass, and the cold-unit gate passes 1,320 with 3 optional
+skips. Transfer tracing, the pinned Hive rerun, remaining response/error
+classes, and the other Section 5 external gates stay open. See
+`docs/evidence/sec5-3664def7-simulate-log-metadata.txt`.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob
