@@ -596,6 +596,17 @@ simulation regressions, and the 1,302-case cold unit gate are recorded in
 does not change the archived Hive result; the unfinished response and
 external-rerun work above remains open.
 
+`de66bf7bb74a8dd15c41767943214bd7a48c6baf` fixes another bounded
+`eth_simulateV1` header-context class against vendored geth `8a0223e8`: the
+returned synthetic block now reflects `feeRecipient`, `prevRandao`, and
+difficulty overrides, emits the canonical zero nonce, resets omitted
+post-Merge difficulty to zero, and materializes inherited fee recipient and
+randomness into successor EVM execution. The regression executes `COINBASE`
+in the successor as a positive control. Focused simulation tests pass `18/18`
+and the full cold-unit gate passes `1,317` with `3` optional skips. Synthetic
+transaction/receipt/block identity and the `91`-case Hive baseline remain
+open; see `docs/evidence/sec5-de66bf7b-simulate-header-overrides.txt`.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob

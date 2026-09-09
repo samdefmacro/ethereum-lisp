@@ -1,0 +1,55 @@
+Section 5 local eth_simulateV1 header-override evidence
+
+Revision
+- Commit: de66bf7bb74a8dd15c41767943214bd7a48c6baf
+- Branch: sec5-public-bootstrap-sync
+- Reference: vendored go-ethereum 8a0223e8da596a409df02c11027320df97327e83
+- Reference paths:
+  - references/go-ethereum/internal/ethapi/simulate.go
+  - references/go-ethereum/internal/ethapi/override/override.go
+
+Change boundary
+- Synthetic block results now serialize feeRecipient, prevRandao, difficulty,
+  and an eight-byte zero nonce instead of leaking the selected base block's
+  header values or using pending-block nonce semantics.
+- Effective inherited feeRecipient and prevRandao values are materialized into
+  each successor block's call overrides, so EVM execution agrees with the RPC
+  result. The regression proves this by executing COINBASE in the successor.
+- Omitted post-Merge difficulty resets to zero; explicit difficulty remains in
+  the block where it is supplied.
+- Simulated block hash remains null intentionally. Transaction/receipt roots,
+  blooms, full synthetic transaction identity, and canonical block hash remain
+  unfinished; this slice does not publish a plausible but unreconstructable
+  block hash.
+
+RED evidence
+- The new focused regression first failed because the synthetic result retained
+  the base miner rather than feeRecipient.
+- An intermediate implementation was rejected in review because deriving a
+  block hash from empty transaction/receipt roots would make non-empty
+  simulation blocks and successor parent linkage incorrect.
+- The narrowed implementation's first review found inherited overrides were
+  serialized but not applied to successor EVM execution. The regression was
+  extended with a successor COINBASE call before acceptance.
+- A post-Merge successor expectation of inherited nonzero difficulty failed;
+  the implementation and assertion were aligned with geth's zero default.
+
+GREEN evidence
+- cl-workbench doctor --strict: PASS.
+- cl-workbench validation run cold-unit --match ETH-RPC-SIMULATE-V1: 18 passed,
+  0 failed.
+- cl-workbench validation run cold-unit: 1,317 passed, 3 optional skips,
+  0 failed.
+- git diff --check: PASS before commit.
+- Independent final read-only review: PASS, no blocking findings. It verified
+  copy-on-write effective override materialization, successor EVM inheritance,
+  post-Merge difficulty defaulting, and the COINBASE positive control.
+- Push verification: origin/sec5-public-bootstrap-sync equals
+  de66bf7bb74a8dd15c41767943214bd7a48c6baf.
+
+Unverified boundary
+- The pinned Hive rpc-compat suite was not rerun in this slice. Its archived
+  91-case eth_simulateV1 failure baseline is unchanged until a new pinned run.
+- Full synthetic transaction/receipt/block identity, roots, bloom, withdrawals,
+  Cancun/Prague header fields, transfer tracing, and remaining response-shape
+  fixtures are still open.
