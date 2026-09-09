@@ -1259,6 +1259,90 @@
                (bytes-to-integer
                 (hex-to-bytes (field call "returnData")))))))))
 
+(deftest eth-rpc-simulate-v1-applies-synthetic-header-overrides
+  ;; Geth 8a0223e8 `makeHeaders` applies feeRecipient and prevRandao to the
+  ;; synthetic header before RPCMarshalBlock serializes it. A synthetic block
+  ;; nonce is eight zero bytes, not the NIL used for a pending block response.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (address-word-hex (address)
+             (let ((bytes (make-byte-vector 32)))
+               (replace bytes (address-bytes address) :start1 12)
+               (bytes-to-hex bytes))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (base-miner
+             (address-from-hex
+              "0x00000000000000000000000000000000000000a1"))
+           (simulated-miner
+             "0x00000000000000000000000000000000000000b2")
+           (base-randao
+             (hash32-from-hex
+              "0x1111111111111111111111111111111111111111111111111111111111111111"))
+           (simulated-randao
+             "0x2222222222222222222222222222222222222222222222222222222222222222")
+           (contract
+             (address-from-hex
+              "0x00000000000000000000000000000000000000c3"))
+           ;; COINBASE; MSTORE 0; RETURN mem[0:32].
+           (code #(#x41 #x60 #x00 #x52 #x60 #x20 #x60 #x00 #xf3))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :beneficiary base-miner
+               :mix-hash base-randao
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((block-overrides
+               (list (cons "feeRecipient" simulated-miner)
+                     (cons "prevRandao" simulated-randao)
+                     (cons "difficulty" "0x7")))
+             (state-call
+               (list (cons "blockOverrides" block-overrides)
+                     (cons "calls" #())))
+             (payload
+               (list
+                (cons
+                 "blockStateCalls"
+                 (list
+                  state-call
+                  (list
+                   (cons
+                    "calls"
+                    (list
+                     (list (cons "to" (address-to-hex contract))))))))))
+             (request
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 424)
+                     (cons "method" "eth_simulateV1")
+                     (cons "params" (list payload "latest"))))
+             (response
+               (engine-rpc-handle-request request store config))
+             (results (field response "result"))
+             (result (first results))
+             (successor (second results))
+             (successor-call (first (field successor "calls"))))
+        (is (null (field response "error")))
+        (is (= 2 (length results)))
+        (is (null (field result "hash")))
+        (is (string= simulated-miner (field result "miner")))
+        (is (string= simulated-randao (field result "mixHash")))
+        (is (string= "0x7" (field result "difficulty")))
+        (is (string= "0x0000000000000000" (field result "nonce")))
+        (is (string= simulated-miner (field successor "miner")))
+        (is (string= simulated-randao (field successor "mixHash")))
+        ;; Post-Merge synthetic headers reset an omitted difficulty to zero.
+        (is (string= "0x0" (field successor "difficulty")))
+        (is (string= (address-word-hex (address-from-hex simulated-miner))
+                     (field successor-call "returnData")))))))
+
 (deftest eth-rpc-simulate-v1-refuses-too-many-blocks-with-specific-error
   ;; Execution APIs e5d1bb60 `ethSimulate-big-block-state-calls-array.io`
   ;; requires the dedicated limit error rather than generic invalid params.

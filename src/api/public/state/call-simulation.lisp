@@ -354,7 +354,10 @@ decodes, and the raw revert data in the error object's data member."
                    (eth-rpc-block-override-hash
                     block-overrides "prevRandao"
                     (or (block-header-mix-hash header) (zero-hash32)))
-                   :difficulty (block-header-difficulty header)
+                   :difficulty
+                   (eth-rpc-block-override-quantity
+                    block-overrides "difficulty"
+                    (block-header-difficulty header))
                    :random-p t
                    :commit-state-p commit-state-p
                    :context-gas-limit
@@ -460,6 +463,25 @@ decodes, and the raw revert data in the error object's data member."
             (chain-config-london-p config
                                    (block-header-number parent-header)))))
       (t 0))))
+
+(defun eth-rpc-effective-simulated-block-overrides
+    (block-overrides fee-recipient prev-randao difficulty base-fee)
+  "Materialize inherited header values for one synthetic block's EVM calls."
+  (let ((effective (copy-tree block-overrides)))
+    (setf effective
+          (eth-rpc-set-object-field
+           effective "feeRecipient" (address-to-hex fee-recipient)))
+    (setf effective
+          (eth-rpc-set-object-field
+           effective "prevRandao" (hash32-to-hex prev-randao)))
+    (setf effective
+          (eth-rpc-set-object-field
+           effective "difficulty" (quantity-to-hex difficulty)))
+    (when base-fee
+      (setf effective
+            (eth-rpc-set-object-field
+             effective "baseFeePerGas" (quantity-to-hex base-fee))))
+    effective))
 
 (defun eth-rpc-simulated-block-state-call
     (block-state-call block-overrides number timestamp)
@@ -635,20 +657,14 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
           (push result results))))))
 
 (defun eth-rpc-simulate-block-result
-    (block results block-overrides index gas-used base-fee block-gas-limit
-     state-root)
-  (let* ((header (block-header block))
-         (object (eth-rpc-block-object block nil))
-         (number
-           (eth-rpc-block-override-quantity
-            block-overrides "number"
-            (+ (block-header-number header) index 1)))
-         (timestamp
-           (eth-rpc-block-override-quantity
-            block-overrides "time"
-            (+ (block-header-timestamp header) index 1))))
+    (block results number timestamp gas-used base-fee difficulty fee-recipient
+     prev-randao block-gas-limit state-root)
+  (let ((object (eth-rpc-block-object block nil)))
     (eth-rpc-set-object-field object "number" (quantity-to-hex number))
     (eth-rpc-set-object-field object "timestamp" (quantity-to-hex timestamp))
+    (eth-rpc-set-object-field object "miner" (address-to-hex fee-recipient))
+    (eth-rpc-set-object-field object "mixHash" (hash32-to-hex prev-randao))
+    (eth-rpc-set-object-field object "difficulty" (quantity-to-hex difficulty))
     (eth-rpc-set-object-field
      object "gasLimit"
      (quantity-to-hex block-gas-limit))
@@ -657,8 +673,11 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
        object "baseFeePerGas" (quantity-to-hex base-fee)))
     (eth-rpc-set-object-field object "gasUsed" (quantity-to-hex gas-used))
     (eth-rpc-set-object-field object "stateRoot" (hash32-to-hex state-root))
+    ;; Until simulated transaction and receipt roots are materialized, do not
+    ;; publish a hash for a header that cannot yet be reconstructed exactly.
     (eth-rpc-set-object-field object "hash" nil)
-    (eth-rpc-set-object-field object "nonce" nil)
+    (eth-rpc-set-object-field
+     object "nonce" (bytes-to-hex (make-byte-vector 8)))
     (eth-rpc-set-object-field object "transactions" (eth-rpc-json-array '()))
     (append object (list (cons "calls" (eth-rpc-json-array results))))))
 
@@ -697,7 +716,6 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
         (eth-rpc-json-array
          (loop for block-state-call in sanitized-block-state-calls
                with parent-header = (block-header block)
-               for index from 0
                collect
                (progn
                  (unless (json-object-p block-state-call)
@@ -727,13 +745,28 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
                         (base-fee
                           (eth-rpc-simulate-block-base-fee
                            parent-header block-overrides config validation-p))
+                        (difficulty
+                          (eth-rpc-block-override-quantity
+                           block-overrides "difficulty"
+                           (if (and config
+                                    (chain-config-post-merge-p config number))
+                               0
+                               (block-header-difficulty parent-header))))
+                        (fee-recipient
+                          (eth-rpc-block-override-address
+                           block-overrides "feeRecipient"
+                           (or (block-header-beneficiary parent-header)
+                               (zero-address))
+                           "eth_simulateV1"))
+                        (prev-randao
+                          (eth-rpc-block-override-hash
+                           block-overrides "prevRandao"
+                           (or (block-header-mix-hash parent-header)
+                               (zero-hash32))))
                         (effective-block-overrides
-                          (if base-fee
-                              (eth-rpc-set-object-field
-                               (copy-tree block-overrides)
-                               "baseFeePerGas"
-                               (quantity-to-hex base-fee))
-                              block-overrides)))
+                          (eth-rpc-effective-simulated-block-overrides
+                           block-overrides fee-recipient prev-randao difficulty
+                           base-fee)))
                    (unless (json-array-p calls)
                      (block-validation-fail
                       "eth_simulateV1 calls must be an array"))
@@ -747,10 +780,17 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
                         :validation-p validation-p)
                      (prog1
                          (eth-rpc-simulate-block-result
-                          block results block-overrides index gas-used
-                          base-fee block-gas-limit (state-db-root state))
+                          block results number timestamp gas-used base-fee difficulty
+                          fee-recipient prev-randao block-gas-limit
+                          (state-db-root state))
                        (setf parent-header
                              (make-block-header
+                              :beneficiary
+                              fee-recipient
+                              :mix-hash
+                              prev-randao
+                              :difficulty
+                              difficulty
                               :number number
                               :timestamp timestamp
                               :gas-limit block-gas-limit
