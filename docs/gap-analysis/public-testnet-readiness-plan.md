@@ -366,13 +366,25 @@ The implementation boundary is split deliberately:
   candidates use the same bounded exact metadata MultiGets, preserving
   cross-pivot reuse while RocksDB's native point-lookup filters provide the
   storage-level negative cache.
-  The closure marker is now epoch three. Epoch two is recognized only for
-  migration because it could classify an account node complete before the
-  storage/code dependencies named by its leaf were durable. On upgrade, a
-  scheme-claiming epoch-two progress record is atomically reopened; its heal
-  checkpoint and any pivot state-history publication are removed while all
-  content-addressed trie nodes, completed range cursors, and closure-safe proofs
-  remain available to the retry.
+  The closure marker is now epoch four. Epochs one through three are recognized
+  only for migration: epoch two could classify an account node complete before
+  the storage/code dependencies named by its leaf were durable, and epoch three
+  could publish a generic account-subtree proof from bare account-node presence.
+  On upgrade, a scheme-claiming older progress record is atomically reopened;
+  its heal checkpoint and any pivot state-history publication are removed while
+  content-addressed trie nodes, completed range cursors, and closure-safe
+  storage/dependency proofs remain available to the retry. The later exact
+  `03263d2f` amd64 deployment exposed the epoch-three account-closure seam: pivot
+  3,580,247 reported `completed=T`, `frontierWorks=0`, and
+  `knownIncompleteNodes=0` at `2026-09-08T02:14:22Z`, then exited 16 seconds
+  later on missing persisted trie node `0x180b...4acf` before any
+  `peer.snap.target_completed` event. The full evidence is archived in
+  `docs/evidence/sec5-03263d2f-account-closure-failure.txt`. Epoch-four account
+  records prebuffered before dependency completion receive incomplete markers
+  in the same node batch, the healer no longer treats bare account-node presence
+  as closure, and account-subtree proofs use a fresh namespace so unsafe v2
+  proofs are not consumed; only current dependency-carrying proofs may skip that
+  walk. This is a tested repair, not live completion evidence.
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

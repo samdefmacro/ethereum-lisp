@@ -1,0 +1,37 @@
+Section 5 Hoodi SNAP account-closure failure evidence
+
+Observed at: 2026-09-09T03:00Z (read-only inspection)
+Remote host: test-ethereum-server (10-7-47-31)
+Container: hoodi-el-sec5-03263d2f
+Container id: 665425044ec4d3474dad362884966bef13ae053e3ee759cecd6cddd0b7f7f96e
+Revision: 03263d2fdda76c39e529a636d591d582a7f794e1
+Image tag: ethereum-lisp-runtime:sec5-03263d2f-amd64
+Image id: sha256:6c6ed6237893353ae7b08546b1bd13b338ac9657ab8eaf26626cc87934e78cbc
+Platform: linux/amd64
+Datadir: /data/hoodi-sec5-20260814/datadir-03263d2f
+Memory limit: 10737418240 bytes
+Started: 2026-09-07T03:40:40.739263605Z
+Finished: 2026-09-08T02:14:39.806072379Z
+Exit: code 1, OOMKilled=false
+
+Terminal SNAP milestone at 2026-09-08T02:14:22.915214049Z:
+  pivot=3580247
+  processedNodes=197709
+  reusedNodes=385776
+  fetchedNodes=37629
+  requests=560
+  nodeBytes=6770828
+  skippedSubtrees=1324321
+  frontierWorks=0
+  deferredStorageWorks=0
+  remoteWorks=0
+  knownIncompleteNodes=0
+  etaStatus=completed
+  completed=T
+
+Terminal failure at 2026-09-08T02:14:39.118314971Z:
+  Persisted trie node 0x180b76396380923106d7f122e66b0ea5a145517d691dd8ad1cbdae2e32ee4acf is missing
+
+No peer.snap.target_completed event was present in the complete 375454-line container log. Engine newPayload/forkchoice responses remained SYNCING before the failure. This proves SNAP's visible healer frontier completed but does not prove descendant/external account closure, canonical bounded-tail execution, or eth_syncing=false.
+
+Source audit found that snap-sync-prepare-account-page-range prebuffered proof-authenticated account trie records before dependency completion without writing same-batch incomplete markers. A stale-target yield, failure, or later WAL flush could therefore leave durable bare account nodes. The healer's account-node complete-hash shortcut could classify those unmarked nodes as closed even though account leaves name external code/storage dependencies.

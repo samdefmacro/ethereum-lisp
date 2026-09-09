@@ -845,14 +845,19 @@
           (error "Expected nine scheme/prebuffer/content/cursor/completion batches, got ~D (~S)"
                  apply-count (list batch-sizes batch-prefixes)))
         (is (= 9 apply-count))
-        ;; The account-record WAL batches precede their metadata-only cursor
-        ;; publications. #x19 is :TRIE-NODE and #x0d is :METADATA.
-        (is (every (lambda (prefix) (= #x19 prefix))
+        ;; Each account-record WAL batch publishes trie nodes (#x19) and their
+        ;; same-batch incomplete metadata (#x0d) before the later metadata-only
+        ;; closure/cursor publications.
+        (is (every (lambda (prefix) (member prefix '(#x19 #x0d)))
                    (second batch-prefixes)))
+        (is (find #x19 (second batch-prefixes)))
+        (is (find #x0d (second batch-prefixes)))
         (is (every (lambda (prefix) (= #x0d prefix))
                    (fifth batch-prefixes)))
-        (is (every (lambda (prefix) (= #x19 prefix))
+        (is (every (lambda (prefix) (member prefix '(#x19 #x0d)))
                    (sixth batch-prefixes)))
+        (is (find #x19 (sixth batch-prefixes)))
+        (is (find #x0d (sixth batch-prefixes)))
         (is (every (lambda (prefix) (= #x0d prefix))
                    (eighth batch-prefixes))))
       (is (= 5
@@ -3367,6 +3372,7 @@
   (let ((fresh (make-memory-key-value-database))
         (legacy (make-memory-key-value-database))
         (legacy-epoch (make-memory-key-value-database))
+        (older-epoch (make-memory-key-value-database))
         (previous-epoch (make-memory-key-value-database))
         (malformed (make-memory-key-value-database)))
     (is
@@ -3409,6 +3415,16 @@
       (ethereum-lisp.database:kv-batch-put-chain-record
        batch :metadata
        ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
+       ethereum-lisp.snap-sync::+snap-sync-older-complete-node-scheme-value+)
+      (kv-apply-batch older-epoch batch))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+       older-epoch)))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
        ethereum-lisp.snap-sync::+snap-sync-previous-complete-node-scheme-value+)
       (kv-apply-batch previous-epoch batch))
     (is
@@ -3419,7 +3435,7 @@
       (ethereum-lisp.database:kv-batch-put-chain-record
        batch :metadata
        ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
-       #(4))
+       #(5))
       (kv-apply-batch malformed batch))
     (signals ethereum-lisp.validation:storage-error
       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -3430,7 +3446,7 @@
       (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
        fresh)))))
 
-(deftest snap-progress-revokes-epoch-two-completion-atomically
+(deftest snap-progress-revokes-epoch-three-completion-atomically
   (:layer :unit :module :p2p)
   (let* ((database (make-memory-key-value-database))
          (pivot (make-hash32 (snap-test-hash 20)))
@@ -3492,6 +3508,29 @@
        (not
         (ethereum-lisp.snap-sync::snap-sync-progress-complete-node-scheme-p
          persisted))))))
+
+(deftest snap-healed-account-subtree-proof-namespace-rejects-v2
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (reference (snap-test-hash 138))
+         (batch (make-kv-write-batch)))
+    (ethereum-lisp.database:kv-batch-put-chain-record
+     batch :metadata
+     (concatenate
+      'vector (ascii-to-bytes "snap-healed-subtree-v2:") reference)
+     #(1))
+    (kv-apply-batch database batch)
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+       database reference :account)))
+    (let ((current (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+       current reference :account)
+      (kv-apply-batch database current))
+    (is
+     (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+      database reference :account))))
 
 (deftest snap-state-healer-invalidates-pre-closure-safe-fast-paths
   (:layer :integration :module :p2p)
@@ -3728,8 +3767,16 @@
         (lambda (reference)
           (nth-value 1 (trie-node-store-get target-database reference)))
         references))
-      ;; The cursor is intentionally still absent. The buffered records are
-      ;; harmless idempotent content until dependency completion publishes it.
+      (is
+       (every
+        (lambda (present) (= 1 present))
+        (coerce
+         (ethereum-lisp.snap-sync::snap-sync-incomplete-nodes-present
+          target-database (coerce references 'vector))
+         'list)))
+      ;; The cursor is intentionally still absent. The buffered records and
+      ;; their same-batch incomplete markers cannot be mistaken for closure
+      ;; before dependency completion publishes the cursor.
       (is (not (nth-value
                 1
                 (ethereum-lisp.snap-sync:snap-sync-read-progress
@@ -7896,13 +7943,12 @@
             ;; storage-node branch makes both runs decode the same full trie.
             (is (< (* 8 exact-processed) legacy-processed))))))))
 
-(deftest snap-state-healer-reuses-complete-account-node-difference-frontier
+(deftest snap-state-healer-does-not-reuse-account-node-marker-absence
   (:layer :integration :module :p2p)
-  ;; Epoch three's durable negative-marker contract covers account-node
-  ;; descendants and the code/storage dependencies named by their leaves.
-  ;; Once those markers are cleared, a later pivot may use hash presence just
-  ;; like geth's hash-scheme state scheduler and descend only through the
-  ;; changed account path.
+  ;; Account-node negative metadata is not a closure proof for the external
+  ;; code and storage roots named by leaves.  Even when a synthetic tree has no
+  ;; such dependencies, epoch-three marker absence must stay conservative; the
+  ;; explicit dependency-carrying subtree proof is the only safe account skip.
   (let ((first-state (make-state-db)))
     (loop for index from 1 to 2048
           do (state-db-set-account
@@ -7942,8 +7988,8 @@
             (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
              batch first-references))
           (kv-apply-batch database batch)))
-      ;; Model the epoch-three completion sentinel after all account leaves and
-      ;; their (empty here) external dependency set are durable.
+      ;; Model marker absence after all synthetic account leaves are durable.
+      ;; The healer deliberately does not infer account closure from this.
       (let ((batch (make-kv-write-batch)))
         (ethereum-lisp.snap-sync::snap-sync-delete-incomplete-records-batch
          batch first-references)
@@ -7988,18 +8034,16 @@
               (run legacy-database 241 nil)
             (declare (ignore legacy-skipped))
             (is (plusp exact-fetched))
-            (is (plusp exact-skipped))
             (is (= exact-fetched legacy-fetched))
-            (is (< exact-processed legacy-processed))
-            ;; Mutation control: restricting complete-node reuse back to
-            ;; storage nodes makes both walks decode the same account trie.
-            (is (< (* 8 exact-processed) legacy-processed))))))))
+            (is (= exact-processed legacy-processed))
+            (is (zerop exact-skipped))))))))
 
 (deftest snap-state-healer-never-confuses-account-presence-with-dependency-closure
   (:layer :integration :module :p2p)
-  ;; Epoch three keeps a negative marker on every account node whose external
-  ;; dependency closure is not yet durable. The healer must honor that marker,
-  ;; open the non-empty storage root, and clear it only after completion.
+  ;; Live Hoodi revision 03263d2f exhausted the healer frontier and published
+  ;; completion before bounded-tail execution opened a missing trie child.
+  ;; Account-node presence cannot prove closure over the code and storage roots
+  ;; named by its leaves, even when epoch-three negative metadata is absent.
   (let* ((state (make-state-db))
          (address (snap-test-address-from-integer 9))
          (slot (make-hash32 (snap-test-index-hash 9)))
@@ -8031,13 +8075,20 @@
       (is
        (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
         target-database))
-      ;; Every account node is present but explicitly incomplete, and no
-      ;; storage node is present.
+      ;; Reproduce the unsafe live shape: every account node is present, none
+      ;; carries an incomplete marker, and no storage node is present.  The
+      ;; account trie still must be opened to discover its external dependency.
       (let ((batch (make-kv-write-batch)))
         (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
          target-database batch account-records)
-        (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
-         batch (mapcar #'car account-records))
+        ;; Epoch three could publish this proof after mistaking marker absence
+        ;; for closure. The current healer must not consume its v2 namespace.
+        (ethereum-lisp.database:kv-batch-put-chain-record
+         batch :metadata
+         (concatenate
+          'vector (ascii-to-bytes "snap-healed-subtree-v2:")
+          (hash32-bytes root))
+         #(1))
         (kv-apply-batch target-database batch))
       (let ((completed
               (ethereum-lisp.snap-sync::snap-sync-heal-state

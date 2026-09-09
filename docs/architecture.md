@@ -455,17 +455,16 @@ them by their physical location instead reintroduces dependency cycles:
   Fresh empty stores additionally adopt geth's exact hash-scheme completion
   invariant from commit `38271784c2b31926563806da9a2e023b88f5e7a8`, specifically
   `trie/sync.go` `AddSubTrie`, `children`, `hasNode`, and `commitNodeRequest`:
-  presence of a hash means its descendant trie nodes were durable before its
-  parent became complete. Account leaves also name code and storage roots
-  outside that trie, so this client strengthens hash presence with its epoch-
-  three negative-marker lifecycle: an account marker is cleared only after
-  those external dependencies are durable. Account subtrees may additionally
-  publish a dependency-carrying coarse proof, but an unmarked epoch-three
-  account node is itself a complete closure shortcut. Range
-  proof-edge nodes and other authenticated-but-open records are written with a
-  hash-keyed negative `incomplete` marker in the same batch. Fully reconstructed
-  interior groups need no per-node positive metadata. A fetched TrieNodes record
-  is likewise written with its negative marker; a depth-first completion
+  presence of a storage hash means its descendant trie nodes were durable before
+  its parent became complete. Account leaves also name code and storage roots
+  outside that trie, so bare account-node presence is never a closure shortcut.
+  Account subtrees may instead publish a dependency-carrying coarse proof after
+  their exact external dependencies are known. Range proof-edge nodes and other
+  authenticated-but-open records, including account records prebuffered before
+  dependency completion, are written with a hash-keyed negative `incomplete`
+  marker in the same batch. Fully reconstructed interior groups need no per-node
+  positive metadata. A fetched TrieNodes record is likewise written with its
+  negative marker; a depth-first completion
   sentinel deletes that marker only after descendants, bytecode, and deferred
   storage are durable. Marker deletion is buffered in batches of 2,048 and is
   flushed before a checkpoint, subtree proof, yield, or final completion. A
@@ -742,10 +741,12 @@ them by their physical location instead reintroduces dependency cycles:
   value/presence/decoded order, and propagates the earliest worker-slice failure
   before mutating the DFS frontier; small batches and memory/file stores retain
   the same ordered generic fallback. Under the version-five,
-  closure-epoch-three complete-node contract, a locally present account or
-  storage hash without an `incomplete` marker is hash-checked and closes that
-  exact DFS branch without RLP decoding. Marked nodes and legacy nodes retain
-  the ordered decode and dependency walk. A content-hash-
+  closure-epoch-four complete-node contract, a locally present storage hash
+  without an `incomplete` marker is hash-checked and closes that exact DFS branch
+  without RLP decoding. Account hashes remain conservative unless a separate
+  dependency-carrying subtree proof names every external storage root; bare
+  account-node presence cannot prove code/storage closure. Marked nodes and
+  legacy nodes retain the ordered decode and dependency walk. A content-hash-
   and path-matched remote
   response is decoded in full before any of its entries are staged, then its
   decoded nodes are retained in a bounded in-memory response cache alongside

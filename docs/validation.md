@@ -273,9 +273,17 @@ cl-workbench validation run cold-integration \
 cl-workbench validation run cold-unit \
   --match SNAP-COMPLETE-NODE-SCHEME-NEVER-TRUSTS-A-LEGACY-TRIE-STORE
 cl-workbench validation run cold-unit \
-  --match SNAP-PROGRESS-REVOKES-EPOCH-TWO-COMPLETION-ATOMICALLY
+  --match SNAP-PROGRESS-REVOKES-EPOCH-THREE-COMPLETION-ATOMICALLY
+cl-workbench validation run cold-unit \
+  --match SNAP-HEALED-ACCOUNT-SUBTREE-PROOF-NAMESPACE-REJECTS-V2
 cl-workbench validation run cold-integration \
   --match SNAP-STATE-HEALER-NEVER-CONFUSES-ACCOUNT-PRESENCE-WITH-DEPENDENCY-CLOSURE
+cl-workbench validation run cold-integration \
+  --match SNAP-ACCOUNT-RANGE-BUFFERS-RECORDS-BEFORE-DEPENDENCIES
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-DOES-NOT-REUSE-ACCOUNT-NODE-MARKER-ABSENCE
+cl-workbench validation run cold-integration \
+  --match SNAP-STATE-HEALER-CONSUMES-ACCOUNT-SUBTREE-DEPENDENCY-PROOFS
 cl-workbench validation run cold-integration \
   --match DEVNET-LIVE-PERSISTENCE-ROUND-TRIPS-ON-ROCKSDB
 cl-workbench validation run cold-integration \
@@ -326,7 +334,7 @@ external dependencies before a separate synchronous cursor batch publishes the
 whole WAL prefix. The failure regression permits that idempotent content to
 survive while proving the cursor stays behind a failed seam and a retry
 completes. Fresh empty stores also classify every reconstructed record under a
-progress-version-five, closure-epoch-three geth-style complete-node contract:
+progress-version-five, closure-epoch-four geth-style complete-node contract:
 proof-edge or otherwise open
 nodes carry a negative marker in the same content batch, while fully closed
 interior groups require no positive record per node. The migration control
@@ -550,19 +558,20 @@ observing zero exact metadata reads: restoring the unfiltered production batch
 call makes that witness fail. Positive filter results remain covered by the
 cross-pivot exact-version and storage-namespace checks.
 The exact-difference-frontier controls place complete old account and storage
-tries under changed roots in paired databases. Closure-epoch-three runs skip
-locally complete unmarked hashes, fetch the same changed nodes as legacy runs,
-and process less than one eighth as many nodes. Restricting hash presence back
-to storage nodes makes the account control fail; removing storage reuse makes
-the storage control fail. A separate mutation control plants an account trie
-whose nodes remain explicitly incomplete and whose leaf names an absent non-
-empty storage root. It requires the healer to traverse those marked account
-nodes, fetch the storage dependency, and make it durable before state-history
-publication; prematurely trusting a marked node makes that test fail. The
-epoch-two completion-migration
-control begins with completed progress and state-history, then requires one
-atomic load-time migration to revoke both publication authorities while
-preserving completed range cursors and reusable trie content.
+tries under changed roots in paired databases. Closure-epoch-four runs retain
+storage-node marker-absence reuse, but account nodes remain conservative unless
+a current dependency-carrying subtree proof closes them. The account control
+therefore fetches and processes the same nodes as the legacy run, while the
+storage control still skips locally complete unmarked hashes. A separate live-
+shape mutation control plants an unmarked account trie, an unsafe v2 account-
+subtree proof, and a leaf naming an absent non-empty storage root. It requires
+the healer to ignore both bare presence and the stale proof, fetch the storage
+dependency, and make it durable before state-history publication. Account-range
+prebuffering is separately required to publish each trie node and its incomplete
+marker in one WAL batch. The epoch-three completion-migration control begins
+with completed progress and state-history, then requires one atomic load-time
+migration to revoke both publication authorities while preserving completed
+range cursors and reusable trie content.
 Restoring immediate storage descent or removing the coarse subtree cache-hit
 branch makes its corresponding focused test fail.
 A coordinator control proves that

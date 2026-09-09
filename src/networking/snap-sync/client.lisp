@@ -161,7 +161,7 @@ that post-order completion sentinels seldom permit in production.")
 (defparameter +snap-sync-heal-checkpoint-identifier+
   "snap-state-heal-checkpoint")
 (defparameter +snap-sync-healed-subtree-identifier-prefix+
-  (ascii-to-bytes "snap-healed-subtree-v2:")
+  (ascii-to-bytes "snap-healed-subtree-v3:")
   "Domain-separate durable account-subtree proof keys.")
 (defparameter +snap-sync-healed-storage-subtree-identifier-prefix+
   (ascii-to-bytes "snap-healed-storage-subtree-v2:")
@@ -181,9 +181,11 @@ that post-order completion sentinels seldom permit in production.")
   "Versioned value for an incomplete content-addressed trie node.")
 (defparameter +snap-sync-complete-node-scheme-identifier+
   "snap-complete-trie-node-scheme")
-(defparameter +snap-sync-complete-node-scheme-value+ #(3)
-  "Marks a trie store whose storage-node negatives follow closure epoch 3.")
-(defparameter +snap-sync-previous-complete-node-scheme-value+ #(2)
+(defparameter +snap-sync-complete-node-scheme-value+ #(4)
+  "Marks a trie store whose storage-node negatives follow closure epoch 4.")
+(defparameter +snap-sync-previous-complete-node-scheme-value+ #(3)
+  "Recognized but never trusted marker from the unsafe account-proof epoch.")
+(defparameter +snap-sync-older-complete-node-scheme-value+ #(2)
   "Recognized but never trusted marker from the account-dependency-unsafe epoch.")
 (defparameter +snap-sync-legacy-complete-node-scheme-value+ #(1)
   "Recognized but never trusted marker from the pre-closure-safe epoch.")
@@ -821,13 +823,14 @@ observational and not consensus-visible."
     (cond
       ((not present-p) nil)
       ((bytes= value +snap-sync-complete-node-scheme-value+) t)
-      ;; Epoch one could close a storage root too early. Epoch two extended
-      ;; descendant closure but still let an account-node sentinel run before
-      ;; the code/storage commitments named by that account leaf completed.
-      ;; Keep content from both epochs, but never interpret marker absence as
+      ;; Epochs one and two could close a storage or account root too early.
+      ;; Epoch three extended descendant closure but could still publish an
+      ;; account-subtree proof after treating bare account-node presence as
+      ;; closure. Keep their content, but never interpret marker absence as
       ;; proof after an upgrade.
       ((or
         (bytes= value +snap-sync-previous-complete-node-scheme-value+)
+        (bytes= value +snap-sync-older-complete-node-scheme-value+)
         (bytes= value +snap-sync-legacy-complete-node-scheme-value+))
        nil)
       (t
@@ -1603,11 +1606,11 @@ publishes the account cursor."
               genesis-hash authority-id)
   (multiple-value-bind (existing present-p)
       (snap-sync-read-progress database)
-    ;; Epoch-two completion could trust an account node before the external
-    ;; code/storage dependencies named by its leaves were durable. Atomically
-    ;; revoke that publication when the store marker is not the current epoch;
-    ;; all content-addressed nodes and closure-safe subtree proofs remain useful
-    ;; to the conservative retry.
+    ;; Epoch-three completion could trust a stale account-subtree proof that was
+    ;; published after bare account-node presence had been mistaken for closure.
+    ;; Atomically revoke that publication when the store marker is not the
+    ;; current epoch; all content-addressed nodes and storage/dependency proofs
+    ;; remain useful to the conservative retry.
     (when (and present-p
                (snap-sync-progress-complete-node-scheme-p existing)
                (not (snap-sync-complete-node-scheme-present-p database)))
@@ -2412,6 +2415,14 @@ again."
                (account-record-hashes (mapcar #'car account-records)))
           (snap-sync-populate-verified-trie-records-batch
            database batch account-records)
+          ;; Prebuffered account nodes are not yet closed over the code and
+          ;; storage roots named by their leaves.  Publish their negative
+          ;; markers in this same batch so a crash, stale-pivot yield, or later
+          ;; WAL flush can never expose bare node presence as a completion
+          ;; oracle.  Dependency completion below atomically removes exactly
+          ;; the references proved closed and retains the rest as incomplete.
+          (snap-sync-populate-incomplete-records-batch
+           batch account-record-hashes)
           #+sbcl
           (if write-lock
               (sb-thread:with-mutex (write-lock)
@@ -6010,11 +6021,14 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
          (complete-local-node-p (work incomplete-p)
            (let ((reference (snap-sync-heal-work-reference work)))
              (and complete-node-scheme-p
-                  ;; Epoch three clears a node's durable negative marker only
-                  ;; after every descendant and every account-leaf code/storage
-                  ;; dependency is durable. Marker absence is therefore the
-                  ;; same complete hash-presence oracle that geth's hash-scheme
-                  ;; scheduler uses, for account and storage nodes alike.
+                  ;; A storage trie has no dependencies outside its own
+                  ;; descendants, so epoch-three marker absence is a complete
+                  ;; hash-presence oracle there.  Account leaves name code and
+                  ;; storage roots outside the account trie; live Hoodi proved
+                  ;; that marker absence alone can outlive missing external
+                  ;; closure.  Reuse account subtrees only through their
+                  ;; dependency-carrying completion proofs above.
+                  (eq :storage (snap-sync-heal-work-kind work))
                   (byte-vector-p reference)
                   (= 32 (length reference))
                   (not incomplete-p))))
