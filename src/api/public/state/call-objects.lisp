@@ -90,6 +90,29 @@
          t))
       (values '() nil)))
 
+(defun eth-rpc-call-object-blob-versioned-hashes (object method)
+  "Parse optional call-object blob hashes and preserve field presence."
+  (if (json-object-field-present-p object "blobVersionedHashes")
+      (let ((hashes (json-object-field object "blobVersionedHashes")))
+        (when (json-object-p hashes)
+          (block-validation-fail
+           "~A blobVersionedHashes must be an array" method))
+        (unless (json-array-p hashes)
+          (block-validation-fail
+           "~A blobVersionedHashes must be an array" method))
+        (values
+         (mapcar
+          (lambda (hash)
+            (handler-case
+                (json-rpc-hash32 hash "blobVersionedHashes entry")
+              (block-validation-error ()
+                (block-validation-fail
+                 "~A blobVersionedHashes entry must be a 32-byte hash"
+                 method))))
+          (json-array-values hashes))
+         t))
+      (values '() nil)))
+
 (defun eth-rpc-call-object-fees (object method)
   (let ((gas-price-present-p
           (json-object-field-present-p object "gasPrice"))
@@ -157,43 +180,60 @@
          (chain-id (eth-rpc-call-object-chain-id object method config)))
     (multiple-value-bind (access-list access-list-present-p)
         (eth-rpc-call-object-access-list object method)
-      (multiple-value-bind (fee-style max-fee max-priority-fee)
-          (eth-rpc-call-object-fees object method)
-        (let* ((simulate-v1-p (string= method "eth_simulateV1"))
-               (gas-price-present-p
-                 (json-object-field-present-p object "gasPrice"))
-               (dynamic-simulation-p
-                 (and simulate-v1-p
-                      dynamic-default-p
-                      (not gas-price-present-p))))
-          (values
-           sender
-           (cond
-             ((or (eq fee-style :dynamic) dynamic-simulation-p)
-              (make-dynamic-fee-transaction
-               :chain-id chain-id
-               :nonce nonce
-               :max-fee-per-gas max-fee
-               :max-priority-fee-per-gas max-priority-fee
-               :gas-limit gas-limit
-               :to recipient
-               :value value
-               :data data
-               :access-list access-list))
-             ((and access-list-present-p (not simulate-v1-p))
-              (make-access-list-transaction
-               :chain-id chain-id
-               :nonce nonce
-               :gas-price max-fee
-               :gas-limit gas-limit
-               :to recipient
-               :value value
-               :data data
-               :access-list access-list))
-             (t
-              (make-legacy-transaction :nonce nonce
-                                       :gas-price max-fee
-                                       :gas-limit gas-limit
-                                       :to recipient
-                                       :value value
-                                       :data data)))))))))
+      (multiple-value-bind (blob-hashes blob-hashes-present-p)
+          (eth-rpc-call-object-blob-versioned-hashes object method)
+        (multiple-value-bind (fee-style max-fee max-priority-fee)
+            (eth-rpc-call-object-fees object method)
+          (let* ((simulate-v1-p (string= method "eth_simulateV1"))
+                 (gas-price-present-p
+                   (json-object-field-present-p object "gasPrice"))
+                 (dynamic-simulation-p
+                   (and simulate-v1-p
+                        dynamic-default-p
+                        (not gas-price-present-p))))
+            (values
+             sender
+             (cond
+               (blob-hashes-present-p
+                (make-blob-transaction
+                 :chain-id chain-id
+                 :nonce nonce
+                 :max-fee-per-gas max-fee
+                 :max-priority-fee-per-gas max-priority-fee
+                 :gas-limit gas-limit
+                 :to recipient
+                 :value value
+                 :data data
+                 :access-list access-list
+                 :max-fee-per-blob-gas
+                 (eth-rpc-call-object-quantity-field
+                  object "maxFeePerBlobGas" :default 0)
+                 :blob-versioned-hashes blob-hashes))
+               ((or (eq fee-style :dynamic) dynamic-simulation-p)
+                (make-dynamic-fee-transaction
+                 :chain-id chain-id
+                 :nonce nonce
+                 :max-fee-per-gas max-fee
+                 :max-priority-fee-per-gas max-priority-fee
+                 :gas-limit gas-limit
+                 :to recipient
+                 :value value
+                 :data data
+                 :access-list access-list))
+               ((and access-list-present-p (not simulate-v1-p))
+                (make-access-list-transaction
+                 :chain-id chain-id
+                 :nonce nonce
+                 :gas-price max-fee
+                 :gas-limit gas-limit
+                 :to recipient
+                 :value value
+                 :data data
+                 :access-list access-list))
+               (t
+                (make-legacy-transaction :nonce nonce
+                                         :gas-price max-fee
+                                         :gas-limit gas-limit
+                                         :to recipient
+                                         :value value
+                                         :data data))))))))))

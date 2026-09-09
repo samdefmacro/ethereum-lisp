@@ -1379,6 +1379,84 @@
                    (mapcar (lambda (result) (field result "gasUsed"))
                            blocks)))))))
 
+(deftest eth-rpc-simulate-v1-materializes-blob-calls
+  ;; Execution APIs e5d1bb60 `ethSimulate-blobs.io` requires call objects with
+  ;; blob fields to remain type-3 transactions, feed BLOBHASH to the EVM, and
+  ;; contribute their blob gas to the synthetic Cancun header.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 3503995874084926
+                                      :london-block 0
+                                      :shanghai-time 0
+                                      :cancun-time 0))
+           (state (make-state-db))
+           (sender
+             (address-from-hex
+              "0xc000000000000000000000000000000000000000"))
+           (contract
+             (address-from-hex
+              "0xc200000000000000000000000000000000000000"))
+           (versioned-hash
+             "0x010657f37554c781402a22917dee2f75def7ab966d7b770905398eba3c444014")
+           ;; Return BLOBHASH(0) followed by BLOBBASEFEE.
+           (code (hex-to-bytes "0x5f495f524a60205260405ff3"))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 54 :timestamp 540 :gas-limit 200000000
+               :base-fee-per-gas 0
+               :excess-blob-gas #xc0000 :blob-gas-used 0
+               :state-root (state-db-root state)))))
+      (state-db-add-balance state sender 1000000000)
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((call-object
+               (list
+                (cons "from" (address-to-hex sender))
+                (cons "to" (address-to-hex contract))
+                (cons "maxFeePerGas" "0x10")
+                (cons "maxFeePerBlobGas" "0xa")
+                (cons "blobVersionedHashes" (list versioned-hash))))
+             (block-state-call
+               (list
+                (cons
+                 "blockOverrides"
+                 (list (cons "baseFeePerGas" "0xf")))
+                (cons "calls" (list call-object))))
+             (payload
+               (list
+                (cons "validation" t)
+                (cons "returnFullTransactions" t)
+                (cons "blockStateCalls" (list block-state-call))))
+             (response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 433)
+                 (cons "method" "eth_simulateV1")
+                 (cons "params" (list payload "latest")))
+                store config))
+             (result (first (field response "result")))
+             (call-result (first (field result "calls")))
+             (return-data (hex-to-bytes (field call-result "returnData")))
+             (transaction (first (field result "transactions"))))
+        (is (null (field response "error")))
+        (is (string= "0x3" (field transaction "type")))
+        (is (string= "0x20000" (field result "blobGasUsed")))
+        (is (string= "0x60000" (field result "excessBlobGas")))
+        (is (equal (list versioned-hash)
+                   (field transaction "blobVersionedHashes")))
+        (is (string=
+             versioned-hash
+             (bytes-to-hex (subseq return-data 0 32))))
+        (is (= (blob-base-fee #x60000)
+               (bytes-to-integer (subseq return-data 32 64))))))))
+
 (deftest eth-rpc-simulate-v1-finalizes-pre-merge-block-rewards
   ;; Execution APIs e5d1bb60
   ;; `ethSimulate-empty-with-block-num-set-firstblock.io` starts from block one

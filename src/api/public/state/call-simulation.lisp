@@ -185,7 +185,11 @@ decodes, and the raw revert data in the error object's data member."
          (required
            (+ (transaction-value tx)
               (* (transaction-gas-limit tx)
-                 (transaction-max-fee-per-gas tx)))))
+                 (transaction-max-fee-per-gas tx))
+              (* (transaction-blob-gas-used tx)
+                 (if (typep tx 'blob-transaction)
+                     (blob-transaction-max-fee-per-blob-gas tx)
+                     0)))))
     (when (< balance required)
       (engine-rpc-fail
        -38014
@@ -198,19 +202,22 @@ decodes, and the raw revert data in the error object's data member."
                (transaction-gas-limit tx))))))
 
 (defun eth-rpc-charge-simulation-upfront
-    (state sender tx base-fee eip1559-enabled-p)
+    (state sender tx base-fee blob-base-fee eip1559-enabled-p)
   "Buy gas and advance SENDER before an included simulated transaction."
   (let* ((account (eth-rpc-simulation-account state sender))
          (gas-price
            (call-transaction-effective-gas-price
             tx :base-fee base-fee
-               :eip1559-enabled-p eip1559-enabled-p)))
+               :eip1559-enabled-p eip1559-enabled-p))
+         (blob-fee
+           (* (transaction-blob-gas-used tx) blob-base-fee)))
     (state-db-set-account
      state sender
      (make-state-account
       :nonce (mod (1+ (state-account-nonce account)) (ash 1 64))
       :balance (- (state-account-balance account)
-                  (* (transaction-gas-limit tx) gas-price))
+                  (* (transaction-gas-limit tx) gas-price)
+                  blob-fee)
       :storage-root (state-account-storage-root account)
       :code-hash (state-account-code-hash account)))
     gas-price))
@@ -312,6 +319,9 @@ decodes, and the raw revert data in the error object's data member."
                      (eth-rpc-block-override-quantity
                       block-overrides "baseFeePerGas"
                       (or (block-header-base-fee-per-gas header) 0)))
+                   (blob-base-fee
+                     (eth-rpc-block-override-quantity
+                      block-overrides "blobBaseFee" 0))
                    (block-number
                      (eth-rpc-block-override-quantity
                       block-overrides "number"
@@ -335,12 +345,25 @@ decodes, and the raw revert data in the error object's data member."
               (when simulate-v1-p
                 (eth-rpc-validate-simulation-funds
                  simulation-state sender tx))
+              (when (and simulate-v1-p validation-p
+                         (typep tx 'blob-transaction)
+                         (< (blob-transaction-max-fee-per-blob-gas tx)
+                            blob-base-fee))
+                (engine-rpc-fail
+                 -38014
+                 (format nil
+                         "max fee per blob gas less than block blob base fee: ~
+                          address ~A, maxFeePerBlobGas: ~D, blobBaseFee: ~D"
+                         (address-to-hex sender)
+                         (blob-transaction-max-fee-per-blob-gas tx)
+                         blob-base-fee)))
               ;; Transaction prechecks have passed. Buy gas and advance before
               ;; EVM execution so both effects survive a revert, while the
               ;; copied call-state still rolls later execution changes back.
               (when simulate-v1-p
                 (eth-rpc-charge-simulation-upfront
-                 simulation-state sender tx base-fee eip1559-enabled-p))
+                 simulation-state sender tx base-fee blob-base-fee
+                 eip1559-enabled-p))
               (multiple-value-bind
                     (status return-data gas-used
                      accessed-addresses accessed-storage refund-counter logs)
@@ -349,6 +372,7 @@ decodes, and the raw revert data in the error object's data member."
                    sender
                    tx
                    :base-fee base-fee
+                   :blob-base-fee blob-base-fee
                    :chain-id (if config (chain-config-chain-id config) 0)
                    :chain-config config
                    :coinbase fee-recipient
@@ -530,7 +554,8 @@ decodes, and the raw revert data in the error object's data member."
       (t 0))))
 
 (defun eth-rpc-effective-simulated-block-overrides
-    (block-overrides fee-recipient prev-randao difficulty base-fee)
+    (block-overrides fee-recipient prev-randao difficulty
+     base-fee blob-base-fee)
   "Materialize inherited header values for one synthetic block's EVM calls."
   (let ((effective (copy-tree block-overrides)))
     (setf effective
@@ -546,6 +571,9 @@ decodes, and the raw revert data in the error object's data member."
       (setf effective
             (eth-rpc-set-object-field
              effective "baseFeePerGas" (quantity-to-hex base-fee))))
+    (setf effective
+          (eth-rpc-set-object-field
+           effective "blobBaseFee" (quantity-to-hex blob-base-fee)))
     effective))
 
 (defun eth-rpc-simulated-block-state-call
@@ -773,6 +801,36 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
        (block-header-receipts-root header)
        (block-header-logs-bloom header)))
 
+(defun eth-rpc-simulate-excess-blob-gas
+    (parent-header config number timestamp)
+  "Derive the child Cancun excess blob gas with its active schedule."
+  (when (and config (chain-config-cancun-p config number timestamp))
+    (let ((rules (chain-config-rules config number timestamp)))
+      (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+          (chain-rules-blob-schedule rules)
+        (expected-excess-blob-gas
+         parent-header
+         :target-blob-gas target-blob-gas
+         :max-blob-gas max-blob-gas
+         :eip7918-p (chain-rules-osaka-p rules)
+         :update-fraction update-fraction)))))
+
+(defun eth-rpc-simulate-blob-base-fee
+    (parent-header block-overrides config number timestamp)
+  "Return the block override or the fee derived from child excess blob gas."
+  (let ((excess
+          (eth-rpc-simulate-excess-blob-gas
+           parent-header config number timestamp)))
+    (if excess
+        (let ((rules (chain-config-rules config number timestamp)))
+          (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
+              (chain-rules-blob-schedule rules)
+            (declare (ignore target-blob-gas max-blob-gas))
+            (eth-rpc-block-override-quantity
+             block-overrides "blobBaseFee"
+             (blob-base-fee excess :update-fraction update-fraction))))
+        0)))
+
 (defun eth-rpc-simulate-synthetic-header
     (parent-header number timestamp gas-used base-fee difficulty fee-recipient
      prev-randao block-gas-limit state-root config
@@ -807,7 +865,9 @@ and bloom before the hash is exposed."
       (setf (block-header-withdrawals-root header) (withdrawal-list-root '())))
     (when (and config (chain-config-cancun-p config number timestamp))
       (setf (block-header-blob-gas-used header) 0
-            (block-header-excess-blob-gas header) 0
+            (block-header-excess-blob-gas header)
+            (eth-rpc-simulate-excess-blob-gas
+             parent-header config number timestamp)
             (block-header-parent-beacon-root header) parent-beacon-root))
     (when (and config (chain-config-prague-p config number timestamp))
       (setf (block-header-requests-hash header)
@@ -920,10 +980,15 @@ and bloom before the hash is exposed."
             fee-recipient prev-randao block-gas-limit state-root config
             :materialized-p materialized-p
             :parent-beacon-root (or parent-beacon-root (zero-hash32))))
+         (synthetic-blob-gas-used (blob-gas-used transactions))
          (synthetic-block
-           (and materialized-p
-                (eth-rpc-simulate-materialized-block
-                 synthetic-header config transactions receipts)))
+           (progn
+             (when (block-header-blob-gas-used synthetic-header)
+               (setf (block-header-blob-gas-used synthetic-header)
+                     synthetic-blob-gas-used))
+             (and materialized-p
+                  (eth-rpc-simulate-materialized-block
+                   synthetic-header config transactions receipts))))
          (object
            (if materialized-p
                (eth-rpc-block-object synthetic-block nil)
@@ -1026,6 +1091,9 @@ and bloom before the hash is exposed."
                           (eth-rpc-block-override-quantity
                            block-overrides "time"
                            (1+ (block-header-timestamp parent-header))))
+                        (blob-base-fee
+                          (eth-rpc-simulate-blob-base-fee
+                           parent-header block-overrides config number timestamp))
                         (block-gas-limit
                           (eth-rpc-block-override-quantity
                            block-overrides "gasLimit"
@@ -1057,7 +1125,7 @@ and bloom before the hash is exposed."
                         (effective-block-overrides
                           (eth-rpc-effective-simulated-block-overrides
                            block-overrides fee-recipient prev-randao difficulty
-                           base-fee)))
+                           base-fee blob-base-fee)))
                    (unless (json-array-p calls)
                      (block-validation-fail
                       "eth_simulateV1 calls must be an array"))
