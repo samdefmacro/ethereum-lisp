@@ -644,6 +644,22 @@ Hive simulation baseline remains unchanged until a pinned rerun; non-empty
 transaction/receipt assembly, full transaction objects, repaired log metadata,
 transfer tracing, and remaining response/error classes stay open.
 
+`2c43b9dcdbc685d4743ea845c76c8818fc95adb4` closes the hash-only non-empty
+synthetic identity class against vendored geth `8a0223e8`: successful and
+reverted calls now materialize ordered synthetic transactions and typed
+receipts, cumulative gas, transaction/receipt roots, logs bloom, block hashes,
+and successor parent hashes. The default transaction envelope follows the
+effective synthetic London header rather than the selected base block, and
+failed-frame logs are excluded before receipt identity is derived. The focused
+regression checks two exact transaction hashes, both trie roots, cumulative gas,
+failed-log removal, and successor linkage; all 21 simulation tests pass and the
+cold-unit gate passes 1,320 with 3 optional skips. Hash-only mode now rejects
+`returnFullTransactions=true` instead of silently returning the wrong shape;
+full synthetic transaction objects and sender injection remain open, as do
+repaired successful-log metadata, transfer tracing, pinned Hive rerun, and the
+other Section 5 external gates. See
+`docs/evidence/sec5-2c43b9dc-simulate-nonempty-identity.txt`.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob

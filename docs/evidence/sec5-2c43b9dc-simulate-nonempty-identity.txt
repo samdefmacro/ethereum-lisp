@@ -1,0 +1,102 @@
+Section 5 eth_simulateV1 non-empty hash-only identity evidence
+Recorded: 2026-09-09
+Implementation revision: 2c43b9dcdbc685d4743ea845c76c8818fc95adb4
+Branch: sec5-public-bootstrap-sync
+Comparator: vendored go-ethereum 8a0223e8
+Comparator paths:
+  references/go-ethereum/internal/ethapi/simulate.go
+  references/go-ethereum/internal/ethapi/transaction_args.go
+  references/go-ethereum/core/types/block.go
+
+Closed class
+------------
+Before this revision, a synthetic block containing calls exposed no materialized
+transaction list, receipt list, transaction/receipt roots, block hash, or usable
+successor parent hash. The implementation now retains the exact synthetic
+transactions and receipt data produced for each call, derives cumulative gas,
+typed receipt roots and logs bloom, constructs the block with fork-appropriate
+body fields, exposes hash-only transaction identity, and chains the next
+synthetic block to the materialized block hash.
+
+The transaction default follows geth CallDefaults plus
+ToTransaction(types.DynamicFeeTxType): a no-gasPrice eth_simulateV1 call in a
+synthetic London block uses a type-2 envelope even when the selected base block
+is pre-London. Explicit gasPrice remains legacy. Logs emitted by a failed or
+reverted top-level call are discarded before call-result and receipt assembly,
+matching geth's failed-frame log tracer behavior.
+
+The bounded hash-only implementation rejects returnFullTransactions=true with
+JSON-RPC -32602 rather than silently returning hashes. Full synthetic
+transaction objects and sender injection remain a separate open class.
+
+RED evidence
+------------
+1. ETH-RPC-SIMULATE-V1-MATERIALIZES-NON-EMPTY-BLOCK-IDENTITY failed before
+   transaction/receipt/block materialization because the non-empty synthetic
+   block did not expose the required hash identity.
+2. An independent review found that the first implementation used the selected
+   base header to choose the default envelope. A temporary mutation removing
+   the synthetic dynamic default made the exact transaction-hash assertion fail,
+   proving the regression distinguishes type 0 from geth's type 2.
+3. Review also found silently accepted returnFullTransactions=true and failed
+   call logs entering synthetic receipt identity. Both paths received explicit
+   regression assertions before integration.
+
+GREEN verification
+------------------
+Workbench preflight:
+  cl-workbench doctor --strict
+  Result: pass.
+
+Focused controls:
+  cl-workbench test ETH-RPC-SIMULATE-V1-MATERIALIZES-NON-EMPTY-BLOCK-IDENTITY
+  Result: pass.
+
+  cl-workbench test ETH-RPC-SIMULATE-V1-REJECTS-UNSUPPORTED-FULL-TRANSACTIONS
+  Result: pass.
+
+The identity control asserts:
+  - two exact type-2 transaction hashes;
+  - the exact typed transaction trie root;
+  - successful and reverted typed receipts with exact cumulative gas;
+  - the exact typed receipt trie root;
+  - discarded reverted-frame logs;
+  - non-null block hashes; and
+  - successor parentHash equality with the first synthetic block hash.
+
+Focused family:
+  All tests matching ETH-RPC-SIMULATE-V1
+  Result: 21 passed, 0 skipped.
+
+Broader gate:
+  cl-workbench validation run cold-unit
+  Result: 1,320 passed, 3 optional skipped.
+
+Static gates:
+  cl-workbench check parens on all changed Lisp files: pass.
+  git diff --check: pass.
+
+Review
+------
+Independent read-only reviews compared the patch to pinned geth. They found and
+blocked the initial wrong default envelope, the synthetic-header context issue,
+failed-frame log retention, and silent full-transaction acceptance. The final
+patch uses the effective synthetic base-fee context, discards failed-call logs,
+and rejects the unsupported full-object option. The final focused and cold
+verification above was run after those corrections.
+
+Integration
+-----------
+Commit: 2c43b9dcdbc685d4743ea845c76c8818fc95adb4
+Message: fix(rpc): materialize simulated block identity
+Push verification:
+  local HEAD = origin/sec5-public-bootstrap-sync =
+  ls-remote refs/heads/sec5-public-bootstrap-sync =
+  2c43b9dcdbc685d4743ea845c76c8818fc95adb4
+
+Remaining boundary
+------------------
+This local comparator slice does not alter the archived Hive baseline without a
+pinned external rerun. Full transaction objects/sender injection, repaired log
+block/transaction metadata, transfer tracing, broader response/error parity,
+and the remaining Section 5 EEST/Hive/runtime/soak gates remain open.
