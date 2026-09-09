@@ -2587,7 +2587,12 @@
            (state (make-state-db))
            (block nil)
            (expected-topic-hex
-             "0x0000000000000000000000000000000000000000000000000000000000000042"))
+             "0x0000000000000000000000000000000000000000000000000000000000000042")
+           (expected-transaction
+             (make-dynamic-fee-transaction
+              :chain-id 1 :nonce 0 :max-fee-per-gas 0
+              :max-priority-fee-per-gas 0 :gas-limit 100000
+              :to contract)))
       (state-db-set-account
        state sender (make-state-account :balance 1000000))
       (state-db-set-code state contract code)
@@ -2635,7 +2640,17 @@
           (is (= 1 (length (field log "topics"))))
           (is (string= expected-topic-hex
                        (first (field log "topics"))))
-          (is (string= "0x42" (field log "data"))))))))
+          (is (string= "0x42" (field log "data")))
+          (is (string= (field block-result "hash")
+                       (field log "blockHash")))
+          (is (string= "0x37" (field log "blockNumber")))
+          (is (string= "0x228" (field log "blockTimestamp")))
+          (is (string= (hash32-to-hex
+                        (transaction-hash expected-transaction))
+                       (field log "transactionHash")))
+          (is (string= "0x0" (field log "transactionIndex")))
+          (is (string= "0x0" (field log "logIndex")))
+          (is (eq :false (field log "removed"))))))))
 
 (deftest eth-rpc-simulate-v1-includes-error-on-revert
   ;; Geth includes an `error` field in eth_simulateV1 call results when a

@@ -775,6 +775,26 @@ and bloom before the hash is exposed."
             :expected-chain-id (and config (chain-config-chain-id config))
             :sender sender)))))
 
+(defun eth-rpc-simulate-repair-log-objects (results block)
+  "Attach BLOCK and transaction identity to ordered simulation logs."
+  (let ((log-index 0))
+    (loop for result in results
+          for receipt in (block-receipts block)
+          for transaction in (block-transactions block)
+          for transaction-index from 0
+          for logs-field = (eth-rpc-object-field result "logs")
+          do
+             (setf
+              (cdr logs-field)
+              (eth-rpc-json-array
+               (loop for log in (receipt-logs receipt)
+                     collect
+                     (prog1
+                         (eth-rpc-log-object
+                          log block transaction transaction-index log-index)
+                       (incf log-index))))))
+    results))
+
 (defun eth-rpc-simulate-block-result
     (results transactions receipts senders parent-header number timestamp gas-used
      base-fee difficulty fee-recipient prev-randao block-gas-limit state-root
@@ -821,6 +841,9 @@ and bloom before the hash is exposed."
        object "transactions"
        (eth-rpc-simulate-full-transaction-objects
         synthetic-block senders config)))
+    (when materialized-p
+      (setf results
+            (eth-rpc-simulate-repair-log-objects results synthetic-block)))
     (values
      (append object (list (cons "calls" (eth-rpc-json-array results))))
      synthetic-header)))
