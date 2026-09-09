@@ -417,6 +417,15 @@ decodes, and the raw revert data in the error object's data member."
 (defconstant +eth-rpc-simulate-max-total-calls+ 10000)
 (defconstant +eth-rpc-simulate-timestamp-increment+ 12)
 
+(defun eth-rpc-simulate-base-block-param (params store)
+  "Resolve the simulation base with Geth's ordinary server-error contract."
+  (let ((block (eth-rpc-block-param params store "eth_simulateV1")))
+    (unless block
+      (engine-rpc-fail -32000 "header not found"))
+    (unless (chain-store-state-available-p store (block-hash block))
+      (engine-rpc-fail -32000 "state not found"))
+    block))
+
 (defun eth-rpc-validate-simulate-call-counts (block-state-calls)
   "Enforce Geth's per-block and request-wide eth_simulateV1 call budgets."
   (let ((total-calls 0))
@@ -929,9 +938,9 @@ and bloom before the hash is exposed."
                (eth-rpc-simulate-boolean-option
                 payload "returnFullTransactions"))
              (block
-               (eth-rpc-state-block-param
+               (eth-rpc-simulate-base-block-param
                 (list (if (= 2 (length params)) (second params) "latest"))
-                store "eth_simulateV1"))
+                store))
              (state
                (ethereum-lisp.execution-service:chain-store-state-db
                 store (block-hash block)))

@@ -1233,6 +1233,43 @@
         (is (= -32602 (field error-object "code")))
         (is (string= "empty input" (field error-object "message")))))))
 
+(deftest eth-rpc-simulate-v1-reports-unavailable-base-as-server-error
+  ;; Geth 8a0223e8 returns its backend's ordinary error when
+  ;; StateAndHeaderByNumberOrHash cannot resolve the requested base. JSON-RPC
+  ;; therefore exposes -32000, not invalid-params -32602. Execution APIs
+  ;; e5d1bb60 pins this in `ethSimulate-empty-with-block-num-set-plus1.io` and
+  ;; `ethSimulate-make-call-with-future-block.io`.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 429)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons "blockStateCalls"
+                          (list (list (cons "calls" #())))))
+                   "0x2")))
+                store
+                (make-chain-config :chain-id 1 :london-block 0)))
+             (error-object (field response "error")))
+        (is (null (field response "result")))
+        (is (= -32000 (field error-object "code")))))))
+
 (deftest eth-rpc-simulate-v1-executes-calls
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
@@ -1785,12 +1822,13 @@
     (assert-limit-error
      (request '(5000 5000 1) 422)
      "too many calls: 10001 > 10000")
-    ;; Exactly 10,000 calls clear both limits and continue to base-block lookup.
+    ;; Exactly 10,000 calls clear both limits and continue to base-block lookup,
+    ;; whose ordinary backend error is exposed as JSON-RPC -32000.
     (let* ((response (request '(5000 5000) 423))
            (error-object (field response "error")))
       (is (not (null error-object)))
       (when error-object
-        (is (= -32602 (field error-object "code")))))))
+        (is (= -32000 (field error-object "code")))))))
 
 (deftest eth-rpc-simulate-v1-rejects-non-increasing-block-overrides
   ;; Execution APIs e5d1bb60 pins these codes in
