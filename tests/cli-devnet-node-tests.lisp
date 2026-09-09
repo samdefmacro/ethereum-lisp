@@ -3632,6 +3632,17 @@ really reopens the directory instead of observing the first handle's memory."
     (is (some (lambda (root) (hash32= parent-root root)) probes))
     (is (= 1 (length logs)))
     (is (string= "peer.snap.pivot_unavailable" (caar logs)))
+    (let ((fields (cdar logs)))
+      (flet ((field (name)
+               (loop for (key value) on fields by #'cddr
+                     when (string= name key)
+                       return value)))
+        (is (string= (hash32-to-hex (block-header-hash old))
+                     (field "pivotHash")))
+        (is (string= (hash32-to-hex old-root)
+                     (field "stateRoot")))
+        (is (string= (hash32-to-hex (block-header-hash target))
+                     (field "targetHash")))))
     (is (= 0 (ethereum-lisp.cli::devnet-peer-score
               (ethereum-lisp.cli::devnet-node-peer-table node) peer-id)))))
 

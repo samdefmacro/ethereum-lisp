@@ -1430,6 +1430,12 @@ unavailability is an availability fact, never a peer penalty."
                  node "peer.snap.pivot_unavailable"
                  "peer" (devnet-peer-entry-id-hex entry)
                  "pivot" (block-header-number header)
+                 "pivotHash" (hash32-to-hex (block-header-hash header))
+                 "stateRoot" (hash32-to-hex
+                               (block-header-state-root header))
+                 "targetHash"
+                 (hash32-to-hex
+                  (block-header-hash (car (last tail-headers))))
                  "error" condition))
               (storage-error (condition) (error condition))
               (serious-condition (condition)
