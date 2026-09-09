@@ -1379,6 +1379,56 @@
                    (mapcar (lambda (result) (field result "gasUsed"))
                            blocks)))))))
 
+(deftest eth-rpc-simulate-v1-finalizes-pre-merge-block-rewards
+  ;; Execution APIs e5d1bb60
+  ;; `ethSimulate-empty-with-block-num-set-firstblock.io` starts from block one
+  ;; and expects the empty synthetic block two to include Ethash finalization.
+  ;; Geth 8a0223e8 routes the simulated body through core.AssembleBlock, whose
+  ;; engine finalizer credits the pre-Byzantium block reward before StateRoot.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 3503995874084926
+                                      :homestead-block 0
+                                      :eip150-block 3
+                                      :eip155-block 6
+                                      :eip158-block 6
+                                      :byzantium-block 9
+                                      :merge-netsplit-block 36
+                                      :terminal-total-difficulty 4732352))
+           (state (make-state-db))
+           (expected-state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000000
+               :difficulty #x20000 :state-root (state-db-root state)))))
+      (state-db-add-balance
+       expected-state (zero-address) 5000000000000000000)
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 432)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons "blockStateCalls"
+                          (list ethereum-lisp.json:+json-empty-object+)))
+                   "0x1")))
+                store config))
+             (result (first (field response "result"))))
+        (is (null (field response "error")))
+        (is (string= "0x2" (field result "number")))
+        (is (string= "0x20000" (field result "difficulty")))
+        (is (string= (state-db-root-hex expected-state)
+                     (field result "stateRoot")))))))
+
 (deftest eth-rpc-simulate-v1-exposes-prior-synthetic-block-hashes
   ;; Geth 8a0223e8 builds each EVM chain context from the already executed
   ;; synthetic headers. The third synthetic block must therefore resolve both
@@ -1530,6 +1580,7 @@
                                       :shanghai-time 0 :cancun-time 0
                                       :prague-time 0))
            (state (make-state-db))
+           (expected-first-state (make-state-db))
            (base-miner
              (address-from-hex
               "0x00000000000000000000000000000000000000a1"))
@@ -1554,6 +1605,12 @@
                :number 1 :timestamp 10 :gas-limit 100000
                :base-fee-per-gas 0 :state-root (state-db-root state)))))
       (state-db-set-code state contract code)
+      (state-db-set-code expected-first-state contract code)
+      ;; An explicit non-zero difficulty makes this synthetic header an Ethash
+      ;; header even though the configured default at this height is post-Merge.
+      (state-db-add-balance
+       expected-first-state (address-from-hex simulated-miner)
+       5000000000000000000)
       (setf (block-header-state-root (block-header block))
             (state-db-root state))
       (chain-store-put-block store block :state-available-p t)
@@ -1593,7 +1650,7 @@
                 (make-block-header
                  :parent-hash (block-hash block)
                  :beneficiary (address-from-hex simulated-miner)
-                 :state-root (state-db-root state)
+                 :state-root (state-db-root expected-first-state)
                  :difficulty 7
                  :number 2
                  :gas-limit 100000

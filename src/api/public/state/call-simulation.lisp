@@ -1090,6 +1090,13 @@ and bloom before the hash is exposed."
                         :validation-p validation-p
                         :block-hashes block-hashes)
                      (setf request-gas-budget remaining-request-gas)
+                     ;; Geth 8a0223e8 assembles every simulated body through the
+                     ;; configured consensus engine. Ethash finalization credits
+                     ;; the block reward before deriving the synthetic state root;
+                     ;; the shared helper is a no-op for post-Merge headers.
+                     (apply-block-rewards-for-header
+                      state pre-execution-header '()
+                      (chain-config-rules config number timestamp))
                      (multiple-value-bind (result synthetic-header)
                          (eth-rpc-simulate-block-result
                           results transactions receipts senders parent-header
