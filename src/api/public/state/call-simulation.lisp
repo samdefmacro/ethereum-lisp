@@ -774,6 +774,8 @@ materialization before their header hash can be exposed."
       (unless (json-array-p block-state-calls)
         (block-validation-fail
          "eth_simulateV1 blockStateCalls must be an array"))
+      (when (zerop (length (json-array-values block-state-calls)))
+        (block-validation-fail "empty input"))
       (when (> (length (json-array-values block-state-calls))
                +eth-rpc-simulate-max-blocks+)
         (engine-rpc-fail -38026 "too many blocks"))

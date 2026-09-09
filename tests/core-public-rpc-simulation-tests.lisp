@@ -1209,6 +1209,30 @@
                 (chain-store-account-code
                  store (block-hash block) contract))))))))
 
+(deftest eth-rpc-simulate-v1-rejects-empty-input
+  ;; Geth 8a0223e8 `BlockChainAPI.SimulateV1` rejects an empty
+  ;; blockStateCalls array before resolving the base state.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((response
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" 425)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list (cons "blockStateCalls" #())))))
+              (make-engine-payload-memory-store)
+              (make-chain-config)))
+           (error-object (field response "error")))
+      (is (null (field response "result")))
+      (is (not (null error-object)))
+      (when error-object
+        (is (= -32602 (field error-object "code")))
+        (is (string= "empty input" (field error-object "message")))))))
+
 (deftest eth-rpc-simulate-v1-executes-calls
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
