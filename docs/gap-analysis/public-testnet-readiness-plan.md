@@ -633,6 +633,17 @@ baseline without a pinned rerun; non-empty transaction/receipt assembly, log
 metadata and transfer tracing remain open. See
 `docs/evidence/sec5-f3601eab-simulate-empty-block-identity.txt`.
 
+`7144b0140f32d16e7a755b47d1176ed549f5f022` closes the bounded empty-input
+admission class against vendored geth `8a0223e8`: an empty `blockStateCalls`
+array now returns JSON-RPC -32602 with the exact `empty input` message before
+base-state lookup, while the separate over-256-block limit remains -38026. The
+new RED regression, all 19 local simulation tests, and the 1,318-case cold unit
+gate are recorded in
+`docs/evidence/sec5-7144b014-simulate-empty-input.txt`. The archived 91-case
+Hive simulation baseline remains unchanged until a pinned rerun; non-empty
+transaction/receipt assembly, full transaction objects, repaired log metadata,
+transfer tracing, and remaining response/error classes stay open.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob

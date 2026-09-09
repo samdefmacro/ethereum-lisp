@@ -1,0 +1,69 @@
+Section 5 eth_simulateV1 empty-input evidence
+
+Date (UTC): 2026-09-09
+Implementation revision: 7144b0140f32d16e7a755b47d1176ed549f5f022
+Branch: sec5-public-bootstrap-sync
+Comparator: vendored go-ethereum 8a0223e8,
+  internal/ethapi/api.go BlockChainAPI.SimulateV1 lines 854-858.
+
+Scope
+
+- Reject an empty blockStateCalls array before base-state lookup.
+- Return the comparator's JSON-RPC invalid-params code -32602 and exact
+  "empty input" message.
+- Preserve the distinct -38026 limit response for more than 256 blocks.
+
+RED
+
+After reloading ethereum-lisp/test through the managed Workbench image:
+
+  cl-workbench test ETH-RPC-SIMULATE-V1-REJECTS-EMPTY-INPUT
+
+The command exited 1. The new regression reached the existing handler and
+failed its exact-message assertion because the empty request continued into
+base-state lookup instead of returning "empty input".
+
+GREEN
+
+  cl-workbench test ETH-RPC-SIMULATE-V1-REJECTS-EMPTY-INPUT
+  exit 0; result NIL (success).
+
+  cl-workbench repl eval '(multiple-value-bind (ok passed skipped results)
+    (ethereum-lisp.test:run-tests :match "ETH-RPC-SIMULATE-V1" :timing t)
+    ...)'
+  exit 0; ok=T, 19 passed, 0 skipped.
+
+  cl-workbench validation run cold-unit
+  exit 0; 1,318 passed, 3 optional fixture skips.
+
+Static checks
+
+  cl-workbench check parens src/api/public/state/call-simulation.lisp
+    tests/core-public-rpc-simulation-tests.lisp
+  git diff --check
+
+Both passed. The mandatory cycle preflight `cl-workbench doctor --strict`
+also passed before application execution.
+
+External and live boundary
+
+The archived pinned Hive rpc-compat baseline remains 137/234, including 91/91
+eth_simulateV1 failures, until a new pinned run measures this revision. The
+independent reviewer rejected the preceding focused Hive request because the
+fresh remote workspace had neither a checksum-pinned prebuilt Hive binary nor
+a Go toolchain and the request lacked hard resource and exact rollback bounds.
+No remote mutation occurred.
+
+At 2026-09-09T06:50:54Z, the preserved Hoodi deployment
+hoodi-el-sec5-b23c7d57-r2 was still running its exact b23c7d57 revision with
+restart_count=0 and OOM=false. Public RPC reported eth_blockNumber=0x0,
+eth_syncing currentBlock=0x0/highestBlock=0x36c001, and 27 peers. Its fresh
+datadir held 40,401,228,410 bytes. The preceding ten minutes contained 8
+peer.snap.progress, 8 page_profile, and 34 storage_profile events, with no
+target-completed, healer-completed, request-timeout, fatal, or heap-exhaustion
+event. This is useful ongoing SNAP progress, not Section 5 completion.
+
+Remote publication
+
+  git ls-remote origin refs/heads/sec5-public-bootstrap-sync
+  7144b0140f32d16e7a755b47d1176ed549f5f022
