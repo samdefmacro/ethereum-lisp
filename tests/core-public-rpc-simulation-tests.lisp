@@ -1283,6 +1283,76 @@
                (bytes-to-integer
                 (hex-to-bytes (field call "returnData")))))))))
 
+(deftest eth-rpc-simulate-v1-runs-cancun-pre-execution-system-calls
+  ;; Geth 8a0223e8 `processBlock` invokes core.PreExecution before ordinary
+  ;; calls. The ordinary call observes the slot written by the earlier EIP-4788
+  ;; call, proving both execution and ordering.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0
+                                      :shanghai-time 0 :cancun-time 0))
+           (system-address
+             (address-from-hex
+              "0xfffffffffffffffffffffffffffffffffffffffe"))
+           (beacon-roots-address
+             (address-from-hex
+              "0x000f3df6d732807ef1319fb7b8bb8522d0beac02"))
+           (parent-beacon-root
+             "0x1111111111111111111111111111111111111111111111111111111111111111")
+           ;; System callers store calldata in slot zero. Ordinary callers
+           ;; return it.
+           (code
+             (concat-bytes
+              #(#x33 #x73) (address-bytes system-address)
+              #(#x14 #x60 #x22 #x57
+                #x5f #x54 #x5f #x52 #x60 #x20 #x5f #xf3
+                #x5b #x5f #x35 #x5f #x55 #x00)))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (state-db-set-code state beacon-roots-address code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 428)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list
+                       (cons
+                        "calls"
+                        (list
+                         (list
+                          (cons "to" (address-to-hex beacon-roots-address)))))
+                       (cons
+                        "blockOverrides"
+                        (list (cons "beaconRoot" parent-beacon-root)))))))
+                   "latest")))
+                store config))
+             (blocks (field response "result"))
+             (calls (field (first blocks) "calls")))
+        (is (null (field response "error")))
+        (is (= 1 (length blocks)))
+        (is (= 1 (length calls)))
+        (is (= (hex-to-quantity parent-beacon-root)
+               (bytes-to-integer
+                (hex-to-bytes (field (first calls) "returnData")))))))))
+
 (deftest eth-rpc-simulate-v1-applies-synthetic-header-overrides
   ;; Geth 8a0223e8 `makeHeaders` applies feeRecipient and prevRandao to the
   ;; synthetic header before RPCMarshalBlock serializes it. A synthetic block

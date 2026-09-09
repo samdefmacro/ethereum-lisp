@@ -718,7 +718,8 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
 
 (defun eth-rpc-simulate-synthetic-header
     (parent-header number timestamp gas-used base-fee difficulty fee-recipient
-     prev-randao block-gas-limit state-root config &key materialized-p)
+     prev-randao block-gas-limit state-root config
+     &key materialized-p (parent-beacon-root (zero-hash32)))
   "Build the header context for one synthetic eth_simulateV1 block.
 
 MATERIALIZED-P installs provisional empty-body commitments so the header is
@@ -750,7 +751,7 @@ and bloom before the hash is exposed."
     (when (and config (chain-config-cancun-p config number timestamp))
       (setf (block-header-blob-gas-used header) 0
             (block-header-excess-blob-gas header) 0
-            (block-header-parent-beacon-root header) (zero-hash32)))
+            (block-header-parent-beacon-root header) parent-beacon-root))
     (when (and config (chain-config-prague-p config number timestamp))
       (setf (block-header-requests-hash header)
             (execution-requests-hash '())))
@@ -852,7 +853,7 @@ and bloom before the hash is exposed."
 (defun eth-rpc-simulate-block-result
     (results transactions receipts senders parent-header number timestamp gas-used
      base-fee difficulty fee-recipient prev-randao block-gas-limit state-root
-     config &key full-transactions-p)
+     config &key full-transactions-p parent-beacon-root)
   (let* ((parent-materialized-p
            (eth-rpc-simulate-materialized-header-p parent-header))
          (materialized-p parent-materialized-p)
@@ -860,7 +861,8 @@ and bloom before the hash is exposed."
            (eth-rpc-simulate-synthetic-header
             parent-header number timestamp gas-used base-fee difficulty
             fee-recipient prev-randao block-gas-limit state-root config
-            :materialized-p materialized-p))
+            :materialized-p materialized-p
+            :parent-beacon-root (or parent-beacon-root (zero-hash32))))
          (synthetic-block
            (and materialized-p
                 (eth-rpc-simulate-materialized-block
@@ -990,6 +992,9 @@ and bloom before the hash is exposed."
                            block-overrides "prevRandao"
                            (or (block-header-mix-hash parent-header)
                                (zero-hash32))))
+                        (parent-beacon-root
+                          (eth-rpc-block-override-hash
+                           block-overrides "beaconRoot" (zero-hash32)))
                         (effective-block-overrides
                           (eth-rpc-effective-simulated-block-overrides
                            block-overrides fee-recipient prev-randao difficulty
@@ -999,6 +1004,21 @@ and bloom before the hash is exposed."
                       "eth_simulateV1 calls must be an array"))
                    (eth-rpc-apply-state-overrides
                     state state-overrides "eth_simulateV1")
+                   (let ((pre-execution-header
+                           (eth-rpc-simulate-synthetic-header
+                            parent-header number timestamp 0 base-fee difficulty
+                            fee-recipient prev-randao block-gas-limit
+                            (state-db-root state) config
+                            :materialized-p
+                            (eth-rpc-simulate-materialized-header-p
+                             parent-header)
+                            :parent-beacon-root parent-beacon-root)))
+                     (process-block-pre-execution-system-calls
+                      state pre-execution-header
+                      :chain-config config
+                      :block-hashes
+                      (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
+                       store pre-execution-header)))
                    (multiple-value-bind
                          (results gas-used transactions receipts senders
                           remaining-request-gas)
@@ -1014,6 +1034,7 @@ and bloom before the hash is exposed."
                           number timestamp gas-used base-fee difficulty
                           fee-recipient prev-randao block-gas-limit
                           (state-db-root state) config
-                          :full-transactions-p return-full-transactions-p)
+                          :full-transactions-p return-full-transactions-p
+                          :parent-beacon-root parent-beacon-root)
                        (setf parent-header synthetic-header)
                        result)))))))))))

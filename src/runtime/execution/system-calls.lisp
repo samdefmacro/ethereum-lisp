@@ -186,3 +186,25 @@ rejects execution failure for protocol calls whose EIPs mandate both."
        :block-hashes block-hashes
        :require-success-p t)))
   state)
+
+(defun process-block-pre-execution-system-calls
+    (state header
+     &key chain-rules chain-config
+          (block-hashes (make-hash-table)))
+  "Apply every protocol transition that precedes block transactions."
+  (let* ((effective-chain-rules
+           (execution-chain-rules
+            chain-rules chain-config
+            (block-header-number header)
+            (block-header-timestamp header)))
+         (blob-base-fee
+           (execution-block-blob-base-fee header chain-rules chain-config)))
+    (process-parent-beacon-block-root
+     state header effective-chain-rules
+     :blob-base-fee blob-base-fee
+     :block-hashes block-hashes)
+    (process-parent-block-hash-history
+     state header effective-chain-rules
+     :blob-base-fee blob-base-fee
+     :block-hashes block-hashes))
+  state)

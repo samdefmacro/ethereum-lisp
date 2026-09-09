@@ -386,6 +386,7 @@
    #:apply-block-rewards-for-header
    #:apply-dao-hard-fork
    #:apply-dao-hard-fork-if-needed
+   #:process-block-pre-execution-system-calls
    #:validate-block-body-commitments-before-execution
    #:execute-legacy-block
    #:execute-signed-block))

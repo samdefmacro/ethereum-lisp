@@ -120,18 +120,15 @@
                (call-with-block-access-phase
                 block-access-list-construction state 0
                 (lambda ()
-                  (apply-dao-hard-fork-if-needed
-                   state header chain-config)
-                  (apply-amsterdam-activation-transition
-                   state header parent-header chain-config)
-                  (process-parent-beacon-block-root
-                   state header effective-chain-rules
-                   :blob-base-fee block-blob-base-fee
-                   :block-hashes block-hashes)
-                  (process-parent-block-hash-history
-                   state header effective-chain-rules
-                   :blob-base-fee block-blob-base-fee
-                   :block-hashes block-hashes)))))
+                   (apply-dao-hard-fork-if-needed
+                    state header chain-config)
+                   (apply-amsterdam-activation-transition
+                    state header parent-header chain-config)
+                   (process-block-pre-execution-system-calls
+                    state header
+                    :chain-rules effective-chain-rules
+                    :chain-config chain-config
+                    :block-hashes block-hashes)))))
             (multiple-value-bind
                   (receipts gas-used regular-gas-used state-gas-used)
                 (call-with-execution-phase-timing
