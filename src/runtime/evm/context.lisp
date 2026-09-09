@@ -79,6 +79,7 @@ historical gas selection."
    :gas-limit (evm-context-gas-limit parent)
    :chain-id (evm-context-chain-id parent)
    :chain-rules (evm-context-chain-rules parent)
+   :precompile-contracts (evm-context-precompile-contracts parent)
    :base-fee (evm-context-base-fee parent)
    :blob-hashes (evm-context-blob-hashes parent)
    :blob-base-fee (evm-context-blob-base-fee parent)

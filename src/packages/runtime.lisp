@@ -170,6 +170,8 @@
    #:amsterdam-execution-available-p
    #:precompile-address
    #:active-precompile-address-p
+   #:make-active-precompile-contracts
+   #:resolved-precompile-contract
    #:prewarm-precompile-addresses
    #:execute-precompile
    #:evm-context
@@ -190,6 +192,7 @@
    #:evm-context-gas-limit
    #:evm-context-chain-id
    #:evm-context-chain-rules
+   #:evm-context-precompile-contracts
    #:evm-context-base-fee
    #:evm-context-blob-hashes
    #:evm-context-blob-base-fee
@@ -202,6 +205,7 @@
    #:evm-context-block-hashes
    #:evm-context-read-only-p
    #:evm-result
+   #:make-evm-result
    #:evm-result-status
    #:evm-result-stack
    #:evm-result-memory
@@ -270,6 +274,8 @@
    #:amsterdam-execution-available-p
    #:precompile-address
    #:active-precompile-address-p
+   #:make-active-precompile-contracts
+   #:resolved-precompile-contract
    #:prewarm-precompile-addresses
    #:execute-precompile
    #:evm-context
@@ -290,6 +296,7 @@
    #:evm-context-gas-limit
    #:evm-context-chain-id
    #:evm-context-chain-rules
+   #:evm-context-precompile-contracts
    #:evm-context-base-fee
    #:evm-context-blob-hashes
    #:evm-context-blob-base-fee
@@ -302,6 +309,7 @@
    #:evm-context-block-hashes
    #:evm-context-read-only-p
    #:evm-result
+   #:make-evm-result
    #:evm-result-status
    #:evm-result-stack
    #:evm-result-memory

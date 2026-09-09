@@ -51,6 +51,7 @@
           (blob-base-fee 0)
           (chain-id 0)
           chain-config
+          precompile-contracts
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
@@ -101,6 +102,7 @@
                      :chain-id chain-id
                      :chain-rules effective-chain-rules
                      :chain-config chain-config
+                     :precompile-contracts precompile-contracts
                      :coinbase coinbase
                      :timestamp timestamp
                      :block-number block-number
@@ -164,6 +166,7 @@
           (chain-id 0)
           chain-rules
           chain-config
+          precompile-contracts
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
@@ -192,6 +195,7 @@ successful call's resulting state is installed."
          :blob-base-fee blob-base-fee
          :chain-id chain-id
          :chain-config chain-config
+         :precompile-contracts precompile-contracts
          :coinbase coinbase
          :timestamp timestamp
          :block-number block-number
@@ -211,9 +215,10 @@ successful call's resulting state is installed."
                            tx effective-chain-rules))
            (code (execution-resolved-code
                   call-state recipient effective-chain-rules))
-           (precompile-p
-             (active-precompile-address-p
-              recipient effective-chain-rules))
+           (precompile-contract
+             (resolved-precompile-contract
+              recipient effective-chain-rules precompile-contracts))
+           (precompile-p (not (null precompile-contract)))
            (top-level-transfer-log
              (transfer-call-value-for-simulation
               call-state sender recipient (transaction-value tx)
@@ -223,7 +228,7 @@ successful call's resulting state is installed."
          (handler-case
              (multiple-value-bind (output precompile-gas-used active-p)
                  (execute-precompile
-                  recipient
+                  precompile-contract
                   (transaction-data tx)
                   effective-chain-rules
                   (- gas-limit intrinsic-gas))
@@ -266,6 +271,7 @@ successful call's resulting state is installed."
                       :chain-id chain-id
                       :chain-rules effective-chain-rules
                       :chain-config chain-config
+                      :precompile-contracts precompile-contracts
                       :coinbase coinbase
                       :timestamp timestamp
                       :block-number block-number

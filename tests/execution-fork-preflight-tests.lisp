@@ -586,6 +586,38 @@
       (is (= (receipt-cumulative-gas-used (first receipts))
              (block-header-gas-used (block-header block)))))))
 
+(deftest protocol-system-calls-observe-rpc-precompile-relocation
+  ;; eth_simulateV1 installs the override map before geth's PreExecution.
+  (let* ((state (make-state-db))
+         (beacon-roots-address
+           (address-from-hex
+            "0x000f3df6d732807ef1319fb7b8bb8522d0beac02"))
+         (identity (ethereum-lisp.evm:precompile-address 4))
+         (rules (make-chain-rules :chain-id 1
+                                  :byzantium-p t
+                                  :berlin-p t
+                                  :london-p t
+                                  :cancun-p t))
+         (contracts
+           (ethereum-lisp.evm:make-active-precompile-contracts rules))
+         (header
+           (eip4788-test-header
+            (hash32-from-hex
+             "0x3333333333333333333333333333333333333333333333333333333333333333"))))
+    ;; This code would mutate slot zero if the system call bypassed the map.
+    (state-db-set-code
+     state beacon-roots-address #(#x60 #x01 #x60 #x00 #x55 #x00))
+    (setf (gethash (address-bytes beacon-roots-address) contracts)
+          (gethash (address-bytes identity) contracts))
+    (remhash (address-bytes identity) contracts)
+    (ethereum-lisp.execution:process-block-pre-execution-system-calls
+     state header
+     :chain-rules rules
+     :precompile-contracts contracts)
+    (is (zerop
+         (state-db-get-storage
+          state beacon-roots-address (eip4788-test-slot 0))))))
+
 (deftest prague-block-processes-parent-hash-before-transactions
   (let* ((state (make-state-db))
          (history-address

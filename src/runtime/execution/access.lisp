@@ -16,6 +16,8 @@
 (defun transaction-accessed-addresses-table
     (tx &key state sender destination coinbase (chain-id 0) chain-rules)
   (let ((accessed-addresses (make-hash-table :test 'equalp)))
+    ;; Geth's state transition always warms the protocol-active addresses;
+    ;; RPC-only relocation changes dispatch, not EIP-2929 preparation.
     (prewarm-precompile-addresses accessed-addresses chain-rules)
     (prewarm-execution-address accessed-addresses sender)
     (prewarm-execution-address accessed-addresses destination)

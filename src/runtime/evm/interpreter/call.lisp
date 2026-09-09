@@ -57,10 +57,12 @@ merging are deliberately not configurable; those are shared EVM invariants."
                     (evm-machine-memory machine)
                     args-offset
                     args-size))
-             (precompile-p
-               (active-precompile-address-p
+             (precompile-contract
+               (resolved-precompile-contract
                 code-address
-                (evm-context-chain-rules context))))
+                (evm-context-chain-rules context)
+                (evm-context-precompile-contracts context)))
+             (precompile-p (not (null precompile-contract))))
         (charge-account-access-gas
          context
          code-address
@@ -158,7 +160,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
                  :child-caller child-caller
                  :child-call-value child-value
                  :read-only-p read-only-p
-                 :precompile-address-p precompile-p
+                 :precompile-contract precompile-contract
                  :value-transfer-from value-transfer-from
                  :value-transfer-to value-transfer-to
                  :trace-value-transfer-from trace-value-transfer-from
@@ -201,7 +203,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
                                    child-caller
                                    (child-call-value 0)
                                    read-only-p
-                                   precompile-address-p
+                                   precompile-contract
                                    (child-state-gas-reservoir 0)
                                    value-transfer-from
                                    value-transfer-to
@@ -258,13 +260,22 @@ merging are deliberately not configurable; those are shared EVM invariants."
                      :trace-p nil)))
               (when transfer-log
                 (setf child-logs (list transfer-log)))))
-          (when precompile-address-p
+          (when precompile-contract
             (setf child-started-p t))
           (multiple-value-bind (precompile-output precompile-gas precompile-p)
-              (execute-precompile
-               code-address args
-               (evm-context-chain-rules context)
-               child-gas-limit)
+              (cond
+                (precompile-contract
+                 (execute-precompile
+                  precompile-contract args
+                  (evm-context-chain-rules context)
+                  child-gas-limit))
+                ((evm-context-precompile-contracts context)
+                 (values (make-byte-vector 0) 0 nil))
+                (t
+                 (execute-precompile
+                  code-address args
+                  (evm-context-chain-rules context)
+                  child-gas-limit)))
             (if precompile-p
                 (progn
                   (setf success 1

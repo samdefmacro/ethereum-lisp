@@ -3322,3 +3322,151 @@
           (is (string= (address-topic recipient)
                        (third (field nested "topics"))))
           (is (string= (amount-data 100) (field nested "data"))))))))
+(deftest eth-rpc-simulate-v1-moves-and-overrides-precompiles
+  ;; Geth v1.17.4 constructs a fresh active-precompile map for each simulated
+  ;; block, applies movePrecompileToAddress before the account's code override,
+  ;; and removes the original precompile entry for that block.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (id block-state-call store config)
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" id)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons "blockStateCalls"
+                        (list block-state-call)))
+                 "latest")))
+              store config)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :berlin-block 0
+                                      :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 31
+               :timestamp 310
+               :gas-limit 1000000
+               :base-fee-per-gas 0
+               :state-root (state-db-root state))))
+           (identity "0x0000000000000000000000000000000000000004")
+           (destination "0x0000000000000000000000000000000000123456")
+           (wrapper "0x0000000000000000000000000000000000654321")
+           (original-wrapper
+             "0x0000000000000000000000000000000000654322")
+           ;; Forward calldata to DESTINATION with CALL and return its bytes.
+           (wrapper-code
+             (hex-to-bytes
+              (concatenate
+               'string
+               "0x36600060003760026002366000600073"
+               (subseq destination 2)
+               "5af15060026002f3")))
+           (original-wrapper-code
+             (hex-to-bytes
+              (concatenate
+               'string
+               "0x36600060003760026002366000600073"
+               (subseq identity 2)
+               "5af15060026002f3")))
+           (sender "0xc000000000000000000000000000000000000000")
+           (move-response
+             nil))
+      (state-db-set-code state (address-from-hex wrapper) wrapper-code)
+      (state-db-set-code
+       state (address-from-hex original-wrapper) original-wrapper-code)
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (setf move-response
+            (request
+             301
+             (list
+              (cons
+               "stateOverrides"
+               (list
+                (cons identity
+                      (list (cons "movePrecompileToAddress" destination)))))
+              (cons
+               "calls"
+               (list
+                (list (cons "from" sender)
+                      (cons "to" destination)
+                      (cons "input" "0x1234"))
+                (list (cons "from" sender)
+                      (cons "to" identity)
+                      (cons "input" "0x1234"))
+                (list (cons "from" sender)
+                      (cons "to" wrapper)
+                      (cons "input" "0x1234"))
+                (list (cons "from" sender)
+                      (cons "to" original-wrapper)
+                      (cons "input" "0x1234")))))
+             store config))
+      (let* ((result (field move-response "result"))
+             (calls (field (first result) "calls")))
+        (is (string= "0x1234" (field (first calls) "returnData")))
+        (is (string= "0x" (field (second calls) "returnData")))
+        (let ((nested-return-data (field (third calls) "returnData")))
+          (unless (string= "0x1234" nested-return-data)
+            (error "expected nested moved precompile output, got ~S from ~S"
+                   nested-return-data (third calls))))
+        (is (string= "0x0000" (field (fourth calls) "returnData")))
+        ;; Relocation changes dispatch only: the original protocol precompile
+        ;; remains warm, while the moved destination pays one cold access.
+        (let* ((moved-gas
+                 (hex-to-quantity (field (third calls) "gasUsed")))
+               (original-gas
+                 (hex-to-quantity (field (fourth calls) "gasUsed")))
+               (gas-delta (- moved-gas original-gas)))
+          (unless (= 2518 gas-delta)
+            (error "expected moved precompile gas delta 2518, got ~D (~D - ~D)"
+                   gas-delta moved-gas original-gas))))
+      (let* ((override-response
+               (request
+                302
+                (list
+                 (cons
+                  "stateOverrides"
+                  (list
+                   (cons identity
+                         (list
+                          ;; MSTORE8 0 := 42; RETURN mem[0:1].
+                          (cons "code" "0x602a60005360016000f3")))))
+                 (cons
+                  "calls"
+                  (list
+                   (list (cons "from" sender)
+                         (cons "to" identity)
+                         (cons "input" "0x1234"))
+                   (list (cons "from" sender)
+                         (cons "to" original-wrapper)
+                         (cons "input" "0x1234")))))
+                store config))
+             (result (field override-response "result"))
+             (calls (field (first result) "calls")))
+        (is (string= "0x2a" (field (first calls) "returnData")))
+        (is (string= "0x2a00" (field (second calls) "returnData"))))
+      (let* ((bad-response
+               (request
+                303
+                (list
+                 (cons
+                  "stateOverrides"
+                  (list
+                   (cons sender
+                         (list
+                          (cons "movePrecompileToAddress" destination))))))
+                store config))
+             (error-object (field bad-response "error")))
+        (is (= -32000 (field error-object "code")))
+        (is (search "is not a precompile"
+                    (field error-object "message")))))))

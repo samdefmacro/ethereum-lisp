@@ -59,6 +59,26 @@
     (and (precompile-number-p number)
          (active-precompile-address-number-p number rules))))
 
+(defun make-active-precompile-contracts (&optional rules)
+  "Return the active address-to-implementation map for RULES.
+
+Values are implementation addresses so an RPC-only override can relocate a
+precompile without changing the protocol-wide dispatcher."
+  (let ((contracts (make-hash-table :test 'equalp)))
+    (dolist (number (append (loop for i from 1 to +bls12381-last-precompile-number+
+                                  collect i)
+                            (list +p256verify-precompile-number+))
+                    contracts)
+      (when (active-precompile-address-number-p number rules)
+        (let ((address (precompile-address number)))
+          (setf (gethash (address-bytes address) contracts) address))))))
+
+(defun resolved-precompile-contract (address rules contracts)
+  "Return ADDRESS's active implementation, respecting an optional full map."
+  (if contracts
+      (gethash (address-bytes address) contracts)
+      (and (active-precompile-address-p address rules) address)))
+
 (defun prewarm-precompile-addresses (accessed-addresses &optional rules)
   (dolist (number (append (loop for i from 1 to +bls12381-last-precompile-number+
                                 collect i)
@@ -122,6 +142,7 @@
                                 (gas-limit 0)
                                 (chain-id 0)
                                 chain-rules
+                                precompile-contracts
                                 (base-fee 0)
                                 (blob-hashes #())
                                 (blob-base-fee 0)
@@ -160,6 +181,7 @@
   (gas-limit 0 :type (integer 0 *))
   (chain-id 0 :type (integer 0 *))
   chain-rules
+  precompile-contracts
   (base-fee 0 :type (integer 0 *))
   blob-hashes
   (blob-base-fee 0 :type (integer 0 *))

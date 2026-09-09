@@ -55,61 +55,113 @@ decodes, and the raw revert data in the error object's data member."
     (hash32-bytes
      (json-rpc-hash32 value-text "state override storage value")))))
 
-(defun eth-rpc-apply-state-overrides (state overrides method)
+(defun eth-rpc-apply-state-overrides
+    (state overrides method &optional precompile-contracts)
+  "Apply account and RPC-only precompile overrides in deterministic address order.
+
+PRECOMPILE-CONTRACTS is a complete active address-to-implementation map for one
+simulated block. This follows go-ethereum v1.17.4 override.StateOverride.Apply:
+move first, remove the original precompile, then apply ordinary account fields."
   (when (and overrides (not (json-empty-object-p overrides)))
     (unless (json-object-p overrides)
       (block-validation-fail "~A state overrides must be an object" method))
-    (dolist (entry overrides)
-      (let* ((address
-               (eth-rpc-address-param (car entry) method "override address"))
-             (override (cdr entry)))
-        (unless (json-object-p override)
-          (block-validation-fail
-           "~A account override must be an object" method))
-        (when (and (json-object-field-present-p override "state")
-                   (json-object-field-present-p override "stateDiff"))
-          (block-validation-fail
-           "~A account override cannot contain both state and stateDiff"
-           method))
-        (let* ((account (or (state-db-get-account state address)
-                            (make-state-account)))
-               (nonce
-                 (if (json-object-field-present-p override "nonce")
-                     (parse-json-quantity
-                      (json-object-field override "nonce")
-                      "state override nonce" :required-p t)
-                     (state-account-nonce account)))
-               (balance
-                 (if (json-object-field-present-p override "balance")
-                     (parse-json-quantity
-                      (json-object-field override "balance")
-                      "state override balance" :required-p t)
-                     (state-account-balance account)))
-               (code
-                 (if (json-object-field-present-p override "code")
-                     (json-rpc-bytes
-                      (json-object-field override "code")
-                      "state override code")
-                     (state-db-get-code state address)))
-               (state-object
-                 (when (json-object-field-present-p override "state")
-                   (json-object-field override "state")))
-               (state-diff
-                 (when (json-object-field-present-p override "stateDiff")
-                   (json-object-field override "stateDiff"))))
-          (when state-object
-            (unless (json-object-p state-object)
-              (block-validation-fail
-               "~A state override state must be an object" method))
-            (state-db-clear-account state address))
-          (state-db-set-account
-           state address
-           (make-state-account :nonce nonce :balance balance))
-          (state-db-set-code state address code)
-          (dolist (storage-entry (or state-object state-diff))
-            (eth-rpc-override-storage-entry
-             state address (car storage-entry) (cdr storage-entry) method)))))
-    state))
+    (let ((entries
+            (sort
+             (mapcar
+              (lambda (entry)
+                (cons
+                 (eth-rpc-address-param
+                  (car entry) method "override address")
+                 (cdr entry)))
+              overrides)
+             #'<
+             :key (lambda (entry)
+                    (bytes-to-integer (address-bytes (car entry))))))
+          (override-addresses (make-hash-table :test 'equalp))
+          (moved-destinations (make-hash-table :test 'equalp)))
+      (dolist (entry entries)
+        (setf (gethash (address-bytes (car entry)) override-addresses) t))
+      (dolist (entry entries)
+        (let* ((address (car entry))
+               (address-key (address-bytes address))
+               (override (cdr entry)))
+          (unless (json-object-p override)
+            (block-validation-fail
+             "~A account override must be an object" method))
+          (when (gethash address-key moved-destinations)
+            (engine-rpc-fail
+             -32000
+             (format nil "account ~A has already been overridden by a precompile"
+                     (address-to-hex address))))
+          (multiple-value-bind (implementation precompile-p)
+              (and precompile-contracts
+                   (gethash address-key precompile-contracts))
+            (when (json-object-field-present-p
+                   override "movePrecompileToAddress")
+              (unless precompile-p
+                (engine-rpc-fail
+                 -32000
+                 (format nil "account ~A is not a precompile"
+                         (address-to-hex address))))
+              (let* ((destination
+                       (eth-rpc-address-param
+                        (json-object-field override "movePrecompileToAddress")
+                        method "movePrecompileToAddress"))
+                     (destination-key (address-bytes destination)))
+                (when (gethash destination-key override-addresses)
+                  (engine-rpc-fail
+                   -32000
+                   (format nil "account ~A is already overridden"
+                           (address-to-hex destination))))
+                (setf (gethash destination-key precompile-contracts)
+                      implementation
+                      (gethash destination-key moved-destinations) t)))
+            (when precompile-p
+              (remhash address-key precompile-contracts)))
+          (when (and (json-object-field-present-p override "state")
+                     (json-object-field-present-p override "stateDiff"))
+            (block-validation-fail
+             "~A account override cannot contain both state and stateDiff"
+             method))
+          (let* ((account (or (state-db-get-account state address)
+                              (make-state-account)))
+                 (nonce
+                   (if (json-object-field-present-p override "nonce")
+                       (parse-json-quantity
+                        (json-object-field override "nonce")
+                        "state override nonce" :required-p t)
+                       (state-account-nonce account)))
+                 (balance
+                   (if (json-object-field-present-p override "balance")
+                       (parse-json-quantity
+                        (json-object-field override "balance")
+                        "state override balance" :required-p t)
+                       (state-account-balance account)))
+                 (code
+                   (if (json-object-field-present-p override "code")
+                       (json-rpc-bytes
+                        (json-object-field override "code")
+                        "state override code")
+                       (state-db-get-code state address)))
+                 (state-object
+                   (when (json-object-field-present-p override "state")
+                     (json-object-field override "state")))
+                 (state-diff
+                   (when (json-object-field-present-p override "stateDiff")
+                     (json-object-field override "stateDiff"))))
+            (when state-object
+              (unless (json-object-p state-object)
+                (block-validation-fail
+                 "~A state override state must be an object" method))
+              (state-db-clear-account state address))
+            (state-db-set-account
+             state address
+             (make-state-account :nonce nonce :balance balance))
+            (state-db-set-code state address code)
+            (dolist (storage-entry (or state-object state-diff))
+              (eth-rpc-override-storage-entry
+               state address (car storage-entry) (cdr storage-entry) method)))))
+      state)))
 
 (defun eth-rpc-block-override-quantity
     (overrides name default)
@@ -249,7 +301,7 @@ decodes, and the raw revert data in the error object's data member."
     (object block store config method
      &key gas-limit state-overrides block-overrides state
           intrinsic-gas-error-code base-fee-error-code commit-state-p
-          validation-p block-hashes)
+          validation-p block-hashes precompile-contracts)
   (when (and block-overrides (not (json-object-p block-overrides)))
     (block-validation-fail "~A block overrides must be an object" method))
   (unless (json-object-p object)
@@ -260,9 +312,21 @@ decodes, and the raw revert data in the error object's data member."
                (or state
                    (ethereum-lisp.execution-service:chain-store-state-db
                     store (block-hash block))))
-             (simulate-v1-p (string= method "eth_simulateV1")))
+             (simulate-v1-p (string= method "eth_simulateV1"))
+             (block-number
+               (eth-rpc-block-override-quantity
+                block-overrides "number" (block-header-number header)))
+             (block-timestamp
+               (eth-rpc-block-override-quantity
+                block-overrides "time" (block-header-timestamp header)))
+             (rules
+               (and config
+                    (chain-config-rules config block-number block-timestamp)))
+             (effective-precompile-contracts
+               (or precompile-contracts
+                   (make-active-precompile-contracts rules))))
         (eth-rpc-apply-state-overrides
-         simulation-state state-overrides method)
+         simulation-state state-overrides method effective-precompile-contracts)
         (let* ((default-sender
                  (or (eth-rpc-call-object-optional-address
                       object "from" method)
@@ -322,18 +386,6 @@ decodes, and the raw revert data in the error object's data member."
                    (blob-base-fee
                      (eth-rpc-block-override-quantity
                       block-overrides "blobBaseFee" 0))
-                   (block-number
-                     (eth-rpc-block-override-quantity
-                      block-overrides "number"
-                      (block-header-number header)))
-                   (block-timestamp
-                     (eth-rpc-block-override-quantity
-                      block-overrides "time"
-                      (block-header-timestamp header)))
-                   (rules
-                     (and config
-                          (chain-config-rules
-                           config block-number block-timestamp)))
                    (eip1559-enabled-p
                      (or (null config)
                          (chain-config-london-p config block-number)))
@@ -375,6 +427,7 @@ decodes, and the raw revert data in the error object's data member."
                    :blob-base-fee blob-base-fee
                    :chain-id (if config (chain-config-chain-id config) 0)
                    :chain-config config
+                   :precompile-contracts effective-precompile-contracts
                    :coinbase fee-recipient
                    :timestamp block-timestamp
                    :block-number block-number
@@ -685,7 +738,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
 
 (defun eth-rpc-simulate-call-result
     (call block store config state block-overrides gas-limit
-     &key validation-p block-hashes)
+     &key validation-p block-hashes precompile-contracts)
   (multiple-value-bind
           (status return-data gas-used accessed-addresses accessed-storage
            max-used-gas logs transaction sender)
@@ -698,7 +751,8 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
          :base-fee-error-code (and validation-p -38012)
          :commit-state-p t
          :validation-p validation-p
-         :block-hashes block-hashes)
+         :block-hashes block-hashes
+         :precompile-contracts precompile-contracts)
       (declare (ignore accessed-addresses accessed-storage))
       (let* ((trace-output
                (multiple-value-list (evm-log-tracer-drain)))
@@ -756,7 +810,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
 
 (defun eth-rpc-simulate-block-call-results
     (calls block store config state block-overrides block-gas-limit
-     request-gas-budget &key validation-p block-hashes)
+     request-gas-budget &key validation-p block-hashes precompile-contracts)
   (let ((remaining-gas block-gas-limit)
         (gas-used 0)
         (results '())
@@ -779,7 +833,8 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
             (eth-rpc-simulate-call-result
              call block store config state block-overrides call-gas
              :validation-p validation-p
-             :block-hashes block-hashes)
+             :block-hashes block-hashes
+             :precompile-contracts precompile-contracts)
           (incf gas-used call-gas-used)
           (decf remaining-gas call-gas-used)
           (decf request-gas-budget call-gas-used)
@@ -1125,12 +1180,18 @@ and bloom before the hash is exposed."
                         (effective-block-overrides
                           (eth-rpc-effective-simulated-block-overrides
                            block-overrides fee-recipient prev-randao difficulty
-                           base-fee blob-base-fee)))
+                           base-fee blob-base-fee))
+                        (rules
+                          (and config
+                               (chain-config-rules config number timestamp)))
+                        (precompile-contracts
+                          (make-active-precompile-contracts rules)))
                    (unless (json-array-p calls)
                      (block-validation-fail
                       "eth_simulateV1 calls must be an array"))
                    (eth-rpc-apply-state-overrides
-                    state state-overrides "eth_simulateV1")
+                    state state-overrides "eth_simulateV1"
+                    precompile-contracts)
                    (let* ((pre-execution-header
                            (eth-rpc-simulate-synthetic-header
                             parent-header number timestamp 0 base-fee difficulty
@@ -1147,7 +1208,8 @@ and bloom before the hash is exposed."
                      (process-block-pre-execution-system-calls
                       state pre-execution-header
                       :chain-config config
-                      :block-hashes block-hashes)
+                      :block-hashes block-hashes
+                      :precompile-contracts precompile-contracts)
                      (multiple-value-bind
                          (results gas-used transactions receipts senders
                           remaining-request-gas)
@@ -1156,7 +1218,8 @@ and bloom before the hash is exposed."
                         block store config state effective-block-overrides
                         block-gas-limit request-gas-budget
                         :validation-p validation-p
-                        :block-hashes block-hashes)
+                        :block-hashes block-hashes
+                        :precompile-contracts precompile-contracts)
                      (setf request-gas-budget remaining-request-gas)
                      ;; Geth 8a0223e8 assembles every simulated body through the
                      ;; configured consensus engine. Ethash finalization credits

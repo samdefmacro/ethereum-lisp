@@ -7,6 +7,7 @@
           (chain-id 0)
           chain-rules
           chain-config
+          precompile-contracts
           (coinbase (zero-address))
           (timestamp 0)
           (block-number 0)
@@ -36,6 +37,7 @@
      :gas-limit context-gas-limit
      :chain-id chain-id
      :chain-rules effective-chain-rules
+     :precompile-contracts precompile-contracts
      :base-fee base-fee
      :blob-hashes (transaction-blob-versioned-hashes tx)
      :blob-base-fee blob-base-fee

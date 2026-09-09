@@ -76,6 +76,7 @@ pre-existing canonical code hash makes the transition idempotent."
           (gas-limit +protocol-system-call-gas-limit+)
           (blob-base-fee 0)
           (block-hashes (make-hash-table))
+          precompile-contracts
           (require-code-p nil)
           (require-success-p nil))
   "Execute a protocol call without transaction accounting or a receipt.
@@ -86,12 +87,17 @@ rejects execution failure for protocol calls whose EIPs mandate both."
   (let ((code (if (or (null chain-rules)
                       (chain-rules-prague-p chain-rules))
                   (execution-resolved-code state target chain-rules)
-                  (state-db-get-code state target))))
-    (when (and require-code-p (zerop (length code)))
+                  (state-db-get-code state target)))
+        (precompile-contract
+          (resolved-precompile-contract
+           target chain-rules precompile-contracts)))
+    (when (and require-code-p
+               (null precompile-contract)
+               (zerop (length code)))
       (block-validation-fail
        "Required protocol system contract ~A has no code"
        (address-to-hex target)))
-    (when (plusp (length code))
+    (when (or precompile-contract (plusp (length code)))
       (let* ((snapshot (state-db-snapshot state))
              (context
                (make-evm-context
@@ -116,6 +122,7 @@ rejects execution failure for protocol calls whose EIPs mandate both."
                               (chain-rules-chain-id chain-rules)
                               0)
                 :chain-rules chain-rules
+                :precompile-contracts precompile-contracts
                 :base-fee (or (block-header-base-fee-per-gas header) 0)
                 :blob-base-fee blob-base-fee
                 :block-hashes block-hashes
@@ -131,9 +138,18 @@ rejects execution failure for protocol calls whose EIPs mandate both."
                  result))
           (handler-case
               (let ((result
-                      (execute-bytecode code
-                                        :context context
-                                        :gas-limit gas-limit)))
+                      (if precompile-contract
+                          (multiple-value-bind (output gas-used active-p)
+                              (execute-precompile
+                               precompile-contract input chain-rules gas-limit)
+                            (declare (ignore active-p))
+                            (make-evm-result
+                             :status :stopped
+                             :return-data output
+                             :gas-used gas-used))
+                          (execute-bytecode code
+                                            :context context
+                                            :gas-limit gas-limit))))
                 (if (eq (evm-result-status result) :reverted)
                     (rollback-failed-call result)
                     (finalize-evm-selfdestructs state context))
@@ -143,7 +159,8 @@ rejects execution failure for protocol calls whose EIPs mandate both."
 
 (defun process-parent-beacon-block-root
     (state header chain-rules
-     &key (blob-base-fee 0) (block-hashes (make-hash-table)))
+     &key (blob-base-fee 0) (block-hashes (make-hash-table))
+          precompile-contracts)
   "Apply the EIP-4788 parent beacon block root transition when active."
   (when (and (plusp (block-header-number header))
              (if chain-rules
@@ -160,12 +177,14 @@ rejects execution failure for protocol calls whose EIPs mandate both."
        header
        chain-rules
        :blob-base-fee blob-base-fee
-       :block-hashes block-hashes)))
+       :block-hashes block-hashes
+       :precompile-contracts precompile-contracts)))
   state)
 
 (defun process-parent-block-hash-history
     (state header chain-rules
-     &key (blob-base-fee 0) (block-hashes (make-hash-table)))
+     &key (blob-base-fee 0) (block-hashes (make-hash-table))
+          precompile-contracts)
   "Apply the EIP-2935 parent block hash transition when active."
   (when (and (plusp (block-header-number header))
              (if chain-rules
@@ -184,13 +203,15 @@ rejects execution failure for protocol calls whose EIPs mandate both."
        chain-rules
        :blob-base-fee blob-base-fee
        :block-hashes block-hashes
+       :precompile-contracts precompile-contracts
        :require-success-p t)))
   state)
 
 (defun process-block-pre-execution-system-calls
     (state header
      &key chain-rules chain-config
-          (block-hashes (make-hash-table)))
+          (block-hashes (make-hash-table))
+          precompile-contracts)
   "Apply every protocol transition that precedes block transactions."
   (let* ((effective-chain-rules
            (execution-chain-rules
@@ -202,9 +223,11 @@ rejects execution failure for protocol calls whose EIPs mandate both."
     (process-parent-beacon-block-root
      state header effective-chain-rules
      :blob-base-fee blob-base-fee
-     :block-hashes block-hashes)
+     :block-hashes block-hashes
+     :precompile-contracts precompile-contracts)
     (process-parent-block-hash-history
      state header effective-chain-rules
      :blob-base-fee blob-base-fee
-     :block-hashes block-hashes))
+     :block-hashes block-hashes
+     :precompile-contracts precompile-contracts))
   state)
