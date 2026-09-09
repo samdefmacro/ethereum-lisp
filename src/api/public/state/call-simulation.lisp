@@ -687,7 +687,8 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
            (result
              (list
               (cons "status" (if success-p "0x1" "0x0"))
-              (cons "returnData" (bytes-to-hex return-data))
+              (cons "returnData"
+                    (if success-p (bytes-to-hex return-data) "0x"))
               (cons "gasUsed" (quantity-to-hex gas-used))
               (cons "maxUsedGas" (quantity-to-hex max-used-gas))
               (cons "logs"

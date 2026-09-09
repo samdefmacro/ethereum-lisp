@@ -2990,9 +2990,9 @@
           (is (eq :false (field log "removed"))))))))
 
 (deftest eth-rpc-simulate-v1-includes-error-on-revert
-  ;; Geth includes an `error` field in eth_simulateV1 call results when a
-  ;; call reverts: {message, code: 3, data: hex(revertBytes)}. Our call
-  ;; result currently omits it.
+  ;; Execution APIs e5d1bb60 and geth 8a0223e8 keep revert bytes in the
+  ;; call-result error data, while returnData is the empty successful-return
+  ;; channel for a failed call.
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
@@ -3054,7 +3054,7 @@
                                (field call-result "error"))))
         (is (null (field response "error")))
         (is (string= "0x0" (field call-result "status")))
-        (is (string= expected-data (field call-result "returnData")))
+        (is (string= "0x" (field call-result "returnData")))
         (is (not (null error-field)))
         (is (= 3 (field error-field "code")))
         (is (string= "execution reverted"
