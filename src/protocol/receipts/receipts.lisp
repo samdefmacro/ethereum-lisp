@@ -50,10 +50,50 @@
     #xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef
     32)))
 
+(defparameter +eth-burn-log-topic+
+  (make-hash32
+   (%receipt-integer-to-fixed-bytes
+    #xcc16f5dbb4873280815c1ee09dbd06736cffcc184412cf7a71a0fdb75d397ca5
+    32)))
+
+(defparameter +eth-trace-transfer-address+
+  (make-address
+   (%receipt-integer-to-fixed-bytes
+    #xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    20)))
+
 (defun make-eth-transfer-log-entry (sender recipient amount)
   "Construct the EIP-7708 system log for one nonzero ETH transfer."
   (make-log-entry
    :address +eth-transfer-system-address+
+   :topics
+   (list +eth-transfer-log-topic+
+         (make-hash32
+          (%receipt-integer-to-fixed-bytes
+           (bytes-to-integer (address-bytes sender))
+           32))
+         (make-hash32
+          (%receipt-integer-to-fixed-bytes
+           (bytes-to-integer (address-bytes recipient))
+           32)))
+   :data (%receipt-integer-to-fixed-bytes amount 32)))
+
+(defun make-eth-burn-log-entry (sender amount)
+  "Construct the EIP-7708 system log for one nonzero ETH burn."
+  (make-log-entry
+   :address +eth-transfer-system-address+
+   :topics
+   (list +eth-burn-log-topic+
+         (make-hash32
+          (%receipt-integer-to-fixed-bytes
+           (bytes-to-integer (address-bytes sender))
+           32)))
+   :data (%receipt-integer-to-fixed-bytes amount 32)))
+
+(defun make-eth-trace-transfer-log-entry (sender recipient amount)
+  "Construct Geth's ERC-7528 pseudo-log for an ETH transfer trace."
+  (make-log-entry
+   :address +eth-trace-transfer-address+
    :topics
    (list +eth-transfer-log-topic+
          (make-hash32

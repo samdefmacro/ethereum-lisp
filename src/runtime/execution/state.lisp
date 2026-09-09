@@ -19,7 +19,8 @@
                        :balance balance
                        :code-hash code-hash)))
 
-(defun transfer-value (state sender recipient value &optional rules)
+(defun transfer-value
+    (state sender recipient value &optional rules &key (trace-p t))
   (let ((transfer-p
           (and (plusp value)
                (not (bytes= (address-bytes sender)
@@ -37,10 +38,12 @@
          (state-account-nonce recipient-account)
          (+ (state-account-balance recipient-account) value)
          (state-account-code-hash recipient-account))))
-    (when (and transfer-p
-               rules
-               (chain-rules-amsterdam-p rules))
-      (make-eth-transfer-log-entry sender recipient value))))
+    (when (and trace-p *evm-trace-transfers-p* (plusp value))
+      (evm-capture-trace-log
+       (make-eth-trace-transfer-log-entry sender recipient value)))
+    (when (and transfer-p rules (chain-rules-amsterdam-p rules))
+      (evm-capture-trace-log
+       (make-eth-transfer-log-entry sender recipient value)))))
 
 (defun execution-resolved-code (state address rules)
   (let ((code (state-db-get-code state address)))

@@ -20,6 +20,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
   new-account-p
   value-transfer-from
   value-transfer-to
+  trace-value-transfer-from
+  trace-value-transfer-to
   balance-check-address
   (balance-check-value 0 :type (integer 0 *))
   balance-check-message
@@ -30,8 +32,9 @@ merging are deliberately not configurable; those are shared EVM invariants."
   (with-slots (requested-gas code-address args-offset args-size
                return-offset return-size rest-stack child-address
                child-caller child-value read-only-p charge-value-gas-p
-               new-account-p value-transfer-from
-               value-transfer-to balance-check-address balance-check-value
+               new-account-p value-transfer-from value-transfer-to
+               trace-value-transfer-from trace-value-transfer-to
+               balance-check-address balance-check-value
                balance-check-message merge-logs-p)
       call
     (let* ((context (evm-machine-context machine))
@@ -158,6 +161,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
                  :precompile-address-p precompile-p
                  :value-transfer-from value-transfer-from
                  :value-transfer-to value-transfer-to
+                 :trace-value-transfer-from trace-value-transfer-from
+                 :trace-value-transfer-to trace-value-transfer-to
                  :balance-check-address balance-check-address
                  :balance-check-value balance-check-value
                  :balance-check-message balance-check-message)
@@ -200,14 +205,12 @@ merging are deliberately not configurable; those are shared EVM invariants."
                                    (child-state-gas-reservoir 0)
                                    value-transfer-from
                                    value-transfer-to
+                                   trace-value-transfer-from
+                                   trace-value-transfer-to
                                    balance-check-address
                                    (balance-check-value 0)
                                    balance-check-message)
-  ;; A call at the 1024-deep call/create limit fails: push 0, no value
-  ;; transfer, and the full child gas returns to the caller.
-  (when (>= (evm-context-depth context) +max-call-depth+)
-    (return-from execute-message-call-child
-      (values 0 (make-byte-vector 0) 0 '() 0 0)))
+
   ;; Every frame of a call trace is one of these, so the tracer needs no hook
   ;; anywhere else. FLET with DYNAMIC-EXTENT rather than a fresh closure: this
   ;; is the hottest path in the EVM, and a heap-allocated closure per call
@@ -216,6 +219,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
   ;; costs one NIL check.
   (flet ((traced-body ()
   (let ((success 0)
+        (trace-log-snapshot (evm-log-tracer-snapshot))
         (child-return-data (make-byte-vector 0))
         (child-logs '())
         (child-started-p nil)
@@ -224,6 +228,19 @@ merging are deliberately not configurable; those are shared EVM invariants."
         (child-refund-counter 0))
     (handler-case
         (progn
+          (when (and trace-value-transfer-from
+                     trace-value-transfer-to
+                     (plusp child-call-value))
+            (evm-capture-trace-log
+             (make-eth-trace-transfer-log-entry
+              trace-value-transfer-from
+              trace-value-transfer-to
+              child-call-value)))
+          ;; Geth enters the frame before rejecting depth or balance, so a
+          ;; failed value call consumes a tracer index even though its log is
+          ;; discarded on exit.
+          (when (>= (evm-context-depth context) +max-call-depth+)
+            (fail "Maximum EVM call depth exceeded"))
           (when (and balance-check-address
                      (< (account-balance state balance-check-address)
                         balance-check-value))
@@ -237,7 +254,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
                      value-transfer-from
                      value-transfer-to
                      child-call-value
-                     (evm-context-chain-rules context))))
+                     (evm-context-chain-rules context)
+                     :trace-p nil)))
               (when transfer-log
                 (setf child-logs (list transfer-log)))))
           (when precompile-address-p
@@ -286,7 +304,10 @@ merging are deliberately not configurable; those are shared EVM invariants."
                           (setf success child-success
                                 child-gas-used result-gas
                                 child-return-data result-return-data
-                                child-logs (append child-logs result-logs))
+                                child-logs
+                                (if (= child-success 1)
+                                    (append child-logs result-logs)
+                                    result-logs))
                           (setf child-state-gas-used result-state-gas)
                           (incf child-refund-counter result-refund))))))))
       (evm-precompile-error (condition)
@@ -305,6 +326,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
               child-gas-used
               (failed-child-execution-gas-used
                child-started-p child-gas-limit child-gas-used))))
+    (when (zerop success)
+      (evm-log-tracer-restore trace-log-snapshot))
     (values success
             child-return-data
             child-gas-used

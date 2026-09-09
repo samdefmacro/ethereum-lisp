@@ -2723,3 +2723,130 @@
         (is (string= "execution reverted"
                      (field error-field "message")))
         (is (string= expected-data (field error-field "data")))))))
+
+(deftest eth-rpc-simulate-v1-traces-top-level-and-nested-eth-transfers
+  ;; Geth 8a0223e8 `logtracer.go` represents each nonzero ETH transfer as an
+  ;; ERC-7528 pseudo-log. The transaction value precedes the nested CALL value.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (address-topic (address)
+             (let ((bytes (make-byte-vector 32)))
+               (replace bytes (address-bytes address) :start1 12)
+               (bytes-to-hex bytes)))
+           (amount-data (amount)
+             (let ((bytes (make-byte-vector 32)))
+               (setf (aref bytes 31) amount)
+               (bytes-to-hex bytes))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :byzantium-block 0
+                                      :constantinople-block 0 :london-block 0))
+           (sender
+             (address-from-hex
+              "0x1000000000000000000000000000000000000001"))
+           (collision-sender
+             (address-from-hex
+              "0x4000000000000000000000000000000000000004"))
+           (collision
+             (make-address
+              (subseq
+               (keccak-256
+                (rlp-encode
+                 (make-rlp-list (address-bytes collision-sender) 0)))
+               12 32)))
+           (contract
+             (address-from-hex
+              "0x2000000000000000000000000000000000000002"))
+           (recipient
+             (address-from-hex
+              "0x3000000000000000000000000000000000000003"))
+           ;; CALLDATALOAD; SHR 96; CALL with value 100; revert if it fails.
+           (code
+             (hex-to-bytes
+              "0x60003560601c606460008060008084865af160008103601d57600080fd5b505050"))
+           (state (make-state-db))
+           (block nil))
+      (state-db-set-account
+       state sender (make-state-account :balance 1000000))
+      (state-db-set-account
+       state collision-sender (make-state-account :balance 1000000))
+      (state-db-set-account
+       state collision (make-state-account :nonce 1))
+      (state-db-set-account
+       state contract (make-state-account :balance 100))
+      (state-db-set-code state contract code)
+      (setf block
+            (make-block
+             :header
+             (make-block-header
+              :number 55 :timestamp 550 :gas-limit 400000
+              :base-fee-per-gas 0 :state-root (state-db-root state))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 426)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons "traceTransfers" t)
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list
+                       (cons
+                        "calls"
+                        (list
+                         ;; Failed CREATE still consumes trace index zero.
+                         (list
+                          (cons "from" (address-to-hex collision-sender))
+                          (cons "value" "0x1")
+                          (cons "gas" (quantity-to-hex 100000)))
+                         (list
+                          (cons "from" (address-to-hex sender))
+                          (cons "to" (address-to-hex contract))
+                          (cons "value" "0x32")
+                          (cons "gas" (quantity-to-hex 100000))
+                          (cons "input" (address-to-hex recipient)))))))))
+                   "latest")))
+                store config))
+             (block-result (first (field response "result")))
+             (call-results (and block-result (field block-result "calls")))
+             (failed-call-result (first call-results))
+             (call-result (second call-results))
+             (logs (and call-result (field call-result "logs")))
+             (transfer-topic
+               "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
+        (is (null (field response "error")))
+        (is (string= "0x0" (field failed-call-result "status")))
+        (is (string= "0x1" (field call-result "status")))
+        (is (string=
+             (concatenate 'string "0x"
+                          (make-string 512 :initial-element #\0))
+             (field block-result "logsBloom")))
+        (unless (= 2 (length logs))
+          (error "expected two transfer logs, got ~S" logs))
+        (loop for log in logs
+              for index from 1
+              do
+                 (is (string=
+                      "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                      (field log "address")))
+                 (is (string= transfer-topic (first (field log "topics"))))
+                 (is (string= (quantity-to-hex index)
+                              (field log "logIndex"))))
+        (let ((top-level (first logs))
+              (nested (second logs)))
+          (is (string= (address-topic sender)
+                       (second (field top-level "topics"))))
+          (is (string= (address-topic contract)
+                       (third (field top-level "topics"))))
+          (is (string= (amount-data 50) (field top-level "data")))
+          (is (string= (address-topic contract)
+                       (second (field nested "topics"))))
+          (is (string= (address-topic recipient)
+                       (third (field nested "topics"))))
+          (is (string= (amount-data 100) (field nested "data"))))))))

@@ -70,13 +70,20 @@
          (context-base-fee
            (call-transaction-context-base-fee gas-price base-fee))
          (intrinsic-gas (execution-transaction-intrinsic-gas
-                         tx effective-chain-rules)))
+                         tx effective-chain-rules))
+         (top-level-transfer-log nil))
+    (when (and *evm-trace-transfers-p* (plusp (transaction-value tx)))
+      (evm-capture-trace-log
+       (make-eth-trace-transfer-log-entry
+        sender contract (transaction-value tx))))
     (if (execution-contract-address-collision-p call-state contract)
         (execution-failed-call-values gas-limit)
         (handler-case
             (let ((context nil))
-              (transfer-call-value-for-simulation
-               call-state sender contract (transaction-value tx))
+              (setf top-level-transfer-log
+                    (transfer-call-value-for-simulation
+                     call-state sender contract (transaction-value tx)
+                     effective-chain-rules :trace-p nil))
               (let ((contract-account
                       (execution-account-or-empty call-state contract)))
                 (put-execution-account-values
@@ -143,7 +150,10 @@
                              accessed-addresses
                              accessed-storage
                              (evm-result-refund-counter result)
-                             (evm-result-logs result))))))))
+                             (if top-level-transfer-log
+                                 (cons top-level-transfer-log
+                                       (evm-result-logs result))
+                                 (evm-result-logs result)))))))))
           (evm-error ()
             (execution-failed-call-values gas-limit))))))
 
@@ -203,9 +213,11 @@ successful call's resulting state is installed."
                   call-state recipient effective-chain-rules))
            (precompile-p
              (active-precompile-address-p
-              recipient effective-chain-rules)))
-      (transfer-call-value-for-simulation
-       call-state sender recipient (transaction-value tx))
+              recipient effective-chain-rules))
+           (top-level-transfer-log
+             (transfer-call-value-for-simulation
+              call-state sender recipient (transaction-value tx)
+              effective-chain-rules)))
       (cond
         (precompile-p
          (handler-case
@@ -224,7 +236,11 @@ successful call's resulting state is installed."
                   (copy-seq output)
                   (+ intrinsic-gas precompile-gas-used)
                   accessed-addresses
-                  accessed-storage)))
+                  accessed-storage
+                  0
+                  (if top-level-transfer-log
+                      (list top-level-transfer-log)
+                      '()))))
            (evm-error ()
              (execution-failed-call-values gas-limit))))
         ((zerop (length code))
@@ -236,7 +252,9 @@ successful call's resulting state is installed."
             (make-byte-vector 0)
             intrinsic-gas
             accessed-addresses
-            accessed-storage)))
+            accessed-storage
+            0
+            (if top-level-transfer-log (list top-level-transfer-log) '()))))
         (t
          (handler-case
              (let ((context
@@ -263,15 +281,20 @@ successful call's resulting state is installed."
                         :gas-limit (- gas-limit intrinsic-gas))))
                  (multiple-value-bind (accessed-addresses accessed-storage)
                      (execution-context-access-tables context)
-                   (execution-call-values
+                   (let ((status (evm-result-status result)))
+                     (execution-call-values
                     state call-state commit-state-p
-                    (evm-result-status result)
+                    status
                     (copy-seq (evm-result-return-data result))
                     (transaction-evm-gas-used
                      tx result effective-chain-rules)
                     accessed-addresses
                     accessed-storage
                     (evm-result-refund-counter result)
-                    (evm-result-logs result)))))
+                    (if (and top-level-transfer-log
+                             (execution-call-status-success-p status))
+                        (cons top-level-transfer-log
+                              (evm-result-logs result))
+                        (evm-result-logs result)))))))
            (evm-error ()
              (execution-failed-call-values gas-limit))))))))

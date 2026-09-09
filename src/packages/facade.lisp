@@ -1287,6 +1287,8 @@
    #:log-entry-data
    #:log-entry-rlp-object
    #:make-eth-transfer-log-entry
+   #:make-eth-burn-log-entry
+   #:make-eth-trace-transfer-log-entry
    #:bloom
    #:make-bloom
    #:bloom-bytes
@@ -1310,6 +1312,13 @@
    #:transaction-receipt-list-root)
   (#:ethereum-lisp.evm
    #:*evm-call-tracer*
+   #:*evm-trace-transfers-p*
+   #:*evm-log-tracer*
+   #:make-evm-log-tracer
+   #:evm-log-tracer-logs
+   #:evm-log-tracer-indices
+   #:evm-log-tracer-count
+   #:evm-log-tracer-drain
    #:evm-call-tracer
    #:make-evm-call-tracer
    #:evm-call-tracer-enter

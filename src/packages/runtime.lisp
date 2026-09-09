@@ -135,6 +135,16 @@
         #:ethereum-lisp.state)
   (:export
    #:*evm-call-tracer*
+   #:*evm-trace-transfers-p*
+   #:*evm-log-tracer*
+   #:make-evm-log-tracer
+   #:evm-log-tracer-logs
+   #:evm-log-tracer-indices
+   #:evm-log-tracer-count
+   #:evm-log-tracer-snapshot
+   #:evm-log-tracer-restore
+   #:evm-log-tracer-drain
+   #:evm-capture-trace-log
    #:evm-call-tracer
    #:make-evm-call-tracer
    #:evm-call-tracer-enter
@@ -226,6 +236,16 @@
 (ethereum-lisp.package-tools:define-api-package #:ethereum-lisp.evm
   (#:ethereum-lisp.evm.internal
    #:*evm-call-tracer*
+   #:*evm-trace-transfers-p*
+   #:*evm-log-tracer*
+   #:make-evm-log-tracer
+   #:evm-log-tracer-logs
+   #:evm-log-tracer-indices
+   #:evm-log-tracer-count
+   #:evm-log-tracer-snapshot
+   #:evm-log-tracer-restore
+   #:evm-log-tracer-drain
+   #:evm-capture-trace-log
    #:evm-call-tracer
    #:make-evm-call-tracer
    #:evm-call-tracer-enter

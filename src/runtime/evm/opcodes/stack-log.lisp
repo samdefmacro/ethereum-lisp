@@ -86,11 +86,13 @@
                  (multiple-value-bind (topic next-rest) (pop1 rest)
                    (push (word-to-hash32 topic) topics)
                    (setf rest next-rest)))
-               (push (make-log-entry
-                      :address (evm-context-address context)
-                      :topics (nreverse topics)
-                      :data (memory-slice memory memory-offset size))
-                     logs)
+               (let ((log
+                       (make-log-entry
+                        :address (evm-context-address context)
+                        :topics (nreverse topics)
+                        :data (memory-slice memory memory-offset size))))
+                 (evm-capture-trace-log log)
+                 (push log logs))
                (setf stack rest))))
          (incf pc))
         (t

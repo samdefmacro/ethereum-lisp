@@ -26,6 +26,48 @@
 (defvar *evm-call-tracer* nil
   "The tracer collecting the current call tree, or NIL when not tracing.")
 
+(defvar *evm-trace-transfers-p* nil
+  "True only while an RPC simulation is collecting ETH transfer pseudo-logs.")
+
+(defstruct evm-log-tracer
+  "Transient RPC log stream with geth-compatible block-global indices."
+  (logs '() :type list)
+  (indices '() :type list)
+  (count 0 :type (integer 0 *)))
+
+(defvar *evm-log-tracer* nil
+  "Dynamically scoped RPC log tracer, or NIL outside transfer tracing.")
+
+(defun evm-capture-trace-log (log)
+  "Capture LOG in the transient RPC stream and always return LOG."
+  (when *evm-log-tracer*
+    (push log (evm-log-tracer-logs *evm-log-tracer*))
+    (push (evm-log-tracer-count *evm-log-tracer*)
+          (evm-log-tracer-indices *evm-log-tracer*))
+    (incf (evm-log-tracer-count *evm-log-tracer*)))
+  log)
+
+(defun evm-log-tracer-snapshot ()
+  "Return the current reversible stream frontier, excluding the index counter."
+  (and *evm-log-tracer*
+       (cons (evm-log-tracer-logs *evm-log-tracer*)
+             (evm-log-tracer-indices *evm-log-tracer*))))
+
+(defun evm-log-tracer-restore (snapshot)
+  "Restore discarded frame logs without rewinding the block-global counter."
+  (when *evm-log-tracer*
+    (setf (evm-log-tracer-logs *evm-log-tracer*) (car snapshot)
+          (evm-log-tracer-indices *evm-log-tracer*) (cdr snapshot))))
+
+(defun evm-log-tracer-drain ()
+  "Return one call's logs and indices in execution order, then clear the stream."
+  (when *evm-log-tracer*
+    (multiple-value-prog1
+        (values (nreverse (evm-log-tracer-logs *evm-log-tracer*))
+                (nreverse (evm-log-tracer-indices *evm-log-tracer*)))
+      (setf (evm-log-tracer-logs *evm-log-tracer*) '()
+            (evm-log-tracer-indices *evm-log-tracer*) '()))))
+
 (defstruct (evm-call-frame
             (:constructor %make-evm-call-frame
                 (&key type from to value gas input)))

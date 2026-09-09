@@ -57,7 +57,8 @@
                        :balance balance
                        :code-hash code-hash)))
 
-(defun transfer-call-value (state sender recipient value rules)
+(defun transfer-call-value
+    (state sender recipient value rules &key (trace-p t))
   (let ((sender-account (account-or-empty state sender))
         (transfer-p
           (and (plusp value)
@@ -77,10 +78,12 @@
          (state-account-nonce recipient-account)
          (+ (state-account-balance recipient-account) value)
          (state-account-code-hash recipient-account))))
-    (when (and transfer-p
-               rules
-               (chain-rules-amsterdam-p rules))
-      (make-eth-transfer-log-entry sender recipient value))))
+    (when (and trace-p *evm-trace-transfers-p* (plusp value))
+      (evm-capture-trace-log
+       (make-eth-trace-transfer-log-entry sender recipient value)))
+    (when (and transfer-p rules (chain-rules-amsterdam-p rules))
+      (evm-capture-trace-log
+       (make-eth-transfer-log-entry sender recipient value)))))
 
 (defun evm-resolved-code (state address rules)
   (let ((code (state-db-get-code state address)))
@@ -92,7 +95,8 @@
         code)))
 
 (defun selfdestruct-account
-    (state address beneficiary rules &key clear-self-balance-p)
+    (state address beneficiary rules
+     &key clear-self-balance-p burn-log-p)
   (let* ((account (account-or-empty state address))
          (balance (state-account-balance account))
          (transfer-p
@@ -118,7 +122,18 @@
        (state-account-nonce account)
        0
        (state-account-code-hash account)))
-    (when (and transfer-p
-               rules
-               (chain-rules-amsterdam-p rules))
-      (make-eth-transfer-log-entry address beneficiary balance))))
+    (let ((transfer-log
+            (when (and rules
+                       (chain-rules-amsterdam-p rules)
+                       (plusp balance)
+                       (or transfer-p burn-log-p))
+              (evm-capture-trace-log
+               (if burn-log-p
+                   (make-eth-burn-log-entry address balance)
+                   (and transfer-p
+                        (make-eth-transfer-log-entry
+                         address beneficiary balance)))))))
+      (when (and *evm-trace-transfers-p* (plusp balance))
+        (evm-capture-trace-log
+         (make-eth-trace-transfer-log-entry address beneficiary balance)))
+      transfer-log)))

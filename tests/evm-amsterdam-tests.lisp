@@ -130,6 +130,42 @@
       (is (= 204600 (receipt-cumulative-gas-used receipt)))
       (is (= 1 (length (receipt-logs receipt)))))))
 
+(deftest amsterdam-rpc-transfer-trace-does-not-replace-system-log
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x0000000000000000000000000000000000000011"))
+         (recipient
+           (address-from-hex
+            "0x0000000000000000000000000000000000000022"))
+         (tx (make-legacy-transaction :nonce 0
+                                      :gas-price 1
+                                      :gas-limit 250000
+                                      :to recipient
+                                      :value 7))
+         (*evm-trace-transfers-p* t)
+         (*evm-log-tracer* (make-evm-log-tracer)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 500000))
+    (let* ((receipt
+             (apply-message state sender tx
+                            :chain-rules
+                            (amsterdam-transfer-test-rules)))
+           (system-log (first (receipt-logs receipt)))
+           (trace-logs
+             (nreverse (evm-log-tracer-logs *evm-log-tracer*))))
+      (is (= 1 (length (receipt-logs receipt))))
+      (is (= 2 (length trace-logs)))
+      (is (string=
+           "0xfffffffffffffffffffffffffffffffffffffffe"
+           (address-to-hex (log-entry-address system-log))))
+      (is (string=
+           "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+           (address-to-hex (log-entry-address (first trace-logs)))))
+      (is (string=
+           "0xfffffffffffffffffffffffffffffffffffffffe"
+           (address-to-hex (log-entry-address (second trace-logs))))))))
+
 (deftest amsterdam-emits-nested-call-and-selfdestruct-transfer-logs
   (let ((sender
           (address-from-hex
@@ -167,6 +203,143 @@
                  (bytes-to-integer
                   (log-entry-data (first (receipt-logs receipt)))))))))))
 
+(deftest amsterdam-reverted-nested-call-discards-transfer-log
+  (let* ((state (make-state-db))
+         (sender
+           (address-from-hex
+            "0x0000000000000000000000000000000000000011"))
+         (recipient
+           (address-from-hex
+            "0x0000000000000000000000000000000000000022"))
+         (contract
+           (address-from-hex
+            "0x0000000000000000000000000000000000000200"))
+         ;; CALL address 0x22 with value 7, then emit LOG0 after failure.
+         (code #(#x60 0 #x60 0 #x60 0 #x60 0
+                 #x60 7 #x60 #x22 #x61 #xff #xff #xf1
+                 #x50 #x5f #x5f #xa0 #x00))
+         (tx (make-legacy-transaction :nonce 0
+                                      :gas-price 1
+                                      :gas-limit 500000
+                                      :to contract))
+         (*evm-trace-transfers-p* t)
+         (*evm-log-tracer* (make-evm-log-tracer)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 1000000))
+    (state-db-set-account state contract
+                          (make-state-account :balance 10))
+    (state-db-set-code state contract code)
+    (state-db-set-code state recipient #(#x5f #x5f #xfd))
+    (let ((receipt
+            (apply-message state sender tx
+                           :chain-rules
+                           (amsterdam-transfer-test-rules))))
+      (is (= 1 (receipt-status receipt)))
+      (is (= 1 (length (receipt-logs receipt))))
+      (is (= 1 (length (evm-log-tracer-logs *evm-log-tracer*))))
+      ;; The reverted pseudo-transfer and EIP-7708 system log consumed indices
+      ;; 0 and 1 just as geth's log tracer does; LOG0 keeps the resulting gap.
+      (is (equal '(2) (evm-log-tracer-indices *evm-log-tracer*)))
+      (is (= 3 (evm-log-tracer-count *evm-log-tracer*)))
+      (is (= 10
+             (state-account-balance
+              (state-db-get-account state contract))))
+      (is (= 0
+             (state-account-balance
+              (state-db-get-account state recipient)))))))
+
+(deftest amsterdam-rpc-transfer-trace-captures-callcode-value
+  (let* ((state (make-state-db))
+         (contract
+           (address-from-hex
+            "0x0000000000000000000000000000000000000200"))
+         (code-address
+           (address-from-hex
+            "0x0000000000000000000000000000000000000022"))
+         (context
+           (make-evm-context :state state
+                             :address contract
+                             :chain-rules
+                             (amsterdam-transfer-test-rules)))
+         ;; CALLCODE address 0x22 with value 7.
+         (code #(#x60 0 #x60 0 #x60 0 #x60 0
+                 #x60 7 #x60 #x22 #x61 #xff #xff #xf2 #x00))
+         (*evm-trace-transfers-p* t)
+         (*evm-log-tracer* (make-evm-log-tracer)))
+    (state-db-set-account state contract
+                          (make-state-account :balance 10))
+    (state-db-set-code state code-address #())
+    (let* ((result (execute-bytecode code :context context))
+           (trace-log
+             (first (evm-log-tracer-logs *evm-log-tracer*))))
+      (is (eq :stopped (evm-result-status result)))
+      (is (= 1 (length (evm-log-tracer-logs *evm-log-tracer*))))
+      (is (string=
+           "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+           (address-to-hex (log-entry-address trace-log))))
+      (is (bytes= (address-bytes contract)
+                  (subseq (hash32-bytes (second (log-entry-topics trace-log)))
+                          12 32)))
+      (is (bytes= (address-bytes code-address)
+                  (subseq (hash32-bytes (third (log-entry-topics trace-log)))
+                          12 32))))))
+
+(deftest amsterdam-failed-value-call-consumes-transfer-trace-index
+  (let* ((state (make-state-db))
+         (contract
+           (address-from-hex
+            "0x0000000000000000000000000000000000000200"))
+         (context (make-evm-context :state state
+                                    :address contract
+                                    :caller contract
+                                    :chain-rules
+                                    (amsterdam-transfer-test-rules)))
+         ;; The insufficient-balance CALL fails before execution, then LOG0.
+         (code #(#x60 0 #x60 0 #x60 0 #x60 0
+                 #x60 7 #x60 #x22 #x61 #xff #xff #xf1
+                 #x50 #x5f #x5f #xa0 #x00))
+         (*evm-trace-transfers-p* t)
+         (*evm-log-tracer* (make-evm-log-tracer)))
+    (state-db-set-account state contract (make-state-account :balance 0))
+    (let ((result
+            (execute-bytecode
+             code
+             :context context
+             :gas-limit 500000
+             :gas-budget
+             (make-evm-gas-budget :regular 500000 :state 500000))))
+      (is (eq :stopped (evm-result-status result)))
+      (is (equal '(1) (evm-log-tracer-indices *evm-log-tracer*)))
+      (is (= 2 (evm-log-tracer-count *evm-log-tracer*))))))
+
+(deftest amsterdam-selfdestruct-traces-native-log-before-pseudo-log
+  (let* ((state (make-state-db))
+         (contract
+           (address-from-hex
+            "0x0000000000000000000000000000000000000200"))
+         (context (make-evm-context :state state
+                                    :address contract
+                                    :caller contract
+                                    :chain-rules
+                                    (amsterdam-transfer-test-rules)))
+         (*evm-trace-transfers-p* t)
+         (*evm-log-tracer* (make-evm-log-tracer)))
+    (state-db-set-account state contract (make-state-account :balance 10))
+    (let* ((result
+             (execute-bytecode
+              #(#x60 #x22 #xff)
+              :context context
+              :gas-limit 500000
+              :gas-budget
+              (make-evm-gas-budget :regular 500000 :state 500000)))
+           (logs (nreverse (evm-log-tracer-logs *evm-log-tracer*))))
+      (is (eq :selfdestructed (evm-result-status result)))
+      (is (= 2 (length logs)))
+      (is (string= "0xfffffffffffffffffffffffffffffffffffffffe"
+                   (address-to-hex (log-entry-address (first logs)))))
+      (is (string= "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                   (address-to-hex (log-entry-address (second logs))))))))
+
 (deftest amsterdam-created-contract-selfdestruct-to-self-keeps-balance-only
   (let* ((state (make-state-db))
          (sender
@@ -194,7 +367,11 @@
           (account nil))
       (setf account (state-db-get-account state contract))
       (is (= 1 (receipt-status receipt)))
-      (is (= 1 (length (receipt-logs receipt))))
+      (is (= 2 (length (receipt-logs receipt))))
+      (is (string=
+           "0xcc16f5dbb4873280815c1ee09dbd06736cffcc184412cf7a71a0fdb75d397ca5"
+           (hash32-to-hex
+            (first (log-entry-topics (second (receipt-logs receipt)))))))
       (is account)
       (is (= 7 (state-account-balance account)))
       (is (= 0 (state-account-nonce account)))

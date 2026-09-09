@@ -571,14 +571,17 @@ explicit empty blocks, and the expanded span remains bounded by
               block-state-call block-overrides number timestamp)
              result)))))))
 
-(defun eth-rpc-simulate-log-object (log)
+(defun eth-rpc-simulate-log-object (log &optional log-index)
   "Serialize a single log-entry into the eth_simulateV1 call-result format."
-  (list
-   (cons "address" (address-to-hex (log-entry-address log)))
-   (cons "topics"
-         (eth-rpc-json-array
-          (mapcar #'hash32-to-hex (log-entry-topics log))))
-   (cons "data" (bytes-to-hex (log-entry-data log)))))
+  (append
+   (list
+    (cons "address" (address-to-hex (log-entry-address log)))
+    (cons "topics"
+          (eth-rpc-json-array
+           (mapcar #'hash32-to-hex (log-entry-topics log))))
+    (cons "data" (bytes-to-hex (log-entry-data log))))
+   (and log-index
+        (list (cons "logIndex" (quantity-to-hex log-index))))))
 
 (defun eth-rpc-simulate-error-object (status return-data)
   "Build the eth_simulateV1 call-result error object for a failed call.
@@ -602,35 +605,52 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
     (call block store config state block-overrides gas-limit
      &key validation-p)
   (multiple-value-bind
-        (status return-data gas-used accessed-addresses accessed-storage
-         max-used-gas logs transaction sender)
-      (eth-rpc-simulate-call-object
-       call block store config "eth_simulateV1"
-       :gas-limit gas-limit
-       :state state
-       :block-overrides block-overrides
-       :intrinsic-gas-error-code -38013
-       :base-fee-error-code (and validation-p -38012)
-       :commit-state-p t
-       :validation-p validation-p)
-    (declare (ignore accessed-addresses accessed-storage))
-    (let* ((success-p (eth-rpc-call-status-success-p status))
+          (status return-data gas-used accessed-addresses accessed-storage
+           max-used-gas logs transaction sender)
+        (eth-rpc-simulate-call-object
+         call block store config "eth_simulateV1"
+         :gas-limit gas-limit
+         :state state
+         :block-overrides block-overrides
+         :intrinsic-gas-error-code -38013
+         :base-fee-error-code (and validation-p -38012)
+         :commit-state-p t
+         :validation-p validation-p)
+      (declare (ignore accessed-addresses accessed-storage))
+      (let* ((trace-output
+               (multiple-value-list (evm-log-tracer-drain)))
+             (traced-logs (first trace-output))
+             (traced-indices (second trace-output))
+             (success-p (eth-rpc-call-status-success-p status))
+             (result-logs
+               (cond
+                 ((not success-p) '())
+                 (*evm-trace-transfers-p* traced-logs)
+                 (t logs)))
+             (result-log-indices
+               (and success-p *evm-trace-transfers-p* traced-indices))
            (result
-            (list
-             (cons "status" (if success-p "0x1" "0x0"))
-             (cons "returnData" (bytes-to-hex return-data))
-             (cons "gasUsed" (quantity-to-hex gas-used))
-             (cons "maxUsedGas" (quantity-to-hex max-used-gas))
-             (cons "logs"
-                   (eth-rpc-json-array
-                    (mapcar #'eth-rpc-simulate-log-object logs))))))
-      (unless success-p
-        (setf result
-              (append result
-                      (list (cons "error"
-                                  (eth-rpc-simulate-error-object
-                                   status return-data))))))
-      (values result gas-used transaction status logs sender))))
+             (list
+              (cons "status" (if success-p "0x1" "0x0"))
+              (cons "returnData" (bytes-to-hex return-data))
+              (cons "gasUsed" (quantity-to-hex gas-used))
+              (cons "maxUsedGas" (quantity-to-hex max-used-gas))
+              (cons "logs"
+                    (eth-rpc-json-array
+                     (if *evm-trace-transfers-p*
+                         (loop for log in result-logs
+                               for log-index in result-log-indices
+                               collect
+                               (eth-rpc-simulate-log-object log log-index))
+                         (mapcar #'eth-rpc-simulate-log-object
+                                 result-logs)))))))
+        (unless success-p
+          (setf result
+                (append result
+                        (list (cons "error"
+                                    (eth-rpc-simulate-error-object
+                                     status return-data))))))
+        (values result gas-used transaction status logs sender))))
 
 (defun eth-rpc-simulate-required-call-gas (call remaining-gas)
   (unless (json-object-p call)
@@ -658,7 +678,9 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
         (results '())
         (transactions '())
         (receipts '())
-        (senders '()))
+        (senders '())
+        (*evm-log-tracer*
+          (and *evm-trace-transfers-p* (make-evm-log-tracer))))
     (dolist (call calls
              (values (nreverse results) gas-used
                      (nreverse transactions) (nreverse receipts)
@@ -779,7 +801,6 @@ and bloom before the hash is exposed."
   "Attach BLOCK and transaction identity to ordered simulation logs."
   (let ((log-index 0))
     (loop for result in results
-          for receipt in (block-receipts block)
           for transaction in (block-transactions block)
           for transaction-index from 0
           for logs-field = (eth-rpc-object-field result "logs")
@@ -787,12 +808,41 @@ and bloom before the hash is exposed."
              (setf
               (cdr logs-field)
               (eth-rpc-json-array
-               (loop for log in (receipt-logs receipt)
+               (loop for log in (json-array-values (cdr logs-field))
                      collect
-                     (prog1
-                         (eth-rpc-log-object
-                          log block transaction transaction-index log-index)
-                       (incf log-index))))))
+                     (let ((repaired log))
+                       (setf repaired
+                             (eth-rpc-set-object-field
+                              repaired "blockHash"
+                              (hash32-to-hex (block-hash block)))
+                             repaired
+                             (eth-rpc-set-object-field
+                              repaired "blockNumber"
+                              (quantity-to-hex
+                               (block-header-number (block-header block))))
+                             repaired
+                             (eth-rpc-set-object-field
+                              repaired "blockTimestamp"
+                              (quantity-to-hex
+                               (block-header-timestamp (block-header block))))
+                             repaired
+                             (eth-rpc-set-object-field
+                              repaired "transactionHash"
+                              (hash32-to-hex (transaction-hash transaction)))
+                             repaired
+                             (eth-rpc-set-object-field
+                              repaired "transactionIndex"
+                              (quantity-to-hex transaction-index))
+                             repaired
+                             (eth-rpc-set-object-field
+                              repaired "removed" :false))
+                       (unless (assoc "logIndex" repaired :test #'string=)
+                         (setf repaired
+                               (eth-rpc-set-object-field
+                                repaired "logIndex"
+                                (quantity-to-hex log-index)))
+                         (incf log-index))
+                       repaired)))))
     results))
 
 (defun eth-rpc-simulate-block-result
@@ -867,10 +917,9 @@ and bloom before the hash is exposed."
         (engine-rpc-fail -38026 "too many blocks"))
       (eth-rpc-validate-simulate-call-counts
        (json-array-values block-state-calls))
-      (when (eq t (json-object-field payload "traceTransfers"))
-        (block-validation-fail
-         "eth_simulateV1 traceTransfers is not supported"))
-      (let* ((return-full-transactions-p
+      (let* ((trace-transfers-p
+               (eth-rpc-simulate-boolean-option payload "traceTransfers"))
+             (return-full-transactions-p
                (eth-rpc-simulate-boolean-option
                 payload "returnFullTransactions"))
              (block
@@ -885,8 +934,9 @@ and bloom before the hash is exposed."
              (sanitized-block-state-calls
                (eth-rpc-sanitize-simulated-block-sequence
                 (json-array-values block-state-calls) block)))
-        (eth-rpc-json-array
-         (loop for block-state-call in sanitized-block-state-calls
+        (let ((*evm-trace-transfers-p* trace-transfers-p))
+          (eth-rpc-json-array
+           (loop for block-state-call in sanitized-block-state-calls
                with parent-header = (block-header block)
                collect
                (progn
@@ -959,4 +1009,4 @@ and bloom before the hash is exposed."
                           (state-db-root state) config
                           :full-transactions-p return-full-transactions-p)
                        (setf parent-header synthetic-header)
-                       result))))))))))
+                       result)))))))))))

@@ -28,9 +28,13 @@
          (child-gas-used 0)
          (child-state-gas-used 0)
          (child-logs '())
+         (trace-log-snapshot (evm-log-tracer-snapshot))
          (child-refund-counter 0)
          (success-address 0)
          (charged-new-account-state-p nil))
+    (when (and *evm-trace-transfers-p* (plusp value))
+      (evm-capture-trace-log
+       (make-eth-trace-transfer-log-entry creator new-address value)))
     (cond
       ;; Depth, balance, and nonce-overflow failures push 0 and return the
       ;; full child gas to the caller. No nonce increment, no state change.
@@ -64,7 +68,8 @@
                 (let ((transfer-log
                         (transfer-call-value
                          state creator new-address value
-                         (evm-context-chain-rules context))))
+                         (evm-context-chain-rules context)
+                         :trace-p nil)))
                   (when transfer-log
                     (setf child-logs (list transfer-log))))
                 (let ((created-account (account-or-empty state new-address)))
@@ -102,6 +107,7 @@
                   (if (eq (evm-result-status child-result) :reverted)
                       (progn
                         (restore-execution-snapshot state context snapshot)
+                        (setf child-logs '())
                         (when charged-new-account-state-p
                           (evm-machine-refill-state-gas
                            machine +new-account-state-gas+)))
@@ -169,6 +175,8 @@
                     child-gas-used
                     (failed-create-child-gas-used
                      child-started-p child-gas-limit child-gas-used))))))))
+    (when (zerop success-address)
+      (evm-log-tracer-restore trace-log-snapshot))
     (values success-address
             child-return-data
             child-gas-used

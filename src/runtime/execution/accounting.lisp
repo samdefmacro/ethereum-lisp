@@ -35,12 +35,13 @@
        (- (state-account-balance sender-account) gas-cost)
        (state-account-code-hash sender-account)))))
 
-(defun transfer-call-value-for-simulation (state sender recipient value)
+(defun transfer-call-value-for-simulation
+    (state sender recipient value &optional rules &key (trace-p t))
   (let ((sender-account (execution-account-or-empty state sender)))
     (when (< (state-account-balance sender-account) value)
       (error 'transaction-validation-error
              :message "Insufficient sender balance"))
-    (transfer-value state sender recipient value)))
+    (transfer-value state sender recipient value rules :trace-p trace-p)))
 
 (defun pay-priority-fee (state coinbase tx receipt base-fee)
   (let ((fee (* (receipt-cumulative-gas-used receipt)

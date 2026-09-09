@@ -105,7 +105,9 @@
                :charge-value-gas-p t
                :new-account-p t
                :value-transfer-from caller
-               :value-transfer-to callee))))
+               :value-transfer-to callee
+               :trace-value-transfer-from caller
+               :trace-value-transfer-to callee))))
          (incf pc))
         ((= op #xf3)
          (multiple-value-bind (offset size rest) (pop2 stack)
@@ -138,6 +140,8 @@
                :child-value value
                :read-only-p (evm-context-read-only-p context)
                :charge-value-gas-p t
+               :trace-value-transfer-from current-address
+               :trace-value-transfer-to code-address
                :balance-check-address current-address
                :balance-check-value value
                :balance-check-message
@@ -253,7 +257,13 @@
                         beneficiary
                         rules
                         :clear-self-balance-p
-                        burn-self-balance-p)))
+                        burn-self-balance-p
+                        :burn-log-p
+                        (and created-p
+                             rules
+                             (chain-rules-amsterdam-p rules)
+                             (bytes= (address-bytes address)
+                                     (address-bytes beneficiary))))))
                  (when transfer-log
                    (push transfer-log logs)))
                (when delete-p
