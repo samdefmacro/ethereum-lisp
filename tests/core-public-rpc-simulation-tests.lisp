@@ -1320,6 +1320,56 @@
                (bytes-to-integer
                 (hex-to-bytes (field call "returnData")))))))))
 
+(deftest eth-rpc-simulate-v1-exposes-prior-synthetic-block-hashes
+  ;; Geth 8a0223e8 builds each EVM chain context from the already executed
+  ;; synthetic headers. The second synthetic block must therefore resolve the
+  ;; first through BLOCKHASH instead of consulting only the durable chain.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0
+                                      :shanghai-time 0))
+           (contract
+             (address-from-hex
+              "0x00000000000000000000000000000000000000ef"))
+           ;; PUSH1 2; BLOCKHASH; MSTORE(0); RETURN(0, 32).
+           (code #(#x60 #x02 #x40 #x5f #x52 #x60 #x20 #x5f #xf3))
+           (state (make-state-db))
+           (base
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state))))
+           (call (list (cons "to" (address-to-hex contract)))))
+      (state-db-set-code state contract code)
+      (setf (block-header-state-root (block-header base)) (state-db-root state))
+      (chain-store-put-block store base :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash base) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 430)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list (cons "calls" #()))
+                      (list (cons "calls" (list call))))))
+                   "latest")))
+                store config))
+             (blocks (field response "result"))
+             (first-hash (field (first blocks) "hash"))
+             (return-data
+               (field (first (field (second blocks) "calls")) "returnData")))
+        (is (null (field response "error")))
+        (is (string= first-hash return-data))))))
+
 (deftest eth-rpc-simulate-v1-runs-cancun-pre-execution-system-calls
   ;; Geth 8a0223e8 `processBlock` invokes core.PreExecution before ordinary
   ;; calls. The ordinary call observes the slot written by the earlier EIP-4788

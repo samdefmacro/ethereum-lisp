@@ -242,7 +242,7 @@ decodes, and the raw revert data in the error object's data member."
     (object block store config method
      &key gas-limit state-overrides block-overrides state
           intrinsic-gas-error-code base-fee-error-code commit-state-p
-          validation-p)
+          validation-p block-hashes)
   (when (and block-overrides (not (json-object-p block-overrides)))
     (block-validation-fail "~A block overrides must be an object" method))
   (unless (json-object-p object)
@@ -368,8 +368,9 @@ decodes, and the raw revert data in the error object's data member."
                    (eth-rpc-block-override-quantity
                     block-overrides "gasLimit" (block-header-gas-limit header))
                    :block-hashes
-                   (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
-                    store header))
+                   (or block-hashes
+                       (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
+                        store header)))
                 (if simulate-v1-p
                     (multiple-value-bind (billed-gas max-used-gas)
                         (eth-rpc-finalize-simulation-fees
@@ -425,6 +426,43 @@ decodes, and the raw revert data in the error object's data member."
     (unless (chain-store-state-available-p store (block-hash block))
       (engine-rpc-fail -32000 "state not found"))
     block))
+
+(defun eth-rpc-simulate-block-hashes (store header simulated-headers)
+  "Build HEADER's BLOCKHASH window across durable and synthetic ancestors."
+  (let* ((block-hashes (make-hash-table :test 'eql))
+         (number (block-header-number header))
+         (history-count (min 256 number)))
+    (labels ((simulated-header (hash)
+               (find hash simulated-headers
+                     :key #'block-header-hash :test #'hash32=))
+             (mark-unavailable-from (offset)
+               (loop for missing-offset from offset below history-count
+                     do (setf (gethash (- number 1 missing-offset) block-hashes)
+                              :unavailable))))
+      (let ((expected-hash (block-header-parent-hash header)))
+        (dotimes (offset history-count)
+          (unless expected-hash
+            (mark-unavailable-from offset)
+            (return))
+          (let ((expected-number (- number 1 offset)))
+            (setf (gethash expected-number block-hashes) expected-hash)
+            (when (< (1+ offset) history-count)
+              (let* ((synthetic (simulated-header expected-hash))
+                     (ancestor-header
+                       (or synthetic
+                           (let ((block
+                                   (chain-store-known-block store expected-hash)))
+                             (and block (block-header block))))))
+                (unless ancestor-header
+                  (mark-unavailable-from (1+ offset))
+                  (return))
+                (unless (= expected-number
+                           (block-header-number ancestor-header))
+                  (storage-fail
+                   "Simulation BLOCKHASH ancestor number is inconsistent"))
+                (setf expected-hash
+                      (block-header-parent-hash ancestor-header))))))))
+    block-hashes))
 
 (defun eth-rpc-validate-simulate-call-counts (block-state-calls)
   "Enforce Geth's per-block and request-wide eth_simulateV1 call budgets."
@@ -612,7 +650,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
 
 (defun eth-rpc-simulate-call-result
     (call block store config state block-overrides gas-limit
-     &key validation-p)
+     &key validation-p block-hashes)
   (multiple-value-bind
           (status return-data gas-used accessed-addresses accessed-storage
            max-used-gas logs transaction sender)
@@ -624,7 +662,8 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
          :intrinsic-gas-error-code -38013
          :base-fee-error-code (and validation-p -38012)
          :commit-state-p t
-         :validation-p validation-p)
+         :validation-p validation-p
+         :block-hashes block-hashes)
       (declare (ignore accessed-addresses accessed-storage))
       (let* ((trace-output
                (multiple-value-list (evm-log-tracer-drain)))
@@ -681,7 +720,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
 
 (defun eth-rpc-simulate-block-call-results
     (calls block store config state block-overrides block-gas-limit
-     request-gas-budget &key validation-p)
+     request-gas-budget &key validation-p block-hashes)
   (let ((remaining-gas block-gas-limit)
         (gas-used 0)
         (results '())
@@ -703,7 +742,8 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
               (result call-gas-used transaction status logs sender)
             (eth-rpc-simulate-call-result
              call block store config state block-overrides call-gas
-             :validation-p validation-p)
+             :validation-p validation-p
+             :block-hashes block-hashes)
           (incf gas-used call-gas-used)
           (decf remaining-gas call-gas-used)
           (decf request-gas-budget call-gas-used)
@@ -953,6 +993,7 @@ and bloom before the hash is exposed."
           (eth-rpc-json-array
            (loop for block-state-call in sanitized-block-state-calls
                with parent-header = (block-header block)
+               with simulated-headers = '()
                with request-gas-budget = +eth-rpc-default-call-gas-limit+
                collect
                (progn
@@ -1013,7 +1054,7 @@ and bloom before the hash is exposed."
                       "eth_simulateV1 calls must be an array"))
                    (eth-rpc-apply-state-overrides
                     state state-overrides "eth_simulateV1")
-                   (let ((pre-execution-header
+                   (let* ((pre-execution-header
                            (eth-rpc-simulate-synthetic-header
                             parent-header number timestamp 0 base-fee difficulty
                             fee-recipient prev-randao block-gas-limit
@@ -1021,21 +1062,23 @@ and bloom before the hash is exposed."
                             :materialized-p
                             (eth-rpc-simulate-materialized-header-p
                              parent-header)
-                            :parent-beacon-root parent-beacon-root)))
+                            :parent-beacon-root parent-beacon-root))
+                          (block-hashes
+                            (eth-rpc-simulate-block-hashes
+                             store pre-execution-header simulated-headers)))
                      (process-block-pre-execution-system-calls
                       state pre-execution-header
                       :chain-config config
-                      :block-hashes
-                      (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
-                       store pre-execution-header)))
-                   (multiple-value-bind
+                      :block-hashes block-hashes)
+                     (multiple-value-bind
                          (results gas-used transactions receipts senders
                           remaining-request-gas)
                        (eth-rpc-simulate-block-call-results
                         (json-array-values calls)
                         block store config state effective-block-overrides
                         block-gas-limit request-gas-budget
-                        :validation-p validation-p)
+                        :validation-p validation-p
+                        :block-hashes block-hashes)
                      (setf request-gas-budget remaining-request-gas)
                      (multiple-value-bind (result synthetic-header)
                          (eth-rpc-simulate-block-result
@@ -1045,5 +1088,6 @@ and bloom before the hash is exposed."
                           (state-db-root state) config
                           :full-transactions-p return-full-transactions-p
                           :parent-beacon-root parent-beacon-root)
+                       (push synthetic-header simulated-headers)
                        (setf parent-header synthetic-header)
-                       result)))))))))))
+                       result))))))))))))
