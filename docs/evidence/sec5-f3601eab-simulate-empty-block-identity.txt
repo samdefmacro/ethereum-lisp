@@ -1,0 +1,81 @@
+Section 5 eth_simulateV1 empty synthetic block identity evidence
+
+Date (UTC): 2026-09-09
+Implementation revision: f3601eabad26d9e80a3110a91f05c99f85a456c2
+Branch: sec5-public-bootstrap-sync
+Comparator implementation: references/go-ethereum at the vendored 8a0223e8 baseline,
+  internal/ethapi/simulate.go makeHeaders/AssembleBlock/RPCMarshalBlock path.
+Fixture baseline: Execution APIs e5d1bb60, including ethSimulate-empty.io and
+  the implicit empty-block sequence fixtures.
+
+Scope
+
+- Empty synthetic blocks now receive a complete canonical header and body:
+  parent hash, empty transaction/receipt roots, zero logs bloom, zero nonce,
+  state root, gas/header overrides, and fork-appropriate Shanghai withdrawals,
+  Cancun blob/beacon fields, and Prague requests hash.
+- Such blocks expose their real block hash and size through the ordinary block
+  serializer, and a following synthetic block uses that hash as parentHash.
+- A synthetic block is hashed only if its parent header has materialized body
+  commitments. Non-empty blocks remain deliberately unhashed until simulated
+  transactions and receipts are assembled; an empty block after such an
+  incomplete parent is not assigned a plausible but false hash.
+
+RED
+
+Command:
+  cl-workbench test ETH-RPC-SIMULATE-V1-APPLIES-SYNTHETIC-HEADER-OVERRIDES
+
+Result before the implementation:
+  exit 1
+  Assertion failed comparing the expected canonical empty synthetic block hash
+  with the response field "hash"; the implementation returned NIL.
+
+GREEN
+
+Focused single regression:
+  cl-workbench test ETH-RPC-SIMULATE-V1-APPLIES-SYNTHETIC-HEADER-OVERRIDES
+  exit 0; result NIL (success).
+
+Focused simulation family:
+  cl-workbench repl eval '(multiple-value-bind (ok passed skipped results)
+    (ethereum-lisp.test:run-tests :match "ETH-RPC-SIMULATE-V1" :timing t)
+    ...)'
+  exit 0; 18 passed, 0 skipped; execution time 0.023 seconds.
+
+Broad gate:
+  cl-workbench validation run cold-unit
+  exit 0; 1,317 passed, 3 optional fixture skips.
+
+Static gates:
+  cl-workbench check parens src/api/public/state/call-simulation.lisp
+  cl-workbench check parens tests/core-public-rpc-simulation-tests.lisp
+  git diff --check
+  all passed.
+
+External baseline and remaining boundary
+
+The archived pinned Hive rpc-compat run at revision 63408ce2 still reports
+91 eth_simulateV1 failures. Its ethSimulate-empty response expected a non-null
+block hash, empty transaction and receipt roots, zero logs bloom, a synthetic
+parent hash, zero nonce, and current-fork optional fields; the old client
+returned inherited base-block commitments and hash null. This local slice fixes
+the empty-block identity class, but no pinned Hive rerun has yet measured the
+new count. Non-empty simulated transaction/receipt assembly, full transaction
+objects, log metadata/repair, traceTransfers, precompile moves, and remaining
+response/error classes stay open.
+
+Live Hoodi observation during this cycle (read-only, not completion)
+
+At 2026-09-09T06:05Z, hoodi-el-sec5-b23c7d57-r2 was running revision
+b23c7d57d0a2b054fbb3a5200186ca123361f85c with restart_count=0 and OOM=false.
+Its fresh datadir remained /data/hoodi-sec5-20260814/datadir-b23c7d57-r2.
+A later read returned eth_blockNumber=0x0, eth_syncing currentBlock=0x0 and
+highestBlock=0x36bf8b, net_peerCount=0x18. The complete log contained 2,233
+peer.snap.progress events but no peer.snap.target_completed, healer, or frontier
+milestone. The healthy exact-revision validation was not restarted or replaced.
+
+Remote publication verification
+
+  git ls-remote origin refs/heads/sec5-public-bootstrap-sync
+  f3601eabad26d9e80a3110a91f05c99f85a456c2

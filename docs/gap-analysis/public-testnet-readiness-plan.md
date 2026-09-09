@@ -620,6 +620,19 @@ and the full cold-unit gate passes `1,317` with `3` optional skips. Synthetic
 transaction/receipt/block identity and the `91`-case Hive baseline remain
 open; see `docs/evidence/sec5-de66bf7b-simulate-header-overrides.txt`.
 
+`f3601eabad26d9e80a3110a91f05c99f85a456c2` completes the bounded empty-block
+identity subset against the same comparator: an empty synthetic block now has
+canonical empty transaction/receipt roots and logs bloom, fork-appropriate
+Shanghai/Cancun/Prague fields, a reconstructible hash and size, and a successor
+whose `parentHash` is that synthetic hash. The implementation refuses to hash
+an empty block when an earlier non-empty synthetic parent still lacks materialized
+transaction and receipt commitments, avoiding plausible false identity. The
+focused simulation family passes `18/18` with zero skips and the cold-unit gate
+passes `1,317` with `3` optional skips. This does not reduce the archived Hive
+baseline without a pinned rerun; non-empty transaction/receipt assembly, log
+metadata and transfer tracing remain open. See
+`docs/evidence/sec5-f3601eab-simulate-empty-block-identity.txt`.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob
