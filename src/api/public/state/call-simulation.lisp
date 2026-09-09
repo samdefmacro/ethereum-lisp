@@ -656,30 +656,111 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
           (decf remaining-gas call-gas-used)
           (push result results))))))
 
+(defun eth-rpc-simulate-materialized-header-p (header)
+  "Return true when HEADER has every commitment required by its hash preimage."
+  (and (block-header-transactions-root header)
+       (block-header-receipts-root header)
+       (block-header-logs-bloom header)))
+
+(defun eth-rpc-simulate-synthetic-header
+    (parent-header number timestamp gas-used base-fee difficulty fee-recipient
+     prev-randao block-gas-limit state-root config &key materialized-p)
+  "Build the header context for one synthetic eth_simulateV1 block.
+
+MATERIALIZED-P installs every canonical empty-body commitment, making the
+header hash publishable. Non-empty calls still require transaction and receipt
+materialization before their header hash can be exposed."
+  (let ((header
+          (make-block-header
+           :parent-hash
+           (and (eth-rpc-simulate-materialized-header-p parent-header)
+                (block-header-hash parent-header))
+           :ommers-hash +empty-ommers-hash+
+           :beneficiary fee-recipient
+           :state-root state-root
+           :transactions-root (and materialized-p (transaction-list-root '()))
+           :receipts-root (and materialized-p (receipt-list-root '()))
+           :logs-bloom (and materialized-p (make-byte-vector 256))
+           :difficulty difficulty
+           :number number
+           :gas-limit block-gas-limit
+           :gas-used gas-used
+           :timestamp timestamp
+           :extra-data (make-byte-vector 0)
+           :mix-hash prev-randao
+           :nonce (make-byte-vector 8)
+           :base-fee-per-gas base-fee)))
+    (when (and config (chain-config-shanghai-p config number timestamp))
+      (setf (block-header-withdrawals-root header) (withdrawal-list-root '())))
+    (when (and config (chain-config-cancun-p config number timestamp))
+      (setf (block-header-blob-gas-used header) 0
+            (block-header-excess-blob-gas header) 0
+            (block-header-parent-beacon-root header) (zero-hash32)))
+    (when (and config (chain-config-prague-p config number timestamp))
+      (setf (block-header-requests-hash header)
+            (execution-requests-hash '())))
+    header))
+
+(defun eth-rpc-simulate-empty-block (header config)
+  "Assemble an empty synthetic block with fork-appropriate empty body fields."
+  (let* ((number (block-header-number header))
+         (timestamp (block-header-timestamp header))
+         (shanghai-p
+           (and config (chain-config-shanghai-p config number timestamp)))
+         (prague-p
+           (and config (chain-config-prague-p config number timestamp))))
+    (cond
+      ((and shanghai-p prague-p)
+       (make-block :header header :withdrawals '() :requests '()))
+      (shanghai-p
+       (make-block :header header :withdrawals '()))
+      (prague-p
+       (make-block :header header :requests '()))
+      (t
+       (make-block :header header)))))
+
 (defun eth-rpc-simulate-block-result
-    (block results number timestamp gas-used base-fee difficulty fee-recipient
-     prev-randao block-gas-limit state-root)
-  (let ((object (eth-rpc-block-object block nil)))
-    (eth-rpc-set-object-field object "number" (quantity-to-hex number))
-    (eth-rpc-set-object-field object "timestamp" (quantity-to-hex timestamp))
-    (eth-rpc-set-object-field object "miner" (address-to-hex fee-recipient))
-    (eth-rpc-set-object-field object "mixHash" (hash32-to-hex prev-randao))
-    (eth-rpc-set-object-field object "difficulty" (quantity-to-hex difficulty))
-    (eth-rpc-set-object-field
-     object "gasLimit"
-     (quantity-to-hex block-gas-limit))
-    (when base-fee
+    (block results parent-header number timestamp gas-used base-fee difficulty
+     fee-recipient prev-randao block-gas-limit state-root config)
+  (let* ((parent-materialized-p
+           (eth-rpc-simulate-materialized-header-p parent-header))
+         (materialized-p (and (null results) parent-materialized-p))
+         (synthetic-header
+           (eth-rpc-simulate-synthetic-header
+            parent-header number timestamp gas-used base-fee difficulty
+            fee-recipient prev-randao block-gas-limit state-root config
+            :materialized-p materialized-p))
+         (object
+           (if materialized-p
+               (eth-rpc-block-object
+                (eth-rpc-simulate-empty-block synthetic-header config) nil)
+               (eth-rpc-block-object block nil))))
+    (unless materialized-p
       (eth-rpc-set-object-field
-       object "baseFeePerGas" (quantity-to-hex base-fee)))
-    (eth-rpc-set-object-field object "gasUsed" (quantity-to-hex gas-used))
-    (eth-rpc-set-object-field object "stateRoot" (hash32-to-hex state-root))
-    ;; Until simulated transaction and receipt roots are materialized, do not
-    ;; publish a hash for a header that cannot yet be reconstructed exactly.
-    (eth-rpc-set-object-field object "hash" nil)
-    (eth-rpc-set-object-field
-     object "nonce" (bytes-to-hex (make-byte-vector 8)))
-    (eth-rpc-set-object-field object "transactions" (eth-rpc-json-array '()))
-    (append object (list (cons "calls" (eth-rpc-json-array results))))))
+       object "parentHash"
+       (and parent-materialized-p
+            (hash32-to-hex (block-header-hash parent-header))))
+      (eth-rpc-set-object-field object "number" (quantity-to-hex number))
+      (eth-rpc-set-object-field object "timestamp" (quantity-to-hex timestamp))
+      (eth-rpc-set-object-field object "miner" (address-to-hex fee-recipient))
+      (eth-rpc-set-object-field object "mixHash" (hash32-to-hex prev-randao))
+      (eth-rpc-set-object-field object "difficulty" (quantity-to-hex difficulty))
+      (eth-rpc-set-object-field
+       object "gasLimit" (quantity-to-hex block-gas-limit))
+      (when base-fee
+        (eth-rpc-set-object-field
+         object "baseFeePerGas" (quantity-to-hex base-fee)))
+      (eth-rpc-set-object-field object "gasUsed" (quantity-to-hex gas-used))
+      (eth-rpc-set-object-field object "stateRoot" (hash32-to-hex state-root))
+      ;; Non-empty synthetic blocks remain deliberately unhashed until their
+      ;; transaction and receipt commitments are materialized.
+      (eth-rpc-set-object-field object "hash" nil)
+      (eth-rpc-set-object-field
+       object "nonce" (bytes-to-hex (make-byte-vector 8)))
+      (eth-rpc-set-object-field object "transactions" (eth-rpc-json-array '())))
+    (values
+     (append object (list (cons "calls" (eth-rpc-json-array results))))
+     synthetic-header)))
 
 (defun engine-rpc-handle-eth-simulate-v1 (params store config)
   (unless (<= 1 (length params) 2)
@@ -778,22 +859,10 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
                         block store config state effective-block-overrides
                         block-gas-limit
                         :validation-p validation-p)
-                     (prog1
+                     (multiple-value-bind (result synthetic-header)
                          (eth-rpc-simulate-block-result
-                          block results number timestamp gas-used base-fee difficulty
-                          fee-recipient prev-randao block-gas-limit
-                          (state-db-root state))
-                       (setf parent-header
-                             (make-block-header
-                              :beneficiary
-                              fee-recipient
-                              :mix-hash
-                              prev-randao
-                              :difficulty
-                              difficulty
-                              :number number
-                              :timestamp timestamp
-                              :gas-limit block-gas-limit
-                              :gas-used gas-used
-                              :base-fee-per-gas base-fee
-                              :state-root (state-db-root state)))))))))))))
+                          block results parent-header number timestamp gas-used
+                          base-fee difficulty fee-recipient prev-randao
+                          block-gas-limit (state-db-root state) config)
+                       (setf parent-header synthetic-header)
+                       result))))))))))

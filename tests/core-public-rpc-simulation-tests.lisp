@@ -1270,7 +1270,9 @@
                (replace bytes (address-bytes address) :start1 12)
                (bytes-to-hex bytes))))
     (let* ((store (make-engine-payload-memory-store))
-           (config (make-chain-config :chain-id 1 :london-block 0))
+           (config (make-chain-config :chain-id 1 :london-block 0
+                                      :shanghai-time 0 :cancun-time 0
+                                      :prague-time 0))
            (state (make-state-db))
            (base-miner
              (address-from-hex
@@ -1328,14 +1330,55 @@
              (results (field response "result"))
              (result (first results))
              (successor (second results))
-             (successor-call (first (field successor "calls"))))
+             (successor-call (first (field successor "calls")))
+             (expected-empty-block
+               (make-block
+                :header
+                (make-block-header
+                 :parent-hash (block-hash block)
+                 :beneficiary (address-from-hex simulated-miner)
+                 :state-root (state-db-root state)
+                 :difficulty 7
+                 :number 2
+                 :gas-limit 100000
+                 :gas-used 0
+                 :timestamp 22
+                 :extra-data (make-byte-vector 0)
+                 :mix-hash (hash32-from-hex simulated-randao)
+                 :nonce (make-byte-vector 8)
+                 :base-fee-per-gas 0
+                 :withdrawals-root (withdrawal-list-root '())
+                 :blob-gas-used 0
+                 :excess-blob-gas 0
+                 :parent-beacon-root (zero-hash32)
+                 :requests-hash (execution-requests-hash '()))
+                :withdrawals '()
+                :requests '())))
         (is (null (field response "error")))
         (is (= 2 (length results)))
-        (is (null (field result "hash")))
+        (is (string= (hash32-to-hex (block-hash expected-empty-block))
+                     (field result "hash")))
+        (is (string= (hash32-to-hex (block-hash block))
+                     (field result "parentHash")))
+        (is (string= (hash32-to-hex +empty-trie-hash+)
+                     (field result "transactionsRoot")))
+        (is (string= (hash32-to-hex +empty-trie-hash+)
+                     (field result "receiptsRoot")))
+        (is (string= (hash32-to-hex (withdrawal-list-root '()))
+                     (field result "withdrawalsRoot")))
+        (is (string= "0x0" (field result "blobGasUsed")))
+        (is (string= "0x0" (field result "excessBlobGas")))
+        (is (string= (hash32-to-hex (zero-hash32))
+                     (field result "parentBeaconBlockRoot")))
+        (is (string= (hash32-to-hex (execution-requests-hash '()))
+                     (field result "requestsHash")))
+        (is (zerop (length (field result "withdrawals"))))
         (is (string= simulated-miner (field result "miner")))
         (is (string= simulated-randao (field result "mixHash")))
         (is (string= "0x7" (field result "difficulty")))
         (is (string= "0x0000000000000000" (field result "nonce")))
+        (is (string= (field result "hash")
+                     (field successor "parentHash")))
         (is (string= simulated-miner (field successor "miner")))
         (is (string= simulated-randao (field successor "mixHash")))
         ;; Post-Merge synthetic headers reset an omitted difficulty to zero.
