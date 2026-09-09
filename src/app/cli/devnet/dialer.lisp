@@ -682,6 +682,22 @@ into a permanent peer ban."))
                    expected-number (1- expected-number)))
     (values (first headers) (car (last headers)) (reverse headers))))
 
+(defun devnet-log-snap-source-closed (node condition fallback-entry &rest fields)
+  "Report CONDITION once, retaining a composed dependency's exact peer id."
+  (unless
+      (devnet-peer-request-queue-closed-lifecycle-event-reported-p condition)
+    (let ((peer-id
+            (or (devnet-peer-request-queue-closed-peer-id condition)
+                (devnet-peer-entry-id-hex fallback-entry))))
+      (setf (devnet-peer-request-queue-closed-peer-id condition) peer-id
+            (devnet-peer-request-queue-closed-lifecycle-event-reported-p
+             condition)
+            t)
+      (apply #'devnet-peer-manager-log
+             node "peer.snap.source_closed" "peer" peer-id
+             "error" condition fields)))
+  condition)
+
 (defun devnet-node-resolve-snap-target (node target-hash)
   "Resolve a CL target through the first valid live ETH peer, with failover.
 
@@ -713,6 +729,11 @@ target."
            (devnet-peer-note-score
             (devnet-node-peer-table node)
             (devnet-peer-entry-id-hex entry) -50))))
+      (devnet-peer-request-queue-closed (condition)
+        ;; The session supervisor owns this transport loss. Preserve its typed
+        ;; lifecycle event instead of recording a malformed target response.
+        (devnet-log-snap-source-closed
+         node condition entry "target" (hash32-to-hex target-hash)))
       (serious-condition (condition)
         ;; Transport closure and request-queue cancellation are availability
         ;; failures. The session supervisor already applies its gradual
@@ -1074,22 +1095,6 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
     (sb-thread:condition-broadcast
      (devnet-snap-source-pool-waitqueue pool response-id)))
   t)
-
-(defun devnet-log-snap-source-closed (node condition fallback-entry &rest fields)
-  "Report CONDITION once, retaining a composed dependency's exact peer id."
-  (unless
-      (devnet-peer-request-queue-closed-lifecycle-event-reported-p condition)
-    (let ((peer-id
-            (or (devnet-peer-request-queue-closed-peer-id condition)
-                (devnet-peer-entry-id-hex fallback-entry))))
-      (setf (devnet-peer-request-queue-closed-peer-id condition) peer-id
-            (devnet-peer-request-queue-closed-lifecycle-event-reported-p
-             condition)
-            t)
-      (apply #'devnet-peer-manager-log
-             node "peer.snap.source_closed" "peer" peer-id
-             "error" condition fields)))
-  condition)
 
 #+sbcl
 (defun devnet-snap-source-pool-fail-and-release

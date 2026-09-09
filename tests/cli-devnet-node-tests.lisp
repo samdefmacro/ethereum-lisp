@@ -3439,7 +3439,8 @@ really reopens the directory instead of observing the first handle's memory."
            (ethereum-lisp.cli::make-devnet-peer-entry
             :id-hex peer-id :peer :peer :request-queue :queue))
          (table (ethereum-lisp.cli::devnet-node-peer-table node))
-         (target (make-hash32 (make-byte-vector 32 :initial-element 7))))
+         (target (make-hash32 (make-byte-vector 32 :initial-element 7)))
+         (logs '()))
     (flet ((run-failure (condition)
              (devnet-peer-sync-call-with-function-overrides
               (list
@@ -3450,7 +3451,11 @@ really reopens the directory instead of observing the first handle's memory."
                (cons 'ethereum-lisp.cli::devnet-peer-resolve-snap-target
                      (lambda (callback-entry callback-target)
                        (declare (ignore callback-entry callback-target))
-                       (error condition))))
+                       (error condition)))
+               (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+                     (lambda (callback-node name &rest fields)
+                       (is (eq node callback-node))
+                       (push (cons name fields) logs))))
               (lambda ()
                 (signals ethereum-lisp.eth-sync:eth-sync-multi-peer-error
                   (ethereum-lisp.cli::devnet-node-resolve-snap-target
@@ -3462,13 +3467,35 @@ really reopens the directory instead of observing the first handle's memory."
                        :format-control "target not imported yet"
                        :format-arguments nil))
       (is (= 0 (ethereum-lisp.cli::devnet-peer-score table peer-id)))
-      ;; Queue/session closure is also transient at this layer. The owning
-      ;; session applies its own gradual disconnect policy.
+      ;; Queue/session closure is lifecycle at this layer. It must retain the
+      ;; owning peer identity without producing the target-failure event used for
+      ;; malformed or unexpected resolver failures.
+      (setf logs '())
+      (run-failure
+       (make-condition
+        'ethereum-lisp.cli::devnet-peer-request-queue-closed))
+      (is (= 0 (ethereum-lisp.cli::devnet-peer-score table peer-id)))
+      (is (= 1 (count "peer.snap.source_closed" logs
+                      :key #'first :test #'string=)))
+      (is (= 0 (count "peer.snap.target_failed" logs
+                      :key #'first :test #'string=)))
+      (let ((event
+              (find "peer.snap.source_closed" logs
+                    :key #'first :test #'string=)))
+        (is (string= peer-id
+                     (second (member "peer" (rest event) :test #'string=)))))
+      ;; Positive control: an unexpected resolver failure remains a target
+      ;; failure without receiving the malformed-response score penalty.
+      (setf logs '())
       (run-failure
        (make-condition 'simple-error
-                       :format-control "peer session closed"
+                       :format-control "injected resolver failure"
                        :format-arguments nil))
       (is (= 0 (ethereum-lisp.cli::devnet-peer-score table peer-id)))
+      (is (= 1 (count "peer.snap.target_failed" logs
+                      :key #'first :test #'string=)))
+      (is (= 0 (count "peer.snap.source_closed" logs
+                      :key #'first :test #'string=)))
       ;; Positive control: a contradictory response still carries the existing
       ;; malformed-peer penalty, proving the scoring branch was exercised.
       (run-failure
