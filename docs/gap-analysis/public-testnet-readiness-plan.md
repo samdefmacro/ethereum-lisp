@@ -653,12 +653,24 @@ effective synthetic London header rather than the selected base block, and
 failed-frame logs are excluded before receipt identity is derived. The focused
 regression checks two exact transaction hashes, both trie roots, cumulative gas,
 failed-log removal, and successor linkage; all 21 simulation tests pass and the
-cold-unit gate passes 1,320 with 3 optional skips. Hash-only mode now rejects
-`returnFullTransactions=true` instead of silently returning the wrong shape;
-full synthetic transaction objects and sender injection remain open, as do
-repaired successful-log metadata, transfer tracing, pinned Hive rerun, and the
-other Section 5 external gates. See
+cold-unit gate passes 1,320 with 3 optional skips. At this revision hash-only
+mode rejected `returnFullTransactions=true` instead of silently returning the
+wrong shape; that follow-on class is closed below. Repaired successful-log
+metadata, transfer tracing, pinned Hive rerun, and the other Section 5 external
+gates remained open. See
 `docs/evidence/sec5-2c43b9dc-simulate-nonempty-identity.txt`.
+
+`87fe39c70295af92a2fc952cf4c37d3c9c7375c9` closes the bounded full synthetic
+transaction-object class against vendored geth `8a0223e8`:
+`returnFullTransactions=true` now returns typed transaction objects with exact
+synthetic hashes and containing-block metadata, while the sender is injected
+without signature recovery. Sender repair uses geth's transaction-hash map,
+including duplicate-hash last-writer behavior proven with two distinct callers.
+The focused RED regression is GREEN, all 21 simulation tests pass, and the
+cold-unit gate passes 1,320 with 3 optional skips. Repaired successful-log
+metadata, transfer tracing, the pinned Hive rerun, remaining response/error
+classes, and the other Section 5 external gates stay open. See
+`docs/evidence/sec5-87fe39c7-simulate-full-transactions.txt`.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
 

@@ -1,0 +1,64 @@
+Section 5 eth_simulateV1 full transaction object evidence
+Recorded: 2026-09-09
+Implementation revision: 87fe39c70295af92a2fc952cf4c37d3c9c7375c9
+Branch: sec5-public-bootstrap-sync
+Comparator: vendored go-ethereum 8a0223e8da596a409df02c11027320df97327e83
+
+Scope
+- Honor returnFullTransactions=true for materialized synthetic blocks.
+- Marshal each synthetic transaction with its block hash, block number,
+  transaction index, type-specific fields, and exact synthetic hash.
+- Repair the sender without trying to recover it from the unsigned synthetic
+  signature.
+- Match pinned geth's hash-keyed sender map, including its duplicate-hash
+  last-writer behavior.
+- Preserve the existing hash-only response when the option is false or omitted.
+
+Pinned comparator
+- internal/ethapi/simulate.go:85-110 defines simBlockResult.MarshalJSON.
+- internal/ethapi/simulate.go:305-339 records call senders by synthetic
+  transaction hash, overwriting an earlier sender if hashes collide.
+- internal/ethapi/api.go:1008 onward marshals full transaction objects when
+  fullTx is true.
+
+RED
+- ETH-RPC-SIMULATE-V1-RETURNS-FULL-SYNTHETIC-TRANSACTIONS was introduced while
+  the implementation still rejected returnFullTransactions=true.
+- The focused command exited 1 before implementation.
+
+Implementation
+- eth-rpc-transaction-object accepts an internal supplied sender override while
+  preserving ordinary signature recovery for all existing callers.
+- Simulation execution retains each originating sender with its synthetic
+  transaction.
+- Full-object marshaling builds a transaction-hash sender table and repairs
+  every output object from that table after the synthetic block is assembled.
+
+Independent review
+- The first review found one medium comparator mismatch: positional sender
+  repair differed from pinned geth when two unsigned synthetic transactions had
+  the same hash.
+- The implementation was changed to a hash-keyed table and the regression now
+  submits identical unsigned transactions from two distinct senders. Both full
+  objects resolve to the second sender, matching geth's last write.
+- No unresolved high or medium review finding remains in this bounded slice.
+
+GREEN
+- cl-workbench test
+  ETH-RPC-SIMULATE-V1-RETURNS-FULL-SYNTHETIC-TRANSACTIONS
+  exited 0.
+- Fresh warm REPL family gate: 21 passed, 0 skipped, 0 failed.
+- cl-workbench validation run cold-unit: 1,320 passed, 3 skipped, 0 failed.
+- Parenthesis checks and git diff --check exited 0.
+
+Integration
+- Commit: 87fe39c70295af92a2fc952cf4c37d3c9c7375c9
+- Commit message: fix(rpc): return full simulated transactions
+- origin/sec5-public-bootstrap-sync and the remote branch ref were both read
+  back as 87fe39c70295af92a2fc952cf4c37d3c9c7375c9.
+
+Non-claims
+- This does not close repaired successful-log metadata, traceTransfers,
+  remaining simulation response/error classes, the pinned Hive rerun, EEST,
+  Hoodi completion, shadow comparison, or validator soak gates.
+- No live deployment or remote datadir was changed for this slice.
