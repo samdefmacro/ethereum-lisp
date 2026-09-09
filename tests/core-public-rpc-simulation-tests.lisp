@@ -1320,6 +1320,65 @@
                (bytes-to-integer
                 (hex-to-bytes (field call "returnData")))))))))
 
+(deftest eth-rpc-simulate-v1-executes-empty-call-objects
+  ;; Execution APIs e5d1bb60
+  ;; `ethSimulate-empty-calls-and-overrides-ethSimulate.io` sends two empty call
+  ;; objects with empty state overrides. Geth treats each as an empty contract
+  ;; creation, rather than failing the whole request with an internal error.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 3503995874084926
+                                      :london-block 0
+                                      :shanghai-time 0
+                                      :cancun-time 0
+                                      :prague-time 0))
+           (state (make-state-db))
+           (empty-object ethereum-lisp.json:+json-empty-object+)
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 54 :timestamp 540 :gas-limit 200000000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 431)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons
+                     "blockStateCalls"
+                     (list
+                      (list (cons "stateOverrides" empty-object)
+                            (cons "calls" (list empty-object)))
+                      (list (cons "stateOverrides" empty-object)
+                            (cons "calls" (list empty-object)))))
+                    (cons "traceTransfers" t))
+                   "latest")))
+                store config))
+             (blocks (field response "result")))
+        (is (null (field response "error")))
+        (is (= 2 (length blocks)))
+        (is (every
+             (lambda (result)
+               (let ((calls (field result "calls")))
+                 (and (= 1 (length calls))
+                      (string= "0x1" (field (first calls) "status"))
+                      (string= "0x" (field (first calls) "returnData"))
+                      (ethereum-lisp.json:json-empty-array-p
+                       (field (first calls) "logs")))))
+             blocks))
+        (is (equal '("0xcf08" "0xcf08")
+                   (mapcar (lambda (result) (field result "gasUsed"))
+                           blocks)))))))
+
 (deftest eth-rpc-simulate-v1-exposes-prior-synthetic-block-hashes
   ;; Geth 8a0223e8 builds each EVM chain context from the already executed
   ;; synthetic headers. The third synthetic block must therefore resolve both

@@ -56,7 +56,7 @@ decodes, and the raw revert data in the error object's data member."
      (json-rpc-hash32 value-text "state override storage value")))))
 
 (defun eth-rpc-apply-state-overrides (state overrides method)
-  (when overrides
+  (when (and overrides (not (json-empty-object-p overrides)))
     (unless (json-object-p overrides)
       (block-validation-fail "~A state overrides must be an object" method))
     (dolist (entry overrides)
