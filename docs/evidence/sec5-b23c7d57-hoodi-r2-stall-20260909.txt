@@ -1,0 +1,44 @@
+Section 5 Hoodi r2 read-only stall evidence
+
+Deployment identity
+- Host: test-ethereum-server
+- Container: hoodi-el-sec5-b23c7d57-r2
+- Runtime revision: b23c7d57d0a2b054fbb3a5200186ca123361f85c
+- Image: ethereum-lisp-runtime:sec5-b23c7d57-amd64
+- Started: 2026-09-09T04:34:55.233661609Z
+- Observation cutoff: 2026-09-09T05:30:21Z
+- Container state at cutoff: running=true, status=running, restart_count=0
+
+Read-only observations
+- `scripts/hoodi-live-gate.sh status` found the EL and CL containers
+  running and reported `container_revision_match=yes`.
+- Public RPC returned:
+  - eth_syncing.currentBlock = 0x0
+  - eth_syncing.highestBlock = 0x36be85 (3,587,717)
+  - eth_blockNumber = 0x0
+- eth_getBlockByNumber for the last observed probe pivot 0x36be18
+  (3,587,608) returned null because the sparse target remains noncanonical.
+- The EL log contained 1,406 `peer.snap.pivot_unavailable` events across
+  45 distinct peer IDs, 230 distinct candidate pivots from 3,581,122 through
+  3,587,608, each classified as the peer not having the requested account-range
+  state.
+- The log contained 0 `peer.snap.account_progress` events, 0
+  `peer.snap.target_completed` events, and no healer-completion evidence.
+- Two sessions ended after an `unsolicited snap/1 response id 1`; these are
+  secondary evidence and are not yet proven causal.
+- At the cutoff, the last probed pivot was 109 blocks behind the reported
+  highest block. The process is live and following the target, but it has made
+  no useful SNAP state-download progress.
+
+Interpretation and boundary
+- This run is stalled, not healthy validation progress. Pivot selection is
+  advancing, and broad snap-capable peer rotation is occurring, but all probed
+  roots are rejected as unavailable.
+- The evidence does not distinguish between genuinely unavailable peer state,
+  a wire/response interpretation defect, or an invalid state root associated
+  with the selected header. The current log omits the probed root and decoded
+  account/proof counts, so an additive instrumented revision is the next safe
+  diagnostic step.
+- No container, datadir, port, resource, JWT, CL wiring, or remote filesystem
+  state was mutated while collecting this evidence. The existing deployment
+  remains running and preserved.

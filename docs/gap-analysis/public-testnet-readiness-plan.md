@@ -542,6 +542,19 @@ with zero unexpected skips before its seven-day shadow comparison may count as
 Section 10 evidence. The fourteen-day validator soak starts only after that
 shadow gate passes.
 
+**Section 5 Hoodi r2 stall evidence (2026-09-09; not completion).** The reviewed
+`b23c7d57d0a2b054fbb3a5200186ca123361f85c` amd64 runtime remains running as
+`hoodi-el-sec5-b23c7d57-r2` with its fresh datadir preserved. Over the first
+55 minutes it rotated across 45 SNAP peers and advanced through 230 candidate
+pivots, but all 1,406 account-range probes ended in
+`peer.snap.pivot_unavailable`; there was no account progress, target completion,
+or healer completion. Public RPC still reported `currentBlock=0x0` and
+`eth_blockNumber=0x0` while the authorized target reached 3,587,717. The
+process is live but not making useful state-download progress. Read-only
+collection and the still-open diagnostic boundary are archived in
+`docs/evidence/sec5-b23c7d57-hoodi-r2-stall-20260909.txt`; no live state was
+mutated.
+
 **Section 5 RPC conformance evidence (2026-09-03; not completion).** Revision
 `63408ce270f2c70014727e219e34683a8c42b398` added the omitted
 `mergeNetsplitBlock` activation to EIP-2124 fork-ID construction. This repaired
