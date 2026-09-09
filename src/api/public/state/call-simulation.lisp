@@ -672,7 +672,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
 
 (defun eth-rpc-simulate-block-call-results
     (calls block store config state block-overrides block-gas-limit
-     &key validation-p)
+     request-gas-budget &key validation-p)
   (let ((remaining-gas block-gas-limit)
         (gas-used 0)
         (results '())
@@ -684,9 +684,12 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
     (dolist (call calls
              (values (nreverse results) gas-used
                      (nreverse transactions) (nreverse receipts)
-                     (nreverse senders)))
-      (let ((call-gas
-              (eth-rpc-simulate-required-call-gas call remaining-gas)))
+                     (nreverse senders) request-gas-budget))
+      (let* ((required-gas
+               (eth-rpc-simulate-required-call-gas call remaining-gas))
+             ;; Geth first validates an explicit gas value against the block
+             ;; pool, then clamps the call to the request-wide RPC gas budget.
+             (call-gas (min required-gas request-gas-budget)))
         (multiple-value-bind
               (result call-gas-used transaction status logs sender)
             (eth-rpc-simulate-call-result
@@ -694,6 +697,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
              :validation-p validation-p)
           (incf gas-used call-gas-used)
           (decf remaining-gas call-gas-used)
+          (decf request-gas-budget call-gas-used)
           (push result results)
           (push transaction transactions)
           (push sender senders)
@@ -938,6 +942,7 @@ and bloom before the hash is exposed."
           (eth-rpc-json-array
            (loop for block-state-call in sanitized-block-state-calls
                with parent-header = (block-header block)
+               with request-gas-budget = +eth-rpc-default-call-gas-limit+
                collect
                (progn
                  (unless (json-object-p block-state-call)
@@ -995,12 +1000,14 @@ and bloom before the hash is exposed."
                    (eth-rpc-apply-state-overrides
                     state state-overrides "eth_simulateV1")
                    (multiple-value-bind
-                         (results gas-used transactions receipts senders)
+                         (results gas-used transactions receipts senders
+                          remaining-request-gas)
                        (eth-rpc-simulate-block-call-results
                         (json-array-values calls)
                         block store config state effective-block-overrides
-                        block-gas-limit
+                        block-gas-limit request-gas-budget
                         :validation-p validation-p)
+                     (setf request-gas-budget remaining-request-gas)
                      (multiple-value-bind (result synthetic-header)
                          (eth-rpc-simulate-block-result
                           results transactions receipts senders parent-header

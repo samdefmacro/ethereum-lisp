@@ -1598,6 +1598,59 @@
         (is (string= "0x0" (field first-transaction "transactionIndex")))
         (is (string= "0x1" (field second-transaction "transactionIndex")))))))
 
+(deftest eth-rpc-simulate-v1-clamps-omitted-gas-to-request-budget
+  ;; Geth 8a0223e8 `simulator.sanitizeCall` starts with the block gas pool, then
+  ;; clamps every call to the remaining request-wide RPCGasCap. The synthetic
+  ;; transaction must retain that clamped limit, and the budget spans blocks.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (sender "0xc000000000000000000000000000000000000000")
+           (recipient "0xc100000000000000000000000000000000000000")
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 10 :timestamp 100 :gas-limit 200000000
+               :base-fee-per-gas 0 :state-root (state-db-root state)))))
+      (state-db-set-account
+       state (address-from-hex sender) (make-state-account :balance 1000000))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((call (list (cons "from" sender) (cons "to" recipient)))
+             (response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 427)
+                 (cons "method" "eth_simulateV1")
+                 (cons
+                  "params"
+                  (list
+                   (list
+                    (cons "blockStateCalls"
+                          (list
+                           (list (cons "calls" (list call call)))
+                           (list (cons "calls" (list call)))))
+                    (cons "returnFullTransactions" t))
+                   "latest")))
+                store config))
+             (blocks (field response "result"))
+             (first-transactions (field (first blocks) "transactions"))
+             (second-transactions (field (second blocks) "transactions")))
+        (is (null (field response "error")))
+        (is (= 2 (length blocks)))
+        (is (equal '("0x2faf080" "0x2fa9e78")
+                   (mapcar (lambda (transaction) (field transaction "gas"))
+                           first-transactions)))
+        (is (equal '("0x2fa4c70")
+                   (mapcar (lambda (transaction) (field transaction "gas"))
+                           second-transactions)))))))
+
 (deftest eth-rpc-simulate-v1-refuses-too-many-blocks-with-specific-error
   ;; Execution APIs e5d1bb60 `ethSimulate-big-block-state-calls-array.io`
   ;; requires the dedicated limit error rather than generic invalid params.
