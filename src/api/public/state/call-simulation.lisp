@@ -270,7 +270,11 @@ decodes, and the raw revert data in the error object's data member."
               (eth-rpc-call-object-transaction
                object header method config
                :gas-limit-override gas-limit
-               :nonce-default nonce-default)
+               :nonce-default nonce-default
+               :dynamic-default-p
+               (and simulate-v1-p
+                    (json-object-field-present-p
+                     block-overrides "baseFeePerGas")))
             (when (and simulate-v1-p validation-p)
               ;; Geth's state transition checks nonce mismatch/overflow before
               ;; intrinsic-gas and fee-cap admission. The standardized nonce
@@ -374,9 +378,16 @@ decodes, and the raw revert data in the error object's data member."
                          refund-counter rules)
                       (values status return-data billed-gas
                               accessed-addresses accessed-storage max-used-gas
-                              logs))
+                              (if (eth-rpc-call-status-success-p status)
+                                  logs
+                                  '())
+                              tx))
                     (values status return-data gas-used
-                            accessed-addresses accessed-storage gas-used logs)))))))
+                            accessed-addresses accessed-storage gas-used
+                            (if (eth-rpc-call-status-success-p status)
+                                logs
+                                '())
+                            tx)))))))
     (ethereum-lisp.execution:transaction-validation-error ()
       (block-validation-fail
        "~A transaction is invalid" method))))
@@ -592,7 +603,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
      &key validation-p)
   (multiple-value-bind
         (status return-data gas-used accessed-addresses accessed-storage
-         max-used-gas logs)
+         max-used-gas logs transaction)
       (eth-rpc-simulate-call-object
        call block store config "eth_simulateV1"
        :gas-limit gas-limit
@@ -619,7 +630,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
                       (list (cons "error"
                                   (eth-rpc-simulate-error-object
                                    status return-data))))))
-      (values result gas-used))))
+      (values result gas-used transaction status logs))))
 
 (defun eth-rpc-simulate-required-call-gas (call remaining-gas)
   (unless (json-object-p call)
@@ -644,17 +655,30 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
      &key validation-p)
   (let ((remaining-gas block-gas-limit)
         (gas-used 0)
-        (results '()))
-    (dolist (call calls (values (nreverse results) gas-used))
+        (results '())
+        (transactions '())
+        (receipts '()))
+    (dolist (call calls
+             (values (nreverse results) gas-used
+                     (nreverse transactions) (nreverse receipts)))
       (let ((call-gas
               (eth-rpc-simulate-required-call-gas call remaining-gas)))
-        (multiple-value-bind (result call-gas-used)
+        (multiple-value-bind (result call-gas-used transaction status logs)
             (eth-rpc-simulate-call-result
              call block store config state block-overrides call-gas
              :validation-p validation-p)
           (incf gas-used call-gas-used)
           (decf remaining-gas call-gas-used)
-          (push result results))))))
+          (push result results)
+          (push transaction transactions)
+          (push
+           (make-receipt
+            :type (transaction-type transaction)
+            :status (if (eth-rpc-call-status-success-p status) 1 0)
+            :cumulative-gas-used gas-used
+            :regular-gas-used call-gas-used
+            :logs logs)
+           receipts))))))
 
 (defun eth-rpc-simulate-materialized-header-p (header)
   "Return true when HEADER has every commitment required by its hash preimage."
@@ -667,9 +691,10 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
      prev-randao block-gas-limit state-root config &key materialized-p)
   "Build the header context for one synthetic eth_simulateV1 block.
 
-MATERIALIZED-P installs every canonical empty-body commitment, making the
-header hash publishable. Non-empty calls still require transaction and receipt
-materialization before their header hash can be exposed."
+MATERIALIZED-P installs provisional empty-body commitments so the header is
+serializable before the synthetic transactions and receipts are assembled. The
+block constructor replaces those commitments with the canonical derived roots
+and bloom before the hash is exposed."
   (let ((header
           (make-block-header
            :parent-hash
@@ -701,8 +726,9 @@ materialization before their header hash can be exposed."
             (execution-requests-hash '())))
     header))
 
-(defun eth-rpc-simulate-empty-block (header config)
-  "Assemble an empty synthetic block with fork-appropriate empty body fields."
+(defun eth-rpc-simulate-materialized-block
+    (header config transactions receipts)
+  "Assemble a synthetic block with fork-appropriate body fields."
   (let* ((number (block-header-number header))
          (timestamp (block-header-timestamp header))
          (shanghai-p
@@ -711,30 +737,38 @@ materialization before their header hash can be exposed."
            (and config (chain-config-prague-p config number timestamp))))
     (cond
       ((and shanghai-p prague-p)
-       (make-block :header header :withdrawals '() :requests '()))
+       (make-block :header header :transactions transactions :receipts receipts
+                   :withdrawals '() :requests '()))
       (shanghai-p
-       (make-block :header header :withdrawals '()))
+       (make-block :header header :transactions transactions :receipts receipts
+                   :withdrawals '()))
       (prague-p
-       (make-block :header header :requests '()))
+       (make-block :header header :transactions transactions :receipts receipts
+                   :requests '()))
       (t
-       (make-block :header header)))))
+       (make-block :header header :transactions transactions
+                   :receipts receipts)))))
 
 (defun eth-rpc-simulate-block-result
-    (block results parent-header number timestamp gas-used base-fee difficulty
-     fee-recipient prev-randao block-gas-limit state-root config)
+    (results transactions receipts parent-header number timestamp gas-used
+     base-fee difficulty fee-recipient prev-randao block-gas-limit state-root
+     config)
   (let* ((parent-materialized-p
            (eth-rpc-simulate-materialized-header-p parent-header))
-         (materialized-p (and (null results) parent-materialized-p))
+         (materialized-p parent-materialized-p)
          (synthetic-header
            (eth-rpc-simulate-synthetic-header
             parent-header number timestamp gas-used base-fee difficulty
             fee-recipient prev-randao block-gas-limit state-root config
             :materialized-p materialized-p))
+         (synthetic-block
+           (and materialized-p
+                (eth-rpc-simulate-materialized-block
+                 synthetic-header config transactions receipts)))
          (object
            (if materialized-p
-               (eth-rpc-block-object
-                (eth-rpc-simulate-empty-block synthetic-header config) nil)
-               (eth-rpc-block-object block nil))))
+               (eth-rpc-block-object synthetic-block nil)
+               (eth-rpc-header-object synthetic-header))))
     (unless materialized-p
       (eth-rpc-set-object-field
        object "parentHash"
@@ -752,8 +786,6 @@ materialization before their header hash can be exposed."
          object "baseFeePerGas" (quantity-to-hex base-fee)))
       (eth-rpc-set-object-field object "gasUsed" (quantity-to-hex gas-used))
       (eth-rpc-set-object-field object "stateRoot" (hash32-to-hex state-root))
-      ;; Non-empty synthetic blocks remain deliberately unhashed until their
-      ;; transaction and receipt commitments are materialized.
       (eth-rpc-set-object-field object "hash" nil)
       (eth-rpc-set-object-field
        object "nonce" (bytes-to-hex (make-byte-vector 8)))
@@ -784,6 +816,10 @@ materialization before their header hash can be exposed."
       (when (eq t (json-object-field payload "traceTransfers"))
         (block-validation-fail
          "eth_simulateV1 traceTransfers is not supported"))
+      (when (eth-rpc-simulate-boolean-option
+             payload "returnFullTransactions")
+        (block-validation-fail
+         "eth_simulateV1 returnFullTransactions is not supported"))
       (let* ((block
                (eth-rpc-state-block-param
                 (list (if (= 2 (length params)) (second params) "latest"))
@@ -855,7 +891,8 @@ materialization before their header hash can be exposed."
                       "eth_simulateV1 calls must be an array"))
                    (eth-rpc-apply-state-overrides
                     state state-overrides "eth_simulateV1")
-                   (multiple-value-bind (results gas-used)
+                   (multiple-value-bind
+                         (results gas-used transactions receipts)
                        (eth-rpc-simulate-block-call-results
                         (json-array-values calls)
                         block store config state effective-block-overrides
@@ -863,8 +900,9 @@ materialization before their header hash can be exposed."
                         :validation-p validation-p)
                      (multiple-value-bind (result synthetic-header)
                          (eth-rpc-simulate-block-result
-                          block results parent-header number timestamp gas-used
-                          base-fee difficulty fee-recipient prev-randao
-                          block-gas-limit (state-db-root state) config)
+                          results transactions receipts parent-header number
+                          timestamp gas-used base-fee difficulty fee-recipient
+                          prev-randao block-gas-limit (state-db-root state)
+                          config)
                        (setf parent-header synthetic-header)
                        result))))))))))

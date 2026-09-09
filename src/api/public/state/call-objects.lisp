@@ -128,7 +128,8 @@
     chain-id))
 
 (defun eth-rpc-call-object-transaction
-    (object header method config &key gas-limit-override (nonce-default 0))
+    (object header method config
+     &key gas-limit-override (nonce-default 0) dynamic-default-p)
   (unless (json-object-p object)
     (block-validation-fail "~A call object must be a JSON object" method))
   (let* ((sender (or (eth-rpc-call-object-optional-address object "from" method)
@@ -158,34 +159,41 @@
         (eth-rpc-call-object-access-list object method)
       (multiple-value-bind (fee-style max-fee max-priority-fee)
           (eth-rpc-call-object-fees object method)
-        (values
-         sender
-         (case fee-style
-           (:dynamic
-            (make-dynamic-fee-transaction
-             :chain-id chain-id
-             :nonce nonce
-             :max-fee-per-gas max-fee
-             :max-priority-fee-per-gas max-priority-fee
-             :gas-limit gas-limit
-             :to recipient
-             :value value
-             :data data
-             :access-list access-list))
-           (otherwise
-            (if access-list-present-p
-                (make-access-list-transaction
-                 :chain-id chain-id
-                 :nonce nonce
-                 :gas-price max-fee
-                 :gas-limit gas-limit
-                 :to recipient
-                 :value value
-                 :data data
-                 :access-list access-list)
-                (make-legacy-transaction :nonce nonce
-                                         :gas-price max-fee
-                                         :gas-limit gas-limit
-                                         :to recipient
-                                         :value value
-                                         :data data)))))))))
+        (let* ((simulate-v1-p (string= method "eth_simulateV1"))
+               (gas-price-present-p
+                 (json-object-field-present-p object "gasPrice"))
+               (dynamic-simulation-p
+                 (and simulate-v1-p
+                      dynamic-default-p
+                      (not gas-price-present-p))))
+          (values
+           sender
+           (cond
+             ((or (eq fee-style :dynamic) dynamic-simulation-p)
+              (make-dynamic-fee-transaction
+               :chain-id chain-id
+               :nonce nonce
+               :max-fee-per-gas max-fee
+               :max-priority-fee-per-gas max-priority-fee
+               :gas-limit gas-limit
+               :to recipient
+               :value value
+               :data data
+               :access-list access-list))
+             ((and access-list-present-p (not simulate-v1-p))
+              (make-access-list-transaction
+               :chain-id chain-id
+               :nonce nonce
+               :gas-price max-fee
+               :gas-limit gas-limit
+               :to recipient
+               :value value
+               :data data
+               :access-list access-list))
+             (t
+              (make-legacy-transaction :nonce nonce
+                                       :gas-price max-fee
+                                       :gas-limit gas-limit
+                                       :to recipient
+                                       :value value
+                                       :data data)))))))))

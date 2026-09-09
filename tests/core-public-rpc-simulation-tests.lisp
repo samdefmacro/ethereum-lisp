@@ -1410,6 +1410,145 @@
         (is (string= (address-word-hex (address-from-hex simulated-miner))
                      (field successor-call "returnData")))))))
 
+(deftest eth-rpc-simulate-v1-materializes-non-empty-block-identity
+  ;; Geth 8a0223e8 `processBlock` assembles every included call into a synthetic
+  ;; transaction and receipt before hashing the block. Hash-only mode therefore
+  ;; exposes a transaction hash and lets the next synthetic block name its
+  ;; materialized parent.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           ;; The selected base is pre-London, while the first synthetic block
+           ;; activates London. Its effective base-fee context must therefore
+           ;; choose geth's default dynamic-fee envelope.
+           (config (make-chain-config :chain-id 1
+                                      :byzantium-block 0
+                                      :london-block 2))
+           (state (make-state-db))
+           (sender "0xc000000000000000000000000000000000000000")
+           (recipient "0xc100000000000000000000000000000000000000")
+           (reverting "0xc200000000000000000000000000000000000000")
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :state-root (state-db-root state)))))
+      (state-db-set-account
+       state (address-from-hex sender) (make-state-account :balance 100000))
+      ;; Emit LOG1 and then revert. Geth's simulation tracer discards that
+      ;; failed-frame log before deriving the receipt bloom/root.
+      (state-db-set-code
+       state (address-from-hex reverting)
+       #(96 42 96 0 96 0 161 96 0 96 0 253))
+      (setf (block-header-state-root (block-header block))
+            (state-db-root state))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (let* ((payload
+               (list
+                (cons
+                 "blockStateCalls"
+                 (list
+                  (list
+                   (cons
+                    "calls"
+                    (list
+                     (list (cons "from" sender)
+                           (cons "to" recipient)
+                           (cons "gas" "0x5208"))
+                     (list (cons "from" sender)
+                           (cons "to" reverting)
+                           (cons "gas" "0x7530")))))
+                  (list (cons "calls" #()))))
+                (cons "returnFullTransactions" :false)))
+             (response
+               (engine-rpc-handle-request
+                (list
+                 (cons "jsonrpc" "2.0")
+                 (cons "id" 405)
+                 (cons "method" "eth_simulateV1")
+                 (cons "params" (list payload "latest")))
+                store config))
+             (blocks (field response "result"))
+             (first-block (first blocks))
+             (second-block (second blocks))
+             (transactions (field first-block "transactions"))
+             (calls (field first-block "calls"))
+             (expected-first-transaction
+               (make-dynamic-fee-transaction
+                :chain-id 1 :nonce 0 :max-fee-per-gas 0
+                :max-priority-fee-per-gas 0 :gas-limit 21000
+                :to (address-from-hex recipient)))
+             (expected-second-transaction
+               (make-dynamic-fee-transaction
+                :chain-id 1 :nonce 1 :max-fee-per-gas 0
+                :max-priority-fee-per-gas 0 :gas-limit 30000
+                :to (address-from-hex reverting)))
+             (expected-first-receipt
+               (make-receipt
+                :type 2 :status 1 :cumulative-gas-used 21000
+                :regular-gas-used 21000))
+             (expected-second-receipt
+               (make-receipt
+                :type 2 :status 0 :cumulative-gas-used 42765
+                :regular-gas-used 21765)))
+        (is (null (field response "error")))
+        (is (= 2 (length blocks)))
+        (is (stringp (field first-block "hash")))
+        (is (= 2 (length transactions)))
+        (is (string= (hash32-to-hex
+                      (transaction-hash expected-first-transaction))
+                     (first transactions)))
+        (is (string= (hash32-to-hex
+                      (transaction-hash expected-second-transaction))
+                     (second transactions)))
+        (is (string= "0x0" (field (second calls) "status")))
+        (is (string= "0x5505" (field (second calls) "gasUsed")))
+        (is (zerop (length (field (second calls) "logs"))))
+        (is (string=
+             (hash32-to-hex
+              (transaction-list-root
+               (list expected-first-transaction expected-second-transaction)))
+             (field first-block "transactionsRoot")))
+        (is (string=
+             (hash32-to-hex
+              (transaction-receipt-list-root
+               (list expected-first-transaction expected-second-transaction)
+               (list expected-first-receipt expected-second-receipt)))
+             (field first-block "receiptsRoot")))
+        (is (string= (field first-block "hash")
+                     (field second-block "parentHash")))
+        (is (stringp (field second-block "hash")))
+        (is (zerop (length (field second-block "transactions"))))))))
+
+(deftest eth-rpc-simulate-v1-rejects-unsupported-full-transactions
+  ;; Hash-only identity is materialized above. Do not silently accept the
+  ;; geth full-object option until synthetic sender injection is implemented.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((response
+             (engine-rpc-handle-request
+              (list
+               (cons "jsonrpc" "2.0")
+               (cons "id" 406)
+               (cons "method" "eth_simulateV1")
+               (cons
+                "params"
+                (list
+                 (list
+                  (cons "blockStateCalls"
+                        (list (list (cons "calls" #()))))
+                  (cons "returnFullTransactions" t))
+                 "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")))
+              (make-engine-payload-memory-store)
+              (make-chain-config :chain-id 1)))
+           (error-object (field response "error")))
+      (is (= -32602 (field error-object "code")))
+      (is (string=
+           "eth_simulateV1 returnFullTransactions is not supported"
+           (field error-object "message"))))))
+
 (deftest eth-rpc-simulate-v1-refuses-too-many-blocks-with-specific-error
   ;; Execution APIs e5d1bb60 `ethSimulate-big-block-state-calls-array.io`
   ;; requires the dedicated limit error rather than generic invalid params.
