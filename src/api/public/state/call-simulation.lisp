@@ -381,13 +381,13 @@ decodes, and the raw revert data in the error object's data member."
                               (if (eth-rpc-call-status-success-p status)
                                   logs
                                   '())
-                              tx))
+                              tx sender))
                     (values status return-data gas-used
                             accessed-addresses accessed-storage gas-used
                             (if (eth-rpc-call-status-success-p status)
                                 logs
                                 '())
-                            tx)))))))
+                            tx sender)))))))
     (ethereum-lisp.execution:transaction-validation-error ()
       (block-validation-fail
        "~A transaction is invalid" method))))
@@ -603,7 +603,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
      &key validation-p)
   (multiple-value-bind
         (status return-data gas-used accessed-addresses accessed-storage
-         max-used-gas logs transaction)
+         max-used-gas logs transaction sender)
       (eth-rpc-simulate-call-object
        call block store config "eth_simulateV1"
        :gas-limit gas-limit
@@ -630,7 +630,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
                       (list (cons "error"
                                   (eth-rpc-simulate-error-object
                                    status return-data))))))
-      (values result gas-used transaction status logs))))
+      (values result gas-used transaction status logs sender))))
 
 (defun eth-rpc-simulate-required-call-gas (call remaining-gas)
   (unless (json-object-p call)
@@ -657,13 +657,16 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
         (gas-used 0)
         (results '())
         (transactions '())
-        (receipts '()))
+        (receipts '())
+        (senders '()))
     (dolist (call calls
              (values (nreverse results) gas-used
-                     (nreverse transactions) (nreverse receipts)))
+                     (nreverse transactions) (nreverse receipts)
+                     (nreverse senders)))
       (let ((call-gas
               (eth-rpc-simulate-required-call-gas call remaining-gas)))
-        (multiple-value-bind (result call-gas-used transaction status logs)
+        (multiple-value-bind
+              (result call-gas-used transaction status logs sender)
             (eth-rpc-simulate-call-result
              call block store config state block-overrides call-gas
              :validation-p validation-p)
@@ -671,6 +674,7 @@ Matches go-ethereum's callError shape: {message, code, data} for reverts
           (decf remaining-gas call-gas-used)
           (push result results)
           (push transaction transactions)
+          (push sender senders)
           (push
            (make-receipt
             :type (transaction-type transaction)
@@ -749,10 +753,32 @@ and bloom before the hash is exposed."
        (make-block :header header :transactions transactions
                    :receipts receipts)))))
 
+(defun eth-rpc-simulate-full-transaction-objects (block senders config)
+  "Marshal BLOCK transactions with geth's hash-keyed sender repair."
+  (let ((senders-by-hash (make-hash-table :test #'equal)))
+    (loop for transaction in (block-transactions block)
+          for sender in senders
+          do
+             (setf
+              (gethash (hash32-to-hex (transaction-hash transaction))
+                       senders-by-hash)
+              sender))
+    (eth-rpc-json-array
+     (loop for transaction in (block-transactions block)
+           for index from 0
+           for sender =
+             (gethash (hash32-to-hex (transaction-hash transaction))
+                      senders-by-hash)
+           collect
+           (eth-rpc-transaction-object
+            transaction block index
+            :expected-chain-id (and config (chain-config-chain-id config))
+            :sender sender)))))
+
 (defun eth-rpc-simulate-block-result
-    (results transactions receipts parent-header number timestamp gas-used
+    (results transactions receipts senders parent-header number timestamp gas-used
      base-fee difficulty fee-recipient prev-randao block-gas-limit state-root
-     config)
+     config &key full-transactions-p)
   (let* ((parent-materialized-p
            (eth-rpc-simulate-materialized-header-p parent-header))
          (materialized-p parent-materialized-p)
@@ -790,6 +816,11 @@ and bloom before the hash is exposed."
       (eth-rpc-set-object-field
        object "nonce" (bytes-to-hex (make-byte-vector 8)))
       (eth-rpc-set-object-field object "transactions" (eth-rpc-json-array '())))
+    (when (and materialized-p full-transactions-p)
+      (eth-rpc-set-object-field
+       object "transactions"
+       (eth-rpc-simulate-full-transaction-objects
+        synthetic-block senders config)))
     (values
      (append object (list (cons "calls" (eth-rpc-json-array results))))
      synthetic-header)))
@@ -816,11 +847,10 @@ and bloom before the hash is exposed."
       (when (eq t (json-object-field payload "traceTransfers"))
         (block-validation-fail
          "eth_simulateV1 traceTransfers is not supported"))
-      (when (eth-rpc-simulate-boolean-option
-             payload "returnFullTransactions")
-        (block-validation-fail
-         "eth_simulateV1 returnFullTransactions is not supported"))
-      (let* ((block
+      (let* ((return-full-transactions-p
+               (eth-rpc-simulate-boolean-option
+                payload "returnFullTransactions"))
+             (block
                (eth-rpc-state-block-param
                 (list (if (= 2 (length params)) (second params) "latest"))
                 store "eth_simulateV1"))
@@ -892,7 +922,7 @@ and bloom before the hash is exposed."
                    (eth-rpc-apply-state-overrides
                     state state-overrides "eth_simulateV1")
                    (multiple-value-bind
-                         (results gas-used transactions receipts)
+                         (results gas-used transactions receipts senders)
                        (eth-rpc-simulate-block-call-results
                         (json-array-values calls)
                         block store config state effective-block-overrides
@@ -900,9 +930,10 @@ and bloom before the hash is exposed."
                         :validation-p validation-p)
                      (multiple-value-bind (result synthetic-header)
                          (eth-rpc-simulate-block-result
-                          results transactions receipts parent-header number
-                          timestamp gas-used base-fee difficulty fee-recipient
-                          prev-randao block-gas-limit (state-db-root state)
-                          config)
+                          results transactions receipts senders parent-header
+                          number timestamp gas-used base-fee difficulty
+                          fee-recipient prev-randao block-gas-limit
+                          (state-db-root state) config
+                          :full-transactions-p return-full-transactions-p)
                        (setf parent-header synthetic-header)
                        result))))))))))

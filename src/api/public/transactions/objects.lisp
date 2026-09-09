@@ -17,7 +17,8 @@
       (nth index transactions))))
 
 (defun eth-rpc-transaction-object
-    (transaction block index &key expected-chain-id)
+    (transaction block index
+     &key expected-chain-id (sender nil sender-supplied-p))
   (let ((header (when block
                   (block-header block))))
     (multiple-value-bind (nonce gas-limit to value data v r s)
@@ -34,9 +35,11 @@
                 (quantity-to-hex (block-header-timestamp header))))
         (cons "from"
               (address-to-hex
-               (eth-rpc-transaction-sender
-                transaction
-                :expected-chain-id expected-chain-id)))
+               (if sender-supplied-p
+                   sender
+                   (eth-rpc-transaction-sender
+                    transaction
+                    :expected-chain-id expected-chain-id))))
         (cons "gas" (quantity-to-hex gas-limit))
         (cons "gasPrice"
               (quantity-to-hex
