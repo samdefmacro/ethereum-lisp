@@ -1322,8 +1322,8 @@
 
 (deftest eth-rpc-simulate-v1-exposes-prior-synthetic-block-hashes
   ;; Geth 8a0223e8 builds each EVM chain context from the already executed
-  ;; synthetic headers. The second synthetic block must therefore resolve the
-  ;; first through BLOCKHASH instead of consulting only the durable chain.
+  ;; synthetic headers. The third synthetic block must therefore resolve both
+  ;; a deeper synthetic ancestor and the durable base through BLOCKHASH.
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
@@ -1332,18 +1332,28 @@
            (contract
              (address-from-hex
               "0x00000000000000000000000000000000000000ef"))
-           ;; PUSH1 2; BLOCKHASH; MSTORE(0); RETURN(0, 32).
-           (code #(#x60 #x02 #x40 #x5f #x52 #x60 #x20 #x5f #xf3))
+           ;; Store BLOCKHASH(2) and BLOCKHASH(0), then return both words.
+           (code #(#x60 #x02 #x40 #x5f #x52
+                   #x60 #x00 #x40 #x60 #x20 #x52
+                   #x60 #x40 #x5f #xf3))
            (state (make-state-db))
+           (genesis
+             (make-block
+              :header
+              (make-block-header
+               :number 0 :timestamp 1 :gas-limit 100000
+               :base-fee-per-gas 0)))
            (base
              (make-block
               :header
               (make-block-header
+               :parent-hash (block-hash genesis)
                :number 1 :timestamp 10 :gas-limit 100000
                :base-fee-per-gas 0 :state-root (state-db-root state))))
            (call (list (cons "to" (address-to-hex contract)))))
       (state-db-set-code state contract code)
       (setf (block-header-state-root (block-header base)) (state-db-root state))
+      (chain-store-put-block store genesis)
       (chain-store-put-block store base :state-available-p t)
       (commit-state-db-to-chain-store store (block-hash base) state)
       (let* ((response
@@ -1360,15 +1370,21 @@
                      "blockStateCalls"
                      (list
                       (list (cons "calls" #()))
+                      (list (cons "calls" #()))
                       (list (cons "calls" (list call))))))
                    "latest")))
                 store config))
              (blocks (field response "result"))
              (first-hash (field (first blocks) "hash"))
              (return-data
-               (field (first (field (second blocks) "calls")) "returnData")))
+               (hex-to-bytes
+                (field (first (field (third blocks) "calls")) "returnData"))))
         (is (null (field response "error")))
-        (is (string= first-hash return-data))))))
+        (is (= 3 (length blocks)))
+        (is (string= first-hash (bytes-to-hex (subseq return-data 0 32))))
+        (is (hash32=
+             (block-hash genesis)
+             (make-hash32 (subseq return-data 32 64))))))))
 
 (deftest eth-rpc-simulate-v1-runs-cancun-pre-execution-system-calls
   ;; Geth 8a0223e8 `processBlock` invokes core.PreExecution before ordinary
@@ -2040,6 +2056,57 @@
       ;; Exactly 256 simulated blocks remains the permitted positive boundary.
       (let ((response (request store config "0x101")))
         (is (null (field response "error")))))))
+
+(deftest eth-rpc-simulate-v1-bounds-synthetic-history-hash-work
+  ;; A maximum-width implicit sequence must not repeatedly hash every preceding
+  ;; synthetic header while constructing each BLOCKHASH window.  The positive
+  ;; lower bound proves this cost witness reached real header materialization.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (state (make-state-db))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 10 :gas-limit 100000
+               :base-fee-per-gas 0 :state-root (state-db-root state))))
+           (real-hash (fdefinition 'block-header-hash))
+           (hash-calls 0))
+      (chain-store-put-block store block :state-available-p t)
+      (commit-state-db-to-chain-store store (block-hash block) state)
+      (unwind-protect
+           (progn
+             (setf (fdefinition 'block-header-hash)
+                   (lambda (header)
+                     (incf hash-calls)
+                     (funcall real-hash header)))
+             (let ((response
+                     (engine-rpc-handle-request
+                      (list
+                       (cons "jsonrpc" "2.0")
+                       (cons "id" 431)
+                       (cons "method" "eth_simulateV1")
+                       (cons
+                        "params"
+                        (list
+                         (list
+                          (cons
+                           "blockStateCalls"
+                           (list
+                            (list
+                             (cons "blockOverrides"
+                                   (list (cons "number" "0x101"))))))))))
+                      store config)))
+               (is (null (field response "error")))
+               (is (= 256 (length (field response "result"))))
+               (is (> hash-calls 256))
+               ;; Materializing a block uses a small constant number of header
+               ;; hashes. Leave room for that overhead while rejecting O(n^2)
+               ;; scans across the 256-block synthetic history.
+               (is (< hash-calls (* 16 256)))))
+        (setf (fdefinition 'block-header-hash) real-hash)))))
 
 (deftest eth-rpc-simulate-v1-enforces-per-block-gas-admission
   ;; Execution APIs e5d1bb60 defines omitted call gas as the remaining gas in

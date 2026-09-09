@@ -427,15 +427,13 @@ decodes, and the raw revert data in the error object's data member."
       (engine-rpc-fail -32000 "state not found"))
     block))
 
-(defun eth-rpc-simulate-block-hashes (store header simulated-headers)
+(defun eth-rpc-simulate-block-hashes
+    (store header simulated-headers-by-number)
   "Build HEADER's BLOCKHASH window across durable and synthetic ancestors."
   (let* ((block-hashes (make-hash-table :test 'eql))
          (number (block-header-number header))
          (history-count (min 256 number)))
-    (labels ((simulated-header (hash)
-               (find hash simulated-headers
-                     :key #'block-header-hash :test #'hash32=))
-             (mark-unavailable-from (offset)
+    (labels ((mark-unavailable-from (offset)
                (loop for missing-offset from offset below history-count
                      do (setf (gethash (- number 1 missing-offset) block-hashes)
                               :unavailable))))
@@ -447,9 +445,18 @@ decodes, and the raw revert data in the error object's data member."
           (let ((expected-number (- number 1 offset)))
             (setf (gethash expected-number block-hashes) expected-hash)
             (when (< (1+ offset) history-count)
-              (let* ((synthetic (simulated-header expected-hash))
+              (let* ((synthetic-entry
+                       (gethash expected-number
+                                simulated-headers-by-number))
+                     (synthetic (car synthetic-entry))
+                     (synthetic-hash (cdr synthetic-entry))
                      (ancestor-header
-                       (or synthetic
+                       (or (and synthetic-hash
+                                (progn
+                                  (unless (hash32= expected-hash synthetic-hash)
+                                    (storage-fail
+                                     "Simulation BLOCKHASH synthetic ancestor is inconsistent"))
+                                  synthetic))
                            (let ((block
                                    (chain-store-known-block store expected-hash)))
                              (and block (block-header block))))))
@@ -993,7 +1000,8 @@ and bloom before the hash is exposed."
           (eth-rpc-json-array
            (loop for block-state-call in sanitized-block-state-calls
                with parent-header = (block-header block)
-               with simulated-headers = '()
+               with simulated-headers-by-number =
+                 (make-hash-table :test 'eql)
                with request-gas-budget = +eth-rpc-default-call-gas-limit+
                collect
                (progn
@@ -1065,7 +1073,8 @@ and bloom before the hash is exposed."
                             :parent-beacon-root parent-beacon-root))
                           (block-hashes
                             (eth-rpc-simulate-block-hashes
-                             store pre-execution-header simulated-headers)))
+                             store pre-execution-header
+                             simulated-headers-by-number)))
                      (process-block-pre-execution-system-calls
                       state pre-execution-header
                       :chain-config config
@@ -1088,6 +1097,13 @@ and bloom before the hash is exposed."
                           (state-db-root state) config
                           :full-transactions-p return-full-transactions-p
                           :parent-beacon-root parent-beacon-root)
-                       (push synthetic-header simulated-headers)
+                       (setf
+                        (gethash number simulated-headers-by-number)
+                        (cons
+                         synthetic-header
+                         (and
+                          (eth-rpc-simulate-materialized-header-p
+                           synthetic-header)
+                          (block-header-hash synthetic-header))))
                        (setf parent-header synthetic-header)
                        result))))))))))))
