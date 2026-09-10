@@ -347,11 +347,14 @@ The implementation boundary is split deliberately:
   local reuses and 2,681 remote fetches, while its dynamically discovered
   frontier grew to 27,474; this proves the `f72afc7f` timeout and buffered-block
   failures no longer stop the live node, but not that healing is complete.
-  Fresh stores also use geth's exact hash-presence frontier for storage tries:
-  open range or fetched nodes carry durable negative markers, and healer DFS
-  removes each marker only after its descendants are complete. Account nodes
-  cannot use marker absence as closure because their leaves name external code
-  and storage dependencies; they retain dependency-carrying subtree proofs.
+  Fresh stores retain exact per-node incomplete markers for conservative healer
+  traversal: open range or fetched nodes carry durable negative markers, and
+  healer DFS removes each marker only after its descendants are complete.
+  Marker absence is not itself closure proof for either account or storage
+  nodes, because legacy or interrupted writers can leave a present unmarked
+  parent above a missing child. Both trie kinds skip only through explicit
+  versioned healed-subtree proofs; account proofs additionally carry the code
+  and storage dependencies named by their leaves.
   Restart does not hydrate the complete retained marker namespace into a Lisp
   hash table. Exact incomplete status is fetched lazily with ordered bounded
   RocksDB MultiGets for the references entering each local DFS batch, while
@@ -366,10 +369,11 @@ The implementation boundary is split deliberately:
   candidates use the same bounded exact metadata MultiGets, preserving
   cross-pivot reuse while RocksDB's native point-lookup filters provide the
   storage-level negative cache.
-  The closure marker is now epoch four. Epochs one through three are recognized
+  The closure marker is now epoch five. Epochs one through four are recognized
   only for migration: epoch two could classify an account node complete before
-  the storage/code dependencies named by its leaf were durable, and epoch three
-  could publish a generic account-subtree proof from bare account-node presence.
+  the storage/code dependencies named by its leaf were durable, epoch three
+  could publish a generic account-subtree proof from bare account-node presence,
+  and epoch four could publish storage proofs from bare storage-node presence.
   On upgrade, a scheme-claiming older progress record is atomically reopened;
   its heal checkpoint and any pivot state-history publication are removed while
   content-addressed trie nodes, completed range cursors, and closure-safe
@@ -385,6 +389,18 @@ The implementation boundary is split deliberately:
   as closure, and account-subtree proofs use a fresh namespace so unsafe v2
   proofs are not consumed; only current dependency-carrying proofs may skip that
   walk. This is a tested repair, not live completion evidence.
+  Exact successor `b23c7d57` then exposed the corresponding storage-closure
+  seam: pivot 3,593,969 reported `completed=T`, `frontierWorks=0`, and
+  `knownIncompleteNodes=0` at `2026-09-10T04:32:24Z`, then exited 26 seconds
+  later on missing persisted trie node `0x5dc4...5b95` before any
+  `peer.snap.target_completed` event. The evidence is archived in
+  `docs/evidence/sec5-b23c7d57-storage-closure-failure.txt`. A focused
+  regression reproduces an unmarked persisted storage parent above an absent
+  descendant: marker-only closure fetches nothing and leaves the hole, whereas
+  requiring a current versioned subtree proof fetches and persists it. Storage
+  proof namespaces are advanced so an upgrade cannot consume a proof published
+  by the unsafe revision. This repair is locally tested and still requires
+  exact-artifact live validation.
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

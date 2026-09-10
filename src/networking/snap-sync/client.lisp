@@ -164,10 +164,10 @@ that post-order completion sentinels seldom permit in production.")
   (ascii-to-bytes "snap-healed-subtree-v3:")
   "Domain-separate durable account-subtree proof keys.")
 (defparameter +snap-sync-healed-storage-subtree-identifier-prefix+
-  (ascii-to-bytes "snap-healed-storage-subtree-v2:")
+  (ascii-to-bytes "snap-healed-storage-subtree-v3:")
   "Domain-separate durable storage-subtree proof keys.")
 (defparameter +snap-sync-healed-storage-root-identifier-prefix+
-  (ascii-to-bytes "snap-healed-storage-root-v2:")
+  (ascii-to-bytes "snap-healed-storage-root-v3:")
   "Domain-separate fully closed storage-root proof keys.")
 (defparameter +snap-sync-account-subtree-dependencies-identifier-prefix+
   (ascii-to-bytes "snap-account-subtree-dependencies-v2:")
@@ -181,8 +181,10 @@ that post-order completion sentinels seldom permit in production.")
   "Versioned value for an incomplete content-addressed trie node.")
 (defparameter +snap-sync-complete-node-scheme-identifier+
   "snap-complete-trie-node-scheme")
-(defparameter +snap-sync-complete-node-scheme-value+ #(4)
-  "Marks a trie store whose storage-node negatives follow closure epoch 4.")
+(defparameter +snap-sync-complete-node-scheme-value+ #(5)
+  "Marks a trie store whose node negatives follow conservative closure epoch 5.")
+(defparameter +snap-sync-unsafe-storage-complete-node-scheme-value+ #(4)
+  "Recognized but never trusted marker from the unsafe storage-proof epoch.")
 (defparameter +snap-sync-previous-complete-node-scheme-value+ #(3)
   "Recognized but never trusted marker from the unsafe account-proof epoch.")
 (defparameter +snap-sync-older-complete-node-scheme-value+ #(2)
@@ -824,11 +826,13 @@ observational and not consensus-visible."
       ((not present-p) nil)
       ((bytes= value +snap-sync-complete-node-scheme-value+) t)
       ;; Epochs one and two could close a storage or account root too early.
-      ;; Epoch three extended descendant closure but could still publish an
-      ;; account-subtree proof after treating bare account-node presence as
-      ;; closure. Keep their content, but never interpret marker absence as
-      ;; proof after an upgrade.
+      ;; Epoch four could publish a storage-subtree proof after treating bare
+      ;; storage-node presence as closure. Earlier epochs had the corresponding
+      ;; account and dependency seams. Keep their content, but never interpret
+      ;; marker absence as proof after an upgrade.
       ((or
+        (bytes=
+         value +snap-sync-unsafe-storage-complete-node-scheme-value+)
         (bytes= value +snap-sync-previous-complete-node-scheme-value+)
         (bytes= value +snap-sync-older-complete-node-scheme-value+)
         (bytes= value +snap-sync-legacy-complete-node-scheme-value+))
@@ -1606,11 +1610,11 @@ publishes the account cursor."
               genesis-hash authority-id)
   (multiple-value-bind (existing present-p)
       (snap-sync-read-progress database)
-    ;; Epoch-three completion could trust a stale account-subtree proof that was
-    ;; published after bare account-node presence had been mistaken for closure.
+    ;; Earlier closure epochs could trust stale account or storage subtree
+    ;; proofs published after bare node presence had been mistaken for closure.
     ;; Atomically revoke that publication when the store marker is not the
-    ;; current epoch; all content-addressed nodes and storage/dependency proofs
-    ;; remain useful to the conservative retry.
+    ;; current epoch; content-addressed nodes, completed cursors, and proofs in
+    ;; current namespaces remain useful to the conservative retry.
     (when (and present-p
                (snap-sync-progress-complete-node-scheme-p existing)
                (not (snap-sync-complete-node-scheme-present-p database)))
@@ -6018,74 +6022,40 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                    (ethereum-lisp.validation:storage-fail
                     "Persisted snap trie node is malformed: ~A" condition)
                    (error condition)))))
-         (complete-local-node-p (work incomplete-p)
-           (let ((reference (snap-sync-heal-work-reference work)))
-             (and complete-node-scheme-p
-                  ;; A storage trie has no dependencies outside its own
-                  ;; descendants, so epoch-three marker absence is a complete
-                  ;; hash-presence oracle there.  Account leaves name code and
-                  ;; storage roots outside the account trie; live Hoodi proved
-                  ;; that marker absence alone can outlive missing external
-                  ;; closure.  Reuse account subtrees only through their
-                  ;; dependency-carrying completion proofs above.
-                  (eq :storage (snap-sync-heal-work-kind work))
-                  (byte-vector-p reference)
-                  (= 32 (length reference))
-                  (not incomplete-p))))
          (decode-local-node (work encoded incomplete-p)
-           (if (complete-local-node-p work incomplete-p)
-               (let ((reference (snap-sync-heal-work-reference work)))
-                 ;; Preserve the existing corrupt-value fail-closed boundary
-                 ;; while avoiding RLP decode and descendant expansion.
-                 (unless (bytes= reference (keccak-256 encoded))
-                   (ethereum-lisp.validation:storage-fail
-                    "Persisted complete snap trie node does not match its hash"))
-                 :complete-node-reused)
-               (decode-encoded
-                work encoded
-                (not (snap-sync-heal-work-fetched-p work)))))
+           ;; Marker presence remains a conservative instruction to traverse a
+           ;; node, but marker absence is not proof that every descendant is
+           ;; durable.  A legacy or interrupted writer can leave an unmarked
+           ;; persisted parent above a missing child.  Reuse both account and
+           ;; storage subtrees only through their versioned healed-subtree
+           ;; proofs, which are checked before local trie-node lookup.
+           (declare (ignore incomplete-p))
+           (decode-encoded
+            work encoded (not (snap-sync-heal-work-fetched-p work))))
          (integrate-present-work (work object)
            (unless (snap-sync-heal-work-fetched-p work)
              (incf reused-nodes))
-           (if (eq object :complete-node-reused)
-               (progn
-                 ;; The versioned negative-marker scheme is itself a durable
-                 ;; closure proof: absence of this node's incomplete marker
-                 ;; means all descendants were completed. Materialize the
-                 ;; stronger root namespace after its ordinary proof miss.
-                 (when
-                     (eq :armed (snap-sync-heal-work-marker-state work))
-                   (stack-push
-                    (snap-sync-make-heal-work
-                     (snap-sync-heal-work-kind work)
-                     (snap-sync-heal-work-account-hash work)
-                     (snap-sync-heal-work-path work)
-                     (snap-sync-heal-work-reference work)
-                     :marker-state :complete)))
-                 (incf skipped-subtrees))
-               (progn
-                 (when
-                     (eq :armed (snap-sync-heal-work-marker-state work))
-                   (stack-push
-                    (snap-sync-make-heal-work
-                     (snap-sync-heal-work-kind work)
-                     (snap-sync-heal-work-account-hash work)
-                     (snap-sync-heal-work-path work)
-                     (snap-sync-heal-work-reference work)
-                     :marker-state :complete)))
-                 (let ((reference (snap-sync-heal-work-reference work)))
-                   (when (and complete-node-scheme-p
-                              (byte-vector-p reference)
-                              (= 32 (length reference))
-                              (nth-value
-                               1 (gethash reference incomplete-nodes)))
-                     (stack-push
-                      (snap-sync-make-heal-work
-                       (snap-sync-heal-work-kind work)
-                       (snap-sync-heal-work-account-hash work)
-                       (snap-sync-heal-work-path work)
-                       reference :marker-state :node-complete))))
-                 (process-object work object))))
+           (when (eq :armed (snap-sync-heal-work-marker-state work))
+             (stack-push
+              (snap-sync-make-heal-work
+               (snap-sync-heal-work-kind work)
+               (snap-sync-heal-work-account-hash work)
+               (snap-sync-heal-work-path work)
+               (snap-sync-heal-work-reference work)
+               :marker-state :complete)))
+           (let ((reference (snap-sync-heal-work-reference work)))
+             (when (and complete-node-scheme-p
+                        (byte-vector-p reference)
+                        (= 32 (length reference))
+                        (nth-value
+                         1 (gethash reference incomplete-nodes)))
+               (stack-push
+                (snap-sync-make-heal-work
+                 (snap-sync-heal-work-kind work)
+                 (snap-sync-heal-work-account-hash work)
+                 (snap-sync-heal-work-path work)
+                 reference :marker-state :node-complete))))
+           (process-object work object))
          (collect-missing (maximum &optional bounded-refill-p)
            "Advance local trie work and return at most MAXIMUM missing hashes.
 

@@ -3374,6 +3374,7 @@
         (legacy-epoch (make-memory-key-value-database))
         (older-epoch (make-memory-key-value-database))
         (previous-epoch (make-memory-key-value-database))
+        (unsafe-storage-epoch (make-memory-key-value-database))
         (malformed (make-memory-key-value-database)))
     (is
      (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -3435,7 +3436,17 @@
       (ethereum-lisp.database:kv-batch-put-chain-record
        batch :metadata
        ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
-       #(5))
+       ethereum-lisp.snap-sync::+snap-sync-unsafe-storage-complete-node-scheme-value+)
+      (kv-apply-batch unsafe-storage-epoch batch))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+       unsafe-storage-epoch)))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
+       #(6))
       (kv-apply-batch malformed batch))
     (signals ethereum-lisp.validation:storage-error
       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -7833,11 +7844,12 @@
           (is present-p)
           (is (bytes= persisted-root (hash32-bytes second-root))))))))
 
-(deftest snap-state-healer-uses-geth-complete-node-difference-frontier
+(deftest snap-state-healer-rejects-marker-only-storage-difference-frontier
   (:layer :integration :module :p2p)
   ;; Keep the account branch explicitly incomplete because its leaf names the
-  ;; changed storage root. The complete-node shortcut must stop only at the
-  ;; locally closed storage branches and retain the exact difference frontier.
+  ;; changed storage root. Negative-marker absence alone does not prove that a
+  ;; locally present storage branch is closed, so this synthetic marker-only
+  ;; database must traverse the same difference frontier as the legacy one.
   (let* ((state (make-state-db))
          (address (snap-test-address-from-integer 1))
          (account-hash
@@ -7926,9 +7938,9 @@
               (run legacy-database 231 nil)
             (declare (ignore legacy-skipped))
             (is (plusp exact-fetched))
-            (is (plusp exact-skipped))
+            (is (zerop exact-skipped))
             (is (= exact-fetched legacy-fetched))
-            (is (< exact-processed legacy-processed))
+            (is (= exact-processed legacy-processed))
             ;; Unreachable negative markers from the synthetic dirty-record
             ;; set may remain conservatively. The newly healed storage root
             ;; itself must have crossed its completion sentinel.
@@ -7939,9 +7951,100 @@
                 exact-database
                 (vector (hash32-bytes second-storage-root)))
                0)))
-            ;; The mutation control is quantitative: removing the complete-
-            ;; storage-node branch makes both runs decode the same full trie.
-            (is (< (* 8 exact-processed) legacy-processed))))))))
+            ;; Both runs decode the same full trie until an explicit versioned
+            ;; healed-subtree proof is available.
+            (is (plusp exact-processed))))))))
+
+(deftest snap-state-healer-does-not-trust-storage-marker-absence
+  (:layer :integration :module :p2p)
+  ;; Live Hoodi revision b23c7d57 exhausted the visible healer frontier, then
+  ;; bounded-tail execution opened a missing child below an unmarked persisted
+  ;; storage branch.  Marker absence cannot replace an explicit subtree proof:
+  ;; a legacy or interrupted writer can leave a parent without either its child
+  ;; record or a conservative negative marker.
+  (let* ((state (make-state-db))
+         (address (snap-test-address-from-integer 1)))
+    (loop for index from 1 to 2048
+          do (state-db-set-storage
+              state address (make-hash32 (snap-test-index-hash index))
+              (+ 900000 index)))
+    (let* ((root (state-db-root state))
+           (storage-root (state-db-get-storage-root state address))
+           (tries (state-db-persistence-tries state))
+           (account-records (mpt-dirty-node-records (first tries)))
+           (storage-records (mpt-dirty-node-records (second tries)))
+           ;; Dirty records are children before parents, so this omits one
+           ;; descendant while retaining the content-addressed storage root.
+           (omitted (first storage-records))
+           (target-database (make-memory-key-value-database))
+           (source-database (make-memory-key-value-database))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database state))
+           (source (snap-test-source backend))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash (make-hash32 (snap-test-hash 249))
+              :pivot-number 6031 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 250))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 251))
+              :authority-id (make-hash32 (snap-test-hash 252))
+              :completed-p nil :complete-node-scheme-p t
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t)))
+           (fetched nil))
+      (is omitted)
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+        target-database))
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+         target-database batch
+         (append account-records (rest storage-records)))
+        (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+         batch root
+         (cons
+          (ethereum-lisp.crypto:keccak-256 (address-bytes address))
+          storage-root))
+        (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+         batch root)
+        ;; The deployed faulty revision used this namespace for a storage-root
+        ;; proof derived from marker absence. Upgrades must ignore it.
+        (ethereum-lisp.database:kv-batch-put-chain-record
+         batch :metadata
+         (concatenate
+          'vector (ascii-to-bytes "snap-healed-storage-root-v2:")
+          (hash32-bytes storage-root))
+         ethereum-lisp.snap-sync::+snap-sync-healed-subtree-value+)
+        (kv-apply-batch target-database batch))
+      (is
+       (not
+        (nth-value
+         1
+         (ethereum-lisp.trie:trie-node-store-get
+          target-database (car omitted)))))
+      (let ((completed
+              (ethereum-lisp.snap-sync::snap-sync-heal-state
+               target-database (list source) progress 350
+               :on-heal-progress
+               (lambda (snapshot)
+                 (when
+                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                      snapshot)
+                   (setf fetched
+                         (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                          snapshot)))))))
+        (is
+         (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed)))
+      (is (plusp fetched))
+      (multiple-value-bind (encoded present-p)
+          (ethereum-lisp.trie:trie-node-store-get
+           target-database (car omitted))
+        (is present-p)
+        (is (plusp (length encoded)))))))
 
 (deftest snap-state-healer-does-not-reuse-account-node-marker-absence
   (:layer :integration :module :p2p)

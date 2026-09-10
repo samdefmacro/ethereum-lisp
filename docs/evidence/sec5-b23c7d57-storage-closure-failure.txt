@@ -1,0 +1,36 @@
+Section 5 Hoodi SNAP storage-closure failure evidence
+
+Observed at: 2026-09-10T04:32Z (read-only inspection)
+Remote host: test-ethereum-server (10-7-47-31)
+Container: hoodi-el-sec5-b23c7d57-r2
+Container id: 623848c17d6636d86ef19e5214d81c15a79c588023b1b564a84808ed3515a1af
+Revision: b23c7d57d0a2b054fbb3a5200186ca123361f85c
+Image tag: ethereum-lisp-runtime:sec5-b23c7d57-amd64
+Datadir: /data/hoodi-sec5-20260814/datadir-b23c7d57-r2
+Finished: 2026-09-10T04:32:51.538746563Z
+Exit: code 1, OOMKilled=false
+
+Terminal SNAP milestone at 2026-09-10T04:32:24.818485229Z:
+  pivot=3593969
+  processedNodes=813469
+  reusedNodes=1102443
+  fetchedNodes=58508
+  requests=617
+  nodeBytes=12544984
+  promotedSubtrees=0
+  skippedSubtrees=1752524
+  frontierWorks=0
+  deferredStorageWorks=0
+  remoteWorks=0
+  knownIncompleteNodes=0
+  etaStatus=completed
+  completed=T
+
+Terminal failure at 2026-09-10T04:32:51.137599763Z:
+  Persisted trie node 0x5dc44bdf14088b1ff8045b6f220e93ec64d5d513af2cf75a7d5c3a03dccb5b95 is missing
+
+No peer.snap.target_completed event was present before exit. Engine newPayload and forkchoice responses remained SYNCING. This proves the visible healer frontier completed, but does not prove durable descendant closure, canonical bounded-tail execution, or eth_syncing=false.
+
+A focused integration regression reconstructs the unsafe storage case: it retains a content-addressed storage root and the rest of its persisted trie, omits one descendant, enables the complete-node marker scheme, and leaves the retained parent without an incomplete marker. The deployed logic treated that marker absence as subtree closure, reported zero fetched nodes, and left the descendant absent. The repair makes marker presence a conservative traversal instruction only; marker absence is not closure proof for either account or storage nodes. The same regression seeds the deployed revision's obsolete storage-root proof namespace and verifies that an upgrade ignores it, fetches the missing descendant, and persists it. Only proofs in the new storage namespaces remain skip boundaries.
+
+This is failure and local regression evidence, not live completion evidence. The repaired revision must pass repository gates, be built as an exact amd64 artifact, and enter a fresh independently authorized Hoodi deployment before it can establish live closure.
