@@ -661,3 +661,40 @@
         (is (string= "0x14" (field (first responses) "result")))
         (is (string= "0x78" (field (second responses) "result")))
         (is (equal '("0x5" "0x14" "0x14") rewards))))))
+
+(deftest eth-rpc-blob-base-fee-reports-the-current-head-fee
+  ;; Geth v1.17.4 `EthereumAPI.BlobBaseFee` reports the current head's fee,
+  ;; and `eip4844.CalcBlobFee` applies that head's own excess blob gas.  Choose
+  ;; values for which incorrectly deriving the successor excess would differ.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :cancun-time 0))
+           (update-fraction +blob-base-fee-update-fraction+)
+           (excess-blob-gas (* 2 update-fraction))
+           (header
+             (make-block-header
+              :number 1
+              :timestamp 1
+              :gas-limit 30000000
+              :gas-used 0
+              :base-fee-per-gas 7
+              :blob-gas-used 0
+              :excess-blob-gas excess-blob-gas))
+           (block (make-block :header header)))
+      (chain-store-put-block store block :state-available-p t)
+      (let* ((response
+               (parse-json
+                (engine-rpc-handle-request-json
+                 "{\"jsonrpc\":\"2.0\",\"id\":305,\"method\":\"eth_blobBaseFee\",\"params\":[]}"
+                 store config)))
+             (result (field response "result"))
+             (current-fee
+               (block-header-blob-base-fee
+                header :update-fraction update-fraction))
+             (successor-fee
+               (blob-base-fee
+                (expected-excess-blob-gas header)
+                :update-fraction update-fraction)))
+        (is (/= current-fee successor-fee))
+        (is (string= (quantity-to-hex current-fee) result))))))

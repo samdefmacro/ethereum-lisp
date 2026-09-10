@@ -177,7 +177,7 @@ RPC-01 records the now-resolved reporting gap that used to affect one of the nin
 | `eth_protocolVersion` | yes | yes | full | — |
 | `eth_gasPrice` | yes | yes | partial | Base fee plus a hardcoded zero tip (RPC-21). |
 | `eth_maxPriorityFeePerGas` | yes | yes | partial | Always `0x0` (RPC-21). |
-| `eth_blobBaseFee` | yes | yes | partial | Present; whether it reports head or head+1 is UNVERIFIED (RPC-22). |
+| `eth_blobBaseFee` | yes | yes | full | Reports the current head fee, matching geth v1.17.4 (RPC-22). |
 | `eth_baseFee` | no | yes | full | Nethermind extension. |
 | `eth_feeHistory` | yes | yes | partial | `reward` percentiles derive from the zero tip (RPC-21). |
 | `eth_getBalance` | yes | yes | full | — |
@@ -542,16 +542,18 @@ tip to pay is told zero, producing transactions no builder has reason to include
 (`src/api/public/metadata/fee-history.lisp`), so the fallback path most wallets
 use is equally uninformative.
 
-**RPC-22 — `eth_blobBaseFee` may be off by one block.**
-Verdict UNVERIFIED. Severity correctness if real.
-Ours: `engine-rpc-handle-eth-blob-base-fee`
-(`src/api/public/metadata/fees.lisp:42-56`) computes
-`block-header-blob-base-fee` from the head header. geth computes the fee for the
-*next* block from the head's `excessBlobGas`. Whether
-`block-header-blob-base-fee` applies the update fraction to the header's own
-excess gas or to the successor's was not established, so whether the two agree is
-unresolved. Cheap to settle with one eval against the warm image; left
-unverified rather than asserted.
+**RPC-22 — `eth_blobBaseFee` reports the current head fee.**
+Verdict RESOLVED. Severity correctness.
+`engine-rpc-handle-eth-blob-base-fee`
+(`src/api/public/metadata/fees.lisp`) applies the active schedule to the latest
+header's own `excessBlobGas`. This matches geth v1.17.4:
+`EthAPIBackend.BlobBaseFee` selects `CurrentHeader()` and passes it to
+`eip4844.CalcBlobFee` (`eth/api_backend.go:457-461`), whose implementation
+selects the header timestamp's blob schedule and applies that same header's
+`ExcessBlobGas` (`consensus/misc/eip4844/eip4844.go:173-179`). The regression
+uses values for which deriving the successor excess would return a different
+integer fee; a temporary mutation to that plausible wrong source makes the
+focused test fail.
 
 ### Filters and subscriptions
 
@@ -919,7 +921,6 @@ Left unverified within this area, and named rather than glossed:
   `gasUsed` accounts for the list itself as geth's does.
 - **`eth_getRawTransactionByHash`** and the `debug_getRaw*` family: presence
   confirmed, encoding not compared byte for byte against geth's.
-- **`eth_blobBaseFee`** head-versus-successor question (RPC-22).
 - **Prepared-payload cache bounds** (RPC-08): whether
   `src/storage/chain-store/service/cache.lisp` caps the number of stored prepared
   payloads was not established, so the memory consequence of transaction-derived

@@ -210,7 +210,6 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [RPC-18](rpc-and-engine.md) | rpc | MISSING | correctness | Blob-transaction receipts omit `blobGasUsed` and `blobGasPrice`. |
 | [RPC-19](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The header field is named `balHash` where Nethermind's is `BlockAccessListHash`, so a reader silently sees no commitment. |
 | [RPC-21](rpc-and-engine.md) | rpc | DIVERGENT | correctness | No gas-price oracle: `eth_maxPriorityFeePerGas` is always `0x0` and `eth_feeHistory`'s rewards inherit the zero. |
-| [RPC-22](rpc-and-engine.md) | rpc | UNVERIFIED | correctness | `eth_blobBaseFee` may report the head's fee where geth reports the next block's. One eval settles it. |
 | [RPC-24](rpc-and-engine.md) | rpc | DIVERGENT | correctness | `logs` subscriptions never report removed logs and skip logs across a deep reorg, though the filter path does this correctly. |
 | [RPC-34](rpc-and-engine.md) | rpc | DIVERGENT | correctness | An unhandled handler condition becomes HTTP 400 with the condition printed into a non-JSON body, discarding a whole batch. |
 | [POOL-04](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | The minimum-fee check reads the fee cap, not the effective tip, so a zero-tip transaction passes the price floor. |
@@ -1156,11 +1155,11 @@ Protects: liveness, which is a precondition for every correctness principle.
 
 **W41 — Hygiene and recorded decisions. (S)**
 Closes `EXEC-08`, `EXEC-09`, `EXEC-10`, `EXEC-13`, `EXEC-16`, `STORE-09`,
-`RPC-22`, `RPC-26`, `RPC-32`, `NET-24`. Depends on nothing. Make the header RLP
+`RPC-26`, `RPC-32`, `NET-24`. Depends on nothing. Make the header RLP
 encoder positional; give `receipt` a type field or unexport `receipt-list-root`;
 resolve `EXEC-09` against `ethereum/execution-specs` and record the answer in a
-comment; record `EXEC-08`'s and `EXEC-10`'s deliberate asymmetries; settle
-`RPC-22` with one eval; return an error for an unknown `blockHash`; use `×` in
+comment; record `EXEC-08`'s and `EXEC-10`'s deliberate asymmetries; return an
+error for an unknown `blockHash`; use `×` in
 `txpool_inspect`; and update `docs/reference-map.md` per the note at the end of
 this document. Verification: a case per change; `rpc-compat` for the two RPC
 items.
@@ -1339,21 +1338,20 @@ remediation.
 | 1 | `EVM-10`, `EVM-11`, `EVM-12` | Benchmark memory growth one word at a time to ~10⁵ words, pushes to the 1024 limit, and a tight jump loop at the end of a 24,576-byte contract, at a 30,000,000-gas budget | **Severity and ordering both.** One of these could be the single largest practical problem in the EVM, or a non-issue at realistic gas limits. W40 should not be scheduled before this |
 | 2 | `STORE-03` | Search for a transaction sequence that routes an all-zero account through `state-db-set-account` without a non-zero nonce or non-empty code hash | **Severity.** Latent structural divergence today; a reachable trigger makes it consensus-breaking |
 | 3 | `EVM-15` | Compare `block-header-post-merge-p` against geth's `IsMerge` on every header the import path can construct, including a terminal-block header, and check what call simulation's hardcoded `:random-p t` does for a pre-merge block | **Severity.** Completeness today; a disagreement makes `0x44` push a wrong value |
-| 4 | `RPC-22` | One eval: does `block-header-blob-base-fee` apply the update fraction to the header's own excess gas or to its successor's? | **Verdict.** Becomes a correctness finding or a recorded non-gap |
-| 5 | `RPC-08` | Inspect whether `src/storage/chain-store/service/cache.lisp` bounds the number of stored prepared payloads | **Severity.** A stated risk becomes a memory-exhaustion fact reachable by a busy pool |
-| 6 | `NET-11` | Evaluate `rlpx-negotiate-capabilities` against geth's and Nethermind's real advertised version sets | Confirms the latent trap before W31 or W36 touches capability negotiation. Must be settled *before* a second capability is added, not after |
-| 7 | `NET-01` | Feed a depth-21700 body through an `eth`-wire decoder end to end, not only through the handshake budget arithmetic | Nothing in the trace suggests it would not fire; this closes the last gap in the demonstration |
-| 8 | `BUILD-01`, `BUILD-02` | Build a payload with a poisoned pending list and observe what `forkchoiceUpdated` returns in each of the two failure classes; admit a transaction inside the base-fee window and attempt a build | Converts the two highest-severity building findings from source-read to executed. Coordinator fact 2 already confirms the condition-hierarchy half |
-| 9 | `POOL-07` | Inspect a node's `txpool-admission-policy` struct after startup with no `--txpool.*` flags | Confirms the `NIL`-default reading that `POOL-07`, `POOL-09` and `POOL-10` all rest on |
-| 10 | `STORE-16` | Enumerate every caller to establish whether any configuration splits one logical export across multiple `kv-apply-batch` calls | **Durability claim.** The end-to-end atomicity argument holds for the two entry points read; it is not established for all callers |
-| 11 | `EXEC-15` | Settle the state-test generator expansion count and the list of `v5.4.0` families not selected | Both are settled as a side effect of W6 |
-| 12 | `EXEC-02` | Determine whether `ommer-block-reward` can go negative for an uncle more than eight blocks below the header, and what `state-db` does | Adds a failure mode to `EXEC-02` if pre-merge stays in scope |
-| 13 | `EXEC-10` | Determine whether the withdrawals-before-requests ordering is observable for any predeploy other than the canonical EIP-7002 and EIP-7251 bytecode | **Verdict.** A structural difference becomes a divergence or is closed |
-| 14 | `EXEC-09` | Read `ethereum/execution-specs` on whether a checked request system call must fail the block | Settles a direction, not a magnitude. Record the answer in a comment either way |
-| 15 | `OPS-03` | Two processes on one datadir on a real filesystem — not an eval | Establishes whether concurrent writes corrupt or whether the generation check catches it. Does not change the need for the lock |
-| 16 | `OPS-01` | Re-derive the 56-flag count mechanically rather than by comparing lists by hand | The count may be slightly high if a flag is consumed in `init.lisp`'s separate parser. Five spot checks already confirmed |
-| 17 | `RPC-15` and neighbours | Compare the result shapes of `eth_getProof`, `eth_createAccessList`, `eth_getRawTransactionByHash` and the `debug_getRaw*` family byte for byte against geth's | Could turn three "presence confirmed" cells into divergences |
-| 18 | `STORE-14` | Real crash behaviour: kill a process mid-`fsync` | The code path is right by inspection, which is not the same as verified. Required for D1 either way |
+| 4 | `RPC-08` | Inspect whether `src/storage/chain-store/service/cache.lisp` bounds the number of stored prepared payloads | **Severity.** A stated risk becomes a memory-exhaustion fact reachable by a busy pool |
+| 5 | `NET-11` | Evaluate `rlpx-negotiate-capabilities` against geth's and Nethermind's real advertised version sets | Confirms the latent trap before W31 or W36 touches capability negotiation. Must be settled *before* a second capability is added, not after |
+| 6 | `NET-01` | Feed a depth-21700 body through an `eth`-wire decoder end to end, not only through the handshake budget arithmetic | Nothing in the trace suggests it would not fire; this closes the last gap in the demonstration |
+| 7 | `BUILD-01`, `BUILD-02` | Build a payload with a poisoned pending list and observe what `forkchoiceUpdated` returns in each of the two failure classes; admit a transaction inside the base-fee window and attempt a build | Converts the two highest-severity building findings from source-read to executed. Coordinator fact 2 already confirms the condition-hierarchy half |
+| 8 | `POOL-07` | Inspect a node's `txpool-admission-policy` struct after startup with no `--txpool.*` flags | Confirms the `NIL`-default reading that `POOL-07`, `POOL-09` and `POOL-10` all rest on |
+| 9 | `STORE-16` | Enumerate every caller to establish whether any configuration splits one logical export across multiple `kv-apply-batch` calls | **Durability claim.** The end-to-end atomicity argument holds for the two entry points read; it is not established for all callers |
+| 10 | `EXEC-15` | Settle the state-test generator expansion count and the list of `v5.4.0` families not selected | Both are settled as a side effect of W6 |
+| 11 | `EXEC-02` | Determine whether `ommer-block-reward` can go negative for an uncle more than eight blocks below the header, and what `state-db` does | Adds a failure mode to `EXEC-02` if pre-merge stays in scope |
+| 12 | `EXEC-10` | Determine whether the withdrawals-before-requests ordering is observable for any predeploy other than the canonical EIP-7002 and EIP-7251 bytecode | **Verdict.** A structural difference becomes a divergence or is closed |
+| 13 | `EXEC-09` | Read `ethereum/execution-specs` on whether a checked request system call must fail the block | Settles a direction, not a magnitude. Record the answer in a comment either way |
+| 14 | `OPS-03` | Two processes on one datadir on a real filesystem — not an eval | Establishes whether concurrent writes corrupt or whether the generation check catches it. Does not change the need for the lock |
+| 15 | `OPS-01` | Re-derive the 56-flag count mechanically rather than by comparing lists by hand | The count may be slightly high if a flag is consumed in `init.lisp`'s separate parser. Five spot checks already confirmed |
+| 16 | `RPC-15` and neighbours | Compare the result shapes of `eth_getProof`, `eth_createAccessList`, `eth_getRawTransactionByHash` and the `debug_getRaw*` family byte for byte against geth's | Could turn three "presence confirmed" cells into divergences |
+| 17 | `STORE-14` | Real crash behaviour: kill a process mid-`fsync` | The code path is right by inspection, which is not the same as verified. Required for D1 either way |
 
 Two items the six documents list as unverified are already **settled**, and should
 not be re-run:
