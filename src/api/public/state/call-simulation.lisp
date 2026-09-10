@@ -118,49 +118,64 @@ move first, remove the original precompile, then apply ordinary account fields."
                       (gethash destination-key moved-destinations) t)))
             (when precompile-p
               (remhash address-key precompile-contracts)))
-          (when (and (json-object-field-present-p override "state")
-                     (json-object-field-present-p override "stateDiff"))
-            (block-validation-fail
-             "~A account override cannot contain both state and stateDiff"
-             method))
-          (let* ((account (or (state-db-get-account state address)
-                              (make-state-account)))
-                 (nonce
-                   (if (json-object-field-present-p override "nonce")
-                       (parse-json-quantity
-                        (json-object-field override "nonce")
-                        "state override nonce" :required-p t)
-                       (state-account-nonce account)))
-                 (balance
-                   (if (json-object-field-present-p override "balance")
-                       (parse-json-quantity
-                        (json-object-field override "balance")
-                        "state override balance" :required-p t)
-                       (state-account-balance account)))
-                 (code
-                   (if (json-object-field-present-p override "code")
-                       (json-rpc-bytes
-                        (json-object-field override "code")
-                        "state override code")
-                       (state-db-get-code state address)))
-                 (state-object
-                   (when (json-object-field-present-p override "state")
-                     (json-object-field override "state")))
-                 (state-diff
-                   (when (json-object-field-present-p override "stateDiff")
-                     (json-object-field override "stateDiff"))))
-            (when state-object
-              (unless (json-object-p state-object)
+          (let ((nonce-p (json-object-field-present-p override "nonce"))
+                (balance-p (json-object-field-present-p override "balance"))
+                (code-p (json-object-field-present-p override "code"))
+                (state-p (json-object-field-present-p override "state"))
+                (state-diff-p
+                  (json-object-field-present-p override "stateDiff")))
+            ;; Moving or masking a precompile does not itself create a state
+            ;; account. Explicit account fields retain geth's ordinary setter
+            ;; semantics, including creation by empty code or storage values.
+            (when (or nonce-p balance-p code-p state-p state-diff-p)
+              (when (and state-p state-diff-p)
                 (block-validation-fail
-                 "~A state override state must be an object" method))
-              (state-db-clear-account state address))
-            (state-db-set-account
-             state address
-             (make-state-account :nonce nonce :balance balance))
-            (state-db-set-code state address code)
-            (dolist (storage-entry (or state-object state-diff))
-              (eth-rpc-override-storage-entry
-               state address (car storage-entry) (cdr storage-entry) method)))))
+                 "~A account override cannot contain both state and stateDiff"
+                 method))
+              (let* ((account (or (state-db-get-account state address)
+                                  (make-state-account)))
+                     (nonce
+                       (if nonce-p
+                           (parse-json-quantity
+                            (json-object-field override "nonce")
+                            "state override nonce" :required-p t)
+                           (state-account-nonce account)))
+                     (balance
+                       (if balance-p
+                           (parse-json-quantity
+                            (json-object-field override "balance")
+                            "state override balance" :required-p t)
+                           (state-account-balance account)))
+                     (code
+                       (if code-p
+                           (json-rpc-bytes
+                            (json-object-field override "code")
+                            "state override code")
+                           (state-db-get-code state address)))
+                     (state-object
+                       (and state-p (json-object-field override "state")))
+                     (state-diff
+                       (and state-diff-p
+                            (json-object-field override "stateDiff"))))
+                (when state-p
+                  (unless (json-object-p state-object)
+                    (block-validation-fail
+                     "~A state override state must be an object" method))
+                  (state-db-clear-account state address))
+                (when state-diff-p
+                  (unless (json-object-p state-diff)
+                    (block-validation-fail
+                     "~A state override stateDiff must be an object" method)))
+                (state-db-set-account
+                 state address
+                 (make-state-account :nonce nonce :balance balance))
+                (state-db-set-code state address code)
+                (let ((storage-overrides (or state-object state-diff)))
+                  (unless (json-empty-object-p storage-overrides)
+                    (dolist (storage-entry storage-overrides)
+                      (eth-rpc-override-storage-entry
+                       state address (car storage-entry) (cdr storage-entry)
+                       method)))))))))
       state)))
 
 (defun eth-rpc-block-override-quantity

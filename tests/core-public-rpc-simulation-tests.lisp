@@ -3386,6 +3386,93 @@
             (state-db-root state))
       (chain-store-put-block store block :state-available-p t)
       (commit-state-db-to-chain-store store (block-hash block) state)
+      (dolist (case
+               (list
+                (list
+                 299 t
+                 (list
+                  (cons identity
+                        (list
+                         (cons "movePrecompileToAddress" destination)))))
+                (list
+                 300 nil
+                 (list
+                  (cons identity
+                        (list
+                         (cons "code" "0x")
+                         (cons "movePrecompileToAddress" destination)))))
+                (list
+                 301 nil
+                 (list
+                  (cons identity
+                        (list
+                         (cons "state"
+                               ethereum-lisp.json:+json-empty-object+)
+                         (cons "movePrecompileToAddress" destination)))))
+                (list
+                 302 nil
+                 (list
+                  (cons identity
+                        (list
+                         (cons
+                          "stateDiff"
+                          (list
+                           (cons
+                            "0x0000000000000000000000000000000000000000000000000000000000000001"
+                            "0x0000000000000000000000000000000000000000000000000000000000000000")))
+                         (cons "movePrecompileToAddress" destination)))))))
+        (destructuring-bind (id unchanged-p overrides) case
+          (let* ((response
+                   (request
+                    id
+                    (list (cons "stateOverrides" overrides))
+                    store config))
+                 (result (field response "result"))
+                 (result-root (field (first result) "stateRoot"))
+                 (base-root
+                   (bytes-to-hex (hash32-bytes (state-db-root state)))))
+            (is (null (field response "error")))
+            (if unchanged-p
+                (is (string= base-root result-root))
+                (is (not (string= base-root result-root)))))))
+      (let* ((malformed-response
+               (request
+                298
+                (list
+                 (cons
+                  "stateOverrides"
+                  (list
+                   (cons identity (list (cons "stateDiff" "not-an-object"))))))
+                store config))
+             (malformed-error (field malformed-response "error")))
+        (is (null (field malformed-response "result")))
+        (is (= -32602 (field malformed-error "code"))))
+      (let* ((duplicate-response
+               (request
+                300
+                (list
+                 (cons
+                  "stateOverrides"
+                  (list
+                   (cons
+                    "0x0000000000000000000000000000000000000001"
+                    (list (cons "movePrecompileToAddress" destination)))
+                   (cons
+                    "0x0000000000000000000000000000000000000002"
+                    (list (cons "movePrecompileToAddress" destination)))))
+                 (cons
+                  "calls"
+                  (list
+                   (list (cons "from" sender)
+                         (cons "to" destination)
+                         (cons "input" "0x1234")))))
+                store config))
+             (duplicate-result (field duplicate-response "result"))
+             (duplicate-calls (field (first duplicate-result) "calls")))
+        (is (null (field duplicate-response "error")))
+        (is (string=
+             "0x3a103a4e5729ad68c02a678ae39accfbc0ae208096437401b7ceab63cca0622f"
+             (field (first duplicate-calls) "returnData"))))
       (setf move-response
             (request
              301
