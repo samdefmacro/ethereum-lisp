@@ -1771,7 +1771,11 @@
         (is (string= (field result "hash")
                      (field successor "parentHash")))
         (is (string= simulated-miner (field successor "miner")))
-        (is (string= simulated-randao (field successor "mixHash")))
+        ;; MakeHeader applies prevRandao only to the block which carries the
+        ;; override. Its successor starts from a fresh header and therefore
+        ;; defaults an omitted mix digest to zero rather than inheriting it.
+        (is (string= (hash32-to-hex (zero-hash32))
+                     (field successor "mixHash")))
         ;; Post-Merge synthetic headers reset an omitted difficulty to zero.
         (is (string= "0x0" (field successor "difficulty")))
         (is (string= (address-word-hex (address-from-hex simulated-miner))

@@ -1187,8 +1187,10 @@ and bloom before the hash is exposed."
                         (prev-randao
                           (eth-rpc-block-override-hash
                            block-overrides "prevRandao"
-                           (or (block-header-mix-hash parent-header)
-                               (zero-hash32))))
+                           ;; Geth MakeHeader starts each synthetic header with
+                           ;; no mix digest. Unlike coinbase and gas limit,
+                           ;; prevRandao is not inherited from the parent.
+                           (zero-hash32)))
                         (parent-beacon-root
                           (eth-rpc-block-override-hash
                            block-overrides "beaconRoot" (zero-hash32)))
