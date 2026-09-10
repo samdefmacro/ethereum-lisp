@@ -27,6 +27,25 @@
   (is (null (ethereum-lisp.engine-api::engine-rpc-withdrawals-field
              (list (cons "withdrawals" ethereum-lisp.json:+json-null+))))))
 
+(deftest engine-get-payload-rejects-invalid-arity-before-store-lookup
+  ;; Execution APIs e5d1bb60 defines exactly one required PayloadId parameter
+  ;; for every getPayload version.  A trailing parameter is invalid params, not
+  ;; an Unknown payload response produced after looking up the first argument.
+  (let ((store (make-engine-payload-memory-store))
+        (config (make-chain-config)))
+    (dolist (params (list '() (list "0x0200000000000000" nil)))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 2001)
+                      (cons "method" "engine_getPayloadV1")
+                      (cons "params" params))
+                store config))
+             (error (cdr (assoc "error" response :test #'string=))))
+        (is (= -32602 (cdr (assoc "code" error :test #'string=))))
+        (is (search "exactly one payload id"
+                    (cdr (assoc "message" error :test #'string=))))))))
+
 (deftest engine-prepared-payload-amsterdam-derives-bal-instead-of-supplying-empty
   (let* ((config
            (make-chain-config :chain-id 1 :london-block 0

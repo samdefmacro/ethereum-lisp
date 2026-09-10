@@ -14,8 +14,9 @@
     payload-id))
 
 (defun engine-rpc-prepared-payload (params store config method)
-  (unless (and (listp params) params)
-    (block-validation-fail "~A params must include payload id" method))
+  (unless (and (listp params) (= 1 (length params)))
+    (block-validation-fail
+     "~A params must contain exactly one payload id" method))
   (let* ((payload-id
            (engine-rpc-payload-id-from-value
             (json-rpc-required-param
