@@ -28,9 +28,8 @@
                          (engine-rpc-http-service-rpc-context service)
                          :jwt-secret
                          (engine-rpc-http-service-jwt-secret service)
-                         :now
-                         (funcall
-                          (engine-rpc-http-service-now-provider service))
+                         :now-provider
+                         (engine-rpc-http-service-now-provider service)
                          :rpc-prefix
                          (engine-rpc-http-service-rpc-prefix service)
                          :cors-origins

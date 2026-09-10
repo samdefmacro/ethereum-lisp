@@ -142,7 +142,7 @@
 
 (defun rpc-http-handle-stream
     (input-stream output-stream context
-     &key jwt-secret now
+     &key jwt-secret now now-provider
           (rpc-prefix "/")
           cors-origins
           allowed-hosts
@@ -170,7 +170,11 @@
                   (rpc-http-handle-request
                    request context
                    :jwt-secret jwt-secret
-                   :now now
+                   ;; Sample a live service clock only after the potentially
+                   ;; blocking request intake.  A fresh JWT must not age, or
+                   ;; appear to come from the future, while an idle keep-alive
+                   ;; connection waits for its next request.
+                   :now (if now-provider (funcall now-provider) now)
                    :rpc-prefix rpc-prefix
                    :cors-origins cors-origins
                    :allowed-hosts allowed-hosts))))

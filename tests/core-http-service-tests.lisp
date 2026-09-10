@@ -882,6 +882,60 @@ Content-Type: application/json
       (is (< first-response keep-alive second-response close))
       (is (search "Connection: close" returned)))))
 
+#+sbcl
+(defclass engine-rpc-http-clock-advancing-input-stream
+    (sb-gray:fundamental-character-input-stream)
+  ((delegate :initarg :delegate
+             :reader engine-rpc-http-clock-advancing-delegate)
+   (advance-clock :initarg :advance-clock
+                  :reader engine-rpc-http-clock-advancing-function)
+   (advanced-p :initform nil
+               :accessor engine-rpc-http-clock-advanced-p)))
+
+#+sbcl
+(defmethod sb-gray:stream-read-char
+    ((stream engine-rpc-http-clock-advancing-input-stream))
+  (unless (engine-rpc-http-clock-advanced-p stream)
+    (setf (engine-rpc-http-clock-advanced-p stream) t)
+    (funcall (engine-rpc-http-clock-advancing-function stream)))
+  (read-char (engine-rpc-http-clock-advancing-delegate stream) nil :eof))
+
+#+sbcl
+(deftest engine-rpc-http-samples-jwt-clock-after-request-intake
+  ;; A persistent Engine connection may sit idle for longer than JWT's 60-second
+  ;; freshness window.  Sampling NOW before the blocking read then rejects the
+  ;; fresh token which the consensus client creates when it sends the request.
+  (labels ((http-status (response)
+             (parse-integer response :start 9 :end 12)))
+    (let* ((secret (make-byte-vector 32 :initial-element #x5a))
+           (now 100)
+           (provider-calls 0)
+           (body
+             "{\"jsonrpc\":\"2.0\",\"id\":24,\"method\":\"engine_exchangeCapabilities\",\"params\":[[]]}")
+           (token (engine-rpc-make-jwt-token secret 200))
+           (request
+             (format nil
+                     "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Authorization: Bearer ~A~%Connection: close~%Content-Length: ~D~%~%~A"
+                     token (length body) body))
+           (input
+             (make-instance 'engine-rpc-http-clock-advancing-input-stream
+                            :delegate (make-string-input-stream request)
+                            :advance-clock (lambda () (setf now 200))))
+           (output (make-string-output-stream))
+           (service
+             (make-engine-rpc-http-service
+              :jwt-secret secret
+              :now-provider (lambda ()
+                              (incf provider-calls)
+                              now)))
+           (response
+             (engine-rpc-http-service-handle-stream service input output)))
+      (is (engine-rpc-http-clock-advanced-p input))
+      (is (= 1 provider-calls))
+      (is (= 200 now))
+      (is (= 200 (http-status response)))
+      (is (search "\"id\":24" response)))))
+
 (deftest engine-rpc-http-default-importer-fails-closed
   (multiple-value-bind (store config parent-block child-block)
       (new-payload-persistence-test-fixture)
