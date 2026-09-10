@@ -46,6 +46,50 @@
         (is (search "exactly one payload id"
                     (cdr (assoc "message" error :test #'string=))))))))
 
+(deftest engine-forkchoice-updated-rejects-invalid-positional-arity
+  ;; V1-V3 accept state plus optional attributes.  Amsterdam V4 additionally
+  ;; accepts optional custodyColumns; values after each version's signature are
+  ;; invalid before any forkchoice state can be applied.
+  (let ((state
+          (list
+           (cons "headBlockHash" (hash32-to-hex (zero-hash32)))
+           (cons "safeBlockHash" (hash32-to-hex (zero-hash32)))
+           (cons "finalizedBlockHash" (hash32-to-hex (zero-hash32)))))
+        (store (make-engine-payload-memory-store))
+        (config (make-chain-config)))
+    (dolist (request
+             (list
+              (list "engine_forkchoiceUpdatedV1"
+                    (list state ethereum-lisp.json:+json-null+ nil))
+              (list "engine_forkchoiceUpdatedV2"
+                    (list state ethereum-lisp.json:+json-null+ nil))
+              (list "engine_forkchoiceUpdatedV3"
+                    (list state ethereum-lisp.json:+json-null+ nil))
+              (list "engine_forkchoiceUpdatedV4"
+                    (list state ethereum-lisp.json:+json-null+
+                          ethereum-lisp.json:+json-null+ nil))))
+      (destructuring-bind (method params) request
+        (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 2002)
+                      (cons "method" method)
+                      (cons "params" params))
+                store config))
+             (error (cdr (assoc "error" response :test #'string=))))
+          (is (= -32602 (cdr (assoc "code" error :test #'string=)))))))
+    (let ((response
+            (engine-rpc-handle-request
+             (list (cons "jsonrpc" "2.0")
+                   (cons "id" 2003)
+                   (cons "method" "engine_forkchoiceUpdatedV4")
+                   (cons "params"
+                         (list state ethereum-lisp.json:+json-null+
+                               ethereum-lisp.json:+json-null+)))
+             store config)))
+      (is (assoc "result" response :test #'string=))
+      (is (null (assoc "error" response :test #'string=))))))
+
 (deftest engine-prepared-payload-amsterdam-derives-bal-instead-of-supplying-empty
   (let* ((config
            (make-chain-config :chain-id 1 :london-block 0

@@ -370,9 +370,11 @@ for the rest of this payload; other senders are still considered."
 (defun engine-rpc-handle-forkchoice-updated
     (params store config method payload-version payload-attributes-parser
      &key forkchoice-persistence-function gas-limit-target
-          payload-improvement-notification-function)
-  (unless (and (listp params) params)
-    (block-validation-fail "~A params must include forkchoice state" method))
+          payload-improvement-notification-function (max-params 2))
+  (unless (and (listp params) (<= 1 (length params) max-params))
+    (block-validation-fail
+     "~A params must contain forkchoice state and optional payload attributes"
+     method))
   (let ((state
           (engine-rpc-forkchoice-state-from-object
            (json-rpc-required-param
@@ -571,6 +573,7 @@ for the rest of this payload; other senders are still considered."
   (engine-rpc-handle-forkchoice-updated
    params store config "engine_forkchoiceUpdatedV4" 4
    #'engine-rpc-validate-payload-attributes-v4
+   :max-params 3
    :forkchoice-persistence-function forkchoice-persistence-function
    :payload-improvement-notification-function
    payload-improvement-notification-function
