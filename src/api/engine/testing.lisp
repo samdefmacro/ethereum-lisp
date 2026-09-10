@@ -17,7 +17,8 @@
      (block-validation-fail
       "~A transactions must be an array or null" method))))
 
-(defun engine-rpc-handle-testing-build-block-v1 (params store config)
+(defun engine-rpc-handle-testing-build-block-v1
+    (params store config &key gas-limit-target)
   "Build the execution-apis testing payload without publishing chain state."
   (let ((method "testing_buildBlockV1"))
     (unless (<= 3 (length params) 4)
@@ -51,10 +52,12 @@
                   (if pool-request-p
                       (engine-rpc-build-viable-prepared-payload
                        store parent attributes config transactions
+                       :gas-limit-target gas-limit-target
                        :extra-data extra-data)
                       (multiple-value-bind (exact-block receipts exact-state)
                           (engine-rpc-build-prepared-payload
                            store parent attributes config transactions
+                           :gas-limit-target gas-limit-target
                            :extra-data extra-data)
                         (declare (ignore receipts))
                         (values exact-block transactions exact-state)))

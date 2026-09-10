@@ -1742,7 +1742,8 @@
               store config
               :allowed-method-p
               (ethereum-lisp.cli::devnet-cli-public-api-method-filter
-               (list "testing"))))
+               (list "testing"))
+              :gas-limit-target 10000000))
            (attributes ()
              (list
               (cons "timestamp" "0x16")
@@ -1821,6 +1822,11 @@
           (is (string= parent-hex (field payload "parentHash")))
           (is (string= "0x1" (field payload "blockNumber")))
           (is (string= "0x16" (field payload "timestamp")))
+          (is (string=
+               (quantity-to-hex
+                (ethereum-lisp.engine-payloads:engine-target-gas-limit
+                 30000000 10000000))
+               (field payload "gasLimit")))
           (is (field result "blobsBundle"))
           (is (ethereum-lisp.json:json-empty-array-p
                (field result "executionRequests")))
@@ -1848,6 +1854,11 @@
                                 ethereum-lisp.json:+json-null+ "0x")
                           store config))
                (payload (field (field response "result") "executionPayload")))
-          (is (equal (list raw) (coerce (field payload "transactions") 'list))))
+          (is (equal (list raw) (coerce (field payload "transactions") 'list)))
+          (is (string=
+               (quantity-to-hex
+                (ethereum-lisp.engine-payloads:engine-target-gas-limit
+                 30000000 10000000))
+               (field payload "gasLimit"))))
         (is (hash32= parent-hash (chain-store-canonical-hash store 0)))
         (is (null (chain-store-canonical-hash store 1)))))))

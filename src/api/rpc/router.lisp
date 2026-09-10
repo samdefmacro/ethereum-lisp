@@ -176,7 +176,8 @@
    :txpool-lifetime-seconds
    (rpc-context-txpool-lifetime-seconds context)
    :admin-backend (rpc-context-admin-backend context)
-   :txpool-now (rpc-context-txpool-now context)))
+   :txpool-now (rpc-context-txpool-now context)
+   :gas-limit-target (rpc-context-gas-limit-target context)))
 
 (defun rpc-dispatch-method (id method params context)
   (if (funcall (rpc-context-allowed-method-p context) method)

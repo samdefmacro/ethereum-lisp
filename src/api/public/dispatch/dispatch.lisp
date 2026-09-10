@@ -15,6 +15,7 @@
           txpool-no-local-exemptions-p
           txpool-lifetime-seconds
           admin-backend
+          gas-limit-target
           (txpool-now 0))
   ;; Lifetime cleanup belongs to the node's periodic maintenance worker.  RPC
   ;; traffic must not be required for a private validator node to evict entries.
@@ -40,7 +41,8 @@
            :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
            :txpool-lifetime-seconds txpool-lifetime-seconds
            :admin-backend admin-backend
-           :txpool-now txpool-now)))
+           :txpool-now txpool-now
+           :gas-limit-target gas-limit-target)))
     (or
      (engine-rpc-handle-public-metadata-method context)
      (engine-rpc-handle-public-state-method context)

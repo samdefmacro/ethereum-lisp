@@ -19,6 +19,7 @@
                       txpool-no-local-exemptions-p
                       txpool-lifetime-seconds
                       txpool-now
+                      gas-limit-target
                       admin-backend)))
   id
   method
@@ -39,6 +40,7 @@
   txpool-no-local-exemptions-p
   txpool-lifetime-seconds
   txpool-now
+  gas-limit-target
   admin-backend)
 
 (defun public-rpc-dispatch-method-p (context name)
