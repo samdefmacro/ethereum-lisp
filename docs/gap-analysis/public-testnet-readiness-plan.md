@@ -401,6 +401,22 @@ The implementation boundary is split deliberately:
   proof namespaces are advanced so an upgrade cannot consume a proof published
   by the unsafe revision. This repair is locally tested and still requires
   exact-artifact live validation.
+
+  The same exact implementation revision `d9e0e2dd74ced0baddc63a0e43881c53be302df6`
+  passed the pinned stable `tests@v20.0.2` current-fork EEST executors on
+  `2026-09-10`. The checksum-matched corpus selected 15,393 state cases,
+  11,382 Engine blockchain-replay cases, and 10,257 RLP blockchain-replay
+  cases across the configured London-through-Osaka surface. Every selected
+  valid and invalid vector executed through its aggregate top-level gate;
+  manifests recorded zero unexpected skips, with only 579 named multi-payload
+  and 636 named format-inapplicable blockchain cases excluded as expected.
+  The adjacent cold-unit layer passed 1,337 tests with three optional,
+  corpus-inapplicable skips. Exact selectors, counts, hashes, retained-container
+  results, and the separately disclosed aggregate caller timeout are archived
+  in `docs/evidence/sec5-d9e0e2dd-eest-v20.0.2.txt`. This closes the stable
+  current-fork EEST prerequisite for this implementation revision, but not the
+  still-pending exact-revision Hive rerun or any live/soak gate.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

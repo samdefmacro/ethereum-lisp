@@ -1,0 +1,104 @@
+Section 5 current-fork EEST evidence
+
+Recorded: 2026-09-10T08:16:19Z
+Implementation revision: d9e0e2dd74ced0baddc63a0e43881c53be302df6
+Branch: sec5-public-bootstrap-sync
+Execution checkout: clean at the implementation revision before the fixture runs;
+local HEAD and origin/sec5-public-bootstrap-sync matched. These evidence-only
+documentation changes were added afterward.
+
+Corpus identity
+
+- Release: tests@v20.0.2
+- Upstream commit: abbe05777ab83fb94ce18c425daaa7ab79e779c1
+- Archive: fixtures.tar.gz
+- Observed and pinned SHA-256:
+  1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788
+- Mounted root:
+  /Users/sen/common-lisp/ethereum-lisp/.eest-fixtures-sec5-9ff52980/tests-v20.0.2
+
+Execution boundary
+
+`cl-workbench doctor --strict` passed before application tooling. Every fixture
+run used `cl-workbench validation run cold-*`; no host Lisp or unmanaged
+application toolchain was used. The current-fork selectors were:
+
+- state: auto; forks London, Shanghai, Cancun, Prague, Osaka
+- blockchain replay: auto; forks Shanghai, Cancun, Prague, Osaka
+
+Selection and skip manifest
+
+The current revision's cold-integration invocation emitted all six required
+manifest lines before its outer 420-second command window ended:
+
+- state_tests: discovered=15393, inScope=15393, selected=15393, skipped=0,
+  expectedSkipped=0, unexpectedSkipped=0; valid=14622, invalid=771;
+  London=1748, Shanghai=1904, Cancun=2686, Prague=4222, Osaka=4833.
+- blockchain_replay: discovered=11961, inScope=11961, selected=11382,
+  skipped=579, expectedSkipped=579, unexpectedSkipped=0; valid=10592,
+  invalid=790; Shanghai=2392, Cancun=3542, Prague=2587, Osaka=2861.
+  The 579 expected skips are named multi-payload chains.
+- blockchain_rlp: discovered=10893, inScope=10893, selected=10257,
+  skipped=636, expectedSkipped=636, unexpectedSkipped=0; valid=9623,
+  invalid=634; Shanghai=2372, Cancun=2913, Prague=2353, Osaka=2619.
+  Expected format exclusions are 515 multi-block chains and 121 fixtures whose
+  execution requests are not serialized in block RLP.
+
+The aggregate invocation was terminated by the caller timeout after printing
+those manifests and immediately before the long fixture execution tests; its
+retained container exited 143 and was not OOM-killed. It is selection/skip
+evidence only, not a passing aggregate gate.
+
+GREEN execution reruns
+
+The five fixture executors were then run separately with the same corpus and
+selectors. The state, late-fork valid Engine, and RLP executors were repeated
+as one fail-fast archived sequence; the Shanghai Engine executor and invalid
+Engine executor were captured in their own archived runs. All five completed
+with exit 0:
+
+- OPTIONAL-PHASE-A-EEST-STATE-TEST-ROOT-VECTORS-EXECUTE: 1 test passed.
+- OPTIONAL-PHASE-A-EEST-BLOCKCHAIN-REPLAY-EXECUTES: 1 test passed.
+- OPTIONAL-PHASE-A-EEST-ENGINE-LATE-PAYLOAD-REPLAY-EXECUTES: 1 test passed.
+- OPTIONAL-PHASE-A-EEST-ENGINE-PAYLOAD-REJECTION-EXECUTES: 1 test passed.
+- OPTIONAL-PHASE-A-EEST-BLOCKCHAIN-RLP-REPLAY-EXECUTES: 1 test passed.
+
+Together these top-level tests stream and validate the complete selected valid
+and invalid inventory represented by the manifests rather than sampling one
+vector. The retained rerun containers all exited 0 and were not OOM-killed.
+
+Adjacent gate
+
+The same revision's complete cold-unit layer passed 1,337 tests with 3 optional
+skips. The skips were the two corpus-inapplicable trie-root tests and the legacy
+v5.4.0 late-fork selector control; none is an unexpected skip in the selected
+v20.0.2 current-fork state/blockchain inventories.
+
+Durable logs
+
+- runtime/logical supervisor path:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/eest-d9e0e2dd-cold-unit-cycle29-r2.log
+  SHA-256: 3b23ec7809920bb65ecd4730e68a04c08e6176d0199c3d537278e7d2644eaaad
+- manifest-producing interrupted aggregate:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/eest-d9e0e2dd-cold-integration-cycle29.log
+  SHA-256: 6ffe2c0f839d01b53dea7449171732df51c373aac6224a0d692f0a22fed54378
+- fail-fast focused state/valid-Engine/RLP fixture execution sequence:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/eest-d9e0e2dd-focused-current-fork-cycle29.log
+  SHA-256: 02378520ee620237c7057926efa691c08612bfb1e290773bf96ab94dfea79fc2
+- focused Shanghai Engine V2 execution:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/eest-d9e0e2dd-engine-v2-cycle29.log
+  SHA-256: 641ad5b8f9b39892f7649c287c24d3b134334233c73dc3aa0c5444144b327df0
+- focused invalid Engine-payload execution:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/eest-d9e0e2dd-engine-rejection-cycle29.log
+  SHA-256: 384c505d0ae7fb1b713485dc77f944c6f40d9c62dbfb4cb89de1518fa5846057
+
+Scope and remaining gates
+
+This establishes the plan-required stable current-fork EEST gate for exact
+implementation revision d9e0e2dd with nonzero execution and zero unexpected
+skips. It does not establish Hive rpc-compat: the latest completed external run
+remains 232/234 at d1da4d54, while the two gas-limit failures have local fixes
+in 984fc8b8 and an exact d9e0e2dd rerun is prepared but not yet authorized.
+It also does not establish SNAP/healer completion, canonical execution through
+the authorized target, eth_syncing=false, the seven-day shadow comparison, or
+the fourteen-day validator soak.
