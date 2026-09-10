@@ -887,11 +887,14 @@ that would prove it fixed. "Hive" refers to the `ethereum/hive` suites; the
     path being callable outside the Engine API. This is the largest
     wallet-facing item and the one most entangled with another area, so it is
     late despite mattering to ordinary callers.
-16. **Add a gas-price oracle (M).** RPC-21. No dependencies. Sample recent
-    blocks at a configurable percentile; `eth_feeHistory` should share the
-    sampler. Verify with a devnet chain carrying a spread of tips and an
-    assertion that the suggestion falls between the observed minimum and
-    maximum.
+16. **PARTIAL — Complete the gas-price oracle (M).** RPC-21. The bounded
+    geth-style recent-block sampler now filters invalid and beneficiary senders,
+    ignores tips below two wei, keeps the lowest three tips per block, selects
+    the unweighted 60th percentile, and caps the suggestion at 500 Gwei.
+    `eth_feeHistory` deliberately retains its separate gas-weighted reward
+    sampler. Cached-last-price behavior and geth's sparse-history extension to
+    twice the lookback remain; verify those with a devnet chain carrying sparse
+    blocks and changing tip distributions.
 17. **Extend tracing (L).** RPC-28, then RPC-30, then RPC-29 if at all. Historic
     tracing needs the ability to re-execute a mined block against its parent
     state, which is the real cost. `debug_setHead` (RPC-30) is worth pulling
