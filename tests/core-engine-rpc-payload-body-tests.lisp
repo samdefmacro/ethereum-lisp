@@ -9,6 +9,29 @@
     (is (assoc "validationError" object :test #'string=))
     (is (null (assoc "witness" object :test #'string=)))))
 
+(deftest engine-rpc-get-payload-bodies-reject-invalid-positional-arity
+  ;; Execution APIs e5d1bb60 defines one block-hash-array parameter for the
+  ;; by-hash methods and exactly start/count for the by-range methods.
+  (let ((store (make-engine-payload-memory-store))
+        (config (make-chain-config))
+        (hash (hash32-to-hex (zero-hash32))))
+    (dolist (request
+             (list
+              (list "engine_getPayloadBodiesByHashV1" (list (list hash) nil))
+              (list "engine_getPayloadBodiesByHashV2" (list (list hash) nil))
+              (list "engine_getPayloadBodiesByRangeV1" (list "0x1" "0x1" nil))
+              (list "engine_getPayloadBodiesByRangeV2" (list "0x1" "0x1" nil))))
+      (destructuring-bind (method params) request
+        (let* ((response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 27)
+                        (cons "method" method)
+                        (cons "params" params))
+                  store config))
+               (error (cdr (assoc "error" response :test #'string=))))
+          (is (= -32602 (cdr (assoc "code" error :test #'string=)))))))))
+
 (deftest engine-rpc-get-payload-bodies-by-hash-v1-returns-bodies
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

@@ -180,9 +180,9 @@ deadline."
 
 (defun engine-rpc-handle-get-payload-bodies-by-hash
     (params store method body-object-function)
-  (unless (and (listp params) params)
+  (unless (and (listp params) (= 1 (length params)))
     (block-validation-fail
-     "~A params must include block hashes" method))
+     "~A params must contain exactly one block hash array" method))
   (let ((hashes
           (json-rpc-hash32-list
            (json-rpc-required-param
@@ -210,9 +210,9 @@ deadline."
 
 (defun engine-rpc-handle-get-payload-bodies-by-range
     (params store method body-object-function)
-  (unless (and (listp params) params)
+  (unless (and (listp params) (= 2 (length params)))
     (block-validation-fail
-     "~A params must include start and count" method))
+     "~A params must contain exactly start and count" method))
   (let ((start (json-rpc-quantity-param
                 params 0 "start" method))
         (count (json-rpc-quantity-param
