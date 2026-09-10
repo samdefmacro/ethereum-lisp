@@ -206,6 +206,7 @@ successful call's resulting state is installed."
          :context-gas-limit context-gas-limit
          :block-hashes block-hashes)))
     (let* ((call-state (state-db-copy state))
+           (transaction-snapshot (state-db-snapshot call-state))
            (gas-limit (transaction-gas-limit tx))
            (gas-price (call-transaction-effective-gas-price
                        tx :base-fee base-fee))
@@ -223,6 +224,11 @@ successful call's resulting state is installed."
              (transfer-call-value-for-simulation
               call-state sender recipient (transaction-value tx)
               effective-chain-rules)))
+      ;; StateOverride.Apply is finalized before execution in geth, so an
+      ;; override-created empty recipient survives until the transaction
+      ;; touches it. Journal the top-level recipient in this copied call state
+      ;; and apply the fork-aware empty-account rule before committing it.
+      (state-db-touch-account call-state recipient)
       (cond
         (precompile-p
          (handler-case
@@ -235,6 +241,10 @@ successful call's resulting state is installed."
                (declare (ignore active-p))
                (multiple-value-bind (accessed-addresses accessed-storage)
                    (execution-empty-access-tables)
+                 (state-db-finalize-transaction
+                  call-state transaction-snapshot
+                  (or (null effective-chain-rules)
+                      (chain-rules-eip158-p effective-chain-rules)))
                  (execution-call-values
                   state call-state commit-state-p
                   :successful
@@ -251,6 +261,10 @@ successful call's resulting state is installed."
         ((zerop (length code))
          (multiple-value-bind (accessed-addresses accessed-storage)
              (execution-empty-access-tables)
+           (state-db-finalize-transaction
+            call-state transaction-snapshot
+            (or (null effective-chain-rules)
+                (chain-rules-eip158-p effective-chain-rules)))
            (execution-call-values
             state call-state commit-state-p
             :successful
@@ -288,6 +302,10 @@ successful call's resulting state is installed."
                  (multiple-value-bind (accessed-addresses accessed-storage)
                      (execution-context-access-tables context)
                    (let ((status (evm-result-status result)))
+                     (state-db-finalize-transaction
+                      call-state transaction-snapshot
+                      (or (null effective-chain-rules)
+                          (chain-rules-eip158-p effective-chain-rules)))
                      (execution-call-values
                     state call-state commit-state-p
                     status

@@ -3344,6 +3344,7 @@
               store config)))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1
+                                      :eip158-block 0
                                       :berlin-block 0
                                       :london-block 0))
            (state (make-state-db))
@@ -3433,8 +3434,12 @@
                    (bytes-to-hex (hash32-bytes (state-db-root state)))))
             (is (null (field response "error")))
             (if unchanged-p
-                (is (string= base-root result-root))
-                (is (not (string= base-root result-root)))))))
+                (unless (string= base-root result-root)
+                  (error "override case ~D changed root from ~A to ~A"
+                         id base-root result-root))
+                (when (string= base-root result-root)
+                  (error "override case ~D did not change root ~A"
+                         id base-root))))))
       (let* ((malformed-response
                (request
                 298
@@ -3481,7 +3486,8 @@
                "stateOverrides"
                (list
                 (cons identity
-                      (list (cons "movePrecompileToAddress" destination)))))
+                      (list (cons "code" "0x")
+                            (cons "movePrecompileToAddress" destination)))))
               (cons
                "calls"
                (list
@@ -3517,6 +3523,64 @@
           (unless (= 2518 gas-delta)
             (error "expected moved precompile gas delta 2518, got ~D (~D - ~D)"
                    gas-delta moved-gas original-gas))))
+      ;; Execution APIs e5d1bb60 runs the same two-call shape for identity and
+      ;; sha256. Once each original empty override recipient is touched and
+      ;; pruned under EIP-158, their otherwise identical state transitions have
+      ;; the same root even though precompile output and gas differ.
+      (let* ((sha256 "0x0000000000000000000000000000000000000002")
+             (identity-root-response
+               (request
+                304
+                (list
+                 (cons
+                  "stateOverrides"
+                  (list
+                   (cons identity
+                         (list (cons "code" "0x")
+                               (cons "movePrecompileToAddress" destination)))))
+                 (cons
+                  "calls"
+                  (list
+                   (list (cons "from" sender)
+                         (cons "to" destination)
+                         (cons "input" "0x1234"))
+                   (list (cons "from" sender)
+                         (cons "to" identity)
+                         (cons "input" "0x1234")))))
+                store config))
+             (sha256-root-response
+               (request
+                305
+                (list
+                 (cons
+                  "stateOverrides"
+                  (list
+                   (cons sha256
+                         (list (cons "code" "0x")
+                               (cons "movePrecompileToAddress" destination)))))
+                 (cons
+                  "calls"
+                  (list
+                   (list (cons "from" sender)
+                         (cons "to" destination)
+                         (cons "input" "0x1234"))
+                   (list (cons "from" sender)
+                         (cons "to" sha256)
+                         (cons "input" "0x1234")))))
+                store config))
+             (identity-root
+               (field (first (field identity-root-response "result"))
+                      "stateRoot"))
+             (sha256-root
+               (field (first (field sha256-root-response "result"))
+                      "stateRoot")))
+        (unless (string= identity-root sha256-root)
+          (error "moved empty precompile roots differ: identity ~A, sha256 ~A"
+                 identity-root sha256-root))
+        (unless (string= identity-root
+                         "0x9890578ceeef3289f27abb25dc508b500f3ec734f97cb7d319ecdaf6462a7d3b")
+          (error "moved empty precompile root mismatch: got ~A"
+                 identity-root)))
       (let* ((override-response
                (request
                 302
