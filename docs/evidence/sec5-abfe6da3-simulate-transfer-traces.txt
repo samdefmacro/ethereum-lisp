@@ -1,0 +1,78 @@
+Section 5 eth_simulateV1 transfer-trace evidence
+
+Recorded: 2026-09-10T08:36:26Z
+Implementation commit: abfe6da375fc14fb26c1f574bd1981f1b0e27599
+Current verification checkout: 7d8208f630672a50fcaa70d298f130cfd38a2890
+Branch: sec5-public-bootstrap-sync
+
+Reference boundary
+
+- Geth comparator revision: 8a0223e8, specifically the call logger and
+  `eth_simulateV1` assembly paths used by the pinned Execution APIs fixtures.
+- Hive revision: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c.
+- Execution APIs revision: e5d1bb60e6c064e4b15080da07b4370d0baadf92.
+
+Implemented behavior
+
+Commit abfe6da3 records non-zero top-level, CALL, CALLCODE, CREATE, CREATE2,
+and SELFDESTRUCT value movement as ERC-7528 pseudo-logs when
+`traceTransfers=true`. Reverted frames discard their trace logs while retaining
+geth-compatible consumed log indices. Native Amsterdam system logs and RPC-only
+transfer traces remain separate, and the simulated response repairs the trace
+logs with their final block and transaction metadata.
+
+Current local GREEN evidence
+
+`cl-workbench doctor --strict` passed before application tooling. The current
+checkout then passed these container-only gates:
+
+- `cl-workbench validation run cold-unit --match ETH-RPC-SIMULATE-V1-TRACES-TOP-LEVEL-AND-NESTED-ETH-TRANSFERS`
+  selected and passed 1 test.
+- `cl-workbench validation run cold-unit --match AMSTERDAM-RPC-TRANSFER-TRACE`
+  selected and passed 2 tests.
+- `cl-workbench validation run cold-unit --match ETH-RPC-SIMULATE-V1`
+  selected and passed all 31 tests.
+
+Durable local logs and SHA-256:
+
+- `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/transfer-trace-focused-cycle30.log`
+  `bb56aa324135616f528cd51baee01e76b00f63a8e4fd7ae2f63bef4cb1c35cdf`
+- `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/transfer-trace-amsterdam-cycle30.log`
+  `8447d02074398e13e8844652670ae6204414a70ab4317a0baf9c839c6330a43f`
+- `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/simulate-v1-family-cycle30.log`
+  `c2c7de3a2303f43a6a02b537afaf2b081cfb3caba05ff566e938394f4ee2178e`
+
+Pinned external evidence
+
+The retained full Hive rpc-compat run at implementation revision
+`d1da4d54586e8000d2e6380be79c097ab9259482` includes abfe6da3 and selected all
+234 cases. Its complete result selected all 91 `eth_simulateV1` cases and passed
+91/91. The only failures in that run were cases 228 and 231 under
+`testing_buildBlockV1`, both unrelated gas-limit mismatches targeted by the
+later 984fc8b8 repair; its exact Hive rerun remains pending. Exactly 26 of the
+passing simulation fixtures set `traceTransfers=true`, including the positive,
+reverted, forwarded, delegate-call, and self-destruct transfer-log cases.
+
+Retained remote evidence:
+
+- result JSON:
+  `/data/hoodi-sec5-hive/runs/d1da4d54-rpc-full-r16-testing-20260910T034542Z/results/1789012869-495d5ff804cbd8accef35bdf1a4955b0.json`
+  80,249 bytes; SHA-256
+  `f59f3cea30fcdcd7fde5960185519fa0bcf6b7668ef6a0ff2e9575fe4aa3c634`.
+- details log:
+  `/data/hoodi-sec5-hive/runs/d1da4d54-rpc-full-r16-testing-20260910T034542Z/results/details/1789012852-096eb6a041e788be623c9af2d30f60cc24baceaa56124e7d7fdd00b737a30594-0.log`
+  22,871,147 bytes; SHA-256
+  `ff9115ebd490fee2561c44aa2de425e358e15b8d155b44394e1bf775a028437e`.
+- simulator log:
+  `/data/hoodi-sec5-hive/runs/d1da4d54-rpc-full-r16-testing-20260910T034542Z/results/1789012851-simulator-096eb6a041e788be623c9af2d30f60cc24baceaa56124e7d7fdd00b737a30594.log`
+  22,851,989 bytes; SHA-256
+  `bd0daca549422a7898006dad972f1ec4003731f04aba68bb1f7ba417570ba02c`.
+
+Scope and remaining gates
+
+This closes the previously stale transfer-tracing implementation and establishes
+pinned fixture coverage at d1da4d54. The evidence does not replace the prepared
+exact-d9e0e2dd full Hive rerun: Section 5 still requires that exact accepted
+runtime to pass all 234 cases. SNAP target completion, empty-frontier healer
+completion, canonical execution through the authorized target,
+`eth_syncing=false`, shadow comparison, and validator soak also remain open.

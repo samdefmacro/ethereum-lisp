@@ -710,9 +710,25 @@ repaired after block assembly with exact block hash/number/timestamp,
 transaction hash/index, block-wide log index, and `removed=false`, using the
 canonical receipt log serializer. The focused RED regression is GREEN, all 21
 simulation tests pass, and the cold-unit gate passes 1,320 with 3 optional
-skips. Transfer tracing, the pinned Hive rerun, remaining response/error
-classes, and the other Section 5 external gates stay open. See
+skips. The pinned Hive rerun, remaining response/error classes, and the other
+Section 5 external gates stay open. See
 `docs/evidence/sec5-3664def7-simulate-log-metadata.txt`.
+
+`abfe6da375fc14fb26c1f574bd1981f1b0e27599` closes the transfer-tracing class
+against the same comparator. `traceTransfers=true` now emits ERC-7528 pseudo-
+logs for top-level and nested nonzero value movement, preserves geth-compatible
+log-index gaps across reverted frames, and keeps Amsterdam system logs separate
+from RPC-only traces. Current focused verification passes the exact RPC case,
+two Amsterdam boundary cases, and all 31 local `eth_simulateV1` tests. The
+pinned d1da4d54 full rpc-compat run selected and passed all 91 simulation cases;
+its only two failures were the unrelated `testing_buildBlockV1` gas-limit cases
+targeted by the later 984fc8b8 repair, whose exact Hive rerun remains pending.
+Exactly 26 passing simulation fixtures set `traceTransfers=true`, covering
+positive, reverted, forwarded, delegate-call, and self-destruct transfer-log
+behavior. Exact commands, result hashes, and remaining exact-revision limits
+are in `docs/evidence/sec5-abfe6da3-simulate-transfer-traces.txt`. The prepared
+exact-d9e0e2dd 234-case Hive rerun remains required before the full RPC gate can
+close.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
 
