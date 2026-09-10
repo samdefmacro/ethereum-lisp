@@ -1,0 +1,59 @@
+# Section 5 RPC-21 gas-oracle state evidence
+
+Date: 2026-09-10
+Revision: `67a4eb42b64499267f63db7e057db0576f850e31`
+Branch: `sec5-public-bootstrap-sync`
+Reference: go-ethereum `38271784c2b31926563806da9a2e023b88f5e7a8`
+
+## Scope
+
+This revision closes the remaining bounded RPC-21 behavior:
+
+- one gas-oracle state is owned by each RPC context and shared across requests;
+- the recommendation is cached by canonical head hash;
+- empty blocks sample the last calculated recommendation rather than the startup fallback;
+- sparse history extends from 20 to at most 40 non-genesis blocks;
+- context rebinding resets state when the chain store or chain configuration changes;
+- cache recomputation and publication are serialized;
+- invalid injected oracle state is rejected at RPC-context construction.
+
+`eth_feeHistory` remains a separate gas-weighted implementation.
+
+## Reference review
+
+The implementation was reviewed against pinned geth
+`eth/gasprice/gasprice.go:155-233`. A disputed review claim that geth reads only
+39 all-one-sample blocks was independently rejected: after the twentieth result,
+`len(results)=19` and `exp=19`, so `19 + 1 + 19 < 40` launches the fortieth
+request. The focused regression directly asserts a 40-sample history.
+
+Geth completion order is nondeterministic when blocks yield mixed sample counts.
+The synchronous implementation chooses an admissible geth completion outcome:
+after the initial 20 blocks, it extends until it has 40 samples or has read 40
+blocks. No fixed reference mismatch was found.
+
+Independent review also found and caused repairs for chain-bound state surviving
+`rpc-context-rebind`, missing injection validation, and stale gap documentation.
+
+## Verification
+
+All commands ran through the repository's managed Workbench boundary after
+`cl-workbench doctor --strict` passed.
+
+- RED: `cl-workbench validation run cold-unit --match GAS-ORACLE-EXTENDS-SPARSE-HISTORY` exited 1 before implementation.
+- GREEN: the same focused selector passed 1/1 after implementation and again after the explicit 40-sample assertion.
+- Focused gas-oracle/context gate: 7/7 passed.
+- Full cold unit: 1,347 passed, 3 optional tests skipped.
+- Documentation: `cl-workbench docs verify` passed, including its expected RED self-test.
+- `git diff --check` passed.
+
+The commit was pushed without force. `git ls-remote` verified
+`origin/sec5-public-bootstrap-sync` at
+`67a4eb42b64499267f63db7e057db0576f850e31`.
+
+## Limits
+
+This closes only RPC-21. It does not replace the prepared exact-d9e0e2dd pinned
+234-case Hive rerun or any Section 5 long-running Hoodi acceptance gate. The live
+Hoodi deployment remains pinned to `d9e0e2dd74ced0baddc63a0e43881c53be302df6`;
+this RPC-only revision is not deployed there.

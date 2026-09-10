@@ -751,18 +751,25 @@ close.
 `30ad66d1704e68f9c2e73d7b80723be0d6187f03` and its
 `777fc959e0af28accc7c1c876ff27428aa5acab6` test follow-up close the bounded
 recent-block gas-oracle sampling class against pinned geth `38271784`: the
-oracle now filters invalid and beneficiary senders, ignores tips below two wei,
+oracle filters invalid and beneficiary senders, ignores tips below two wei,
 keeps the lowest three samples per block, selects an unweighted 60th percentile,
 and caps the result at 500 Gwei without changing `eth_feeHistory`'s distinct
-gas-weighted rewards. `7b86ca24d0ce75c180cf213e0d159cfe607a6150`
-additionally rejects incomplete or trailing `engine_newPayloadV1`-`V5`
-positional parameters before payload decoding or persistence, matching pinned
-Execution APIs `e5d1bb60`; `425e129ca4c3b8f1242589e44c8cfc9740c9e608`
-proves the JSON-RPC -32602 boundary and zero import/persistence callbacks. The
-focused gates pass 4 gas-oracle and 21 newPayload tests, and the aggregate
-cold-unit gate passes 1,344 with 3 optional skips. Cached-last-price and
-sparse-history oracle parity remain open, and the
-prepared exact-d9e0e2dd 234-case Hive rerun is still required; see
+gas-weighted rewards. `67a4eb42b64499267f63db7e057db0576f850e31`
+closes the remaining RPC-21 state class: one service-owned oracle caches by
+canonical head, substitutes its last calculated price for empty blocks, extends
+sparse history from 20 to at most 40 non-genesis blocks, serializes concurrent
+updates, and resets when an RPC context is rebound to another store or chain
+configuration. Focused oracle/context tests pass 7/7, the cold-unit gate passes
+1,347 with 3 optional skips, and documentation verification passes. Exact
+commands, review resolution, and limits are in
+`docs/evidence/sec5-67a4eb42-gas-oracle-state.txt`.
+
+`7b86ca24d0ce75c180cf213e0d159cfe607a6150` additionally rejects incomplete or
+trailing `engine_newPayloadV1`-`V5` positional parameters before payload decoding
+or persistence, matching pinned Execution APIs `e5d1bb60`;
+`425e129ca4c3b8f1242589e44c8cfc9740c9e608` proves the JSON-RPC -32602 boundary
+and zero import/persistence callbacks. The prepared exact-d9e0e2dd 234-case
+Hive rerun is still required; see
 `docs/evidence/sec5-7b86ca24-rpc-engine-compat.txt`.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
