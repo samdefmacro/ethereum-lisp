@@ -88,8 +88,14 @@
 (defun engine-rpc-handle-new-payload
     (version params store config
      &key import-function new-payload-persistence-function)
-  (unless (and (listp params) params)
-    (block-validation-fail "engine_newPayload params must include payload"))
+  (let ((parameter-count (cond ((>= version 4) 4)
+                               ((= version 3) 3)
+                               (t 1))))
+    (unless (and (listp params)
+                 (= (length params) parameter-count))
+      (block-validation-fail
+       "engine_newPayloadV~D params must contain exactly ~D parameter~:P"
+       version parameter-count)))
   (let ((payload
           (engine-rpc-executable-data-from-object
            (json-rpc-required-param

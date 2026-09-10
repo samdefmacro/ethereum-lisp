@@ -69,6 +69,29 @@
       (is (search "block hash mismatch"
                   (payload-status-validation-error status))))))
 
+(deftest engine-new-payload-rejects-invalid-arity-before-decoding
+  ;; Execution APIs e5d1bb60 fixes the positional signatures at one argument
+  ;; for V1/V2, three for V3, and four for V4/V5.  Invalid arity must win over
+  ;; malformed payload contents so no import or persistence path can be reached.
+  (let ((store (make-engine-payload-memory-store))
+        (config (make-chain-config)))
+    (dolist (case '((1 0) (1 2)
+                    (2 0) (2 2)
+                    (3 2) (3 4)
+                    (4 3) (4 5)
+                    (5 3) (5 5)))
+      (destructuring-bind (version count) case
+        (let ((message
+                (handler-case
+                    (progn
+                      (ethereum-lisp.engine-api::engine-rpc-handle-new-payload
+                       version (make-list count :initial-element nil)
+                       store config)
+                      nil)
+                  (block-validation-error (condition)
+                    (princ-to-string condition)))))
+          (is (and message (search "exactly" message))))))))
+
 (deftest engine-new-payload-version-status-enforces-fork-parameters
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex
