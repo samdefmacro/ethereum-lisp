@@ -128,6 +128,8 @@
         #:ethereum-lisp.engine-api)
   (:export
    #:engine-rpc-handle-public-method
+   #:eth-rpc-gas-oracle-state
+   #:make-eth-rpc-gas-oracle-state
    #:admin-backend
    #:admin-backend-p
    #:make-admin-backend

@@ -7,6 +7,24 @@
 (defconstant +eth-rpc-gas-oracle-ignore-under+ 2)
 (defconstant +eth-rpc-gas-oracle-maximum-tip+ 500000000000)
 
+(defstruct (eth-rpc-gas-oracle-state
+            (:constructor make-eth-rpc-gas-oracle-state
+                (&key
+                 (last-price +eth-rpc-gas-oracle-default-tip+))))
+  "Process-local recommendation state shared by one RPC service."
+  last-head
+  last-price
+  (lock #+sbcl
+        (sb-thread:make-mutex :name "ethereum-lisp-gas-oracle")
+        #-sbcl nil))
+
+(defun call-with-eth-rpc-gas-oracle-lock (oracle thunk)
+  #+sbcl
+  (sb-thread:with-mutex ((eth-rpc-gas-oracle-state-lock oracle))
+    (funcall thunk))
+  #-sbcl
+  (progn oracle (funcall thunk)))
+
 (defun eth-rpc-block-priority-fee-samples (block)
   "Return (TIP . GAS-USED) samples for BLOCK in transaction order."
   (let ((base-fee
@@ -67,28 +85,63 @@
   (let ((ordered (sort (copy-list samples) #'<)))
     (nth (floor (* (1- (length ordered)) percentile) 100) ordered)))
 
-(defun engine-rpc-suggest-gas-tip-cap (store config)
-  (let* ((head-number (chain-store-head-number store))
-         (first-number
-           (max 1 (1+ (- head-number +eth-rpc-gas-oracle-block-count+))))
-         (samples
-           (loop for number from first-number to head-number
-                 for block = (chain-store-block-by-number store number)
-                 when block
-                   append (or (eth-rpc-gas-oracle-block-samples block config)
-                              (list +eth-rpc-gas-oracle-default-tip+)))))
-    (min +eth-rpc-gas-oracle-maximum-tip+
-         (if samples
-             (eth-rpc-gas-oracle-percentile
-              samples +eth-rpc-gas-oracle-percentile+)
-             +eth-rpc-gas-oracle-default-tip+))))
+(defun eth-rpc-gas-oracle-head-equal-p (left right)
+  (or (and (null left) (null right))
+      (and left right (hash32= left right))))
 
-(defun engine-rpc-handle-eth-max-priority-fee-per-gas (params store config)
+(defun eth-rpc-gas-oracle-sample-history (store config head-number last-price)
+  "Sample at least the normal lookback, extending sparse history to twice it."
+  (let ((number head-number)
+        (blocks 0)
+        (samples '())
+        (maximum-blocks (* 2 +eth-rpc-gas-oracle-block-count+)))
+    (loop while (and (> number 0)
+                     (< blocks maximum-blocks)
+                     (or (< blocks +eth-rpc-gas-oracle-block-count+)
+                         (< (length samples) maximum-blocks)))
+          for block = (chain-store-block-by-number store number)
+          for block-samples = (and block
+                                   (eth-rpc-gas-oracle-block-samples
+                                    block config))
+          do (setf samples
+                   (nconc samples (or block-samples (list last-price))))
+             (incf blocks)
+             (decf number))
+    samples))
+
+(defun engine-rpc-suggest-gas-tip-cap
+    (store config &optional (oracle (make-eth-rpc-gas-oracle-state)))
+  (call-with-eth-rpc-gas-oracle-lock
+   oracle
+   (lambda ()
+     (let* ((head (chain-store-latest-block store))
+            (head-hash (and head (block-hash head)))
+            (last-head (eth-rpc-gas-oracle-state-last-head oracle))
+            (last-price (eth-rpc-gas-oracle-state-last-price oracle)))
+       (if (eth-rpc-gas-oracle-head-equal-p head-hash last-head)
+           last-price
+           (let* ((samples
+                    (eth-rpc-gas-oracle-sample-history
+                     store config (chain-store-head-number store) last-price))
+                  (price
+                    (min +eth-rpc-gas-oracle-maximum-tip+
+                         (if samples
+                             (eth-rpc-gas-oracle-percentile
+                              samples +eth-rpc-gas-oracle-percentile+)
+                             last-price))))
+             (setf (eth-rpc-gas-oracle-state-last-head oracle) head-hash
+                   (eth-rpc-gas-oracle-state-last-price oracle) price)
+             price))))))
+
+(defun engine-rpc-handle-eth-max-priority-fee-per-gas
+    (params store config &optional oracle)
   (when params
     (block-validation-fail "eth_maxPriorityFeePerGas params must be empty"))
-  (quantity-to-hex (engine-rpc-suggest-gas-tip-cap store config)))
+  (quantity-to-hex
+   (engine-rpc-suggest-gas-tip-cap
+    store config (or oracle (make-eth-rpc-gas-oracle-state)))))
 
-(defun engine-rpc-handle-eth-gas-price (params store config)
+(defun engine-rpc-handle-eth-gas-price (params store config &optional oracle)
   (when params
     (block-validation-fail "eth_gasPrice params must be empty"))
   (let* ((head (chain-store-latest-block store))
@@ -96,8 +149,10 @@
          (base-fee (if header
                        (or (block-header-base-fee-per-gas header) 0)
                        0)))
-    (quantity-to-hex (+ base-fee
-                        (engine-rpc-suggest-gas-tip-cap store config)))))
+    (quantity-to-hex
+     (+ base-fee
+        (engine-rpc-suggest-gas-tip-cap
+         store config (or oracle (make-eth-rpc-gas-oracle-state)))))))
 
 (defun engine-payload-store-head-block (store)
   (chain-store-block-by-number

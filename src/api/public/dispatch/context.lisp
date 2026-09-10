@@ -20,6 +20,7 @@
                       txpool-lifetime-seconds
                       txpool-now
                       gas-limit-target
+                      gas-oracle-state
                       admin-backend)))
   id
   method
@@ -41,6 +42,7 @@
   txpool-lifetime-seconds
   txpool-now
   gas-limit-target
+  gas-oracle-state
   admin-backend)
 
 (defun public-rpc-dispatch-method-p (context name)

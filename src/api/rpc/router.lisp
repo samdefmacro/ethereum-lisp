@@ -17,7 +17,8 @@
                       txpool-account-queue-limit txpool-global-queue-limit
                       txpool-local-addresses txpool-no-local-exemptions-p
                       txpool-lifetime-seconds txpool-now admin-backend
-                      gas-limit-target get-blobs-v3-function)))
+                      gas-limit-target get-blobs-v3-function
+                      gas-oracle-state)))
   store
   config
   import-function
@@ -42,7 +43,8 @@
   admin-backend
   txpool-now
   gas-limit-target
-  get-blobs-v3-function)
+  get-blobs-v3-function
+  gas-oracle-state)
 
 (defun make-rpc-context
     (store config &key import-function
@@ -67,7 +69,9 @@
                        admin-backend
                        txpool-now
                        gas-limit-target
-                       get-blobs-v3-function)
+                       get-blobs-v3-function
+                       (gas-oracle-state
+                         (make-eth-rpc-gas-oracle-state)))
   (unless (functionp allowed-method-p)
     (block-validation-fail "JSON-RPC method filter must be a function"))
   (when (and new-payload-persistence-function
@@ -94,6 +98,9 @@
              (not (functionp get-blobs-v3-function)))
     (block-validation-fail
      "JSON-RPC getBlobsV3 snapshot must be a function"))
+  (unless (typep gas-oracle-state 'eth-rpc-gas-oracle-state)
+    (block-validation-fail
+     "JSON-RPC gas oracle state must be an eth-rpc-gas-oracle-state"))
   (%make-rpc-context
    :store store
    :config config
@@ -120,7 +127,8 @@
    :admin-backend admin-backend
    :txpool-now txpool-now
    :gas-limit-target gas-limit-target
-   :get-blobs-v3-function get-blobs-v3-function))
+   :get-blobs-v3-function get-blobs-v3-function
+   :gas-oracle-state gas-oracle-state))
 
 (defun rpc-context-with-txpool-now (context txpool-now)
   (unless (typep context 'rpc-context)
@@ -135,13 +143,19 @@
                   (network-id nil network-id-p))
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
-  (let ((copy (copy-rpc-context context)))
+  (let ((copy (copy-rpc-context context))
+        (reset-gas-oracle-p
+          (or (and store-p (not (eq store (rpc-context-store context))))
+              (and config-p (not (eq config (rpc-context-config context)))))))
     (when store-p
       (setf (rpc-context-store copy) store))
     (when config-p
       (setf (rpc-context-config copy) config))
     (when network-id-p
       (setf (rpc-context-network-id copy) network-id))
+    (when reset-gas-oracle-p
+      (setf (rpc-context-gas-oracle-state copy)
+            (make-eth-rpc-gas-oracle-state)))
     copy))
 
 (defun rpc-method-not-found-response (id)
@@ -177,7 +191,8 @@
    (rpc-context-txpool-lifetime-seconds context)
    :admin-backend (rpc-context-admin-backend context)
    :txpool-now (rpc-context-txpool-now context)
-   :gas-limit-target (rpc-context-gas-limit-target context)))
+   :gas-limit-target (rpc-context-gas-limit-target context)
+   :gas-oracle-state (rpc-context-gas-oracle-state context)))
 
 (defun rpc-dispatch-method (id method params context)
   (if (funcall (rpc-context-allowed-method-p context) method)

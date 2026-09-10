@@ -532,24 +532,26 @@ nonce and will reuse a nonce that is already in the pool. This is the single mos
 commonly hit divergence for ordinary wallet traffic. Overlaps txpool.
 
 **RPC-21 — Gas-price oracle sparse-history state diverges from geth.**
-Verdict PARTIALLY RESOLVED. Severity correctness.
+Verdict RESOLVED. Severity correctness.
 Ours samples the latest 20 non-genesis canonical blocks, sorts each block by
 effective tip, retains at most its three lowest eligible transactions, excludes
 failed sender recovery, the block beneficiary, and tips below two wei, then uses
 geth's unweighted `(sample-count - 1) * 60 / 100` index and 500 Gwei cap
-(`src/api/public/metadata/fees.lisp`). Empty histories and blocks use the
-one-million-wei startup fallback. Focused regressions cover RPC-level selection,
-the distinct `eth_feeHistory` gas-weighted result, eligibility filters, and the
-per-block bound.
+(`src/api/public/metadata/fees.lisp`). One oracle state belongs to each RPC
+context, caches the recommendation by canonical head hash, and retains the last
+calculated price. Empty blocks sample that cached price, while sparse histories
+extend from the normal lookback to at most twice its block count. Rebinding a
+context to another store or chain configuration resets the chain-bound state.
+Focused regressions cover RPC-level selection, cross-call caching, sparse
+extension, context rebinding, the distinct `eth_feeHistory` gas-weighted result,
+eligibility filters, and the per-block bound.
 
 This matches the bounded sample/filter/percentile path in pinned geth
 `38271784` (`eth/gasprice/gasprice.go:37-42`, `:155-233`, `:241-287`; default
 20-block, 60th-percentile configuration in `eth/ethconfig/config.go:42-50`). The
-remaining difference is state across calls: geth substitutes its cached last
-price for an empty block and extends sparse lookback to at most twice the normal
-block count, whereas the current stateless RPC helper substitutes the fixed
-startup price and does not extend the window. Recommendations can therefore
-still differ across sparse or newly empty histories after market prices move.
+service state now follows geth's same-head fast path and cached-last-price
+substitution. The helper extends sparse sampling without reading genesis and
+serializes cache updates so concurrent requests cannot publish stale state.
 
 **RPC-22 — `eth_blobBaseFee` reports the current head fee.**
 Verdict RESOLVED. Severity correctness.
@@ -887,14 +889,15 @@ that would prove it fixed. "Hive" refers to the `ethereum/hive` suites; the
     path being callable outside the Engine API. This is the largest
     wallet-facing item and the one most entangled with another area, so it is
     late despite mattering to ordinary callers.
-16. **PARTIAL — Complete the gas-price oracle (M).** RPC-21. The bounded
+16. **DONE — Complete the gas-price oracle (M).** RPC-21. The bounded
     geth-style recent-block sampler now filters invalid and beneficiary senders,
     ignores tips below two wei, keeps the lowest three tips per block, selects
     the unweighted 60th percentile, and caps the suggestion at 500 Gwei.
     `eth_feeHistory` deliberately retains its separate gas-weighted reward
-    sampler. Cached-last-price behavior and geth's sparse-history extension to
-    twice the lookback remain; verify those with a devnet chain carrying sparse
-    blocks and changing tip distributions.
+    sampler. The RPC service now caches by canonical head, substitutes the last
+    calculated price for empty blocks, and extends sparse history to at most
+    twice the normal lookback; focused request-level regressions cover the
+    changing sparse distribution and later empty-head behavior.
 17. **Extend tracing (L).** RPC-28, then RPC-30, then RPC-29 if at all. Historic
     tracing needs the ability to re-execute a mined block against its parent
     state, which is the real cost. `debug_setHead` (RPC-30) is worth pulling

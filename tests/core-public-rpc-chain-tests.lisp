@@ -727,6 +727,79 @@
            (ethereum-lisp.public-api::eth-rpc-gas-oracle-block-samples
             block config))))))
 
+(deftest eth-rpc-gas-oracle-extends-sparse-history-and-caches-last-price
+  ;; Pinned geth 38271784 gasprice.go extends one-sample/empty lookback to at
+  ;; most twice the configured block count.  Empty blocks sample the last
+  ;; calculated price, not the startup fallback.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (signed (number tip)
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce number :gas-price (+ 100 tip) :gas-limit 21000
+               :to (zero-address))
+              (1+ number) 1))
+           (append-block (store parent number &optional tip)
+             (let ((block
+                     (make-block
+                      :header
+                      (make-block-header
+                       :parent-hash (block-hash parent)
+                       :number number :timestamp number
+                       :gas-limit 100000 :gas-used (if tip 21000 0)
+                       :base-fee-per-gas 100)
+                      :transactions
+                      (if tip (list (signed number tip)) '()))))
+               (engine-payload-store-put-block
+                store block :state-available-p t)
+               block)))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0))
+           (oracle
+             (ethereum-lisp.public-api::make-eth-rpc-gas-oracle-state))
+           (context
+             (ethereum-lisp.rpc:make-rpc-context
+              store config :gas-oracle-state oracle))
+           (head
+             (make-block
+              :header
+              (make-block-header
+               :number 0 :timestamp 0 :gas-limit 100000
+               :gas-used 0 :base-fee-per-gas 100))))
+      (engine-payload-store-put-block store head :state-available-p t)
+      (loop for number from 1 to 40
+            do (setf head (append-block store head number (+ 9 number))))
+      (chain-store-update-forkchoice-checkpoints
+       store (make-forkchoice-state :head-block-hash (block-hash head)))
+      ;; Pinned geth launches the fortieth request when the twentieth sparse
+      ;; result leaves 39 accounted-for samples and outstanding requests.
+      (is (= 40
+             (length
+              (ethereum-lisp.public-api::eth-rpc-gas-oracle-sample-history
+               store config 40
+               ethereum-lisp.public-api::+eth-rpc-gas-oracle-default-tip+))))
+      ;; Forty one-sample blocks produce index floor(39*60/100): tip 33.
+      ;; A fixed twenty-block lookback would produce tip 41 instead.
+      (is (string=
+           "0x21"
+           (field
+            (ethereum-lisp.rpc:rpc-handle-request-string
+             "{\"jsonrpc\":\"2.0\",\"id\":308,\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]}"
+             context)
+            "result")))
+      (setf head (append-block store head 41))
+      (chain-store-update-forkchoice-checkpoints
+       store (make-forkchoice-state :head-block-hash (block-hash head)))
+      ;; The new empty head substitutes the cached 33-wei recommendation.  A
+      ;; stateless implementation would insert the one-million-wei fallback.
+      (is (string=
+           "0x21"
+           (field
+            (ethereum-lisp.rpc:rpc-handle-request-string
+             "{\"jsonrpc\":\"2.0\",\"id\":309,\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]}"
+             context)
+            "result"))))))
+
 (deftest eth-rpc-gas-oracle-caps-the-suggested-tip
   (let* ((store (make-engine-payload-memory-store))
          (config (make-chain-config :chain-id 1 :london-block 0))

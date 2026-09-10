@@ -50,6 +50,36 @@
     (is (string= "0x1"
                  (cdr (assoc "result" response :test #'string=))))))
 
+(deftest rpc-context-rebind-resets-chain-bound-gas-oracle-state
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config))
+         (context (ethereum-lisp.rpc:make-rpc-context store config))
+         (oracle
+           (ethereum-lisp.rpc::rpc-context-gas-oracle-state context))
+         (network-copy
+           (ethereum-lisp.rpc:rpc-context-rebind context :network-id 2))
+         (store-copy
+           (ethereum-lisp.rpc:rpc-context-rebind
+            context :store (make-engine-payload-memory-store)))
+         (config-copy
+           (ethereum-lisp.rpc:rpc-context-rebind
+            context :config (make-chain-config :chain-id 2))))
+    (is (eq oracle
+            (ethereum-lisp.rpc::rpc-context-gas-oracle-state network-copy)))
+    (is (not (eq oracle
+                 (ethereum-lisp.rpc::rpc-context-gas-oracle-state
+                  store-copy))))
+    (is (not (eq oracle
+                 (ethereum-lisp.rpc::rpc-context-gas-oracle-state
+                  config-copy))))))
+
+(deftest rpc-context-rejects-invalid-gas-oracle-state
+  (signals block-validation-error
+    (ethereum-lisp.rpc:make-rpc-context
+     (make-engine-payload-memory-store)
+     (make-chain-config)
+     :gas-oracle-state nil)))
+
 (deftest rpc-context-bypasses-guard-only-for-a-snapshot-method
   (let* ((guard-calls 0)
          (snapshot-calls 0)
