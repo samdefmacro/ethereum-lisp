@@ -211,7 +211,6 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [RPC-19](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The header field is named `balHash` where Nethermind's is `BlockAccessListHash`, so a reader silently sees no commitment. |
 | [RPC-21](rpc-and-engine.md) | rpc | DIVERGENT | correctness | No gas-price oracle: `eth_maxPriorityFeePerGas` is always `0x0` and `eth_feeHistory`'s rewards inherit the zero. |
 | [RPC-24](rpc-and-engine.md) | rpc | DIVERGENT | correctness | `logs` subscriptions never report removed logs and skip logs across a deep reorg, though the filter path does this correctly. |
-| [RPC-34](rpc-and-engine.md) | rpc | DIVERGENT | correctness | An unhandled handler condition becomes HTTP 400 with the condition printed into a non-JSON body, discarding a whole batch. |
 | [POOL-04](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | The minimum-fee check reads the fee cap, not the effective tip, so a zero-tip transaction passes the price floor. |
 | [POOL-05](txpool-building-and-ops.md) | pool | MISSING | correctness | No EIP-7702 authority reservation and no delegated-account in-flight limit. |
 | [POOL-06](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | Nonce and balance are not checked at all when head state is unavailable; anything lands straight in the pending list. |
@@ -539,9 +538,9 @@ several items across the six documents:
   catches (`NET-01`), an `error` subclass outside the hierarchy the guards test
   for (`BUILD-01`, coordinator fact 2), a `handler-case` that converts
   unavailability into a verdict (`EVM-09`, and the same shape in
-  `validate-blob-sidecar-kzg-proofs`), and a catch-all that turns an internal
-  condition into HTTP 400 (`RPC-34`) are one problem: the condition hierarchy and
-  its guards were never designed as a whole.
+  `validate-blob-sidecar-kzg-proofs`) are one problem: the condition hierarchy
+  and its guards were never designed as a whole. RPC-34's HTTP boundary has
+  since been repaired and regression-covered independently.
 - **One discarded-flags item.** `OPS-01` is the general case; the flag halves of
   `RPC-16`, `RPC-35` and `RPC-37` are instances of it. The *caps* those RPC
   findings ask for are separate work.
@@ -572,19 +571,16 @@ killing the run rather than by reporting a failure, which its comment must say.
 Protects: every principle, all of which presuppose a live process.
 
 **W2 — Audit the condition hierarchy and its guards across the tree. (M)**
-Closes `EVM-09`, `RPC-34`. Depends on W1 for the thread-guard half and must land
-with W12 for the build half. One pass, four outputs: give the KZG module a
+Closes `EVM-09`. Depends on W1 for the thread-guard half and must land
+with W12 for the build half. One pass, three outputs: give the KZG module a
 distinct unavailability condition so `run-kzg-point-evaluation-precompile` and
 `validate-blob-sidecar-kzg-proofs` propagate rather than fabricating a verdict,
 following `call-bls12381-backend`; put `transaction-validation-error` under a
-class the request handlers actually catch; narrow the HTTP catch-all so an
-unexpected condition becomes a `-32603` body at status 200; and write down which
+class the request handlers actually catch; and write down which
 condition classes the guards at each boundary are contractually required to
 catch. Verification: a unit test binding `*kzg-verifier*` to `nil` and asserting
 the precompile signals rather than returning failure, with the existing
-point-evaluation tests confirming real failures still fail; a
-`tests/core-http-service-tests.lisp` case forcing an internal condition and
-asserting a 200 with a JSON-RPC error object.
+point-evaluation tests confirming real failures still fail.
 Protects: **capability gating**, **atomic import**.
 
 **W3 — Gate Engine methods on execution and verifier availability. (S)**

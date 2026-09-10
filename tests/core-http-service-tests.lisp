@@ -78,6 +78,47 @@
       (is (string= "Internal error" (field rpc-error "message")))
       (is (not (search "private implementation detail" response))))))
 
+(deftest engine-rpc-http-guard-predicate-error-is-batch-local
+  (labels ((http-body (response)
+             (let ((boundary (search (format nil "~C~C~C~C"
+                                             #\Return #\Newline
+                                             #\Return #\Newline)
+                                     response)))
+               (subseq response (+ boundary 4))))
+           (field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((body
+             (concatenate
+              'string
+              "[{\"jsonrpc\":\"2.0\",\"id\":702,\"method\":\"eth_chainId\",\"params\":[]},"
+              "{\"jsonrpc\":\"2.0\",\"id\":703,\"method\":\"net_version\",\"params\":[]} ]"))
+           (request
+             (format nil
+                     "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                     (length body)
+                     body))
+           (response
+             (engine-rpc-handle-http-request-string
+              request
+              (make-engine-payload-memory-store)
+              (make-chain-config :chain-id 17)
+              :network-id 17
+              :request-guard-predicate
+              (lambda (method)
+                (if (string= method "eth_chainId")
+                    (error "private predicate detail")
+                    nil))))
+           (objects (parse-json (http-body response)))
+           (rpc-error (field (first objects) "error")))
+      (is (search "HTTP/1.1 200 OK" response))
+      (is (= 2 (length objects)))
+      (is (= 702 (field (first objects) "id")))
+      (is (= -32603 (field rpc-error "code")))
+      (is (string= "Internal error" (field rpc-error "message")))
+      (is (= 703 (field (second objects) "id")))
+      (is (string= "17" (field (second objects) "result")))
+      (is (not (search "private predicate detail" response))))))
+
 (deftest engine-rpc-http-post-dispatches-json-rpc
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

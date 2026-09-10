@@ -271,30 +271,30 @@
 (defun rpc-handle-request (request context)
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
-  (let* ((thunk (lambda ()
-                  (rpc-handle-request-without-guard request context)))
-         (guard (rpc-context-request-guard-function context))
-         (predicate (rpc-context-request-guard-predicate context))
-         (method
-           (and predicate
-                (json-object-p request)
-                (json-object-field-present-p request "method")
-                (json-object-field request "method")))
-         (guard-required-p
-           (or (null predicate)
-               (not (stringp method))
-               (funcall predicate method))))
-    (handler-case
+  (handler-case
+      (let* ((thunk (lambda ()
+                      (rpc-handle-request-without-guard request context)))
+             (guard (rpc-context-request-guard-function context))
+             (predicate (rpc-context-request-guard-predicate context))
+             (method
+               (and predicate
+                    (json-object-p request)
+                    (json-object-field-present-p request "method")
+                    (json-object-field request "method")))
+             (guard-required-p
+               (or (null predicate)
+                   (not (stringp method))
+                   (funcall predicate method))))
         (if (and guard guard-required-p)
             (funcall guard thunk)
-            (funcall thunk))
-      (error (condition)
-        (declare (ignore condition))
-        (unless (json-rpc-notification-p request)
-          (json-rpc-response
-           (and (json-object-p request)
-                (json-object-field request "id"))
-           :error (json-rpc-error-object -32603 "Internal error")))))))
+            (funcall thunk)))
+    (error (condition)
+      (declare (ignore condition))
+      (unless (json-rpc-notification-p request)
+        (json-rpc-response
+         (and (json-object-p request)
+              (json-object-field request "id"))
+         :error (json-rpc-error-object -32603 "Internal error"))))))
 
 (defun rpc-handle-request-value (request context)
   (cond

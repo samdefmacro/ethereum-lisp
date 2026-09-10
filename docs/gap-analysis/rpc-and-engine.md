@@ -699,21 +699,20 @@ terminal-fork shapes; the external rpc-compat case remains an explicit gate.
 
 ### Transport and JSON-RPC conformance
 
-**RPC-34 — An internal handler error becomes HTTP 400 with a non-JSON body.**
-Verdict DIVERGENT. Severity correctness.
-Ours: `rpc-http-handle-request` wraps everything in a `handler-case` whose
-catch-all returns `400 Bad Request` with the condition printed into the body
-(`src/transport/http/handler.lisp:79-82`). The router handles
-`engine-rpc-error`, `block-validation-error`, `invalid-parameters-error`,
-`state-unavailable-error` and `storage-error` into proper JSON-RPC error objects
-(`src/api/rpc/router.lisp:190-226`), so this path is reached only by a condition
-outside that set — but any such condition escapes as a transport-level failure.
-Reference: geth answers `200` with a JSON-RPC error body for handler errors and
-reserves non-2xx for transport-level problems (`rpc/http.go`). Consequence: every
-standard JSON-RPC client — ethers, web3.py, a consensus client's Engine
-transport — reports "HTTP 400" and cannot surface the actual error, and the
-printed condition text leaks internal detail to an unauthenticated caller. In a
-batch, one such condition discards the whole batch's responses.
+**RPC-34 — Internal handler errors stay inside JSON-RPC.**
+Verdict RESOLVED. Severity correctness.
+Commit `d8a000eadcd10d6ec363d96e8edec3a6a1025c58` added catch-all containment at
+both router dispatch boundaries, but its request-guard catch-all began after the
+guard predicate had already run. `rpc-handle-request-without-guard` converts an
+unexpected method-handler condition to a `-32603` `Internal error` object
+(`src/api/rpc/router.lisp:264-269`); `rpc-handle-request` now encloses predicate
+evaluation as well as guard execution in the same per-request catch-all
+(`:274-297`). Malformed transport input still reaches the outer HTTP catch-all
+and remains an HTTP error. The focused HTTP regressions force private conditions
+from both the request guard and its predicate, require status 200 and error code
+`-32603`, and verify that the private text is absent. The predicate regression
+uses a two-item batch and proves that the other item still succeeds. Before the
+whole-boundary repair, that test instead received the non-JSON HTTP 400 body.
 
 **RPC-35 — No batch item limit and no batch response size limit.**
 Verdict MISSING. Severity performance (denial of service).
@@ -854,12 +853,12 @@ that would prove it fixed. "Hive" refers to the `ethereum/hive` suites; the
     that only genuinely unimplemented flags remain. Verify in
     `tests/cli-phase-a-devnet-argument-tests.lisp`: naming `--ipcpath` should
     fail with a message saying IPC is not implemented.
-10. **Return JSON-RPC errors instead of HTTP 400 for handler failures (S).**
-    RPC-34. No dependencies. Narrow the catch-all in
-    `src/transport/http/handler.lisp:79-82` so an unexpected condition becomes a
-    `-32603` body at status 200, and reserve 400 for a malformed request line or
-    headers. Verify with a `tests/core-http-service-tests.lisp` case that forces
-    an internal condition and asserts a 200 with a JSON-RPC error object.
+10. **DONE — Return JSON-RPC errors instead of HTTP 400 for handler failures
+    (S).** RPC-34. Dispatch and the whole request-guard boundary, including the
+    guard predicate, now convert an unexpected condition to a `-32603` body at
+    status 200 without exposing the condition text. Focused HTTP regressions
+    cover guard execution and predicate failure, including batch-item isolation;
+    ordinary transport parse failures remain HTTP errors.
 11. **Default vhosts to localhost, and drop `debug_` from the default module set (S).**
     RPC-38, RPC-39. No dependencies. Both are one-line policy changes with a
     docstring; both will change behaviour for existing devnet invocations, so
