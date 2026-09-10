@@ -100,12 +100,14 @@ blocked a real caller. Resolved entries remain here as an audit trail.
    (`internal/ethapi/api.go:753-859`). Bundlers, simulators, and Tenderly-style
    tooling need the overrides; the missing cap is an unauthenticated way to pin a
    core.
-8. **There is no gas-price oracle.** `engine-rpc-suggest-gas-tip-cap` returns a
-   literal `0` (`src/api/public/metadata/fees.lisp:3`), so
-   `eth_maxPriorityFeePerGas` is always `0x0` and `eth_gasPrice` is the base fee
-   alone. geth samples recent blocks (`eth/ethconfig/config.go:44-46`: 20 blocks,
-   60th percentile). Every wallet that asks the node for a fee suggestion
-   produces a transaction that will not be mined on a contended chain.
+8. **The gas-price oracle is only partially geth-compatible.** Empty history now
+   returns geth's one-million-wei startup tip instead of zero, but the live
+   estimator gas-weights every recent transaction. Geth takes at most three
+   eligible low-tip samples per block, excludes beneficiary and negligible-tip
+   transactions, extends sparse lookback, caches its last price, and caps the
+   result (`eth/gasprice/gasprice.go:37-42`, `:155-233`, `:241-287`). Wallets no
+   longer receive a zero startup tip, but suggestions can still diverge on a
+   contended chain.
 9. **Installed filters never expire and their IDs are sequential integers**
    (`src/storage/chain-store/service/filters.lisp:50-78`). geth gives each filter
    a random 16-byte ID and a five-minute deadline
@@ -529,18 +531,26 @@ against it. Consequence: a wallet that asks for the pending nonce gets the mined
 nonce and will reuse a nonce that is already in the pool. This is the single most
 commonly hit divergence for ordinary wallet traffic. Overlaps txpool.
 
-**RPC-21 — No gas-price oracle.**
+**RPC-21 — Gas-price oracle sampling diverges from geth.**
 Verdict DIVERGENT. Severity correctness.
-Ours: `engine-rpc-suggest-gas-tip-cap` ignores its argument and returns `0`
-(`src/api/public/metadata/fees.lisp:3-5`); `eth_maxPriorityFeePerGas` returns it
-directly (`:7-10`) and `eth_gasPrice` adds it to the base fee (`:12-21`).
-Reference: geth's oracle samples the lowest-priced transactions of the last 20
-blocks at the 60th percentile (`eth/ethconfig/config.go:44-46`, implemented in
-`eth/gasprice/gasprice.go`). Consequence: every wallet that asks the node what
-tip to pay is told zero, producing transactions no builder has reason to include.
-`eth_feeHistory`'s `reward` array inherits the same zero
-(`src/api/public/metadata/fee-history.lisp`), so the fallback path most wallets
-use is equally uninformative.
+Ours now samples transaction tips from the latest 20 available blocks, computes a
+gas-weighted global 60th percentile, and uses a one-million-wei fallback when no
+samples exist (`src/api/public/metadata/fees.lisp`). The fallback matches the
+pinned geth `38271784` startup price passed from `miner.DefaultConfig`; the
+focused empty-history regression covers both `eth_maxPriorityFeePerGas` and
+`eth_gasPrice`.
+
+The remaining sampling policy is different. Geth samples at most the three
+lowest eligible transactions per block, excludes the block beneficiary and tips
+at or below two wei, substitutes its last price for empty blocks, extends the
+lookback when samples are sparse, and caps the result at 500 Gwei
+(`eth/gasprice/gasprice.go:37-42`, `:155-233`, `:241-287`; default 20-block,
+60th-percentile configuration in `eth/ethconfig/config.go:42-50`). Ours samples
+every transaction, gas-weights the combined set, has no beneficiary/ignore-price
+filter, sparse-history extension, cached last price, or maximum. Consequence: the
+empty-chain zero-tip recommendation is fixed, but ordinary-chain recommendations
+can still differ materially from geth. `eth_feeHistory` reward sampling has the
+same eligibility/filter divergence (`src/api/public/metadata/fee-history.lisp`).
 
 **RPC-22 — `eth_blobBaseFee` reports the current head fee.**
 Verdict RESOLVED. Severity correctness.

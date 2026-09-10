@@ -209,7 +209,7 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [RPC-08](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The payload id is a function of the selected transaction set, so identical calls return different ids and each stores another prepared payload. |
 | [RPC-18](rpc-and-engine.md) | rpc | MISSING | correctness | Blob-transaction receipts omit `blobGasUsed` and `blobGasPrice`. |
 | [RPC-19](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The header field is named `balHash` where Nethermind's is `BlockAccessListHash`, so a reader silently sees no commitment. |
-| [RPC-21](rpc-and-engine.md) | rpc | DIVERGENT | correctness | No gas-price oracle: `eth_maxPriorityFeePerGas` is always `0x0` and `eth_feeHistory`'s rewards inherit the zero. |
+| [RPC-21](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The oracle now has geth's nonzero empty-history fallback, but its transaction eligibility, per-block sampling, sparse-history extension, caching, and cap still diverge. |
 | [RPC-24](rpc-and-engine.md) | rpc | DIVERGENT | correctness | `logs` subscriptions never report removed logs and skip logs across a deep reorg, though the filter path does this correctly. |
 | [POOL-04](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | The minimum-fee check reads the fee cap, not the effective tip, so a zero-tip transaction passes the price floor. |
 | [POOL-05](txpool-building-and-ops.md) | pool | MISSING | correctness | No EIP-7702 authority reservation and no delegated-account in-flight limit. |

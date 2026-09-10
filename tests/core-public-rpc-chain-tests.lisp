@@ -257,10 +257,10 @@
                       (block-header-blob-base-fee (block-header head)))
                      (field (second responses) "result")))
         (is (= 35 (field (third responses) "id")))
-        (is (string= (quantity-to-hex 1000)
+        (is (string= (quantity-to-hex 1001000)
                      (field (third responses) "result")))
         (is (= 36 (field (fourth responses) "id")))
-        (is (string= (quantity-to-hex 0)
+        (is (string= (quantity-to-hex 1000000)
                      (field (fourth responses) "result")))
         (let* ((fee-history (field (fifth responses) "result"))
                (base-fees (field fee-history "baseFeePerGas"))
@@ -307,9 +307,9 @@
                (make-engine-payload-memory-store)
                (make-chain-config)))))
       (is (= 2 (length responses)))
-      (is (string= (quantity-to-hex 0)
+      (is (string= (quantity-to-hex 1000000)
                    (field (first responses) "result")))
-      (is (string= (quantity-to-hex 0)
+      (is (string= (quantity-to-hex 1000000)
                    (field (second responses) "result"))))
     (let* ((response
              (parse-json
@@ -615,6 +615,26 @@
         (is (= 9 (field (field next "blobSchedule") "max")))
         (is (= 6 (field (field next "blobSchedule") "target")))
         (is (= 10 (length (field current "forkId"))))))))
+
+(deftest eth-rpc-gas-oracle-uses-nonzero-empty-history-fallback
+  ;; Pinned geth 38271784 initializes its oracle from miner.DefaultConfig's
+  ;; one-million-wei gas price.  An empty chain retains that initial tip rather
+  ;; than recommending a transaction with no inclusion incentive.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((responses
+             (parse-json
+              (engine-rpc-handle-request-json
+               (concatenate
+                'string
+                "[{\"jsonrpc\":\"2.0\",\"id\":306,"
+                "\"method\":\"eth_maxPriorityFeePerGas\",\"params\":[]},"
+                "{\"jsonrpc\":\"2.0\",\"id\":307,"
+                "\"method\":\"eth_gasPrice\",\"params\":[]}]")
+               (make-engine-payload-memory-store)
+               (make-chain-config)))))
+      (is (string= "0xf4240" (field (first responses) "result")))
+      (is (string= "0xf4240" (field (second responses) "result"))))))
 
 (deftest eth-rpc-gas-oracle-samples-recent-priority-fees
   (labels ((field (object name)

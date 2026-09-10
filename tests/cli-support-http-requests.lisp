@@ -16,6 +16,7 @@
     (body &key token (target "/") (host "localhost") origin)
   (with-output-to-string (stream)
     (format stream "POST ~A HTTP/1.1~%Host: ~A~%" target host)
+    (format stream "Connection: close~%")
     (format stream "Content-Type: application/json~%")
     (when origin
       (format stream "Origin: ~A~%" origin))
@@ -28,6 +29,7 @@
        origin)
   (with-output-to-string (stream)
     (format stream "POST ~A HTTP/1.1~%Host: ~A~%" target host)
+    (format stream "Connection: close~%")
     (format stream "Content-Type: application/json~%")
     (when origin
       (format stream "Origin: ~A~%" origin))
@@ -41,6 +43,7 @@
   (with-output-to-string (stream)
     (format stream "~A ~A HTTP/1.1~%Host: ~A~%"
             request-method target host)
+    (format stream "Connection: close~%")
     (when origin
       (format stream "Origin: ~A~%" origin))
     (dolist (header request-headers)

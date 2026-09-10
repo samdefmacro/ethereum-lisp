@@ -673,12 +673,12 @@
                                public-web3-sha3-json "result")))
                  (is (= 524
                         (fixture-object-field public-gas-price-json "id")))
-                 (is (string= "0x3b9aca00"
+                 (is (string= "0x3baa0c40"
                               (fixture-object-field
                                public-gas-price-json "result")))
                  (is (= 525
                         (fixture-object-field public-priority-fee-json "id")))
-                 (is (string= "0x0"
+                 (is (string= "0xf4240"
                               (fixture-object-field
                                public-priority-fee-json "result")))
                  (is (= 526

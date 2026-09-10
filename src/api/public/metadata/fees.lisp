@@ -2,6 +2,7 @@
 
 (defconstant +eth-rpc-gas-oracle-block-count+ 20)
 (defconstant +eth-rpc-gas-oracle-percentile+ 60)
+(defconstant +eth-rpc-gas-oracle-default-tip+ 1000000)
 
 (defun eth-rpc-block-priority-fee-samples (block)
   "Return (TIP . GAS-USED) samples for BLOCK in transaction order."
@@ -42,8 +43,10 @@
                  for block = (chain-store-block-by-number store number)
                  when block
                    append (eth-rpc-block-priority-fee-samples block))))
-    (eth-rpc-priority-fee-percentile
-     samples +eth-rpc-gas-oracle-percentile+)))
+    (if samples
+        (eth-rpc-priority-fee-percentile
+         samples +eth-rpc-gas-oracle-percentile+)
+        +eth-rpc-gas-oracle-default-tip+)))
 
 (defun engine-rpc-handle-eth-max-priority-fee-per-gas (params store)
   (when params
