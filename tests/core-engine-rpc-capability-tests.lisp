@@ -352,6 +352,48 @@
            (error (field response "error")))
       (is (= -32602 (field error "code"))))))
 
+(deftest engine-rpc-metadata-methods-reject-invalid-positional-arity
+  ;; Pinned geth 38271784 exposes exactly one Go argument for each method.
+  ;; JSON-RPC binding must reject trailing positional values before dispatch.
+  (labels ((request-code (method params config)
+             (let* ((response
+                      (engine-rpc-handle-request
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 20)
+                             (cons "method" method)
+                             (cons "params" params))
+                       (make-engine-payload-memory-store)
+                       config))
+                    (error (cdr (assoc "error" response :test #'string=))))
+               (cdr (assoc "code" error :test #'string=)))))
+    (let ((config (make-chain-config))
+          (client-version
+            '(("code" . "TT")
+              ("name" . "test")
+              ("version" . "1.0.0")
+              ("commit" . "0x12345678")))
+          (transition-configuration
+            '(("terminalTotalDifficulty" . "0x0")
+              ("terminalBlockHash" .
+               "0x0000000000000000000000000000000000000000000000000000000000000000")
+              ("terminalBlockNumber" . "0x0"))))
+      (dolist (method '("engine_exchangeCapabilities"
+                        "engine_getClientVersionV1"
+                        "engine_exchangeTransitionConfigurationV1"))
+        (is (= -32602 (request-code method '() config))))
+      (is (= -32602
+             (request-code "engine_exchangeCapabilities"
+                           (list '() nil)
+                           config)))
+      (is (= -32602
+             (request-code "engine_getClientVersionV1"
+                           (list client-version nil)
+                           config)))
+      (is (= -32602
+             (request-code "engine_exchangeTransitionConfigurationV1"
+                           (list transition-configuration nil)
+                           config))))))
+
 (deftest engine-rpc-build-commit-requires-a-full-git-object-id
   (is (string= "0xac080fd3"
                (ethereum-lisp.engine-api::engine-rpc-build-commit

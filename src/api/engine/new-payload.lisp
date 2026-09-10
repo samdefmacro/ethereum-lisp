@@ -179,26 +179,32 @@
        (json-array-p value)
        (every #'stringp (json-array-values value))))
 
+(defun engine-rpc-validate-metadata-param-count (params method)
+  (unless (and (listp params) (= 1 (length params)))
+    (block-validation-fail
+     "~A params must contain exactly one positional value" method)))
+
 (defun engine-rpc-handle-exchange-capabilities (params)
-  (when params
-    (let ((remote (first params)))
-      (unless (engine-rpc-string-list-p remote)
-        (block-validation-fail
-         "engine_exchangeCapabilities params must contain a string list"))))
+  (let ((method "engine_exchangeCapabilities"))
+    (engine-rpc-validate-metadata-param-count params method)
+    (unless (engine-rpc-string-list-p (first params))
+      (block-validation-fail
+       "~A params must contain a string list" method)))
   (engine-rpc-capabilities))
 
 (defun engine-rpc-handle-get-client-version (params)
-  (when params
+  (let ((method "engine_getClientVersionV1"))
+    (engine-rpc-validate-metadata-param-count params method)
     (let ((caller (first params)))
       (unless (json-object-p caller)
         (block-validation-fail
-         "engine_getClientVersionV1 params must contain a client version object"))
+         "~A params must contain a client version object" method))
       (dolist (field '("code" "name" "version" "commit"))
         (let ((value (json-rpc-required-field caller field)))
           (unless (stringp value)
             (block-validation-fail
-             "engine_getClientVersionV1 client version fields must be strings"))))))
-  (list (engine-rpc-client-version)))
+             "~A client version fields must be strings" method)))))
+    (list (engine-rpc-client-version))))
 
 (defun engine-rpc-validate-transition-configuration (object config)
   (unless (json-object-p object)
@@ -226,8 +232,7 @@
   t)
 
 (defun engine-rpc-handle-exchange-transition-configuration (params config)
-  (unless params
-    (block-validation-fail
-     "engine_exchangeTransitionConfigurationV1 params must include transition configuration"))
+  (engine-rpc-validate-metadata-param-count
+   params "engine_exchangeTransitionConfigurationV1")
   (engine-rpc-validate-transition-configuration (first params) config)
   (engine-rpc-transition-configuration-object config))
