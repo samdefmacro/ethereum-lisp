@@ -716,7 +716,7 @@
               :transactions
               (list (signed 100 3)
                     (make-legacy-transaction
-                     :gas-price 100 :gas-limit 21000 :to (zero-address))
+                     :gas-price 110 :gas-limit 21000 :to (zero-address))
                     (signed 1 1)
                     (signed 5 4)
                     beneficiary-transaction
