@@ -748,6 +748,23 @@ are in `docs/evidence/sec5-abfe6da3-simulate-transfer-traces.txt`. The prepared
 exact-d9e0e2dd 234-case Hive rerun remains required before the full RPC gate can
 close.
 
+`30ad66d1704e68f9c2e73d7b80723be0d6187f03` and its
+`777fc959e0af28accc7c1c876ff27428aa5acab6` test follow-up close the bounded
+recent-block gas-oracle sampling class against pinned geth `38271784`: the
+oracle now filters invalid and beneficiary senders, ignores tips below two wei,
+keeps the lowest three samples per block, selects an unweighted 60th percentile,
+and caps the result at 500 Gwei without changing `eth_feeHistory`'s distinct
+gas-weighted rewards. `7b86ca24d0ce75c180cf213e0d159cfe607a6150`
+additionally rejects incomplete or trailing `engine_newPayloadV1`-`V5`
+positional parameters before payload decoding or persistence, matching pinned
+Execution APIs `e5d1bb60`; `425e129ca4c3b8f1242589e44c8cfc9740c9e608`
+proves the JSON-RPC -32602 boundary and zero import/persistence callbacks. The
+focused gates pass 4 gas-oracle and 21 newPayload tests, and the aggregate
+cold-unit gate passes 1,344 with 3 optional skips. Cached-last-price and
+sparse-history oracle parity remain open, and the
+prepared exact-d9e0e2dd 234-case Hive rerun is still required; see
+`docs/evidence/sec5-7b86ca24-rpc-engine-compat.txt`.
+
 ### 6. Make txpool and payload building bounded and proposer-safe
 
 - Replace separate transaction/sidecar callbacks with atomic pooled-blob

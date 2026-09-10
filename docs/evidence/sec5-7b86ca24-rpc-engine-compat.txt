@@ -1,0 +1,73 @@
+# Section 5 local RPC/Engine compatibility evidence
+
+report-version: 1
+generated-utc: 2026-09-10T12:28:02Z
+branch: sec5-public-bootstrap-sync
+aggregate-revision: 7b86ca24d0ce75c180cf213e0d159cfe607a6150
+final-test-follow-up: 425e129ca4c3b8f1242589e44c8cfc9740c9e608
+
+## Reference pins
+
+- go-ethereum gas oracle: 38271784c2b31926563806da9a2e023b88f5e7a8
+- gasprice.go SHA-256: 9331b37d2c1ceef778cd4521d49fac81a41c2bba54c89751b22424dcfd18867d
+- Execution APIs Engine specification: e5d1bb60e6c064e4b15080da07b4370d0baadf92
+
+## Gas oracle
+
+Implementation revision: 30ad66d1704e68f9c2e73d7b80723be0d6187f03
+Focused test follow-up: 777fc959e0af28accc7c1c876ff27428aa5acab6
+Documentation follow-up: 0904f3a116b6d3f61675f67b93f017cc40b3aa32
+
+The RED regression observed `0x14` where pinned geth's unweighted 60th
+percentile requires `0x5`. The repaired sampler:
+
+- scans the latest 20 non-genesis canonical blocks;
+- sorts effective priority fees per block and keeps at most the lowest three;
+- ignores tips below two wei, invalid senders, and beneficiary senders;
+- selects the unweighted 60th percentile across block samples;
+- preserves the one-million-wei empty-history fallback;
+- caps the suggestion at 500 Gwei;
+- keeps `eth_feeHistory` on its distinct receipt-gas-weighted reward path.
+
+Verification:
+
+- `cl-workbench validation run cold-unit --match ETH-RPC-GAS-ORACLE`
+  passed 4/4 at the follow-up revision.
+- Independent read-only review found no blocking correctness or runtime issue.
+  It identified an invalid-sender test gap, closed by 777fc959.
+- Remaining known parity limits are geth's cached last-price behavior and its
+  sparse-history extension to twice the normal lookback. They remain explicit
+  in `docs/gap-analysis/rpc-and-engine.md` and are not claimed complete.
+
+## Engine newPayload positional arity
+
+Implementation revision: 7b86ca24d0ce75c180cf213e0d159cfe607a6150
+
+The RED regression showed that an over-arity `engine_newPayload` request
+entered payload decoding and failed on a missing `parentHash`; trailing
+parameters were not rejected at the method boundary. The repaired boundary
+requires the pinned positional signatures before payload decoding or any
+import/persistence callback:
+
+- V1/V2: exactly one parameter;
+- V3: exactly three parameters;
+- V4/V5: exactly four parameters.
+
+Focused and broad verification:
+
+- `cl-workbench validation run cold-unit --match ENGINE-NEW-PAYLOAD` passed
+  21/21.
+- The final focused arity regression passed 1/1 through the JSON-RPC boundary,
+  proving error code `-32602`, no result, and zero import/persistence callbacks
+  at test follow-up 425e129c.
+- `cl-workbench validation run cold-unit` passed 1,344 tests with 3 optional
+  skips at aggregate revision 7b86ca24.
+- Full cold-unit output: 77,543 bytes, SHA-256
+  `54bbcc005676d6a3f3de6092cdad1a705d932cfd14a48f7ea72bdcf55cba11b2`.
+- `cl-workbench docs verify` passed.
+
+## External gates
+
+These local results do not replace the prepared exact-revision 234-case Hive
+RPC/Engine rerun. No Hive, Hoodi completion, shadow, or validator-soak gate is
+claimed green by this evidence.
