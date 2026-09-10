@@ -178,8 +178,9 @@ least one valid enode."
 (defun devnet-cli-public-api-method-filter (modules)
   "The predicate deciding which methods the public HTTP port will answer.
 
-With no --http.api this is the conservative public set. It excludes admin_ and
-debug_; either namespace is reachable only when named explicitly."
+With no --http.api this is the conservative public set. It excludes admin_,
+debug_, and testing_; those namespaces are reachable only when named
+explicitly."
   (if (null modules)
       (lambda (method)
         (and (engine-rpc-public-method-p method)
@@ -188,7 +189,8 @@ debug_; either namespace is reachable only when named explicitly."
       (let ((modules (copy-list modules)))
         (lambda (method)
           (and (or (engine-rpc-public-method-p method)
-                   (engine-rpc-admin-method-p method))
+                   (engine-rpc-admin-method-p method)
+                   (engine-rpc-testing-method-p method))
                (or (string= method "rpc_modules")
                    (let ((module (devnet-cli-rpc-method-module method)))
                      (and module

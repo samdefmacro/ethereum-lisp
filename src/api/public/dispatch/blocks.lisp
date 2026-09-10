@@ -7,6 +7,10 @@
         (store (public-rpc-dispatch-context-store context))
         (config (public-rpc-dispatch-context-config context)))
     (cond
+      ((public-rpc-dispatch-method-p context "testing_buildBlockV1")
+       (public-rpc-dispatch-response
+        context
+        (engine-rpc-handle-testing-build-block-v1 params store config)))
       ((public-rpc-dispatch-method-p context "eth_getHeaderByNumber")
        (public-rpc-dispatch-response
         context

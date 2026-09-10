@@ -44,7 +44,7 @@
 
 (defun engine-rpc-build-prepared-payload-detached
     (store parent-block payload-attributes config transactions
-     &key gas-limit-target)
+     &key gas-limit-target extra-data)
   (let* ((block
            (engine-rpc-with-phase-timing ("fcuEmptyBlockMs")
              (engine-build-empty-payload
@@ -52,6 +52,8 @@
          (header (block-header block))
          (block-number (block-header-number header))
          (timestamp (block-header-timestamp header)))
+    (when extra-data
+      (setf (block-header-extra-data header) (copy-seq extra-data)))
     (if (not (or transactions
                  (and
                   (payload-attributes-v1-withdrawals-present-p
@@ -101,7 +103,7 @@
 
 (defun engine-rpc-build-prepared-payload
     (store parent-block payload-attributes config transactions
-     &key gas-limit-target)
+     &key gas-limit-target extra-data)
   "Build a validated payload candidate that remains private until newPayload."
   (engine-rpc-with-phase-timing ("fcuPrivateCandidateMs")
     (build-private-block-candidate
@@ -109,7 +111,8 @@
      (lambda ()
        (engine-rpc-build-prepared-payload-detached
         store parent-block payload-attributes config transactions
-        :gas-limit-target gas-limit-target))
+        :gas-limit-target gas-limit-target
+        :extra-data extra-data))
      config)))
 
 (defun engine-rpc-transaction-sender-key (transaction expected-chain-id)
@@ -139,7 +142,7 @@ mutated working state into the next probe."
 
 (defun engine-rpc-build-viable-prepared-payload
     (store parent-block payload-attributes config transactions
-     &key gas-limit-target)
+     &key gas-limit-target extra-data)
   "Execute and fill TRANSACTIONS in order using actual cumulative gas.
 
 Each candidate is probed on top of the already accepted transactions.  A
@@ -158,7 +161,8 @@ for the rest of this payload; other senders are still considered."
         (multiple-value-bind (candidate ignored-receipts execution-state)
             (engine-rpc-build-prepared-payload
              store parent-block payload-attributes config transactions
-             :gas-limit-target gas-limit-target)
+             :gas-limit-target gas-limit-target
+             :extra-data extra-data)
           (declare (ignore ignored-receipts))
           (let ((header (block-header candidate)))
             (unless (and
@@ -176,7 +180,8 @@ for the rest of this payload; other senders are still considered."
   (multiple-value-bind (empty-block ignored-receipts empty-execution-state)
       (engine-rpc-build-prepared-payload
        store parent-block payload-attributes config nil
-       :gas-limit-target gas-limit-target)
+       :gas-limit-target gas-limit-target
+       :extra-data extra-data)
     (declare (ignore ignored-receipts))
     (let ((block empty-block)
           (execution-state empty-execution-state)
@@ -194,7 +199,8 @@ for the rest of this payload; other senders are still considered."
                     (engine-rpc-build-prepared-payload
                      store parent-block payload-attributes config
                      (append selected (list transaction))
-                     :gas-limit-target gas-limit-target)
+                     :gas-limit-target gas-limit-target
+                     :extra-data extra-data)
                   (declare (ignore ignored-candidate-receipts))
                   (let ((header (block-header candidate)))
                     (when (and

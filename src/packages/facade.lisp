@@ -1212,6 +1212,7 @@
    #:engine-rpc-required-eth-method-p
    #:+engine-rpc-required-eth-methods+
    #:engine-rpc-public-method-p
+   #:engine-rpc-testing-method-p
    #:engine-rpc-admin-method-p
    #:engine-rpc-any-method-p)
   (#:ethereum-lisp.rpc

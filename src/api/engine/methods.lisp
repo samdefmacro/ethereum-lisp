@@ -135,6 +135,13 @@ its execution-layer upcheck, got -32601 every time, and so never advanced past
            (string-prefix-p "txpool_" method)
            (string-prefix-p "debug_" method))))
 
+(defun engine-rpc-testing-method-p (method)
+  "Whether METHOD is in the opt-in testing namespace.
+
+Testing methods are deliberately excluded from ENGINE-RPC-PUBLIC-METHOD-P so
+the default-open HTTP endpoint cannot expose fixture-generation operations."
+  (and (stringp method) (string-prefix-p "testing_" method)))
+
 (defun engine-rpc-admin-method-p (method)
   "Whether METHOD is in the admin namespace.
 

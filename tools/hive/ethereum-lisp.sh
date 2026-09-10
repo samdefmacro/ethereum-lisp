@@ -138,7 +138,7 @@ flags=(
     # Bind on all interfaces: the simulator reaches the container by its bridge
     # address, never over loopback.
     --http --http.addr 0.0.0.0 --http.port 8545
-    --http.api admin,debug,eth,net,txpool,web3
+    --http.api admin,debug,eth,net,testing,txpool,web3
     --http.vhosts '*' --http.corsdomain '*'
     --authrpc.addr 0.0.0.0 --authrpc.port 8551
     --authrpc.jwtsecret "$jwtsecret" --authrpc.vhosts '*'

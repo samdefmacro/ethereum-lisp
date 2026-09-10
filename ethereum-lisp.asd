@@ -353,6 +353,7 @@
        (:file "engine-rpc-payloads" :pathname "engine/payloads")
        (:file "engine-rpc-blobs" :pathname "engine/blobs")
        (:file "engine-rpc-forkchoice" :pathname "engine/forkchoice")
+       (:file "engine-rpc-testing" :pathname "engine/testing")
        (:file "engine-api-dispatch" :pathname "engine/dispatch")
        (:file "public-rpc-params" :pathname "public/params")
        (:file "public-rpc-metadata" :pathname "public/metadata/metadata")

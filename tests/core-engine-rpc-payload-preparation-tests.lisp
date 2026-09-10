@@ -1728,3 +1728,126 @@
                (field bundle "proofs")))
           (is (ethereum-lisp.json:json-empty-array-p
                (field bundle "blobs")))))))))
+(deftest testing-build-block-v1-builds-private-explicit-and-pool-payloads
+  ;; execution-apis e5d1bb60, testing_buildBlockV1: explicit transactions are
+  ;; exact and ordered, JSON null may select the pool, and no build publishes.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=)))
+           (request (id params store config)
+             (engine-rpc-handle-request
+              (list (cons "jsonrpc" "2.0")
+                    (cons "id" id)
+                    (cons "method" "testing_buildBlockV1")
+                    (cons "params" params))
+              store config
+              :allowed-method-p
+              (ethereum-lisp.cli::devnet-cli-public-api-method-filter
+               (list "testing"))))
+           (attributes ()
+             (list
+              (cons "timestamp" "0x16")
+              (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+              (cons "suggestedFeeRecipient" (address-to-hex (zero-address)))
+              (cons "withdrawals" #())
+              (cons "parentBeaconBlockRoot" (hash32-to-hex (zero-hash32))))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1 :london-block 0
+                                      :shanghai-time 0 :cancun-time 0))
+           (private-key 1)
+           (sender (fixture-private-key-address private-key))
+           (recipient
+             (address-from-hex "0x3535353535353535353535353535353535353535"))
+           (state (make-state-db))
+           (transaction
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 0
+                                       :gas-price 2000
+                                       :gas-limit 21000
+                                       :to recipient
+                                       :value 1)
+              private-key 1))
+           (wrong-nonce
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction :nonce 2
+                                       :gas-price 2000
+                                       :gas-limit 21000
+                                       :to recipient
+                                       :value 1)
+              private-key 1))
+           (raw (bytes-to-hex (transaction-encoding transaction)))
+           (wrong-raw (bytes-to-hex (transaction-encoding wrong-nonce))))
+      (state-db-set-account
+       state sender (make-state-account :nonce 0 :balance 1000000000))
+      (let* ((parent
+               (make-block
+                :header
+                (make-block-header
+                 :number 0 :timestamp 10 :gas-limit 30000000 :gas-used 0
+                 :base-fee-per-gas 100 :state-root (state-db-root state)
+                 :withdrawals-root (withdrawal-list-root '())
+                 :blob-gas-used 0 :excess-blob-gas 0
+                 :parent-beacon-root (zero-hash32))
+                :withdrawals '()))
+             (parent-hash (block-hash parent))
+             (parent-hex (hash32-to-hex parent-hash)))
+        (engine-payload-store-put-block store parent :state-available-p t)
+        (commit-state-db-to-chain-store store parent-hash state)
+        (chain-store-set-canonical-head
+         store parent-hash :expected-chain-id 1 :chain-config config)
+        (is (not (engine-rpc-public-method-p "testing_buildBlockV1")))
+        (is (engine-rpc-testing-method-p "testing_buildBlockV1"))
+        (is (not
+             (funcall
+              (ethereum-lisp.cli::devnet-cli-public-api-method-filter nil)
+              "testing_buildBlockV1")))
+        (let* ((response
+                 (request 700
+                          (list parent-hex (attributes) '() "0x")
+                          store config))
+               (payload (field (field response "result") "executionPayload")))
+          (is (null (field response "error")))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field payload "transactions"))))
+        (let* ((response
+                 (request 701
+                          (list parent-hex (attributes) (list raw)
+                                "0x74657374")
+                          store config))
+               (result (field response "result"))
+               (payload (field result "executionPayload")))
+          (is (null (field response "error")))
+          (is (equal (list raw) (coerce (field payload "transactions") 'list)))
+          (is (string= "0x74657374" (field payload "extraData")))
+          (is (string= parent-hex (field payload "parentHash")))
+          (is (string= "0x1" (field payload "blockNumber")))
+          (is (string= "0x16" (field payload "timestamp")))
+          (is (field result "blobsBundle"))
+          (is (ethereum-lisp.json:json-empty-array-p
+               (field result "executionRequests")))
+          (is (eq :false (field result "shouldOverrideBuilder")))
+          (is (null (chain-store-known-block
+                     store (hash32-from-hex (field payload "blockHash"))))))
+        (let* ((response
+                 (request 702
+                          (list parent-hex (attributes) (list wrong-raw) "0x")
+                          store config))
+               (error (field response "error")))
+          (is (= -32000 (field error "code"))))
+        (is (null
+             (field
+              (engine-rpc-handle-request
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 703)
+                     (cons "method" "eth_sendRawTransaction")
+                     (cons "params" (list raw)))
+               store config)
+              "error")))
+        (let* ((response
+                 (request 704
+                          (list parent-hex (attributes)
+                                ethereum-lisp.json:+json-null+ "0x")
+                          store config))
+               (payload (field (field response "result") "executionPayload")))
+          (is (equal (list raw) (coerce (field payload "transactions") 'list))))
+        (is (hash32= parent-hash (chain-store-canonical-hash store 0)))
+        (is (null (chain-store-canonical-hash store 1)))))))
