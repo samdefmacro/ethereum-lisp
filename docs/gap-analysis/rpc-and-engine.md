@@ -177,11 +177,11 @@ RPC-01 records the now-resolved reporting gap that used to affect one of the nin
 | `eth_accounts` | yes | yes | full | Empty array; no key management, by design. |
 | `eth_mining` / `eth_hashrate` | yes | yes | full | `false` / `0x0`, as post-merge geth. |
 | `eth_protocolVersion` | yes | yes | full | — |
-| `eth_gasPrice` | yes | yes | partial | Base fee plus a hardcoded zero tip (RPC-21). |
-| `eth_maxPriorityFeePerGas` | yes | yes | partial | Always `0x0` (RPC-21). |
+| `eth_gasPrice` | yes | yes | partial | Base fee plus the bounded recent-block tip oracle (RPC-21). |
+| `eth_maxPriorityFeePerGas` | yes | yes | partial | Bounded geth-style recent-block sampling; sparse-history cache behavior remains (RPC-21). |
 | `eth_blobBaseFee` | yes | yes | full | Reports the current head fee, matching geth v1.17.4 (RPC-22). |
 | `eth_baseFee` | no | yes | full | Nethermind extension. |
-| `eth_feeHistory` | yes | yes | partial | `reward` percentiles derive from the zero tip (RPC-21). |
+| `eth_feeHistory` | yes | yes | partial | Receipt-gas-weighted reward percentiles over retained canonical history. |
 | `eth_getBalance` | yes | yes | full | — |
 | `eth_getTransactionCount` | yes | yes | full | Optional block defaults to `latest`; `pending` includes the contiguous pool nonce. |
 | `eth_getCode` | yes | yes | full | — |
@@ -531,26 +531,25 @@ against it. Consequence: a wallet that asks for the pending nonce gets the mined
 nonce and will reuse a nonce that is already in the pool. This is the single most
 commonly hit divergence for ordinary wallet traffic. Overlaps txpool.
 
-**RPC-21 — Gas-price oracle sampling diverges from geth.**
-Verdict DIVERGENT. Severity correctness.
-Ours now samples transaction tips from the latest 20 available blocks, computes a
-gas-weighted global 60th percentile, and uses a one-million-wei fallback when no
-samples exist (`src/api/public/metadata/fees.lisp`). The fallback matches the
-pinned geth `38271784` startup price passed from `miner.DefaultConfig`; the
-focused empty-history regression covers both `eth_maxPriorityFeePerGas` and
-`eth_gasPrice`.
+**RPC-21 — Gas-price oracle sparse-history state diverges from geth.**
+Verdict PARTIALLY RESOLVED. Severity correctness.
+Ours samples the latest 20 non-genesis canonical blocks, sorts each block by
+effective tip, retains at most its three lowest eligible transactions, excludes
+failed sender recovery, the block beneficiary, and tips below two wei, then uses
+geth's unweighted `(sample-count - 1) * 60 / 100` index and 500 Gwei cap
+(`src/api/public/metadata/fees.lisp`). Empty histories and blocks use the
+one-million-wei startup fallback. Focused regressions cover RPC-level selection,
+the distinct `eth_feeHistory` gas-weighted result, eligibility filters, and the
+per-block bound.
 
-The remaining sampling policy is different. Geth samples at most the three
-lowest eligible transactions per block, excludes the block beneficiary and tips
-at or below two wei, substitutes its last price for empty blocks, extends the
-lookback when samples are sparse, and caps the result at 500 Gwei
-(`eth/gasprice/gasprice.go:37-42`, `:155-233`, `:241-287`; default 20-block,
-60th-percentile configuration in `eth/ethconfig/config.go:42-50`). Ours samples
-every transaction, gas-weights the combined set, has no beneficiary/ignore-price
-filter, sparse-history extension, cached last price, or maximum. Consequence: the
-empty-chain zero-tip recommendation is fixed, but ordinary-chain recommendations
-can still differ materially from geth. `eth_feeHistory` reward sampling has the
-same eligibility/filter divergence (`src/api/public/metadata/fee-history.lisp`).
+This matches the bounded sample/filter/percentile path in pinned geth
+`38271784` (`eth/gasprice/gasprice.go:37-42`, `:155-233`, `:241-287`; default
+20-block, 60th-percentile configuration in `eth/ethconfig/config.go:42-50`). The
+remaining difference is state across calls: geth substitutes its cached last
+price for an empty block and extends sparse lookback to at most twice the normal
+block count, whereas the current stateless RPC helper substitutes the fixed
+startup price and does not extend the window. Recommendations can therefore
+still differ across sparse or newly empty histories after market prices move.
 
 **RPC-22 — `eth_blobBaseFee` reports the current head fee.**
 Verdict RESOLVED. Severity correctness.

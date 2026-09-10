@@ -85,11 +85,12 @@
       ((public-rpc-dispatch-method-p context "eth_gasPrice")
        (public-rpc-dispatch-response
         context
-        (engine-rpc-handle-eth-gas-price params store)))
+        (engine-rpc-handle-eth-gas-price params store config)))
       ((public-rpc-dispatch-method-p context "eth_maxPriorityFeePerGas")
        (public-rpc-dispatch-response
         context
-        (engine-rpc-handle-eth-max-priority-fee-per-gas params store)))
+        (engine-rpc-handle-eth-max-priority-fee-per-gas
+         params store config)))
       ((public-rpc-dispatch-method-p context "eth_baseFee")
        (public-rpc-dispatch-response
         context

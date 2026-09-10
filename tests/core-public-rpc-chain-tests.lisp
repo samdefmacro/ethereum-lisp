@@ -641,28 +641,41 @@
              (cdr (assoc name object :test #'string=))))
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1 :london-block 0))
+           (parent
+             (make-block
+              :header
+              (make-block-header
+               :number 0 :timestamp 0 :gas-limit 100000
+               :gas-used 0 :base-fee-per-gas 100)))
            (low
-             (make-legacy-transaction
-              :gas-price 105 :gas-limit 21000 :to (zero-address)))
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :gas-price 105 :gas-limit 21000 :to (zero-address))
+              1 1))
            (high
-             (make-dynamic-fee-transaction
-              :chain-id 1
-              :max-fee-per-gas 120
-              :max-priority-fee-per-gas 20
-              :gas-limit 21000
-              :to (zero-address)))
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :gas-price 120 :gas-limit 21000 :to (zero-address))
+              2 1))
            (block
              (make-block
               :header
               (make-block-header
-               :number 0 :timestamp 1 :gas-limit 100000
+               :parent-hash (block-hash parent)
+               :number 1 :timestamp 1 :gas-limit 100000
                :gas-used 42000 :base-fee-per-gas 100)
               :transactions (list low high)
               :receipts
               (list
                (make-receipt :status 1 :cumulative-gas-used 21000)
                (make-receipt :status 1 :cumulative-gas-used 42000)))))
-      (chain-store-put-block store block :state-available-p t)
+      (engine-payload-store-put-block store parent :state-available-p t)
+      (engine-payload-store-put-block store block :state-available-p t)
+      (chain-store-update-forkchoice-checkpoints
+       store
+       (make-forkchoice-state
+        :head-block-hash (block-hash block)
+        :safe-block-hash (block-hash block)))
       (let* ((responses
                (parse-json
                 (engine-rpc-handle-request-json
@@ -678,9 +691,75 @@
                  store config)))
              (fee-history (field (third responses) "result"))
              (rewards (elt (field fee-history "reward") 0)))
-        (is (string= "0x14" (field (first responses) "result")))
-        (is (string= "0x78" (field (second responses) "result")))
+        (is (string= "0x5" (field (first responses) "result")))
+        (is (string= "0x69" (field (second responses) "result")))
         (is (equal '("0x5" "0x14" "0x14") rewards))))))
+
+(deftest eth-rpc-gas-oracle-filters-and-bounds-block-samples
+  ;; Pinned geth 38271784 gasprice.go sorts by effective tip, ignores values
+  ;; below two wei and beneficiary/invalid senders, then takes at most three.
+  (labels ((signed (tip private-key)
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce tip :gas-price (+ 100 tip) :gas-limit 21000
+               :to (zero-address))
+              private-key 1)))
+    (let* ((config (make-chain-config :chain-id 1 :london-block 0))
+           (beneficiary-transaction (signed 3 2))
+           (block
+             (make-block
+              :header
+              (make-block-header
+               :number 1 :timestamp 1 :gas-limit 200000
+               :base-fee-per-gas 100
+               :beneficiary (fixture-private-key-address 2))
+              :transactions
+              (list (signed 100 3)
+                    (make-legacy-transaction
+                     :gas-price 100 :gas-limit 21000 :to (zero-address))
+                    (signed 1 1)
+                    (signed 5 4)
+                    beneficiary-transaction
+                    (signed 2 5)
+                    (signed 4 6)))))
+      (is (equal
+           '(2 4 5)
+           (ethereum-lisp.public-api::eth-rpc-gas-oracle-block-samples
+            block config))))))
+
+(deftest eth-rpc-gas-oracle-caps-the-suggested-tip
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1 :london-block 0))
+         (parent
+           (make-block
+            :header
+            (make-block-header
+             :number 0 :timestamp 0 :gas-limit 100000
+             :gas-used 0 :base-fee-per-gas 100)))
+         (transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :gas-price
+             (+ 101 ethereum-lisp.public-api::+eth-rpc-gas-oracle-maximum-tip+)
+             :gas-limit 21000 :to (zero-address))
+            1 1))
+         (block
+           (make-block
+            :header
+            (make-block-header
+             :parent-hash (block-hash parent)
+             :number 1 :timestamp 1 :gas-limit 100000
+             :gas-used 21000 :base-fee-per-gas 100)
+            :transactions (list transaction))))
+    (engine-payload-store-put-block store parent :state-available-p t)
+    (engine-payload-store-put-block store block :state-available-p t)
+    (chain-store-update-forkchoice-checkpoints
+     store
+     (make-forkchoice-state :head-block-hash (block-hash block)))
+    (is (=
+         ethereum-lisp.public-api::+eth-rpc-gas-oracle-maximum-tip+
+         (ethereum-lisp.public-api::engine-rpc-suggest-gas-tip-cap
+          store config)))))
 
 (deftest eth-rpc-blob-base-fee-reports-the-current-head-fee
   ;; Geth v1.17.4 `EthereumAPI.BlobBaseFee` reports the current head's fee,

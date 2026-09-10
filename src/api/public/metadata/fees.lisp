@@ -3,6 +3,9 @@
 (defconstant +eth-rpc-gas-oracle-block-count+ 20)
 (defconstant +eth-rpc-gas-oracle-percentile+ 60)
 (defconstant +eth-rpc-gas-oracle-default-tip+ 1000000)
+(defconstant +eth-rpc-gas-oracle-samples-per-block+ 3)
+(defconstant +eth-rpc-gas-oracle-ignore-under+ 2)
+(defconstant +eth-rpc-gas-oracle-maximum-tip+ 500000000000)
 
 (defun eth-rpc-block-priority-fee-samples (block)
   "Return (TIP . GAS-USED) samples for BLOCK in transaction order."
@@ -34,26 +37,58 @@
                     return tip)
             (caar (last ordered))))))
 
-(defun engine-rpc-suggest-gas-tip-cap (store)
+(defun eth-rpc-gas-oracle-block-samples (block config)
+  "Return the lowest usable gas-oracle tip samples for BLOCK."
+  (let* ((header (block-header block))
+         (base-fee (or (block-header-base-fee-per-gas header) 0))
+         (beneficiary (or (block-header-beneficiary header) (zero-address)))
+         (expected-chain-id (chain-config-chain-id config))
+         (ordered
+           (sort (copy-list (block-transactions block)) #'<
+                 :key (lambda (transaction)
+                        (transaction-priority-fee-per-gas
+                         transaction :base-fee base-fee)))))
+    (loop for transaction in ordered
+          for tip = (transaction-priority-fee-per-gas
+                     transaction :base-fee base-fee)
+          for sender = (and (>= tip +eth-rpc-gas-oracle-ignore-under+)
+                            (transaction-sender
+                             transaction
+                             :expected-chain-id expected-chain-id))
+          when (and sender
+                    (not (bytes= (address-bytes sender)
+                                 (address-bytes beneficiary))))
+            collect tip into samples
+          when (= (length samples) +eth-rpc-gas-oracle-samples-per-block+)
+            return samples
+          finally (return samples))))
+
+(defun eth-rpc-gas-oracle-percentile (samples percentile)
+  (let ((ordered (sort (copy-list samples) #'<)))
+    (nth (floor (* (1- (length ordered)) percentile) 100) ordered)))
+
+(defun engine-rpc-suggest-gas-tip-cap (store config)
   (let* ((head-number (chain-store-head-number store))
          (first-number
-           (max 0 (1+ (- head-number +eth-rpc-gas-oracle-block-count+))))
+           (max 1 (1+ (- head-number +eth-rpc-gas-oracle-block-count+))))
          (samples
            (loop for number from first-number to head-number
                  for block = (chain-store-block-by-number store number)
                  when block
-                   append (eth-rpc-block-priority-fee-samples block))))
-    (if samples
-        (eth-rpc-priority-fee-percentile
-         samples +eth-rpc-gas-oracle-percentile+)
-        +eth-rpc-gas-oracle-default-tip+)))
+                   append (or (eth-rpc-gas-oracle-block-samples block config)
+                              (list +eth-rpc-gas-oracle-default-tip+)))))
+    (min +eth-rpc-gas-oracle-maximum-tip+
+         (if samples
+             (eth-rpc-gas-oracle-percentile
+              samples +eth-rpc-gas-oracle-percentile+)
+             +eth-rpc-gas-oracle-default-tip+))))
 
-(defun engine-rpc-handle-eth-max-priority-fee-per-gas (params store)
+(defun engine-rpc-handle-eth-max-priority-fee-per-gas (params store config)
   (when params
     (block-validation-fail "eth_maxPriorityFeePerGas params must be empty"))
-  (quantity-to-hex (engine-rpc-suggest-gas-tip-cap store)))
+  (quantity-to-hex (engine-rpc-suggest-gas-tip-cap store config)))
 
-(defun engine-rpc-handle-eth-gas-price (params store)
+(defun engine-rpc-handle-eth-gas-price (params store config)
   (when params
     (block-validation-fail "eth_gasPrice params must be empty"))
   (let* ((head (chain-store-latest-block store))
@@ -62,7 +97,7 @@
                        (or (block-header-base-fee-per-gas header) 0)
                        0)))
     (quantity-to-hex (+ base-fee
-                        (engine-rpc-suggest-gas-tip-cap store)))))
+                        (engine-rpc-suggest-gas-tip-cap store config)))))
 
 (defun engine-payload-store-head-block (store)
   (chain-store-block-by-number
