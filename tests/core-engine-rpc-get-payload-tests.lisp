@@ -247,6 +247,33 @@
         (is (string= "0x09cc" (first (field bundle "proofs"))))
         (is (string= "0x07aa" (first (field bundle "blobs"))))))))
 
+(deftest engine-rpc-blob-methods-reject-invalid-positional-arity
+  ;; Pinned geth 38271784 exposes one []common.Hash argument for getBlobsV1-V3
+  ;; and hasBlobs, while getBlobsV4 adds one custody bitmap argument.  JSON-RPC
+  ;; must reject trailing values rather than silently ignoring them.
+  (let ((pre-osaka-config (make-chain-config))
+        (osaka-config (make-chain-config :london-block 0 :osaka-time 0))
+        (store (make-engine-payload-memory-store))
+        (bitmap (bytes-to-hex (make-byte-vector 16))))
+    (dolist (request
+             (list
+              (list "engine_getBlobsV1" pre-osaka-config (list '() nil))
+              (list "engine_getBlobsV2" osaka-config (list '() nil))
+              (list "engine_getBlobsV3" osaka-config (list '() nil))
+              (list "engine_getBlobsV4" osaka-config
+                    (list '() bitmap nil))
+              (list "engine_hasBlobs" osaka-config (list '() nil))))
+      (destructuring-bind (method config params) request
+        (let* ((response
+                 (engine-rpc-handle-request
+                  (list (cons "jsonrpc" "2.0")
+                        (cons "id" 41)
+                        (cons "method" method)
+                        (cons "params" params))
+                  store config))
+               (error (cdr (assoc "error" response :test #'string=))))
+          (is (= -32602 (cdr (assoc "code" error :test #'string=)))))))))
+
 (deftest engine-rpc-get-blobs-v1-returns-blobs-and-proofs
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=))))

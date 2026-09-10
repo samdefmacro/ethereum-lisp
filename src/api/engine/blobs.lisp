@@ -3,10 +3,13 @@
 (defconstant +engine-rpc-max-payload-bodies-request+ 1024)
 (defconstant +engine-rpc-max-get-blobs-request+ 128)
 
-(defun engine-rpc-get-blob-hashes-param (params method)
-  (unless (and (listp params) params)
+(defun engine-rpc-validate-blob-param-count (params method expected-count)
+  (unless (and (listp params) (= expected-count (length params)))
     (block-validation-fail
-     "~A params must include blob versioned hashes" method))
+     "~A params must contain exactly ~D positional value~:P"
+     method expected-count)))
+
+(defun engine-rpc-get-blob-hashes-param (params method)
   (json-rpc-hash32-list
    (json-rpc-required-param
     params 0 "blobVersionedHashes" method)
@@ -27,6 +30,7 @@
      (if header (block-header-timestamp header) 0))))
 
 (defun engine-rpc-handle-get-blobs-v1 (params store config)
+  (engine-rpc-validate-blob-param-count params "engine_getBlobsV1" 1)
   (when (engine-rpc-get-blobs-osaka-p store config)
     (engine-rpc-fail +engine-rpc-error-unsupported-fork+
                      "engine_getBlobsV1 is unsupported after Osaka"))
@@ -43,6 +47,7 @@
             hashes)))
 
 (defun engine-rpc-handle-get-blobs-v2 (params store config)
+  (engine-rpc-validate-blob-param-count params "engine_getBlobsV2" 1)
   (unless (engine-rpc-get-blobs-osaka-p store config)
     (return-from engine-rpc-handle-get-blobs-v2 nil))
   (let* ((hashes
@@ -61,6 +66,7 @@
 
 (defun engine-rpc-handle-get-blobs-v3-with-reader
     (params osaka-p reader)
+  (engine-rpc-validate-blob-param-count params "engine_getBlobsV3" 1)
   (unless osaka-p
     (return-from engine-rpc-handle-get-blobs-v3-with-reader nil))
   (let ((hashes
@@ -75,6 +81,7 @@
             hashes)))
 
 (defun engine-rpc-handle-get-blobs-v3 (params store config)
+  (engine-rpc-validate-blob-param-count params "engine_getBlobsV3" 1)
   (engine-rpc-handle-get-blobs-v3-with-reader
    params
    (engine-rpc-get-blobs-osaka-p store config)
@@ -146,6 +153,7 @@ deadline."
                 collect (+ (* byte-index 8) bit))))
 
 (defun engine-rpc-handle-get-blobs-v4 (params store config)
+  (engine-rpc-validate-blob-param-count params "engine_getBlobsV4" 2)
   (unless (engine-rpc-get-blobs-osaka-p store config)
     (return-from engine-rpc-handle-get-blobs-v4 nil))
   (let* ((method "engine_getBlobsV4")
@@ -168,15 +176,16 @@ deadline."
      hashes)))
 
 (defun engine-rpc-handle-has-blobs (params store)
-  (let* ((method "engine_hasBlobs")
-         (hashes (engine-rpc-get-blob-hashes-param params method)))
-    (engine-rpc-validate-get-blobs-request-size hashes)
-    (mapcar
-     (lambda (versioned-hash)
-       (if (engine-payload-store-blob-and-proofs-v1 store versioned-hash)
-           t
-           :false))
-     hashes)))
+  (let ((method "engine_hasBlobs"))
+    (engine-rpc-validate-blob-param-count params method 1)
+    (let ((hashes (engine-rpc-get-blob-hashes-param params method)))
+      (engine-rpc-validate-get-blobs-request-size hashes)
+      (mapcar
+       (lambda (versioned-hash)
+         (if (engine-payload-store-blob-and-proofs-v1 store versioned-hash)
+             t
+             :false))
+       hashes))))
 
 (defun engine-rpc-handle-get-payload-bodies-by-hash
     (params store method body-object-function)
