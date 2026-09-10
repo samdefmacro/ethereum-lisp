@@ -73,24 +73,49 @@
   ;; Execution APIs e5d1bb60 fixes the positional signatures at one argument
   ;; for V1/V2, three for V3, and four for V4/V5.  Invalid arity must win over
   ;; malformed payload contents so no import or persistence path can be reached.
-  (let ((store (make-engine-payload-memory-store))
-        (config (make-chain-config)))
-    (dolist (case '((1 0) (1 2)
-                    (2 0) (2 2)
-                    (3 2) (3 4)
-                    (4 3) (4 5)
-                    (5 3) (5 5)))
-      (destructuring-bind (version count) case
-        (let ((message
-                (handler-case
-                    (progn
-                      (ethereum-lisp.engine-api::engine-rpc-handle-new-payload
-                       version (make-list count :initial-element nil)
-                       store config)
-                      nil)
-                  (block-validation-error (condition)
-                    (princ-to-string condition)))))
-          (is (and message (search "exactly" message))))))))
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let ((store (make-engine-payload-memory-store))
+          (config (make-chain-config))
+          (import-calls 0)
+          (persistence-calls 0))
+      (dolist (case '((1 0) (1 2)
+                      (2 0) (2 2)
+                      (3 2) (3 4)
+                      (4 3) (4 5)
+                      (5 3) (5 5)))
+        (destructuring-bind (version count) case
+          (let ((message
+                  (handler-case
+                      (progn
+                        (ethereum-lisp.engine-api::engine-rpc-handle-new-payload
+                         version (make-list count :initial-element nil)
+                         store config)
+                        nil)
+                    (block-validation-error (condition)
+                      (princ-to-string condition)))))
+            (is (and message (search "exactly" message))))))
+      (let* ((response
+               (engine-rpc-handle-request
+                (list (cons "jsonrpc" "2.0")
+                      (cons "id" 710)
+                      (cons "method" "engine_newPayloadV3")
+                      (cons "params" (make-list 4 :initial-element nil)))
+                store config
+                :import-function
+                (lambda (&rest arguments)
+                  (declare (ignore arguments))
+                  (incf import-calls))
+                :new-payload-persistence-function
+                (lambda (&rest arguments)
+                  (declare (ignore arguments))
+                  (incf persistence-calls))))
+             (error (field response "error")))
+        (is (= -32602 (field error "code")))
+        (is (search "exactly" (field error "message")))
+        (is (not (assoc "result" response :test #'string=)))
+        (is (= 0 import-calls))
+        (is (= 0 persistence-calls))))))
 
 (deftest engine-new-payload-version-status-enforces-fork-parameters
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
