@@ -417,6 +417,24 @@ The implementation boundary is split deliberately:
   current-fork EEST prerequisite for this implementation revision, but not the
   still-pending exact-revision Hive rerun or any live/soak gate.
 
+  The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
+  In a bounded live sample, all 28 authenticated 401 responses completed request
+  intake only after 60.678--83.818 seconds while handler time remained 0--8 ms.
+  The persistent-connection worker had sampled its JWT clock before blocking for
+  the next request, so a fresh consensus-client token appeared beyond the future
+  allowance when it finally arrived. Revision
+  `277ffb5258323a3f6a0b3b7a063a13d543db9d5a` passes the clock provider through
+  the service and samples it once after complete request intake. The deterministic
+  RED regression fails before the repair and passes afterward; the 23-test HTTP
+  unit family, four-test HTTP integration family, and full 1,338-test cold-unit
+  layer pass with three optional skips. Its exact linux/amd64 runtime passed
+  `runtime-smoke`; archive SHA-256 is
+  `adcbba0b2f65088deaa614e1d15879f828ea50536a8131367e61ca111c387b96`.
+  The productive `d9e0e2dd` SNAP run was not replaced merely to exercise this
+  successor, so exact live validation of the repair remains open. Evidence and
+  the preserved deployment preflight are archived in
+  `docs/evidence/sec5-277ffb52-engine-jwt-clock.txt`.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

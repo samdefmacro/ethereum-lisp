@@ -1,0 +1,131 @@
+Section 5 Engine JWT request-intake clock evidence
+
+Recorded: 2026-09-10T09:34:26Z
+Failure runtime revision: d9e0e2dd74ced0baddc63a0e43881c53be302df6
+Repair revision: 277ffb5258323a3f6a0b3b7a063a13d543db9d5a
+Branch: sec5-public-bootstrap-sync
+Remote host: test-ethereum-server
+Container: hoodi-el-sec5-d9e0e2dd-r1
+Lighthouse: hoodi-lighthouse-public
+
+Live reproduction
+
+The fresh exact-d9e0e2dd Hoodi run remained alive and made useful SNAP progress,
+but Lighthouse intermittently received authenticated Engine API 401 responses.
+A bounded read-only correlation from the container start at
+2026-09-10T06:58:27Z observed:
+
+- 7,186 completed Engine HTTP requests;
+- 7,158 status-200 responses and 28 status-401 responses;
+- every 401 completed request intake only after at least 60 seconds;
+- the slowest 401 had readMs=83,818;
+- affected methods included engine_newPayloadV4, eth_syncing,
+  engine_exchangeCapabilities, and engine_getBlobsV3;
+- handlerMs for the 401 requests was only 0--8 ms;
+- Lighthouse logged 34 lines containing the resulting 401 (the client emits
+  more than one diagnostic line for some calls).
+
+Representative exact correlations were:
+
+- 2026-09-10T07:12:25Z: engine_newPayloadV4, status=401,
+  readMs=60,678, handlerMs=8;
+- 2026-09-10T07:52:37Z: engine_exchangeCapabilities, status=401,
+  readMs=71,422, handlerMs=0;
+- 2026-09-10T08:09:36Z: engine_newPayloadV4, status=401,
+  readMs=82,618, handlerMs=4;
+- 2026-09-10T08:50:01Z: engine_getBlobsV3, status=401,
+  readMs=83,406, handlerMs=0.
+
+The transport sampled the service now-provider before entering the potentially
+blocking persistent-connection read. A consensus client creates the JWT when it
+sends the request, so a request arriving after that stale clock sample appeared
+more than the allowed freshness window in the future. The failure was in server
+clock placement, not the shared secret or JWT signature.
+
+RED/GREEN repair
+
+The regression uses a deterministic SBCL Gray input stream. The stream advances
+the service clock from 100 to 200 when request intake begins, while the request
+carries a correctly signed token with iat=200. Before the repair the request was
+rejected and the focused selector reported 0 passed, 1 failed. The repair passes
+the now-provider through the service and samples it exactly once after a complete
+request has been read, immediately before request authentication and dispatch.
+Existing explicit :now callers remain supported.
+
+Verification
+
+All application verification used cl-workbench after doctor --strict passed.
+No host Lisp was used.
+
+- focused RED before repair: 0 passed, 1 failed;
+- focused GREEN after repair: 1 passed;
+- ENGINE-RPC-HTTP cold-unit family: 23 passed;
+- ENGINE-RPC-HTTP cold-integration family: 4 passed;
+- complete cold-unit layer: 1,338 passed, 3 optional skips;
+- independent read-only review: no blocking or non-blocking correctness finding;
+- git diff --check: pass.
+
+A cold-all attempt exceeded the bounded caller window before emitting layer
+results and is not counted as a passing gate. The complete cold-unit and focused
+integration layers above completed normally.
+
+Exact artifact
+
+The accepted repair revision was built through the documented runtime broker as
+linux/amd64 and passed runtime-smoke. The smoke proved packaged Hoodi genesis,
+public eth_chainId/web3_clientVersion, unauthenticated Engine rejection,
+authenticated engine_exchangeCapabilities, exact revision identity, and
+eth_syncing on the Engine endpoint.
+
+- image tag: ethereum-lisp-runtime:sec5-277ffb52-amd64
+- local image id:
+  sha256:2aaed4ee64b217c083984c49de6aa7b32088a0611fc2a69a98af79b23f78fcf6
+- platform: linux/amd64
+- user: ethereum:ethereum
+- archive: /private/tmp/ethereum-lisp-runtime-sec5-277ffb52-amd64.tar
+- bytes: 71,975,424
+- SHA-256:
+  adcbba0b2f65088deaa614e1d15879f828ea50536a8131367e61ca111c387b96
+
+Durable logs
+
+- live correlation:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/engine-jwt-remote-analysis-cycle31.log
+  SHA-256: 5f37ea22f5bea24eb77dea963a652af142b6f450a57af919c99de843ce6eb788
+- focused RED:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/engine-jwt-intake-red-cycle31.log
+  SHA-256: 2eb292cb642eea3135ae40608fb1e9f052b267ab2b6765318648fd27ba0109df
+- focused GREEN:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/engine-jwt-intake-green-cycle31.log
+  SHA-256: d5d859f8d467a2f15da486e5f2950ebcbb6a963a3cd9e8a6ab1acd3f0287f6dc
+- HTTP cold-unit family:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/engine-http-family-cycle31.log
+  SHA-256: ebb262224ea632364f347ab93804927408cbcb13faf958ecc511fd45d5c4493e
+- HTTP cold-integration family:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/engine-http-integration-cycle31.log
+  SHA-256: ee673cf878ff5e4a85163e6daf7be836db54869fec93697603781e9e34194f43
+- complete cold-unit:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/cold-unit-engine-jwt-cycle31.log
+  SHA-256: 11ea5c0556562c08095b9b9c7554abc02b1c8e700c49bd168db99274e02fc7ef
+- fresh-deployment preflight:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/hoodi-277ffb52-r1-preflight.log
+  SHA-256: 72c60e55adadc463e1e8a02ffb5475b59a00f6262c92f2c99dc83d8722ee2138
+
+Live status and remaining boundary
+
+At the last read-only preflight the d9e0e2dd run was still healthy and productive:
+it was running without restart or OOM, using 3.966 GiB of its 10 GiB limit at
+461.88% CPU. Public RPC reported eth_blockNumber=0x0, active eth_syncing with
+highestBlock=0x36dca3, and 26 peers. SNAP task origins were advancing, but no
+target-completed or healer-completed evidence existed. Lighthouse remained
+optimistic because execution had not completed.
+
+A fresh replacement target was preflighted as hoodi-el-sec5-277ffb52-r1 with the
+new, absent datadir /data/hoodi-sec5-20260814/datadir-277ffb52-r1 and free port
+30309 TCP/UDP. Its remote image, archive, container, and datadir were all absent;
+120,176,353,280 bytes remained available on /data. No authorization request was
+published because replacing a healthy, high-CPU exact-revision completion run
+before it completes or stalls would discard useful elapsed validation progress.
+The old container and datadir remain untouched. The repair still requires an
+independently authorized fresh live deployment when that replacement becomes
+operationally justified; this evidence is not Section 5 completion.
