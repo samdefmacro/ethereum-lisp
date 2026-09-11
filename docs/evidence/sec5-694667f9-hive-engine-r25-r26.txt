@@ -1,18 +1,19 @@
-Section 5 Hive Engine/auth r25 through r28 evidence
+Section 5 Hive Engine/auth r25 through r29 evidence
 
 Initial record: 2026-09-11T11:39:58Z
-Updated through r28 verification: 2026-09-11T18:48:15Z
+Updated through r29 verification: 2026-09-11T21:18:00Z
 Implementation revision: 694667f95727430baef2aaceec24c91c2c46bd91
 Branch: sec5-public-bootstrap-sync
 
 Scope
 
-This evidence records two bounded full executions of the pinned 403-item Hive
+This evidence records four bounded full executions of the pinned 403-item Hive
 Engine/auth inventory after the blob-sidecar proof repair, plus an independent
-focused rerun of every failure from the first full execution. It does not close
-the full gate: r25 passed 399/403 and all four failures passed together in fresh
-r26 processes; r27 passed 400/403 with a disjoint three-failure set ending in
-connection resets. A complete zero-failure inventory remains required.
+focused rerun of every failure from the first full execution. Runs r25, r27,
+and r28 produced moving, disjoint connection-reset failures under a 4-GiB
+outer-runner limit. Run r29 retained the exact source, runtime, Hive, runner,
+and 403-name inventory, raised only that outer limit to 8 GiB, and passed the
+complete inventory with zero failures. The pinned Engine/auth gate is closed.
 
 Pinned identities
 
@@ -205,11 +206,47 @@ Lighthouse container identities and start times. SNAP range work advanced from
 target-completed or completed-healer event. That live run remains independently
 monitored and is not replaced by the older Engine-only revision.
 
+Full r29 result
+
+Independent request
+`sec5-hive-694667f9-engine-full-r29-20260911T190047Z` was reviewed and
+executed against the same exact source, runtime, Hive, and runner artifacts in
+a fresh isolated runner. Relative to r28, the reviewed script changed only the
+fresh r29 identities and the outer memory/memory-plus-swap limits from 4/5 GiB
+to 8/10 GiB. The complete inventory contained the same 403 unique names and
+passed 403/403:
+
+- engine-api: 129/129;
+- engine-auth: 8/8;
+- engine-exchange-capabilities: 5/5;
+- engine-withdrawals: 35/35;
+- engine-cancun: 226/226.
+
+The outer runner started at 2026-09-11T19:08:19.590331423Z and stopped at
+2026-09-11T21:14:09.024476041Z with exit zero, OOMKilled=false, and
+RestartCount=0. All 496 result/simulator/details/client-log references resolved;
+their 492 unique files existed and all byte offsets were in bounds. The blob-
+ordering regression passed.
+
+Retained r29 evidence root:
+`/data/hoodi-sec5-hive/runs/694667f9-engine-full-r29-20260911T185906Z`
+
+- verification summary: SHA-256
+  `2b593c08f0f9ef52a983e223e5fa041c637f3cb0637d8713414ace41a43c7860`;
+- 512-entry recomputed evidence manifest: SHA-256
+  `98274139dddec7acf729bbd98411a2ca55e935d0e0fe6ea007137e732e7f1ccd`;
+- sorted 403-name inventory: SHA-256
+  `7b3d06a3b1e0a178924a6af98e82e85793cd00e7487fbdad6972642d8d46aff9`.
+
+The independent readback recomputed all 512 manifest entries successfully.
+The protected Hoodi EL and Lighthouse retained their exact identities and start
+times throughout r29 and remained running without OOM or restart afterward.
+
 Remaining boundary
 
-A complete Engine/auth inventory still must pass with zero failures before the
-gate closes. The fresh exact-0c6b51bf Hoodi deployment also has not recorded
+The pinned Engine/auth inventory is closed by r29's 403/403 result. The fresh
+exact-0c6b51bf Hoodi deployment still has not recorded
 `peer.snap.target_completed`, healer completion with an empty frontier,
 canonical execution through the authorized target, or `eth_syncing=false`.
 The seven-day shadow comparison and fourteen-day validator soak remain blocked
-on those prerequisites.
+on those live prerequisites.

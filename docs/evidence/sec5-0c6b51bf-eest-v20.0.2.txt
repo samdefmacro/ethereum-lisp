@@ -1,0 +1,99 @@
+Section 5 exact-live-revision current-fork EEST evidence
+
+Recorded through: 2026-09-12T05:41:48+08:00
+Application revision: 0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae
+Branch: sec5-public-bootstrap-sync
+
+Revision boundary
+
+At every invocation the checked-out HEAD was
+2e645ef20a8334bd6472cbc4b7f1a42a09bfcab2. Its tracked difference from the
+application revision was confined to the three Section 5 evidence documents
+already committed after 0c6b51bf. The only uncommitted files were those same
+three documents. No application source, tests, build input, or fixture adapter
+differed from 0c6b51bf, so the executed application tree was exact for the
+fresh Hoodi deployment revision.
+
+Corpus identity
+
+- release: tests@v20.0.2;
+- upstream commit: abbe05777ab83fb94ce18c425daaa7ab79e779c1;
+- archive: fixtures.tar.gz;
+- verified archive SHA-256:
+  1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788;
+- mounted root:
+  /Users/sen/common-lisp/ethereum-lisp/.eest-fixtures-sec5-9ff52980/tests-v20.0.2.
+
+Execution boundary
+
+`cl-workbench doctor --strict` passed before application tooling. All eight
+runs used `cl-workbench validation run cold-integration` and retained a unique
+container. Every container exited zero without OOM. State selectors were
+`auto` across London, Shanghai, Cancun, Prague, and Osaka. Blockchain selectors
+were `auto` across Shanghai, Cancun, Prague, and Osaka.
+
+Selection and skip manifests
+
+Three focused non-vacuity gates emitted the complete current-fork manifests and
+passed one top-level test each:
+
+- state_tests: discovered=15,393, inScope=15,393, selected=15,393, skipped=0,
+  expectedSkipped=0, unexpectedSkipped=0; valid=14,622, invalid=771;
+  London=1,748, Shanghai=1,904, Cancun=2,686, Prague=4,222, Osaka=4,833;
+- blockchain_replay: discovered=11,961, inScope=11,961, selected=11,382,
+  skipped=579, expectedSkipped=579, unexpectedSkipped=0; valid=10,592,
+  invalid=790; Shanghai=2,392, Cancun=3,542, Prague=2,587, Osaka=2,861;
+- blockchain_rlp: discovered=10,893, inScope=10,893, selected=10,257,
+  skipped=636, expectedSkipped=636, unexpectedSkipped=0; valid=9,623,
+  invalid=634; Shanghai=2,372, Cancun=2,913, Prague=2,353, Osaka=2,619.
+
+The 579 blockchain-replay exclusions are named multi-payload chains. The 636
+RLP exclusions comprise 515 multi-block chains and 121 fixtures whose execution
+requests are not serialized in block RLP. There were zero unexpected skips.
+
+Fixture execution gates
+
+Five focused top-level executors streamed the full selected valid and invalid
+inventories represented above. Each selected exactly one aggregate test and
+passed:
+
+- OPTIONAL-PHASE-A-EEST-STATE-TEST-ROOT-VECTORS-EXECUTE;
+- OPTIONAL-PHASE-A-EEST-BLOCKCHAIN-REPLAY-EXECUTES;
+- OPTIONAL-PHASE-A-EEST-ENGINE-LATE-PAYLOAD-REPLAY-EXECUTES;
+- OPTIONAL-PHASE-A-EEST-ENGINE-PAYLOAD-REJECTION-EXECUTES;
+- OPTIONAL-PHASE-A-EEST-BLOCKCHAIN-RLP-REPLAY-EXECUTES.
+
+Retained containers and logs
+
+The retained container names all begin
+`ethereum-lisp-cold-eest-0c6b51bf-` and end `-cycle958`. Exact container IDs,
+start/finish times, image IDs, exit status, and OOM state remain available in
+Docker inspect. Durable payload-free runner logs are:
+
+- state executor: `logs/eest-0c6b51bf-state-cycle958.log`, SHA-256
+  `fbbf6ee8f36449f0e7c04f60472d71e3c677ce4d0fffea7100418cb7b0ba1546`;
+- blockchain executor: `logs/eest-0c6b51bf-blockchain-cycle958.log`, SHA-256
+  `51980d565bcfc4f389bda827fbf89e67359f4ffc2af68d8e562c23653f9f3f3b`;
+- late Engine executor: `logs/eest-0c6b51bf-engine-late-cycle958.log`, SHA-256
+  `9c630692499f0ca980f478ff55833dde87d12738d446ed773de000d9f60f40c2`;
+- invalid Engine executor: `logs/eest-0c6b51bf-engine-reject-cycle958.log`,
+  SHA-256 `62eacf398c397ec457b3c4d00d99ce2f82ac8851640ac20ebfd6af8832dcbeab`;
+- RLP executor: `logs/eest-0c6b51bf-rlp-cycle958.log`, SHA-256
+  `147f27b3bf39edec391cb551b9fbcb89acc1a3625e7ac734e97afd54bfe8c9b1`;
+- state manifest: `logs/eest-0c6b51bf-state-manifest-cycle958.log`, SHA-256
+  `e98303e15339eb6edadd314af639b2af16619e1efd54b6f88aa26ed4841792e0`;
+- blockchain manifest: `logs/eest-0c6b51bf-blockchain-manifest-cycle958.log`,
+  SHA-256 `a256886160ff1750f296bf76b7318d52a3025e421eaf4a85b7870725521bcdf8`;
+- RLP manifest: `logs/eest-0c6b51bf-rlp-manifest-cycle958.log`, SHA-256
+  `9f105a97a09fe4834f18e73b6d4ecd4e2c7d240dbc9f6ff91a69e8b8ed375f20`.
+
+These paths are relative to
+`/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/`.
+
+Remaining boundary
+
+This establishes the stable current-fork EEST gate with nonzero execution and
+zero unexpected skips for the exact application revision used by the ongoing
+fresh Hoodi run. It does not establish SNAP target/healer completion, canonical
+execution through the authorized target, `eth_syncing=false`, the seven-day
+shadow comparison, or the fourteen-day validator soak.

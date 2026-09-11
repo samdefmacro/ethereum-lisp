@@ -1,7 +1,7 @@
 Section 5 SNAP completion-barrier failure and fresh live rerun
 
 Initial record: 2026-09-12T00:03+08:00
-Updated through: 2026-09-12T02:57:15+08:00
+Updated through: 2026-09-12T05:41:23+08:00
 Implementation revision: 0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae
 Branch: sec5-public-bootstrap-sync
 
@@ -95,6 +95,20 @@ Public RPC still reported eth_blockNumber=0x0 and eth_syncing.highestBlock=
 0x36ffbc; Lighthouse remained synced with el_offline=false. The datadir was
 55,871,092,179 bytes and `/data` retained 32,622,452,736 available bytes at 96%
 utilization, so capacity remains a read-only monitoring concern.
+
+A later status sample at 2026-09-11T21:41:16Z found the exact container and
+Lighthouse identities still at their original start times, running=true,
+OOMKilled=false, and RestartCount=0. The EL held 31 peers, used about 6.608 GiB
+of its 10 GiB limit, and its 55,895,264,154-byte datadir left 29,177,233,408
+bytes available on the 96%-utilized `/data` filesystem. The bounded recent log
+window collected at 2026-09-11T21:41:23Z recorded two stale-target rebases; the
+latest healer pivot was 3,605,032. After the latest reset, processedNodes
+advanced to 557,056, reusedNodes to 556,678, and fetchedNodes to 377, while
+frontierWorks=305,963, knownIncompleteNodes=186,417, netDrainRate=-197,
+etaStatus=dynamic-expansion, and completed=false. This proves continued useful
+processing after moving-pivot yields, but not convergence.
+There was no storage/import/dependency failure or target-completed event;
+eth_blockNumber remained 0x0 and eth_syncing.highestBlock was 0x3702aa.
 
 Remaining boundary
 

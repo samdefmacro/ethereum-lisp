@@ -413,9 +413,16 @@ The implementation boundary is split deliberately:
   The adjacent cold-unit layer passed 1,337 tests with three optional,
   corpus-inapplicable skips. Exact selectors, counts, hashes, retained-container
   results, and the separately disclosed aggregate caller timeout are archived
-  in `docs/evidence/sec5-d9e0e2dd-eest-v20.0.2.txt`. This closes the stable
-  current-fork EEST prerequisite for this implementation revision, but not the
-  later live/soak gates.
+  in `docs/evidence/sec5-d9e0e2dd-eest-v20.0.2.txt`. The exact live
+  application revision `0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae` later
+  repeated the three non-vacuity manifests and all five aggregate fixture
+  executors against the same checksum-matched corpus. The counts were unchanged:
+  15,393 state cases, 11,382 Engine blockchain-replay cases, and 10,257 RLP
+  blockchain-replay cases, with zero unexpected skips; all eight focused gates
+  exited zero without OOM. Exact selectors and durable log hashes are archived
+  in `docs/evidence/sec5-0c6b51bf-eest-v20.0.2.txt`. This closes the stable
+  current-fork EEST prerequisite for the revision under fresh Hoodi validation,
+  but not its live/soak gates.
 
   Exact successor `6e3e9b1ddd3c890c98db04d2bd5f367ce2300bad` closes the
   pinned Hive rpc-compat gate. Its reviewed linux/amd64 runtime ran Hive
@@ -441,19 +448,20 @@ The implementation boundary is split deliberately:
   restart. Exact artifact and evidence hashes are archived in
   `docs/evidence/sec5-694667f9-hive-blob-order.txt`.
 
-  The subsequent bounded full Engine/auth run executed the complete 403-name
-  inventory without OOM or interruption and passed 399/403. The four failed
-  names then all passed together in a fresh isolated focused rerun against the
-  same exact artifacts; Hive recorded six passing entries including the two
-  required suite loaders. A second complete run then passed 400/403 without
-  runner OOM or interruption. Its three failures were a disjoint moving set,
-  each ending when the test client's initial forkchoiceUpdated connection was
-  reset; all four first-run failures and the blob-ordering regression passed. A
-  third complete run passed 401/403 and failed on two different initial
-  forkchoiceUpdated connection resets; every earlier failure passed. Because no
-  single complete run has yet passed all 403 names, the Engine/auth gate remains
-  open. Exact per-suite counts, names, artifact hashes, and all retained evidence
-  roots are archived in
+  Three subsequent bounded full Engine/auth runs executed the complete
+  403-name inventory without outer-runner OOM or interruption and passed
+  399/403, 400/403, and 401/403. Every failure passed in another run, and the
+  moving sets were disjoint connection resets at the initial Engine boundary.
+  A fourth complete run retained the exact source, runtime, Hive, runner, and
+  name inventory while raising only the outer runner from 4/5 GiB memory/
+  memory-plus-swap to 8/10 GiB. It passed all 403/403: engine-api 129/129,
+  engine-auth 8/8, engine-exchange-capabilities 5/5, engine-withdrawals 35/35,
+  and engine-cancun 226/226. The runner exited zero without OOM or restart;
+  all 496 result/simulator/details/client-log references were present and
+  bounded, and the independent readback recomputed the complete 512-entry
+  evidence manifest. This closes the pinned Engine/auth zero-failure gate for
+  the exact revision. Exact per-suite counts, artifact hashes, and all retained
+  evidence roots are archived in
   `docs/evidence/sec5-694667f9-hive-engine-r25-r26.txt`.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
