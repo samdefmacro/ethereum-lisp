@@ -448,10 +448,12 @@ The implementation boundary is split deliberately:
   required suite loaders. A second complete run then passed 400/403 without
   runner OOM or interruption. Its three failures were a disjoint moving set,
   each ending when the test client's initial forkchoiceUpdated connection was
-  reset; all four first-run failures and the blob-ordering regression passed.
-  Because no single complete run has yet passed all 403 names, the Engine/auth
-  gate remains open. Exact per-suite counts, names, artifact hashes, and all
-  retained evidence roots are archived in
+  reset; all four first-run failures and the blob-ordering regression passed. A
+  third complete run passed 401/403 and failed on two different initial
+  forkchoiceUpdated connection resets; every earlier failure passed. Because no
+  single complete run has yet passed all 403 names, the Engine/auth gate remains
+  open. Exact per-suite counts, names, artifact hashes, and all retained evidence
+  roots are archived in
   `docs/evidence/sec5-694667f9-hive-engine-r25-r26.txt`.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.

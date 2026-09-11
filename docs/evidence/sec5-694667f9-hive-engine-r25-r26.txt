@@ -1,7 +1,7 @@
-Section 5 Hive Engine/auth r25, focused-r26, and full-r27 evidence
+Section 5 Hive Engine/auth r25 through r28 evidence
 
 Initial record: 2026-09-11T11:39:58Z
-Updated with r27 completion: 2026-09-11T14:07:19Z
+Updated through r28 verification: 2026-09-11T18:48:15Z
 Implementation revision: 694667f95727430baef2aaceec24c91c2c46bd91
 Branch: sec5-public-bootstrap-sync
 
@@ -163,6 +163,47 @@ During r27 the protected d9e0e2dd Hoodi EL independently reached healer
 persisted trie descendant. That SNAP failure and its 0c6b51bf correction are
 archived separately in
 `docs/evidence/sec5-0c6b51bf-completion-barrier-live-start.txt`.
+
+Full r28 result
+
+Independent request `sec5-hive-694667f9-engine-full-r28-20260911T162839Z`
+was reviewed and executed against the same exact source, runtime, Hive, and
+runner artifacts in another fresh isolated runner. The complete inventory again
+contained exactly 403 unique names and matched both r25 and r27. It completed
+without outer-runner OOM or restart and passed 401/403:
+
+- engine-api: 127/129;
+- engine-auth: 8/8;
+- engine-exchange-capabilities: 5/5;
+- engine-withdrawals: 35/35;
+- engine-cancun: 226/226.
+
+The two failures were `Re-Org Back to Canonical Chain From Syncing Chain
+(Paris)` and `Fork ID: Genesis=1, Paris=1 (Paris)`. Each test client answered
+its initial public RPC calls, then reset the connection on its first
+`engine_forkchoiceUpdatedV1` request without a handler response. Neither name
+failed r25 or r27. Every r25 and r27 failure, and the blob-ordering regression,
+passed in r28. Three complete executions have therefore produced three moving,
+mutually disjoint failure sets at the initial Engine-request boundary. This is
+strong evidence of a shared process-lifetime or harness-resource class, but it
+does not identify the cause and does not satisfy the zero-failure gate.
+
+Retained r28 evidence root:
+`/data/hoodi-sec5-hive/runs/694667f9-engine-full-r28-20260911T162103Z`
+
+- verification summary: SHA-256
+  `0e6fb3e15023bc9df6ba2053278b03d042ca6b30aa67d84a86a90322ecdf9aaa`;
+- 512-entry recomputed evidence manifest: SHA-256
+  `004c58a7740eb6e0aeeb765205c463a016595606b93ca2844d5d7d6dd09e1cdd`;
+- stopped outer runner: exit 0, OOMKilled=false, RestartCount=0;
+- Hive status: 1 because two cases failed;
+- run interval: 2026-09-11T16:35:54Z through 18:44:41Z.
+
+During r28 the protected exact-0c6b51bf Hoodi deployment retained its EL and
+Lighthouse container identities and start times. SNAP range work advanced from
+1,711 to 4,489 total pages during the reviewer observation; there was still no
+target-completed or completed-healer event. That live run remains independently
+monitored and is not replaced by the older Engine-only revision.
 
 Remaining boundary
 
