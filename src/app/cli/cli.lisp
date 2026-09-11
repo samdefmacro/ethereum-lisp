@@ -63,7 +63,7 @@
    :terminal-block-hash (getf options :terminal-block-hash)
    :terminal-block-number (getf options :terminal-block-number)
    :dev-period-seconds (getf options :dev-period-seconds)
-   :miner-gas-limit (getf options :miner-gas-limit)
+   :miner-gas-limit (devnet-cli-miner-gas-limit options)
    :coinbase (getf options :coinbase)
    :allow-unprotected-transactions-p
    (getf options :allow-unprotected-transactions-p)

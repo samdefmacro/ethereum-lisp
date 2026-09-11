@@ -1806,7 +1806,11 @@
               :allowed-method-p
               (ethereum-lisp.cli::devnet-cli-public-api-method-filter
                (list "testing"))
-              :gas-limit-target 10000000))
+              ;; Exercise the CLI path Hive uses when HIVE_TARGET_GAS_LIMIT is
+              ;; absent. Pinned geth 38271784 defaults GasCeil to 60,000,000.
+              :gas-limit-target
+              (ethereum-lisp.cli::devnet-cli-miner-gas-limit
+               (ethereum-lisp.cli::devnet-cli-options '()))))
            (attributes ()
              (list
               (cons "timestamp" "0x16")
@@ -1846,7 +1850,7 @@
                (make-block
                 :header
                 (make-block-header
-                 :number 0 :timestamp 10 :gas-limit 30000000 :gas-used 0
+                 :number 0 :timestamp 10 :gas-limit 200000000 :gas-used 0
                  :base-fee-per-gas 100 :state-root (state-db-root state)
                  :withdrawals-root (withdrawal-list-root '())
                  :blob-gas-used 0 :excess-blob-gas 0
@@ -1888,7 +1892,7 @@
           (is (string=
                (quantity-to-hex
                 (ethereum-lisp.engine-payloads:engine-target-gas-limit
-                 30000000 10000000))
+                 200000000 60000000))
                (field payload "gasLimit")))
           (is (field result "blobsBundle"))
           (is (ethereum-lisp.json:json-empty-array-p
@@ -1921,7 +1925,7 @@
           (is (string=
                (quantity-to-hex
                 (ethereum-lisp.engine-payloads:engine-target-gas-limit
-                 30000000 10000000))
+                 200000000 60000000))
                (field payload "gasLimit"))))
         (is (hash32= parent-hash (chain-store-canonical-hash store 0)))
         (is (null (chain-store-canonical-hash store 1)))))))

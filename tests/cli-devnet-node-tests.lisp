@@ -4758,6 +4758,39 @@ loop cannot block on a message that never comes."
     (is (null (ethereum-lisp.cli:devnet-start-discovery-server-thread
                node shutdown (lambda (condition) (error condition)))))))
 
+(deftest devnet-cli-miner-gas-limit-default-and-override-reach-live-node
+  (:layer :integration :module :cli)
+  (labels ((options (&rest extra)
+             (ethereum-lisp.cli::devnet-cli-options
+              (append (list "devnet" "--genesis"
+                            +devnet-cli-genesis-fixture+ "--no-serve")
+                      extra)))
+           (node (options)
+             (ethereum-lisp.cli::devnet-cli-make-node
+              options +devnet-cli-genesis-fixture+ nil
+              ethereum-lisp.telemetry:*telemetry-sink*))
+           (context-gas-limit (service)
+             (ethereum-lisp.rpc:rpc-context-gas-limit-target
+              (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+               service)))
+           (assert-gas-limit (node expected)
+             (is (= expected
+                    (ethereum-lisp.cli::devnet-node-miner-gas-limit node)))
+             (is (= expected
+                    (context-gas-limit
+                     (ethereum-lisp.cli:devnet-node-service node))))
+             (is (= expected
+                    (context-gas-limit
+                     (ethereum-lisp.cli:devnet-node-public-service node))))))
+    (let* ((default-options (options))
+           (explicit-options (options "--miner.gaslimit" "70000000")))
+      ;; Keep NIL at the parser boundary so the embedded --dev genesis retains
+      ;; its independent 30,000,000 gas limit.  Node construction supplies the
+      ;; geth-compatible builder ceiling used by Hive when the flag is absent.
+      (is (null (getf default-options :miner-gas-limit)))
+      (assert-gas-limit (node default-options) 60000000)
+      (assert-gas-limit (node explicit-options) 70000000))))
+
 (deftest devnet-cli-nat-and-netrestrict-reach-the-live-node
   (:layer :integration :module :p2p)
   ;; Parsing these flags is not enough: both policies affect the running peer

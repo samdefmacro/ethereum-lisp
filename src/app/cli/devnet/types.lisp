@@ -511,6 +511,12 @@ WAL files rather than the single CRC-framed log file the default backend uses.")
 (defparameter +devnet-datadir-enr-seq-file+ "enrseq")
 (defparameter +devnet-datadir-dns-seq-file+ "dnsseq")
 (defconstant +devnet-default-dev-gas-limit+ #x1c9c380)
+(defconstant +devnet-default-miner-gas-limit+ 60000000
+  "Default builder gas ceiling from geth 38271784 miner.DefaultConfig.")
+
+(defun devnet-cli-miner-gas-limit (options)
+  (or (getf options :miner-gas-limit)
+      +devnet-default-miner-gas-limit+))
 
 (defun devnet-cli-dev-genesis-json (&key
                                       (gas-limit
