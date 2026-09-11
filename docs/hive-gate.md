@@ -197,7 +197,7 @@ agree on the same eight-hex-digit client commit.
 | Suite | State |
 |---|---|
 | `ethereum/engine` (incl. `engine-auth`) | wired, `continue-on-error` |
-| `ethereum/rpc-compat` | wired, `continue-on-error`; full pinned inventory executes, with the current failure set still under repair |
+| `ethereum/rpc-compat` | wired, `continue-on-error`; exact revision `6e3e9b1d` passes the full pinned 234-case inventory |
 | `ethereum/eels/consume-engine` | not wired |
 | `ethereum/eels/consume-rlp` | not wired — requires a suite-specific current-fork review |
 | `devp2p` | wired, `continue-on-error`; the adapter's routable enode is asserted |
@@ -257,6 +257,14 @@ passed 125 and failed 109. The immutable discovery evidence is archived in
 `docs/evidence/sec5-92982442-hive-rpc-inventory.txt`; the runner now pins 234
 and requires a fresh confirmation result rather than retroactively treating the
 discovery run as a passing inventory check.
+
+The reviewed exact-revision rerun at `6e3e9b1d` selected the same 234 unique
+cases and passed 234/234 with no failure or passed-to-failed regression. All
+four `testing_buildBlockV1` cases passed. Artifact identities, resource bounds,
+result/log hashes, and the preserved remote evidence path are archived in
+`docs/evidence/sec5-6e3e9b1d-hive-rpc-compat.txt`. This closes rpc-compat only;
+the Engine, EELS, devp2p, full-sync, snap, and live/soak gates retain their
+independent status above.
 
 Revision `63408ce2` repaired the remaining pinned `eth_config/get-config`
 fork-ID mismatch by including `mergeNetsplitBlock` in the EIP-2124 activation

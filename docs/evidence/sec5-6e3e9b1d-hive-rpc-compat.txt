@@ -1,0 +1,95 @@
+Section 5 Hive rpc-compat completion evidence
+
+Recorded: 2026-09-11T03:37:20Z
+Implementation revision: 6e3e9b1ddd3c890c98db04d2bd5f367ce2300bad
+Branch: sec5-public-bootstrap-sync
+Local HEAD and origin/sec5-public-bootstrap-sync matched the implementation
+revision before the reviewed run; the checkout was clean.
+
+Pinned identities
+
+- Hive: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+- Execution APIs: e5d1bb60e6c064e4b15080da07b4370d0baadf92
+- Runtime platform: linux/amd64
+- Runtime OCI revision: 6e3e9b1ddd3c890c98db04d2bd5f367ce2300bad
+- Runtime user: ethereum:ethereum
+
+Artifact evidence
+
+- Runtime archive:
+  /private/tmp/ethereum-lisp-runtime-sec5-6e3e9b1d-amd64.tar
+  71,983,616 bytes; SHA-256
+  8e2d9f085e378a3905f5bb6b15ab6d4896a2c4ef5a9f024e5558852fab523361
+- Exact tracked-source archive:
+  /private/tmp/ethereum-lisp-source-6e3e9b1d.tar
+  29,020,160 bytes; SHA-256
+  b1fc0ddff841be7ed3e869916b132cf9888a2ec9de0bf2a7770070ef750bdce8
+- Reviewed runner script:
+  /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/run-hive-6e3e9b1d-r19.sh
+  SHA-256
+  3cac459946250469d131bd3cb7918489d88dd3f8d7c3f2010bf43222f1d0fdb7
+- Hive binary SHA-256:
+  cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+- amd64 Hive-runner archive SHA-256:
+  07bdd861f2b9a715072e03396c888b07d9195d41e5fe1c3fec8554a5b0e34421
+
+The source archive was independently checked against the accepted revision: 865
+regular archive files matched 865 tracked files, with no links, special entries,
+missing files, extra files, or byte mismatches. `runtime-smoke` passed before the
+artifact was submitted for the reviewed run.
+
+Reviewed execution boundary
+
+The independent authorization reviewer executed request
+`sec5-hive-6e3e9b1d-r19-gas-default-20260911T031934Z`. The fresh isolated runner
+was limited to 2 CPUs, 3 GiB memory, 3.5 GiB memory-plus-swap, and 1,024 PIDs,
+used a read-only root filesystem, exposed no host port, and mounted only its
+unique evidence directory plus the nested Docker boundary and bounded tmpfs.
+It did not replace, restart, or mutate the long-running Hoodi EL or CL deployment
+or any existing datadir.
+
+Pinned external result
+
+The full rpc-compat run selected exactly 234 unique cases and passed 234/234,
+with zero failures. All four `testing_buildBlockV1` cases passed:
+
+- build-block-empty-transactions
+- build-block-from-mempool
+- build-block-invalid-transaction
+- build-block-with-transactions
+
+The selected name set exactly matched the retained r18 234-case inventory and
+had no passed-to-failed regression. The runner exited 0, was not OOM-killed,
+and had zero restarts. No Section 5 Hive runner remained active after readback.
+
+Retained remote evidence
+
+Run root:
+/data/hoodi-sec5-hive/runs/6e3e9b1d-rpc-full-r19-gas-default-20260911T031655Z
+
+- result JSON:
+  results/1789097425-23fb3e7a5eac5948c59f6bc5e5cc42cf.json
+  80,248 bytes; SHA-256
+  b81e96d486f4dfa80a70cdfc231db308349ffbc4d63323831453fbec5a18fe94
+- full Hive log:
+  hive-rpc-full.log
+  50,674 bytes; SHA-256
+  e1392328d161306877a1a842aba1bb0886e3bca79884ef62b292d25b5b6b7fd4
+- simulator log:
+  results/1789097407-simulator-8f166c071bb1464eef8552ac3cfcf107f84c6d5a6dfe84c0ed096d703ac1bd39.log
+  22,848,215 bytes; SHA-256
+  423cac0335e8e4565a6332537af2463d7e221ad4e292e80185c2229b6869dc09
+- details log:
+  results/details/1789097408-8f166c071bb1464eef8552ac3cfcf107f84c6d5a6dfe84c0ed096d703ac1bd39-0.log
+  22,867,373 bytes; SHA-256
+  58f09b0ba150c3b4fa9da481afe1c442696e3f5c60cf52ef22674bb8b2b3d050
+
+Scope and remaining gates
+
+This closes the plan-required pinned Hive rpc-compat gate for revision 6e3e9b1d.
+The stable current-fork EEST gate was established separately at ancestor
+revision d9e0e2dd. Section 5 remains open: the existing exact-d9e0e2dd Hoodi run
+is still healing and has not recorded `peer.snap.target_completed`, healer
+completion with an empty frontier, canonical execution through the authorized
+target, or `eth_syncing=false`. The seven-day shadow comparison and fourteen-day
+validator soak have not started because those prerequisites remain unmet.

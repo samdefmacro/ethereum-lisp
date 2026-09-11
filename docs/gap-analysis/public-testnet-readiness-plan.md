@@ -415,7 +415,19 @@ The implementation boundary is split deliberately:
   results, and the separately disclosed aggregate caller timeout are archived
   in `docs/evidence/sec5-d9e0e2dd-eest-v20.0.2.txt`. This closes the stable
   current-fork EEST prerequisite for this implementation revision, but not the
-  still-pending exact-revision Hive rerun or any live/soak gate.
+  later live/soak gates.
+
+  Exact successor `6e3e9b1ddd3c890c98db04d2bd5f367ce2300bad` closes the
+  pinned Hive rpc-compat gate. Its reviewed linux/amd64 runtime ran Hive
+  `dde4f59d` with Execution APIs `e5d1bb60`, selected exactly 234 unique cases,
+  and passed 234/234 with zero failures. All four `testing_buildBlockV1` cases
+  passed, the selected name set exactly matched the retained r18 inventory, and
+  there was no passed-to-failed regression. The bounded runner exited zero
+  without OOM or restart and retained its unique evidence directory. Exact
+  artifact, result, log, and runner hashes are archived in
+  `docs/evidence/sec5-6e3e9b1d-hive-rpc-compat.txt`. This closes the required
+  rpc-compat rerun; the live completion, shadow, and validator-soak gates remain
+  open.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request
@@ -740,13 +752,13 @@ from RPC-only traces. Current focused verification passes the exact RPC case,
 two Amsterdam boundary cases, and all 31 local `eth_simulateV1` tests. The
 pinned d1da4d54 full rpc-compat run selected and passed all 91 simulation cases;
 its only two failures were the unrelated `testing_buildBlockV1` gas-limit cases
-targeted by the later 984fc8b8 repair, whose exact Hive rerun remains pending.
+targeted by the later 984fc8b8 repair. The exact `6e3e9b1d` rerun passes
+all four `testing_buildBlockV1` cases as recorded above.
 Exactly 26 passing simulation fixtures set `traceTransfers=true`, covering
 positive, reverted, forwarded, delegate-call, and self-destruct transfer-log
 behavior. Exact commands, result hashes, and remaining exact-revision limits
-are in `docs/evidence/sec5-abfe6da3-simulate-transfer-traces.txt`. The prepared
-exact-d9e0e2dd 234-case Hive rerun remains required before the full RPC gate can
-close.
+are in `docs/evidence/sec5-abfe6da3-simulate-transfer-traces.txt`. The later
+exact-`6e3e9b1d` rerun closes the full 234-case RPC gate as recorded above.
 
 `30ad66d1704e68f9c2e73d7b80723be0d6187f03` and its
 `777fc959e0af28accc7c1c876ff27428aa5acab6` test follow-up close the bounded
@@ -768,9 +780,10 @@ commands, review resolution, and limits are in
 trailing `engine_newPayloadV1`-`V5` positional parameters before payload decoding
 or persistence, matching pinned Execution APIs `e5d1bb60`;
 `425e129ca4c3b8f1242589e44c8cfc9740c9e608` proves the JSON-RPC -32602 boundary
-and zero import/persistence callbacks. The prepared exact-d9e0e2dd 234-case
-Hive rerun is still required; see
-`docs/evidence/sec5-7b86ca24-rpc-engine-compat.txt`.
+and zero import/persistence callbacks. The later exact-`6e3e9b1d` 234-case Hive
+rerun passes this boundary; see
+`docs/evidence/sec5-7b86ca24-rpc-engine-compat.txt` and
+`docs/evidence/sec5-6e3e9b1d-hive-rpc-compat.txt`.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
 
