@@ -1,7 +1,7 @@
 Section 5 SNAP completion-barrier failure and fresh live rerun
 
 Initial record: 2026-09-12T00:03+08:00
-Updated through: 2026-09-12T05:41:23+08:00
+Updated through: 2026-09-12T05:52:54+08:00
 Implementation revision: 0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae
 Branch: sec5-public-bootstrap-sync
 
@@ -110,6 +110,19 @@ processing after moving-pivot yields, but not convergence.
 There was no storage/import/dependency failure or target-completed event;
 eth_blockNumber remained 0x0 and eth_syncing.highestBlock was 0x3702aa.
 
+The next read-only window captured another stale-target yield. Pivot 3,605,032
+advanced from processedNodes=618,496 at 2026-09-11T21:43:13Z to 638,976 at
+21:43:44Z, then pivot 3,605,109 began at processedNodes=0 at 21:43:55Z. By
+21:52:52Z the new pivot had processedNodes=378,880, reusedNodes=378,513,
+fetchedNodes=394, frontierWorks=251,371, and knownIncompleteNodes=134,007.
+The netDrainRate=-193 and etaStatus=dynamic-expansion again establish work
+without convergence. At 21:52:54Z both original container identities were
+still running with no OOM or restart; the EL used about 6.162 GiB, held 31
+peers, and its 55,898,819,266-byte datadir left 29,012,901,888 bytes available
+on `/data`. There were 57 heal-progress records and no searched fatal/storage
+failure signature in the preceding 30 minutes, but still no target-completed
+event. RPC remained eth_blockNumber=0x0 with eth_syncing.highestBlock=0x3702dd.
+
 Remaining boundary
 
 This proves only exact-artifact startup and advancing fresh-datadir range
@@ -126,5 +139,8 @@ Primary evidence
 - /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/authorization-result.json
 - /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/processed-authorizations/20260911-234707-sec5-0c6b51bf-20260911T154602Z.request.json
 - /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/authorization-20260911-234707-cycle-955.log
+- /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/hoodi-0c6b51bf-20260911T214308Z-215306Z-cycle958.log
+  (1,820 lines, 373,720 bytes, SHA-256
+  48af8b71854898d1325418299c0c660c7947a9860a825482e480a10ce24434a8)
 - preserved Docker logs for hoodi-el-sec5-d9e0e2dd-r1 and
   hoodi-el-sec5-0c6b51bf-r1 on test-ethereum-server

@@ -493,9 +493,11 @@ The implementation boundary is split deliberately:
   barriers until remote descendant work settles. Its account and storage RED
   regressions, cold unit/integration layers, SNAP-focused gate, and exact
   linux/amd64 runtime smoke are green. A reviewed fresh-datadir Hoodi run of
-  that exact artifact started at `2026-09-11T15:51:43Z`; early read-only
-  samples show advancing range and storage work without OOM or restart, but no
-  healer or target completion yet. Exact artifact, deployment, predecessor
+  that exact artifact started at `2026-09-11T15:51:43Z`; later read-only
+  samples show repeated moving-pivot healer work without OOM or restart. At
+  `2026-09-11T21:52:52Z` its current pivot had processed 378,880 nodes after
+  nine minutes, but the frontier was still expanding and neither healer nor
+  target completion had occurred. Exact artifact, deployment, predecessor
   failure, and live-start evidence are archived in
   `docs/evidence/sec5-0c6b51bf-completion-barrier-live-start.txt`.
 
