@@ -1692,6 +1692,13 @@ must prove the new state root before either record can authorize publication."
                         "progress-stalled")
                        ((and
                          (not last-heal-completed-p)
+                         ;; A growing frontier is an expansion phase, not by
+                         ;; itself evidence that useful local traversal has
+                         ;; stalled.  Require the same bounded aggregate-work
+                         ;; window to be low before discarding its transient DFS
+                         ;; frontier; otherwise a large state walk can rebase
+                         ;; forever just before it begins to drain.
+                         heal-low-throughput-window-p
                          (plusp (or last-heal-frontier-baseline 0))
                          (>= now last-heal-remote-progress-at)
                          (>= (- now last-heal-remote-progress-at)

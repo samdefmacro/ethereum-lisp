@@ -2230,11 +2230,12 @@ really reopens the directory instead of observing the first handle's memory."
                   :processed-nodes 90000 :reused-nodes 89990
                   :fetched-nodes 10 :request-count 4
                   :response-bytes 4096 :frontier-works 24000 :completed-p nil))
-                (setf now 698)
-                (is (not (funcall yield-p)))
+                (setf now 699)
                 ;; Another large local pass with the same remote counters and
                 ;; no material net frontier drain must not pin a public pivot
-                ;; forever merely because PROCESSED-NODES increased.
+                ;; forever merely because PROCESSED-NODES increased.  This
+                ;; second five-minute sample remains below the bounded
+                ;; aggregate-work threshold.
                 (funcall
                  progress-callback
                  (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
@@ -2243,7 +2244,7 @@ really reopens the directory instead of observing the first handle's memory."
                   :response-bytes 4096 :frontier-works 24001 :completed-p nil))
                 ;; Five minutes without remote response or material closure
                 ;; permits a rebase only through the authorized successor.
-                (setf now 699)
+                (setf now 700)
                 (is (funcall yield-p))
                 (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))))
       (cons 'ethereum-lisp.cli::devnet-peer-manager-log
@@ -2267,6 +2268,77 @@ really reopens the directory instead of observing the first handle's memory."
         (is (string= (hash32-to-hex target-hash) (field "targetHash")))
         (is (string= (hash32-to-hex successor-hash)
                      (field "successorHash")))))))
+
+(deftest devnet-snap-productive-local-expansion-retains-a-stale-consensus-target
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (database (make-memory-key-value-database))
+         (pivot-header (block-header
+                        (ethereum-lisp.cli::devnet-node-genesis-block node)))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 83)))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes (lambda (request) (declare (ignore request)))))
+         (entry (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "peer-1"))
+         (now 100))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::unix-time (lambda () now))
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is snap-only-p)
+              (list entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+            (lambda (seen-entry)
+              (is (eq entry seen-entry))
+              source))
+      (cons 'ethereum-lisp.cli::devnet-node-stale-snap-successor
+            (lambda (seen-node seen-target seen-number)
+              (is (eq node seen-node))
+              (is (hash32= target-hash seen-target))
+              (is (= 0 seen-number))
+              (values
+               (make-hash32 (make-byte-vector 32 :initial-element 84))
+               185)))
+      (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+            (lambda (seen-database sources &rest arguments)
+              (is (eq database seen-database))
+              (is (= 1 (length sources)))
+              (let ((yield-p (getf arguments :heal-yield-p))
+                    (progress-callback (getf arguments :on-heal-progress)))
+                ;; Establish the remote/frontier and aggregate-work baselines.
+                (setf now 400)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 200000 :reused-nodes 199990
+                  :fetched-nodes 10 :request-count 4
+                  :response-bytes 4096 :frontier-works 24000 :completed-p nil))
+                ;; A full interval later, local DFS has exceeded the aggregate
+                ;; work threshold while expanding the discovered frontier.  A
+                ;; rebase here would discard that exact transient traversal and
+                ;; repeat the same useful local walk on the successor pivot.
+                (setf now 701)
+                (funcall
+                 progress-callback
+                 (ethereum-lisp.snap-sync::%make-snap-sync-heal-progress
+                  :processed-nodes 400000 :reused-nodes 399990
+                  :fetched-nodes 10 :request-count 4
+                  :response-bytes 4096 :frontier-works 48000 :completed-p nil))
+                (is (not (funcall yield-p)))
+                nil))))
+     (lambda ()
+       (is (null
+            (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+             node database pivot-header target-hash :target-number 64)))))))
 
 (deftest devnet-snap-efficient-heal-retains-a-collapsed-source-pool
   (:layer :unit :module :p2p)
