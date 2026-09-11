@@ -1125,8 +1125,9 @@ are not inferred from a StorageRanges lane name: they have the separate
 schema-bounded allocation-profiler rows, it extracts only decimal fields from
 the latest identity-free `peer.snap.storage_profile` event and latest numeric
 SNAP source-refresh event. Stale-pivot evidence is reduced to counts for the
-four production reason labels (`progress-stalled`, `source-throughput-low`,
-`response-throughput-low`, and `sources-unavailable`) plus an `unknown` count;
+five production reason labels (`progress-stalled`, `local-expansion-stalled`,
+`source-throughput-low`, `response-throughput-low`, and
+`sources-unavailable`) plus an `unknown` count;
 it never exposes the accompanying target hashes or peer identities. The latest
 discv4 crawl is reduced to its latest and bounded-window offered/routing-seed
 counts plus the chain-filter flag, while connected-session evidence reports

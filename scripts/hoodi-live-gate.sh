@@ -984,6 +984,7 @@ if [ -n "$stale_lines" ]; then
     stale_classified=0
     for reason in \
         progress-stalled \
+        local-expansion-stalled \
         source-throughput-low \
         response-throughput-low \
         sources-unavailable
