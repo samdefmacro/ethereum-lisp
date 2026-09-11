@@ -1134,8 +1134,10 @@ counts plus the chain-filter flag, while connected-session evidence reports
 only counts for `eth/72`,
 `snap/1`, and their intersection. No enode, IP address, client string, or peer
 identifier crosses the broker. The latest identity-free healer event is
-projected to its numeric work/frontier/rate fields and fixed ETA status,
-confidence, and completion enums; hashes and source identities remain absent.
+projected to its numeric work/frontier/rate fields, cumulative SBCL
+heap/allocation/GC counters, and fixed ETA status, confidence, and completion
+enums; hashes and source identities remain absent. Compare successive cumulative
+counters rather than treating one value as interval cost.
 It also
 sums page, slot, and phase-millisecond
 fields across the bounded recent log window and reports each maximum. `totalPages`,

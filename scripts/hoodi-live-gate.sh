@@ -1117,8 +1117,8 @@ if [ -n "$heal_progress" ]; then
     for field in \
         pivot processedNodes reusedNodes fetchedNodes requests nodeBytes \
         promotedSubtrees skippedSubtrees frontierWorks deferredStorageWorks \
-        remoteWorks knownIncompleteNodes sampleSeconds processedRate \
-        discoveredRate etaSeconds
+        remoteWorks knownIncompleteNodes dynamicUsageBytes bytesConsed gcRunMs \
+        sampleSeconds processedRate discoveredRate etaSeconds
     do
         value="$(
             printf '%s\n' "$heal_progress" |

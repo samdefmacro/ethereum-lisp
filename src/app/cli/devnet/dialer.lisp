@@ -2058,50 +2058,56 @@ must prove the new state root before either record can authorize publication."
                     net-drain-rate eta-seconds eta-status eta-confidence)
                  (devnet-snap-heal-estimate
                   heal-estimate-samples completed-p)
-               (devnet-peer-manager-log
-                node "peer.snap.heal_progress"
-                "pivot" pivot-number
-                "processedNodes"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
-                 heal-progress)
-                "reusedNodes"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
-                 heal-progress)
-                "fetchedNodes"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
-                 heal-progress)
-                "requests"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
-                 heal-progress)
-                "nodeBytes"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
-                 heal-progress)
-                "promotedSubtrees"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
-                 heal-progress)
-                "skippedSubtrees"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
-                 heal-progress)
-                "frontierWorks"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
-                 heal-progress)
-                "deferredStorageWorks"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
-                 heal-progress)
-                "remoteWorks"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
-                 heal-progress)
-                "knownIncompleteNodes"
-                (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
-                 heal-progress)
-                "sampleSeconds" sample-seconds
-                "processedRate" processed-rate
-                "discoveredRate" discovered-rate
-                "netDrainRate" net-drain-rate
-                "etaSeconds" eta-seconds
-                "etaStatus" eta-status
-                "etaConfidence" eta-confidence
-                "completed" completed-p)))))
+               (multiple-value-bind
+                     (dynamic-usage bytes-consed gc-run-ms)
+                   (devnet-runtime-heap-snapshot)
+                 (devnet-peer-manager-log
+                  node "peer.snap.heal_progress"
+                  "pivot" pivot-number
+                  "processedNodes"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                   heal-progress)
+                  "reusedNodes"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+                   heal-progress)
+                  "fetchedNodes"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                   heal-progress)
+                  "requests"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-request-count
+                   heal-progress)
+                  "nodeBytes"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-response-bytes
+                   heal-progress)
+                  "promotedSubtrees"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
+                   heal-progress)
+                  "skippedSubtrees"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+                   heal-progress)
+                  "frontierWorks"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works
+                   heal-progress)
+                  "deferredStorageWorks"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-deferred-storage-works
+                   heal-progress)
+                  "remoteWorks"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-remote-works
+                   heal-progress)
+                  "knownIncompleteNodes"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
+                   heal-progress)
+                  "dynamicUsageBytes" dynamic-usage
+                  "bytesConsed" bytes-consed
+                  "gcRunMs" gc-run-ms
+                  "sampleSeconds" sample-seconds
+                  "processedRate" processed-rate
+                  "discoveredRate" discovered-rate
+                  "netDrainRate" net-drain-rate
+                  "etaSeconds" eta-seconds
+                  "etaStatus" eta-status
+                  "etaConfidence" eta-confidence
+                  "completed" completed-p))))))
        :on-source-error
        (lambda (source condition)
          (let ((entry (entry-for-source source)))

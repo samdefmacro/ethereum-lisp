@@ -1993,6 +1993,15 @@ really reopens the directory instead of observing the first handle's memory."
           (is (= 0 (field record "requests")))
           (is (= 0 (field record "fetchedNodes")))
           (is (= 0 (field record "nodeBytes")))
+          ;; Healer-local expansion can trigger long stop-the-world collections
+          ;; after account-page profiling has ended.  Keep the same cumulative
+          ;; heap/GC witnesses on the progress event that survives that phase.
+          (is (and (integerp (field record "dynamicUsageBytes"))
+                   (not (minusp (field record "dynamicUsageBytes")))))
+          (is (and (integerp (field record "bytesConsed"))
+                   (not (minusp (field record "bytesConsed")))))
+          (is (and (integerp (field record "gcRunMs"))
+                   (not (minusp (field record "gcRunMs")))))
           (is (= 0 (field record "sampleSeconds")))
           (is (= 0 (field record "processedRate")))
           (is (= 0 (field record "discoveredRate")))
