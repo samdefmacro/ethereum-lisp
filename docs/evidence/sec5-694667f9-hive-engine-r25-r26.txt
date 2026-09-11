@@ -1,0 +1,123 @@
+Section 5 Hive Engine/auth r25 and focused-r26 evidence
+
+Recorded: 2026-09-11T11:39:58Z
+Implementation revision: 694667f95727430baef2aaceec24c91c2c46bd91
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This evidence records the first bounded full execution of the pinned 403-item
+Hive Engine/auth inventory after the blob-sidecar proof repair, plus an
+independent focused rerun of every failure from that full execution. It does
+not close the full gate: the complete r25 inventory passed 399/403, while the
+four failed names all passed when rerun together in fresh r26 processes. A new
+complete 403-item run is required to establish one zero-failure inventory.
+
+Pinned identities
+
+- Hive: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+- Execution APIs: e5d1bb60e6c064e4b15080da07b4370d0baadf92
+- Runtime platform: linux/amd64
+- Runtime user: ethereum:ethereum
+- Runtime OCI revision: 694667f95727430baef2aaceec24c91c2c46bd91
+- Runtime image config ID:
+  sha256:3a3f26c066ac6b2c3740efeae4796b0bcac0b31c75d051a13a50f7c535464081
+- Runtime archive SHA-256:
+  d57ef9bbbdc7f4e1d263a45ee0ef0367f88a2001ed3942d5d5afad8064ed8049
+- Exact source archive SHA-256:
+  41b5f63940f65fa84e3ae8e4832308e15ed148bbcd1b95a8d25e7f696c12ad73
+- Hive binary SHA-256:
+  cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+- amd64 Hive-runner archive SHA-256:
+  07bdd861f2b9a715072e03396c888b07d9195d41e5fe1c3fec8554a5b0e34421
+
+The exact source archive contained the same 866 tracked regular files as the
+implementation revision, with no missing, extra, or changed entries.
+
+Full r25 result
+
+Independent request
+`sec5-hive-694667f9-engine-r25-20260911T084243Z` was approved and executed
+through `scripts/hive-run.sh`. The isolated runner was limited to 2 CPUs,
+4 GiB memory, 5 GiB memory-plus-swap, and 1,024 PIDs. It used a read-only root
+filesystem, exposed no host ports, and mounted only its new evidence and
+nested-Docker paths.
+
+The exact 403-name inventory executed without interruption or runner OOM:
+
+- engine-api: 126/129
+- engine-auth: 8/8
+- engine-exchange-capabilities: 5/5
+- engine-withdrawals: 35/35
+- engine-cancun: 225/226
+- total: 399/403
+
+The four failures were:
+
+- RPC: Finalized Block on FinalizedBlockHash Update (Paris)
+  (ethereum-lisp_ethereum-lisp)
+- PrevRandao Opcode Transactions Test, DynamicFeeTransactions (Paris)
+  (ethereum-lisp_ethereum-lisp)
+- Invalid NewPayload, StateRoot, Syncing=False, EmptyTxs=True,
+  DynFeeTxs=False (Paris) (ethereum-lisp_ethereum-lisp)
+- NewPayloadV3 Versioned Hashes, Missing Hash, Syncing=True (Cancun)
+  (ethereum-lisp_ethereum-lisp)
+
+`Blob Transaction Ordering, Multiple Clients (Cancun)` passed, confirming that
+the focused blob-order repair remained green in the full inventory. Hive
+returned status 1 because of the four failed cases. The outer runner stopped
+normally, was not OOM-killed, and had zero restarts.
+
+Retained r25 evidence root:
+`/data/hoodi-sec5-hive/runs/694667f9-engine-full-r25-20260911T083509Z`
+
+- complete evidence manifest: 500 entries; SHA-256
+  db820c14298f2659ffd36fe1b041df6443837cadc418bccbb0096538a9137e0c
+- full Hive log `hive-engine-full.log`: 159,345 bytes; SHA-256
+  50ac29ac91841ec32c99982b33093651943f2073180de9962c0e78f9c2f72cd1
+- runner stats `runner-final-stats.txt`: SHA-256
+  33a374facfcfb9c7d08fce9c1edd14fc11d79b2824bbe98d98c9b5fb1c5474f6
+
+Focused r26 result
+
+Independent request
+`sec5-hive-694667f9-r25-failures-r26-20260911T111431Z` was approved and
+executed against the same exact artifacts in a fresh isolated runner. The
+selector named exactly the four r25 failures. Hive emitted six unique results:
+two required suite loaders and all four named tests. Every entry passed. The
+four-target set had no missing or duplicate name and no failure summary.
+
+Hive itself reported suites=2, tests=6, failed=0. The broker returned status 3
+only because `HIVE_EXPECTED_TESTS` was set to four while Hive's aggregate count
+also included the two passing suite loaders. This is a runner count mismatch,
+not a test failure, but the focused result still cannot substitute for one
+complete zero-failure 403-item execution.
+
+Retained r26 evidence root:
+`/data/hoodi-sec5-hive/runs/694667f9-engine-r25-failures-r26-20260911T111127Z`
+
+- complete evidence manifest: 24 entries; SHA-256
+  1efb6729f49ada30337710bc4df90384d6fc90c93b074ebb6b3f64810e43ed62
+- full Hive log `hive-engine-r25-failures.log`: 3,320 bytes; SHA-256
+  10f3b093ec4212cda9ec6a4f3b16f7d8c97a36152c826871bc9de31d7507f078
+- runner stats `runner-final-stats.txt`: SHA-256
+  500f4dde58579e8d725ee2d3a71c5333229fdf1153881c4dcfd09e1db51515f3
+
+Live-validation isolation
+
+Both reviewed runs preserved the existing Hoodi EL and Lighthouse identities,
+start times, ports, network wiring, JWT, and datadir. Neither live container was
+restarted or OOM-killed. After r26, the exact-d9e0e2dd healer remained active:
+processedNodes advanced from 948,224 to 1,011,712 during reviewer observation,
+frontierWorks fell from 38,955 to 38,508, knownIncompleteNodes fell from 2,286
+to 2,260, and the consensus client remained connected. This is progress, not
+completion evidence.
+
+Remaining boundary
+
+A fresh full 403-item Engine/auth run must pass with zero failures before the
+gate closes. The long-running Hoodi deployment also has not recorded
+`peer.snap.target_completed`, healer completion with an empty frontier,
+canonical execution through the authorized target, or `eth_syncing=false`.
+The seven-day shadow comparison and fourteen-day validator soak remain blocked
+on those prerequisites.

@@ -439,8 +439,17 @@ The implementation boundary is split deliberately:
   linux/amd64 runtime then selected the exact named regression plus its suite
   loader and passed both entries, with Hive exit zero and no runner OOM or
   restart. Exact artifact and evidence hashes are archived in
-  `docs/evidence/sec5-694667f9-hive-blob-order.txt`. This closes that concrete
-  Engine failure only; a fresh complete 403-item run remains required.
+  `docs/evidence/sec5-694667f9-hive-blob-order.txt`.
+
+  The subsequent bounded full Engine/auth run executed the complete 403-name
+  inventory without OOM or interruption and passed 399/403. The four failed
+  names then all passed together in a fresh isolated focused rerun against the
+  same exact artifacts; Hive recorded six passing entries including the two
+  required suite loaders. Because no single complete run has yet passed all
+  403 names, the Engine/auth gate remains open and requires another fresh full
+  execution. Exact per-suite counts, names, artifact hashes, and both retained
+  evidence roots are archived in
+  `docs/evidence/sec5-694667f9-hive-engine-r25-r26.txt`.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request
