@@ -5556,6 +5556,11 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; 8,192. Keep the exact count alongside the list so every inner-loop
            ;; frontier bound remains O(1) during that interval.
            (stack-count (length stack))
+           ;; A local collection pass may cross post-order sentinels after their
+           ;; missing descendants have left STACK for the remote request batch.
+           ;; Retain those barriers separately, then restore them behind fetched
+           ;; work before any durable checkpoint can publish the frontier.
+           (blocked-completions '())
            (active-sources (remove-duplicates (copy-list sources) :test #'eq))
            (retired-sources '())
            (retired-source-errors '())
@@ -5632,6 +5637,23 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (error "Snap healer stack count diverged from its frontier"))
            (decf stack-count)
            (pop stack))
+         (completion-work-p (work)
+           (member
+            (snap-sync-heal-work-marker-state work)
+            '(:complete :node-complete)))
+         (block-completion (work)
+           (unless (completion-work-p work)
+             (error "Snap completion barrier received ordinary trie work"))
+           (push work blocked-completions)
+           ;; STACK-POP removed this work from the combined frontier count.
+           (incf stack-count)
+           work)
+         (restore-blocked-completions ()
+           (when blocked-completions
+             ;; Existing and freshly fetched work must expose all descendants
+             ;; before these post-order sentinels become reachable again.
+             (setf stack (nconc stack (nreverse blocked-completions))
+                   blocked-completions nil)))
          (prefer-peer-nodes-p ()
            (and
             *snap-sync-heal-remote-first-p*
@@ -6126,22 +6148,26 @@ for more missing hashes."
                            (cond
                              ((eq :node-complete
                                   (snap-sync-heal-work-marker-state work))
-                              (if (or lookups deferred-storage)
-                                  (progn
-                                    (stack-push work)
-                                    (unless lookups
-                                      (drain-deferred-storage))
-                                    (return))
-                                  (persist-complete-node work)))
+                              (cond
+                                ((or missing (plusp remote-work-count))
+                                 (block-completion work))
+                                ((or lookups deferred-storage)
+                                 (stack-push work)
+                                 (unless lookups
+                                   (drain-deferred-storage))
+                                 (return))
+                                (t (persist-complete-node work))))
                              ((eq :complete
                                   (snap-sync-heal-work-marker-state work))
-                              (if (or lookups deferred-storage)
-                                  (progn
-                                    (stack-push work)
-                                    (unless lookups
-                                      (drain-deferred-storage))
-                                    (return))
-                                  (persist-healed-subtree work)))
+                              (cond
+                                ((or missing (plusp remote-work-count))
+                                 (block-completion work))
+                                ((or lookups deferred-storage)
+                                 (stack-push work)
+                                 (unless lookups
+                                   (drain-deferred-storage))
+                                 (return))
+                                (t (persist-healed-subtree work))))
                              ((snap-sync-healed-subtree-candidate-p work)
                               (push work lookups)
                               (incf lookup-count))
@@ -6432,6 +6458,10 @@ for more missing hashes."
                          condition)
                         (values (coerce works 'list) condition 0))))
                   (refill (room outstanding)
+                    ;; REFILL may inspect post-order sentinels before the next
+                    ;; checkpoint callback. Publish the pipeline-owned frontier
+                    ;; count first so those sentinels remain barriers.
+                    (setf remote-work-count outstanding)
                     (let ((available
                             (min
                              room
@@ -6463,7 +6493,9 @@ for more missing hashes."
                  (flush-healed-subtrees)
                  (when (or remaining paused-p)
                    (dolist (work (reverse remaining))
-                     (stack-push work))
+                     (stack-push work)))
+                 (restore-blocked-completions)
+                 (when (or remaining paused-p)
                    (when (snap-sync-heal-checkpoint-frontier-p stack)
                      (persist-checkpoint stack))
                    (when paused-p
@@ -6534,22 +6566,26 @@ for more missing hashes."
                         do (cond
                              ((eq :node-complete
                                   (snap-sync-heal-work-marker-state work))
-                              (if (or lookups deferred-storage)
-                                  (progn
-                                    (stack-push work)
-                                    (unless lookups
-                                      (drain-deferred-storage))
-                                    (return))
-                                  (persist-complete-node work)))
+                              (cond
+                                ((or missing (plusp remote-work-count))
+                                 (block-completion work))
+                                ((or lookups deferred-storage)
+                                 (stack-push work)
+                                 (unless lookups
+                                   (drain-deferred-storage))
+                                 (return))
+                                (t (persist-complete-node work))))
                              ((eq :complete
                                   (snap-sync-heal-work-marker-state work))
-                              (if (or lookups deferred-storage)
-                                  (progn
-                                    (stack-push work)
-                                    (unless lookups
-                                      (drain-deferred-storage))
-                                    (return))
-                                  (persist-healed-subtree work)))
+                              (cond
+                                ((or missing (plusp remote-work-count))
+                                 (block-completion work))
+                                ((or lookups deferred-storage)
+                                 (stack-push work)
+                                 (unless lookups
+                                   (drain-deferred-storage))
+                                 (return))
+                                (t (persist-healed-subtree work))))
                              ((snap-sync-healed-subtree-candidate-p work)
                               ;; Resolve pivot-independent completion proofs in
                               ;; one ordered batch below.  Counting the popped

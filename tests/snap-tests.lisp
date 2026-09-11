@@ -8046,6 +8046,223 @@
         (is present-p)
         (is (plusp (length encoded)))))))
 
+(deftest snap-account-subtree-publication-waits-for-missing-descendants
+  (:layer :integration :module :p2p)
+  (multiple-value-bind (state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((root (state-db-root state))
+           (trie (first (state-db-persistence-tries state)))
+           (account-records (mpt-dirty-node-records trie))
+           (closure-groups
+             (nth-value
+              1
+              (mpt-proved-range-subtrees
+               trie (make-byte-vector 32)
+               (make-byte-vector 32 :initial-element #xff) 1)))
+           (closure-group (first closure-groups))
+           (subtree-reference (second closure-group))
+           (omitted-reference (first (third closure-group)))
+           (omitted
+             (find omitted-reference account-records :key #'car :test #'bytes=))
+           (target-database (make-memory-key-value-database))
+           (source-database (make-memory-key-value-database))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database state))
+           (source (snap-test-source backend))
+           (failing-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range source)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges source)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes source)
+              :trie-nodes
+              (lambda (request)
+                (declare (ignore request))
+                (error "Injected missing-descendant source failure"))))
+           (pivot (make-hash32 (snap-test-hash 249)))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash pivot :pivot-number 6031 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 250))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 251))
+              :authority-id (make-hash32 (snap-test-hash 252))
+              :completed-p nil :complete-node-scheme-p t
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t))))
+      (is closure-group)
+      (is omitted)
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+        target-database))
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+         target-database batch (remove omitted account-records))
+        (kv-apply-batch target-database batch))
+      (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+              1)
+            (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+              1))
+        (signals error
+          (ethereum-lisp.snap-sync::snap-sync-heal-state
+           target-database (list failing-source) progress 350))
+        (is
+         (not
+          (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+           target-database subtree-reference)))
+        (is
+         (not
+          (nth-value
+           1
+           (ethereum-lisp.trie:trie-node-store-get
+            target-database (car omitted)))))
+        (let ((completed
+                (ethereum-lisp.snap-sync::snap-sync-heal-state
+                 target-database (list source) progress 350)))
+          (is
+           (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed)))
+        (is
+         (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+          target-database subtree-reference))
+        (multiple-value-bind (encoded present-p)
+            (ethereum-lisp.trie:trie-node-store-get
+             target-database (car omitted))
+          (is present-p)
+          (is (plusp (length encoded))))))))
+
+(deftest snap-healed-subtree-publication-waits-for-missing-descendants
+  (:layer :integration :module :p2p)
+  ;; A post-order completion sentinel must not outrun a missing descendant that
+  ;; has already moved from the local DFS stack into the remote request batch.
+  ;; Publishing the root proof before that request succeeds leaves a durable
+  ;; false-closure shortcut when the source fails or the pivot yields.
+  (let* ((state (make-state-db))
+         (address (snap-test-address-from-integer 2)))
+    (loop for index from 1 to 2048
+          do (state-db-set-storage
+              state address (make-hash32 (snap-test-index-hash (+ 3000 index)))
+              (+ 910000 index)))
+    (let* ((root (state-db-root state))
+           (storage-root (state-db-get-storage-root state address))
+           (tries (state-db-persistence-tries state))
+           (account-records (mpt-dirty-node-records (first tries)))
+           (storage-records (mpt-dirty-node-records (second tries)))
+           (omitted
+             (subseq storage-records 0 (min 2500 (length storage-records))))
+           (target-database (make-memory-key-value-database))
+           (source-database (make-memory-key-value-database))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database state))
+           (source (snap-test-source backend))
+           (fast-call-count 0)
+           (fast-once-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range source)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges source)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes source)
+              :trie-nodes
+              (lambda (request)
+                (incf fast-call-count)
+                (if (= 1 fast-call-count)
+                    (funcall
+                     (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes source)
+                     request)
+                    (error "Injected post-refill source failure")))))
+           (slow-failing-source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range source)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges source)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes source)
+              :trie-nodes
+              (lambda (request)
+                (declare (ignore request))
+                ;; Keep one pipeline job in flight while the healthy source
+                ;; returns enough work to trigger an earlier refill pass.
+                (sleep 1)
+                (error "Injected missing-descendant source failure"))))
+           (pivot (make-hash32 (snap-test-hash 253)))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash pivot :pivot-number 6032 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 254))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 255))
+              :authority-id (make-hash32 (snap-test-index-hash 4096))
+              :completed-p nil :complete-node-scheme-p t
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t))))
+      (is (> (length omitted) 2048))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+        target-database))
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+         target-database batch
+         (append account-records (nthcdr (length omitted) storage-records)))
+        (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+         batch root
+         (cons
+          (ethereum-lisp.crypto:keccak-256 (address-bytes address))
+          storage-root))
+        (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+         batch root)
+        (kv-apply-batch target-database batch))
+      (signals error
+        (ethereum-lisp.snap-sync::snap-sync-heal-state
+         target-database (list fast-once-source slow-failing-source)
+         progress (* 1024 1024)))
+      (is (> fast-call-count 1))
+      (is
+       (not
+        (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+         target-database (hash32-bytes storage-root) :storage-root)))
+      (is
+       (not
+        (nth-value
+         1
+         (ethereum-lisp.trie:trie-node-store-get
+          target-database (caar omitted)))))
+      (multiple-value-bind (state-root present-p)
+          (kv-get-chain-record
+           target-database :state-history (hash32-bytes pivot))
+        (declare (ignore state-root))
+        (is (not present-p)))
+      (let ((completed
+              (ethereum-lisp.snap-sync::snap-sync-heal-state
+               target-database (list source) progress (* 1024 1024))))
+        (is
+         (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed)))
+      (is
+       (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+        target-database (hash32-bytes storage-root) :storage-root))
+      (multiple-value-bind (encoded present-p)
+          (ethereum-lisp.trie:trie-node-store-get
+           target-database (caar omitted))
+        (is present-p)
+        (is (plusp (length encoded))))
+      (multiple-value-bind (state-root present-p)
+          (kv-get-chain-record
+           target-database :state-history (hash32-bytes pivot))
+        (is present-p)
+        (is (bytes= state-root (hash32-bytes root)))))))
+
 (deftest snap-state-healer-does-not-reuse-account-node-marker-absence
   (:layer :integration :module :p2p)
   ;; Account-node negative metadata is not a closure proof for the external
