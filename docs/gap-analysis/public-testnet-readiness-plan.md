@@ -494,11 +494,17 @@ The implementation boundary is split deliberately:
   regressions, cold unit/integration layers, SNAP-focused gate, and exact
   linux/amd64 runtime smoke are green. A reviewed fresh-datadir Hoodi run of
   that exact artifact started at `2026-09-11T15:51:43Z`; later read-only
-  samples show repeated moving-pivot healer work without OOM or restart. At
-  `2026-09-11T21:52:52Z` its current pivot had processed 378,880 nodes after
-  nine minutes, but the frontier was still expanding and neither healer nor
-  target completion had occurred. Exact artifact, deployment, predecessor
-  failure, and live-start evidence are archived in
+  samples show repeated moving-pivot healer work without OOM or restart. A later
+  thirty-minute window proved that `local-expansion-stalled` could discard a
+  transient DFS frontier despite processing more than the configured aggregate-
+  work threshold: one pivot yielded after 638,976 processed nodes, and its
+  successor repeated 598,925 local node reuses while its frontier expanded.
+  Revision `9f697ec645bf1d9e9ff544bfce8c37018aaa65c8` now requires the existing low-
+  throughput window before this yield class may rebase. Its RED/GREEN controls,
+  full 1,354-test cold-unit layer, 19-test healer integration selector, and full
+  560-test cold-integration layer are green. This successor is not deployed;
+  neither healer nor target completion has occurred. Exact artifact, deployment,
+  predecessor failure, and live-start evidence are archived in
   `docs/evidence/sec5-0c6b51bf-completion-barrier-live-start.txt`.
 
   When a later account or partitioned StorageRanges page proves closure for a

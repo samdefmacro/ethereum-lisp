@@ -1,7 +1,7 @@
 Section 5 SNAP completion-barrier failure and fresh live rerun
 
 Initial record: 2026-09-12T00:03+08:00
-Updated through: 2026-09-12T05:52:54+08:00
+Updated through: 2026-09-12T06:14:16+08:00
 Implementation revision: 0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae
 Branch: sec5-public-bootstrap-sync
 
@@ -123,6 +123,30 @@ on `/data`. There were 57 heal-progress records and no searched fatal/storage
 failure signature in the preceding 30 minutes, but still no target-completed
 event. RPC remained eth_blockNumber=0x0 with eth_syncing.highestBlock=0x3702dd.
 
+A 30-minute read-only window through 2026-09-11T22:01:05Z established that the
+moving-pivot behavior was a concrete scheduler defect rather than completion
+progress. Pivot 3,605,032 processed 638,976 nodes, reused 638,596 locally, and
+still held 336,726 frontier works immediately before yielding with reason
+`local-expansion-stalled`. Pivot 3,605,109 then restarted the transient walk and
+processed 600,064 nodes, including 598,925 local reuses, by 22:00:47Z while its
+frontier expanded to 322,236. The latter completed more than 256,000
+processed-plus-fetched work in its first 320-second measurement window, almost
+twice the configured 131,072-work productivity threshold, yet the old predicate
+would still permit another five-minute local-expansion yield because it did not
+consult that throughput result.
+
+Revision 9f697ec645bf1d9e9ff544bfce8c37018aaa65c8 now requires a low bounded
+aggregate-work window before `local-expansion-stalled` may discard the exact DFS
+frontier. The independent `progress-stalled`, source-collapse, underfilled-
+response, and explicit source-unavailable exits remain unchanged. Its RED
+regression failed under the predecessor predicate, then passed with the repair;
+the low-throughput yield control also passes. The full cold-unit layer passes
+1,354 tests with three optional skips, the healer-focused integration selector
+passes 19/19, and the full cold-integration layer passes 560 tests with nine
+optional skips. Independent review found no blocking issue. This is tested code,
+not live correction evidence: the healthy exact-0c6b51bf deployment remains
+unchanged and must not be replaced merely because this successor exists.
+
 Remaining boundary
 
 This proves only exact-artifact startup and advancing fresh-datadir range
@@ -142,5 +166,8 @@ Primary evidence
 - /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/hoodi-0c6b51bf-20260911T214308Z-215306Z-cycle958.log
   (1,820 lines, 373,720 bytes, SHA-256
   48af8b71854898d1325418299c0c660c7947a9860a825482e480a10ce24434a8)
+- /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/hoodi-0c6b51bf-20260911T213103Z-220101Z-cycle959.log
+  (5,607 lines, 1,114,268 bytes, SHA-256
+  be9bc54500dafbba6e756d5683fe7ba609633deb9b67fba2c3bbf59077a63e15)
 - preserved Docker logs for hoodi-el-sec5-d9e0e2dd-r1 and
   hoodi-el-sec5-0c6b51bf-r1 on test-ethereum-server
