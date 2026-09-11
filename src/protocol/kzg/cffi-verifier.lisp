@@ -25,6 +25,9 @@
   (proof :pointer))
 (cffi:defcfun ("eth_ckzg_verify_blob_kzg_proof" %eth-ckzg-verify-blob-kzg-proof) :int
   (settings :pointer) (blob :pointer) (commitment :pointer) (proof :pointer))
+(cffi:defcfun ("eth_ckzg_compute_blob_kzg_proof"
+               %eth-ckzg-compute-blob-kzg-proof) :int
+  (settings :pointer) (blob :pointer) (commitment :pointer) (proof :pointer))
 (cffi:defcfun ("eth_ckzg_verify_blob_cell_proofs"
                %eth-ckzg-verify-blob-cell-proofs) :int
   (settings :pointer) (blob :pointer) (commitment :pointer) (proofs :pointer))
@@ -84,6 +87,28 @@ verify-kzg-blob-proof wrapper."
         (cffi:with-pointer-to-vector-data (cp (kzg-cffi-octets commitment))
           (cffi:with-pointer-to-vector-data (pp (kzg-cffi-octets proof))
             (= 1 (%eth-ckzg-verify-blob-kzg-proof settings bp cp pp))))))))
+
+(defun compute-kzg-blob-proof (blob commitment)
+  "Compute the EIP-4844 blob proof for BLOB and COMMITMENT with c-kzg."
+  (let ((settings (kzg-cffi-settings))
+        (blob (kzg-cffi-octets blob))
+        (commitment (kzg-cffi-octets commitment))
+        (proof (make-byte-vector +kzg-proof-size+)))
+    (unless settings
+      (kzg-unavailable-error "KZG blob proof computation is not available"))
+    (unless (= +kzg-cffi-blob-byte-size+ (length blob))
+      (block-validation-fail "KZG blob proof computation requires one full blob"))
+    (unless (= +kzg-proof-size+ (length commitment))
+      (block-validation-fail
+       "KZG blob proof computation requires one 48-byte commitment"))
+    (cffi:with-pointer-to-vector-data (bp blob)
+      (cffi:with-pointer-to-vector-data (cp commitment)
+        (cffi:with-pointer-to-vector-data (pp proof)
+          (unless (= 1
+                     (%eth-ckzg-compute-blob-kzg-proof
+                      settings bp cp pp))
+            (block-validation-fail "KZG blob proof computation failed")))))
+    proof))
 
 (defun kzg-cffi-cell-proofs (blob commitment proofs)
   "True when all EIP-7594 cell proofs for BLOB verify."

@@ -175,6 +175,8 @@
           invalid-point-commitment invalid-point-z invalid-point-y
           invalid-point-proof))
        (is (verify-kzg-blob-proof valid-blob valid-commitment valid-proof))
+       (is (bytes= valid-proof
+                   (compute-kzg-blob-proof valid-blob valid-commitment)))
        (signals error
          (verify-kzg-blob-proof valid-blob valid-commitment
                                 invalid-blob-proof))
@@ -188,6 +190,91 @@
            (signals error
              (verify-kzg-cell-proofs
               valid-blob valid-commitment corrupt))))))))
+
+(deftest chain-store-derives-engine-blob-proof-from-real-cell-sidecar
+  (:layer :integration :module :kzg)
+  (let* ((blob
+           (let ((value (make-byte-vector +blob-byte-size+))
+                 (field-element
+                   (ethereum-lisp.crypto::integer-to-fixed-bytes 2 32)))
+             (loop for start below +blob-byte-size+ by 32
+                   do (replace value field-element :start1 start))
+             value))
+         (commitment
+           (hex-to-bytes
+            "0xa572cbea904d67468808c8eb50a9450c9721db309128012543902d0ac358a62ae28f75bb8f1c7c42c39a8c5529bf0f4e"))
+         (expected-proof
+           (hex-to-bytes
+            "0xc00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"))
+         (store (make-engine-payload-memory-store)))
+    (call-with-kzg-cffi-verifier
+     (lambda ()
+       (let* ((cell-proofs (compute-kzg-cell-proofs blob))
+              (sidecar
+                (make-blob-sidecar
+                 :blobs (list blob)
+                 :commitments (list commitment)
+                 :proofs cell-proofs))
+              (versioned-hash
+                (first (blob-sidecar-versioned-hashes sidecar))))
+         (engine-payload-store-put-blob-sidecar store sidecar)
+         (let ((stored
+                 (engine-payload-store-blob-and-proofs-v1
+                  store versioned-hash)))
+           (is (bytes= expected-proof
+                       (engine-blob-and-proofs-proof stored)))
+           (is (equalp cell-proofs
+                       (engine-blob-and-proofs-cell-proofs stored)))))))))
+
+(deftest chain-store-repairs-persisted-cell-proof-in-blob-proof-slot
+  (:layer :integration :module :kzg)
+  (let* ((blob
+           (apply
+            #'concat-bytes
+            (loop for value from 1 to 4096
+                  collect
+                  (ethereum-lisp.crypto::integer-to-fixed-bytes value 32))))
+         (commitment
+           (hex-to-bytes
+            "0xa3c9330a06642467615c00ef352b887068536b670fd7bdae362414d378cf1b3a88fe3eb4264a88612814aecf8fd6acfc"))
+         (expected-proof
+           (hex-to-bytes
+            "0x989736ab512d1b159d388e5187b68554dede1e48257e1de7b6959f58c61ca004390493b0e399c852241928993a2cdd1c"))
+         (source (make-engine-payload-memory-store))
+         (restored (make-engine-payload-memory-store))
+         (database (make-memory-key-value-database)))
+    (call-with-kzg-cffi-verifier
+     (lambda ()
+       (let* ((cell-proofs (compute-kzg-cell-proofs blob))
+              (sidecar
+                (make-blob-sidecar
+                 :blobs (list blob)
+                 :commitments (list commitment)
+                 :proofs cell-proofs))
+              (versioned-hash
+                (first (blob-sidecar-versioned-hashes sidecar))))
+         ;; Reproduce the pre-fix durable shape exactly: the first cell proof
+         ;; occupied the blob-proof field while all cell proofs were retained.
+         (is (not (bytes= expected-proof (first cell-proofs))))
+         (engine-payload-store-put-blob-sidecar
+          source sidecar :blob-proofs (list (first cell-proofs)))
+         (node-store-export-to-kv source database)
+         (let* ((direct (make-database-engine-payload-store database))
+                (stored
+                  (engine-payload-store-blob-and-proofs-v1
+                   direct versioned-hash)))
+           (is (bytes= expected-proof
+                       (engine-blob-and-proofs-proof stored)))
+           (is (equalp cell-proofs
+                       (engine-blob-and-proofs-cell-proofs stored))))
+         (node-store-import-from-kv restored database)
+         (let ((stored
+                 (engine-payload-store-blob-and-proofs-v1
+                  restored versioned-hash)))
+           (is (bytes= expected-proof
+                       (engine-blob-and-proofs-proof stored)))
+           (is (equalp cell-proofs
+                       (engine-blob-and-proofs-cell-proofs stored)))))))))
 
 (deftest blob-sidecar-field-validation-replays-real-kzg-vector
   (:layer :integration :module :kzg)

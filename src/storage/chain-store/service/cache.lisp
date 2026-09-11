@@ -825,7 +825,9 @@ after the complete import and durability boundary succeeds."
   block)
 
 (defun engine-payload-store-put-blob-sidecar
-    (store sidecar &key (now (unix-time)) block-number)
+    (store sidecar
+     &key (now (unix-time)) block-number blob-proofs
+          (blob-proof-function #'compute-kzg-blob-proof))
   (setf store (chain-store-require-memory-store store))
   (unless (typep sidecar 'blob-sidecar)
     (block-validation-fail
@@ -839,7 +841,8 @@ after the complete import and durability boundary succeeds."
      sidecar :require-proof-verification t))
   (let ((hashes (blob-sidecar-versioned-hashes sidecar))
         (blobs (blob-sidecar-blobs sidecar))
-        (proofs (blob-sidecar-proofs sidecar)))
+        (proofs (blob-sidecar-proofs sidecar))
+        (commitments (blob-sidecar-commitments sidecar)))
     (unless (= (length hashes) (length blobs))
       (block-validation-fail
        "Engine blob sidecar blobs and commitments must have matching lengths"))
@@ -848,32 +851,55 @@ after the complete import and durability boundary succeeds."
                    (* (length blobs) +cell-proofs-per-blob+)))
       (block-validation-fail
        "Engine blob sidecar proofs must be one per blob or cell proofs per blob"))
-    (engine-payload-store-synchronize-cache-metadata store :sidecar now)
-    (loop for versioned-hash in hashes
-          for blob in blobs
-          for index from 0
-          for proof = (if (= (length proofs) (length blobs))
-                          (nth index proofs)
-                          (nth (* index +cell-proofs-per-blob+) proofs))
-          for cell-proofs = (when (= (length proofs)
-                                     (* (length blobs)
-                                        +cell-proofs-per-blob+))
-                              (subseq proofs
-                                      (* index +cell-proofs-per-blob+)
-                                      (* (1+ index)
-                                         +cell-proofs-per-blob+)))
-          for stored =
-            (make-engine-blob-and-proofs
-             :blob (maybe-copy-bytes blob)
-             :commitment
-             (maybe-copy-bytes
-              (nth index (blob-sidecar-commitments sidecar)))
-             :proof (maybe-copy-bytes proof)
-             :cell-proofs (mapcar #'maybe-copy-bytes cell-proofs))
-          do (engine-payload-store-cache-put
-              store :sidecar
-              (engine-payload-store-key versioned-hash)
-              stored now block-number))
+    (when blob-proofs
+      (when (= (length proofs) (length blobs))
+        (block-validation-fail
+         "Explicit blob proofs are only valid with cell-proof sidecars"))
+      (unless (= (length blob-proofs) (length blobs))
+        (block-validation-fail
+         "Engine blob sidecar blob-proof count must match blob count"))
+      (dolist (blob-proof blob-proofs)
+        (ethereum-lisp.consensus:validate-sized-byte-vector
+         blob-proof +kzg-proof-size+ "KZG blob proof")))
+    ;; Derivation can fail (for example when native KZG is unavailable). Build
+    ;; every record before touching cache metadata so a multi-blob sidecar is
+    ;; published atomically rather than leaving a verified prefix visible.
+    (let ((records
+            (loop for versioned-hash in hashes
+                  for blob in blobs
+                  for commitment in commitments
+                  for index from 0
+                  for blob-proof-p = (= (length proofs) (length blobs))
+                  for proof = (cond
+                                (blob-proofs (nth index blob-proofs))
+                                (blob-proof-p (nth index proofs))
+                                (t
+                                 (funcall
+                                  blob-proof-function blob commitment)))
+                  for cell-proofs =
+                    (when (= (length proofs)
+                             (* (length blobs) +cell-proofs-per-blob+))
+                      (subseq proofs
+                              (* index +cell-proofs-per-blob+)
+                              (* (1+ index) +cell-proofs-per-blob+)))
+                  collect
+                  (cons
+                   versioned-hash
+                   (make-engine-blob-and-proofs
+                    :blob (maybe-copy-bytes blob)
+                    :commitment (maybe-copy-bytes commitment)
+                    :proof
+                    (maybe-copy-bytes
+                     (ethereum-lisp.consensus:validate-sized-byte-vector
+                      proof +kzg-proof-size+ "KZG blob proof"))
+                    :cell-proofs
+                    (mapcar #'maybe-copy-bytes cell-proofs))))))
+      (engine-payload-store-synchronize-cache-metadata store :sidecar now)
+      (dolist (record records)
+        (engine-payload-store-cache-put
+         store :sidecar
+         (engine-payload-store-key (car record))
+         (cdr record) now block-number)))
     (engine-payload-store-enforce-cache-bounds store :sidecar now nil))
   sidecar)
 

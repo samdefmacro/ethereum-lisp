@@ -53,6 +53,7 @@
          (database (make-memory-key-value-database))
          (blob (make-byte-vector +blob-byte-size+))
          (commitment (make-byte-vector +kzg-commitment-size+))
+         (blob-proof (make-byte-vector +kzg-proof-size+))
          (proofs
            (loop for index below +cell-proofs-per-blob+
                  collect
@@ -83,7 +84,12 @@
                (ignore verified-blob verified-commitment verified-proofs))
               t)))
       (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
-       source sidecar)
+       source sidecar
+       :blob-proof-function
+       (lambda (actual-blob actual-commitment)
+         (is (bytes= blob actual-blob))
+         (is (bytes= commitment actual-commitment))
+         blob-proof))
       (node-store-export-to-kv source database)
       (setf store (make-database-engine-payload-store database)
             reader
@@ -339,6 +345,7 @@
              (cdr (assoc name object :test #'string=))))
     (let* ((blob (make-byte-vector +blob-byte-size+))
            (commitment (make-byte-vector +kzg-commitment-size+))
+           (blob-proof (make-byte-vector +kzg-proof-size+))
            (proofs
              (loop for i below +cell-proofs-per-blob+
                    collect
@@ -369,7 +376,13 @@
                      (bytes= commitment verified-commitment)
                      (= +cell-proofs-per-blob+
                         (length verified-proofs))))))
-        (engine-payload-store-put-blob-sidecar store sidecar))
+        (engine-payload-store-put-blob-sidecar
+         store sidecar
+         :blob-proof-function
+         (lambda (actual-blob actual-commitment)
+           (is (bytes= blob actual-blob))
+           (is (bytes= commitment actual-commitment))
+           blob-proof)))
       (let* ((response
                (engine-rpc-handle-request
                 (list (cons "jsonrpc" "2.0")

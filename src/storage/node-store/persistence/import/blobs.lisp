@@ -74,7 +74,25 @@
            "KZG blob proof verification is not available")))
     (validate-blob-sidecar-fields
      sidecar
-     :require-proof-verification t))
+     :require-proof-verification t)
+    ;; EIP-7594 cell-proof validation does not authenticate the separate
+    ;; EIP-4844 blob-proof slot used by getBlobsV1 and payload envelopes.
+    ;; Normalize old records that stored the first cell proof in that slot.
+    ;; Database-backed point reads call this same boundary, so lazy stores are
+    ;; repaired in memory as well as records imported into a memory store.
+    (when (and cell-proofs
+               (kzg-blob-proof-verification-available-p)
+               (not
+                (handler-case
+                    (verify-kzg-blob-proof
+                     (engine-blob-and-proofs-blob blob-and-proofs)
+                     (engine-blob-and-proofs-commitment blob-and-proofs)
+                     (engine-blob-and-proofs-proof blob-and-proofs))
+                  (error () nil))))
+      (setf (engine-blob-and-proofs-proof blob-and-proofs)
+            (compute-kzg-blob-proof
+             (engine-blob-and-proofs-blob blob-and-proofs)
+             (engine-blob-and-proofs-commitment blob-and-proofs)))))
   blob-and-proofs)
 
 (defun chain-store-import-blob-sidecar-from-kv
@@ -82,7 +100,8 @@
   (setf store (chain-store-require-memory-store store))
   (let ((versioned-hash (make-hash32 versioned-hash-identifier))
         (blob-and-proofs
-          (chain-store-blob-sidecar-record-from-rlp record)))
+          (chain-store-validate-blob-and-proofs
+           (chain-store-blob-sidecar-record-from-rlp record))))
     (unless (hash32= versioned-hash
                      (kzg-commitment-to-versioned-hash
                       (engine-blob-and-proofs-commitment blob-and-proofs)))
@@ -101,7 +120,12 @@
                                  blob-and-proofs))))))
       ;; Admission, metadata accounting, and eviction happen for each record;
       ;; recovery never constructs an oversized transient sidecar cache.
-      (engine-payload-store-put-blob-sidecar store sidecar :now now))))
+      (engine-payload-store-put-blob-sidecar
+       store sidecar
+       :now now
+       :blob-proofs
+       (and cell-proofs
+            (list (engine-blob-and-proofs-proof blob-and-proofs)))))))
 
 (defun chain-store-import-blob-sidecars-from-kv (store database)
   (let ((now (unix-time)))

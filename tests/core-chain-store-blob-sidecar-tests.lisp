@@ -12,6 +12,7 @@
          (restored (make-engine-payload-memory-store))
          (blob (make-byte-vector +blob-byte-size+))
          (commitment (make-byte-vector +kzg-commitment-size+))
+         (blob-proof (make-byte-vector +kzg-proof-size+ :initial-element #x7f))
          (proofs
            (loop for index below +cell-proofs-per-blob+
                  collect
@@ -36,7 +37,12 @@
                      (declare (ignore blob commitment cell-proofs))
                      t)))
              (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
-              source sidecar))
+              source sidecar
+              :blob-proof-function
+              (lambda (actual-blob actual-commitment)
+                (is (bytes= blob actual-blob))
+                (is (bytes= commitment actual-commitment))
+                blob-proof)))
            (let ((database (make-file-key-value-database path)))
              (node-store-export-to-kv source database))
            (let ((database (make-file-key-value-database path)))
@@ -66,7 +72,7 @@
              (is (bytes= commitment
                          (ethereum-lisp.chain-store.model:engine-blob-and-proofs-commitment
                           restored-blob)))
-             (is (bytes= (first proofs)
+             (is (bytes= blob-proof
                          (ethereum-lisp.chain-store.model:engine-blob-and-proofs-proof
                           restored-blob)))
              (is (= +cell-proofs-per-blob+
@@ -91,10 +97,51 @@
       (when (probe-file path)
         (delete-file path)))))
 
+(deftest engine-payload-store-derives-blob-proof-from-cell-sidecar
+  (:layer :unit :module :storage)
+  ;; An eth/72 peer relays cell proofs, while engine_getPayloadV3 must return the
+  ;; EIP-4844 blob proof.  Treating the first cell proof as that blob proof made
+  ;; Hive's two-client blob-ordering case fail only for the relayed transaction.
+  (let* ((store (make-engine-payload-memory-store))
+         (blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (blob-proof (make-byte-vector +kzg-proof-size+ :initial-element #x42))
+         (cell-proofs
+           (loop for index below +cell-proofs-per-blob+
+                 collect
+                 (make-byte-vector +kzg-proof-size+ :initial-element index)))
+         (sidecar
+           (make-blob-sidecar
+            :blobs (list blob)
+            :commitments (list commitment)
+            :proofs cell-proofs))
+         (versioned-hash (first (blob-sidecar-versioned-hashes sidecar)))
+         (computed 0))
+    (let ((*kzg-cell-proof-verifier*
+            (lambda (actual-blob actual-commitment actual-proofs)
+              (and (bytes= blob actual-blob)
+                   (bytes= commitment actual-commitment)
+                   (= +cell-proofs-per-blob+ (length actual-proofs))))))
+      (engine-payload-store-put-blob-sidecar
+       store sidecar
+       :blob-proof-function
+       (lambda (actual-blob actual-commitment)
+         (incf computed)
+         (is (bytes= blob actual-blob))
+         (is (bytes= commitment actual-commitment))
+         blob-proof)))
+    (let ((stored
+            (engine-payload-store-blob-and-proofs-v1 store versioned-hash)))
+      (is (= 1 computed))
+      (is (bytes= blob-proof (engine-blob-and-proofs-proof stored)))
+      (is (equalp cell-proofs
+                  (engine-blob-and-proofs-cell-proofs stored))))))
+
 (deftest engine-payload-store-copies-blob-sidecar-lookups
   (let* ((store (make-engine-payload-memory-store))
          (blob (make-byte-vector +blob-byte-size+))
          (commitment (make-byte-vector +kzg-commitment-size+))
+         (blob-proof (make-byte-vector +kzg-proof-size+ :initial-element #x7f))
          (proofs
            (loop for index below +cell-proofs-per-blob+
                  collect
@@ -115,7 +162,12 @@
               (declare (ignore verified-blob verified-commitment cell-proofs))
               t)))
       (ethereum-lisp.chain-store:engine-payload-store-put-blob-sidecar
-       store sidecar))
+       store sidecar
+       :blob-proof-function
+       (lambda (actual-blob actual-commitment)
+         (is (bytes= blob actual-blob))
+         (is (bytes= commitment actual-commitment))
+         blob-proof)))
     (let ((lookup
             (ethereum-lisp.chain-store:engine-payload-store-blob-and-proofs-v2
              store
@@ -147,9 +199,9 @@
              (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-commitment
                     lookup)
                    0)))
-      (is (= 0
+      (is (= #x7f
              (aref (ethereum-lisp.chain-store.model:engine-blob-and-proofs-proof lookup)
-                   0)))
+                  0)))
       (is (= 0
              (aref
               (first

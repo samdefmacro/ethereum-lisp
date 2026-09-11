@@ -67,6 +67,16 @@ int eth_ckzg_verify_blob_kzg_proof(void *handle, const uint8_t *blob,
     return ok ? 1 : 0;
 }
 
+/* EIP-4844 blob proof computation. 1 = success, -1 = malformed input/error. */
+int eth_ckzg_compute_blob_kzg_proof(void *handle, const uint8_t *blob,
+                                    const uint8_t *commitment,
+                                    uint8_t *proof) {
+    C_KZG_RET ret = compute_blob_kzg_proof(
+        (KZGProof *)proof, (const Blob *)blob, (const Bytes48 *)commitment,
+        (const KZGSettings *)handle);
+    return ret == C_KZG_OK ? 1 : -1;
+}
+
 /* EIP-7594: verify every extended-blob cell proof against one commitment. */
 int eth_ckzg_verify_blob_cell_proofs(void *handle, const uint8_t *blob,
                                      const uint8_t *commitment,
