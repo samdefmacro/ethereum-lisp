@@ -502,10 +502,15 @@ The implementation boundary is split deliberately:
   Revision `9f697ec645bf1d9e9ff544bfce8c37018aaa65c8` now requires the existing low-
   throughput window before this yield class may rebase. Its RED/GREEN controls,
   full 1,354-test cold-unit layer, 19-test healer integration selector, and full
-  560-test cold-integration layer are green. This successor is not deployed;
-  neither healer nor target completion has occurred. Exact artifact, deployment,
-  predecessor failure, and live-start evidence are archived in
-  `docs/evidence/sec5-0c6b51bf-completion-barrier-live-start.txt`.
+  560-test cold-integration layer are green. Exact successor
+  `21a41c04d0088a002a919070d801c832de828f59` has a verified linux/amd64 runtime
+  archive (SHA-256
+  `6222470a807314fb4a443e2f87b146622d2e552abbd940688daa40cc72530d04`)
+  whose seven-check runtime smoke passed; exact build and artifact identities are
+  archived in `docs/evidence/sec5-21a41c04-productive-healer-runtime.txt`. This
+  successor is not deployed; neither healer nor target completion has occurred.
+  Exact artifact, deployment, predecessor failure, and live-start evidence are
+  archived in `docs/evidence/sec5-0c6b51bf-completion-barrier-live-start.txt`.
 
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
