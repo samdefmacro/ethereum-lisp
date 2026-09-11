@@ -445,10 +445,13 @@ The implementation boundary is split deliberately:
   inventory without OOM or interruption and passed 399/403. The four failed
   names then all passed together in a fresh isolated focused rerun against the
   same exact artifacts; Hive recorded six passing entries including the two
-  required suite loaders. Because no single complete run has yet passed all
-  403 names, the Engine/auth gate remains open and requires another fresh full
-  execution. Exact per-suite counts, names, artifact hashes, and both retained
-  evidence roots are archived in
+  required suite loaders. A second complete run then passed 400/403 without
+  runner OOM or interruption. Its three failures were a disjoint moving set,
+  each ending when the test client's initial forkchoiceUpdated connection was
+  reset; all four first-run failures and the blob-ordering regression passed.
+  Because no single complete run has yet passed all 403 names, the Engine/auth
+  gate remains open. Exact per-suite counts, names, artifact hashes, and all
+  retained evidence roots are archived in
   `docs/evidence/sec5-694667f9-hive-engine-r25-r26.txt`.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
@@ -468,6 +471,23 @@ The implementation boundary is split deliberately:
   successor, so exact live validation of the repair remains open. Evidence and
   the preserved deployment preflight are archived in
   `docs/evidence/sec5-277ffb52-engine-jwt-clock.txt`.
+
+  The exact `d9e0e2dd` Hoodi run subsequently reached healer `completed=T`
+  with `frontierWorks=0`, `remoteWorks=0`, and `knownIncompleteNodes=0` for
+  pivot 3,602,633, but emitted no target-completed event and exited on missing
+  persisted trie node `0x9ec1...cc56`. The remaining seam was ordering inside
+  the healer pipeline: a local collection pass could cross a post-order
+  completion sentinel while its missing descendant had already left the DFS
+  stack for a remote request batch. Revision
+  `0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae` retains those sentinels as
+  barriers until remote descendant work settles. Its account and storage RED
+  regressions, cold unit/integration layers, SNAP-focused gate, and exact
+  linux/amd64 runtime smoke are green. A reviewed fresh-datadir Hoodi run of
+  that exact artifact started at `2026-09-11T15:51:43Z`; early read-only
+  samples show advancing range and storage work without OOM or restart, but no
+  healer or target completion yet. Exact artifact, deployment, predecessor
+  failure, and live-start evidence are archived in
+  `docs/evidence/sec5-0c6b51bf-completion-barrier-live-start.txt`.
 
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch

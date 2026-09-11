@@ -1,0 +1,101 @@
+Section 5 SNAP completion-barrier failure and fresh live rerun
+
+Initial record: 2026-09-12T00:03+08:00
+Updated through: 2026-09-12T00:14:58+08:00
+Implementation revision: 0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae
+Branch: sec5-public-bootstrap-sync
+
+Failure reproduced by the predecessor
+
+The preserved exact-d9e0e2dd Hoodi deployment reached an apparently complete
+healer state for pivot 3,602,633: processedNodes=1,316,463,
+frontierWorks=0, remoteWorks=0, knownIncompleteNodes=0, completed=T. It then
+exited at 2026-09-11T13:04:28Z with status 1, OOMKilled=false and
+RestartCount=0 after reporting:
+
+  Persisted trie node
+  0x9ec10ef39f993e15dc3877f1e118767408ba38cb9f1544186de5d8a57488cc56
+  is missing
+
+No peer.snap.target_completed event was emitted. The preserved container is
+hoodi-el-sec5-d9e0e2dd-r1 and its preserved datadir is
+/data/hoodi-sec5-20260814/datadir-d9e0e2dd-r1. This is another false closure
+publication, not Section 5 completion evidence.
+
+Correction and local gates
+
+Revision 0c6b51bf keeps post-order account and storage completion sentinels
+blocked while missing descendants are in the remote request pipeline. It
+restores those barriers behind fetched work before checkpoint or subtree-proof
+publication. Two integration regressions inject account-subtree and storage-
+subtree descendant failures, require the corresponding closure proofs and
+state-history record to remain absent, then retry with a healthy source and
+require complete persistence.
+
+The retained worker/reviewer evidence records:
+
+- cold-unit: 1,353 passed, 3 optional skipped;
+- cold-integration: 560 passed, 9 optional skipped;
+- SNAP-focused: 1,229 passed, 1 skipped;
+- runtime-smoke: 7 passed.
+
+Exact runtime artifact and deployment
+
+The reviewed linux/amd64 runtime archive is
+/private/tmp/ethereum-lisp-runtime-sec5-0c6b51bf-amd64.tar, SHA-256
+b30dbe3b04f55658142c99863f913a6a9e2d34030340c54dba8eb30c009b95cd,
+actual size 71,985,664 bytes. The remote image config identity is
+sha256:4b6f0cd4aa02db782ac94a07ede0c670a395c2556f00fcaef6ec547e669cb8c2
+and its revision label is the full 0c6b51bf commit.
+
+Independent authorization request sec5-0c6b51bf-20260911T154602Z was approved
+and executed. The fresh deployment started at 2026-09-11T15:51:43.71057739Z:
+
+- container: hoodi-el-sec5-0c6b51bf-r1;
+- container id: a28c86336ed097fdcdf31254d012d184e11cd37e35d6854d9e81e6cedf12aef6;
+- fresh datadir: /data/hoodi-sec5-20260814/datadir-0c6b51bf-r1;
+- resource boundary: 10 GiB memory and memory-plus-swap;
+- P2P: TCP/UDP 30309; public RPC remains loopback-only;
+- root filesystem read-only, user 1000:1000, all capabilities dropped.
+
+At the authorization readback at 2026-09-11T15:59:56Z the process was
+running, OOMKilled=false, RestartCount=0, Lighthouse reported el_offline=false,
+and the new datadir was making SNAP range progress. A later read-only sample at
+approximately 2026-09-11T16:09Z still found the same container running with no
+OOM or restart, about 2.462 GiB of 10 GiB in use, 11 peers, a 3,503,737,624-byte
+datadir, eth_blockNumber=0x0, and eth_syncing highestBlock=0x36fca5. By
+2026-09-11T16:09:08.218053625Z the log contained 647 peer.snap.progress and
+1,950 storage-profile events; the latest storage profile reported
+totalPages=2,224, totalSlots=14,373,973 and
+totalLogicalBytes=3,223,220,855 at pivot 3,603,545. Lighthouse reported
+is_syncing=false, sync_distance=0 and el_offline=false.
+
+A read-only sample spanning 2026-09-11T16:14:35Z through 16:14:58Z found the
+same container still running with OOMKilled=false and RestartCount=0, using
+about 2.996 GiB of its 10 GiB limit. The datadir had grown to 12,295,761,394
+bytes and the peer count to 17. Cumulative SNAP counters advanced to 873
+progress events and 2,662 storage-profile events; the latest storage record
+reported totalPages=4,318, totalSlots=33,239,069 and
+totalLogicalBytes=6,598,441,169 at pivot 3,603,545. This establishes continued
+processing after the earlier sample, not completion: eth_blockNumber remained
+0x0, eth_syncing.highestBlock was 0x36fcd8, and there were no target-completed
+events or heal-progress samples with completed=T.
+
+Remaining boundary
+
+This proves only exact-artifact startup and advancing fresh-datadir range
+import. It does not yet prove the correction under the predecessor's terminal
+condition. There are still zero peer.snap.target_completed events and no
+peer.snap.heal_progress sample with completed=T; eth_blockNumber remains zero
+and eth_syncing is not false. The run must continue without restart until
+target completion, healer completion with an empty frontier, canonical
+execution through the CL-authorized target, and real eth_syncing=false are all
+archived. Shadow comparison and validator soak have not started.
+
+Primary evidence
+
+- /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/authorization-result.json
+- /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/processed-authorizations/20260911-234707-sec5-0c6b51bf-20260911T154602Z.request.json
+- /Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/logs/authorization-20260911-234707-cycle-955.log
+- preserved Docker logs for hoodi-el-sec5-d9e0e2dd-r1 and
+  hoodi-el-sec5-0c6b51bf-r1 on test-ethereum-server

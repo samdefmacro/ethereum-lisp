@@ -1,17 +1,18 @@
-Section 5 Hive Engine/auth r25 and focused-r26 evidence
+Section 5 Hive Engine/auth r25, focused-r26, and full-r27 evidence
 
-Recorded: 2026-09-11T11:39:58Z
+Initial record: 2026-09-11T11:39:58Z
+Updated with r27 completion: 2026-09-11T14:07:19Z
 Implementation revision: 694667f95727430baef2aaceec24c91c2c46bd91
 Branch: sec5-public-bootstrap-sync
 
 Scope
 
-This evidence records the first bounded full execution of the pinned 403-item
-Hive Engine/auth inventory after the blob-sidecar proof repair, plus an
-independent focused rerun of every failure from that full execution. It does
-not close the full gate: the complete r25 inventory passed 399/403, while the
-four failed names all passed when rerun together in fresh r26 processes. A new
-complete 403-item run is required to establish one zero-failure inventory.
+This evidence records two bounded full executions of the pinned 403-item Hive
+Engine/auth inventory after the blob-sidecar proof repair, plus an independent
+focused rerun of every failure from the first full execution. It does not close
+the full gate: r25 passed 399/403 and all four failures passed together in fresh
+r26 processes; r27 passed 400/403 with a disjoint three-failure set ending in
+connection resets. A complete zero-failure inventory remains required.
 
 Pinned identities
 
@@ -113,10 +114,60 @@ frontierWorks fell from 38,955 to 38,508, knownIncompleteNodes fell from 2,286
 to 2,260, and the consensus client remained connected. This is progress, not
 completion evidence.
 
+Full r27 result
+
+Independent request `sec5-hive-694667f9-engine-full-r27-20260911T114310Z`
+was reviewed and executed against the same exact source/runtime/Hive artifacts
+in a fresh isolated runner. The complete inventory again contained exactly 403
+unique names and matched r25. It ran to completion without outer-runner OOM or
+restart and passed 400/403:
+
+- engine-api: 128/129;
+- engine-auth: 8/8;
+- engine-exchange-capabilities: 5/5;
+- engine-withdrawals: 35/35;
+- engine-cancun: 224/226.
+
+The three failures were:
+
+- `Invalid NewPayload, Timestamp, Syncing=False, EmptyTxs=False,
+  DynFeeTxs=False (Paris)`;
+- `NewPayloadV3 Before Cancun, Nil ExcessBlobGas, 0x00 BlobGasUsed, Nil
+  Versioned Hashes, Nil Beacon Root (Cancun)`;
+- `ParentHash equals BlockHash on NewPayload, Syncing=True (Cancun)`.
+
+Each failed when the test client connection was reset during its initial
+forkchoiceUpdated call; none was among r25's four failures. All four r25
+failure names and `Blob Transaction Ordering, Multiple Clients` passed in this
+full run. The disjoint moving failure set is consistent with a shared process-
+lifetime or harness-resource failure class, but does not isolate its cause; it
+is not a zero-failure Engine gate.
+
+The request ID retained its planned `20260911T114310Z` suffix. The independently
+reviewed runner used its preflight-created fresh evidence root ending
+`20260911T114148Z`; that exact existing root, not the planned suffix, is the
+primary evidence location below.
+
+Retained r27 evidence root:
+`/data/hoodi-sec5-hive/runs/694667f9-engine-full-r27-20260911T114148Z`
+
+- full Hive log `hive-engine-full.log`: 159,452 bytes; SHA-256
+  `4dc47ddaec4aba78b47a881798ec76dace4868fc11076284d540b6a880a1b959`;
+- authorization verification manifest: SHA-256
+  `2ac52f30de2412d6b139c56bc1b5afc8daacd28cd29bdc398974dbcde5348e27`;
+- stopped outer runner: exit 0, OOMKilled=false, RestartCount=0;
+- Hive status: 1 because three cases failed.
+
+During r27 the protected d9e0e2dd Hoodi EL independently reached healer
+`completed=T` with an empty visible frontier, then exited on a missing
+persisted trie descendant. That SNAP failure and its 0c6b51bf correction are
+archived separately in
+`docs/evidence/sec5-0c6b51bf-completion-barrier-live-start.txt`.
+
 Remaining boundary
 
-A fresh full 403-item Engine/auth run must pass with zero failures before the
-gate closes. The long-running Hoodi deployment also has not recorded
+A complete Engine/auth inventory still must pass with zero failures before the
+gate closes. The fresh exact-0c6b51bf Hoodi deployment also has not recorded
 `peer.snap.target_completed`, healer completion with an empty frontier,
 canonical execution through the authorized target, or `eth_syncing=false`.
 The seven-day shadow comparison and fourteen-day validator soak remain blocked
