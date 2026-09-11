@@ -429,6 +429,19 @@ The implementation boundary is split deliberately:
   rpc-compat rerun; the live completion, shadow, and validator-soak gates remain
   open.
 
+  A full pinned 403-item Hive Engine/auth run at that revision reached 346
+  unique results before its 3-GiB runner was OOM-killed, so it is retained as
+  failure evidence rather than a completed gate. One deterministic failure in
+  that partial result was Cancun's `Blob Transaction Ordering, Multiple
+  Clients`: the client returned the wrong proof at index five. Exact successor
+  `694667f95727430baef2aaceec24c91c2c46bd91` validates the cell sidecar and
+  derives each blob proof from its blob and commitment. Its reviewed
+  linux/amd64 runtime then selected the exact named regression plus its suite
+  loader and passed both entries, with Hive exit zero and no runner OOM or
+  restart. Exact artifact and evidence hashes are archived in
+  `docs/evidence/sec5-694667f9-hive-blob-order.txt`. This closes that concrete
+  Engine failure only; a fresh complete 403-item run remains required.
+
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request
   intake only after 60.678--83.818 seconds while handler time remained 0--8 ms.

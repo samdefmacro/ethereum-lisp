@@ -1,0 +1,95 @@
+Section 5 Hive engine-cancun blob-order regression evidence
+
+Recorded: 2026-09-11T08:32:30Z
+Implementation revision: 694667f95727430baef2aaceec24c91c2c46bd91
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This is the exact external regression for `Blob Transaction Ordering, Multiple
+Clients (Cancun)`. The preceding full Engine run at revision `6e3e9b1d` reached
+346 of the pinned 403-item inventory before its 3-GiB runner was OOM-killed. Its
+four recorded failures included this deterministic client failure: the blob
+proof at index 5 did not match Hive's expected proof. Revision `694667f9`
+validates the received cell sidecar and its cell proofs, then derives each blob
+proof from that sidecar's blob and commitment instead of assigning proof values
+by transaction order.
+
+This focused run closes that concrete failure only. It does not complete the
+full 403-item Hive Engine/auth gate, which still requires a fresh bounded run
+that executes the complete inventory without OOM or interruption.
+
+Pinned identities
+
+- Hive: `dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c`
+- Execution APIs: `e5d1bb60e6c064e4b15080da07b4370d0baadf92`
+- Runtime platform: `linux/amd64`
+- Runtime user: `ethereum:ethereum`
+- Runtime OCI revision: `694667f95727430baef2aaceec24c91c2c46bd91`
+- Runtime archive SHA-256:
+  `d57ef9bbbdc7f4e1d263a45ee0ef0367f88a2001ed3942d5d5afad8064ed8049`
+- Exact source archive SHA-256:
+  `41b5f63940f65fa84e3ae8e4832308e15ed148bbcd1b95a8d25e7f696c12ad73`
+- Hive binary SHA-256:
+  `cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308`
+- amd64 Hive-runner archive SHA-256:
+  `07bdd861f2b9a715072e03396c888b07d9195d41e5fe1c3fec8554a5b0e34421`
+- Reviewed runner SHA-256:
+  `0d6cb2c7df1842a64b7ea908df524c4e698b91c92f54c07058fbba07f5e1b809`
+
+Reviewed execution boundary
+
+Independent authorization request
+`sec5-hive-694667f9-blob-order-r24-review2-20260911T081213Z` was approved and
+executed. The fresh runner was limited to 2 CPUs, 4 GiB memory, 5 GiB
+memory-plus-swap, and 1,024 PIDs. It used a read-only root filesystem, exposed
+no host ports, and mounted only its unique evidence and nested-Docker paths.
+It did not replace, restart, or modify the long-running Hoodi EL, Lighthouse,
+or their datadir.
+
+External result
+
+The selector matched exactly the intended named test and its required suite
+loader. The fresh result manifest recorded two unique executed entries and both
+passed:
+
+- `engine-cancun test loader`
+- `Blob Transaction Ordering, Multiple Clients (Cancun)
+  (ethereum-lisp_ethereum-lisp)`
+
+The Hive process returned zero. The outer runner exited zero, was not
+OOM-killed, and had zero restarts. Readback at 2026-09-11T08:32Z found no active
+Section 5 Hive runner.
+
+Retained remote evidence
+
+Run root:
+`/data/hoodi-sec5-hive/runs/694667f9-engine-blob-order-r24-20260911T080000Z`
+
+- result JSON `results/1789115186-a53e11ca2ac4c036aa19dfa5e0a4067d.json`:
+  2,575 bytes; SHA-256
+  `1d0420ba136e13df6416211ad7ada24ec71b1b8a0572e6c41e3fbc9517719238`
+- full Hive log `hive-engine-blob-order.log`:
+  2,154 bytes; SHA-256
+  `457a032119f2f34d56f3bd36b796fdf3d85ed35ad1069240c3942f5e782ce0d5`
+- simulator log:
+  211,551 bytes; SHA-256
+  `94be38acee98556b972f951492df6da7dd7f0f9c59230eeaef68c1b701b01ab5`
+- details log:
+  209,608 bytes; SHA-256
+  `6a5f4254054f3227507a555c106aac1fc4865c9f5776e70e4e46f6bdf8223a3d`
+- `hive-status.txt` SHA-256:
+  `24f7461334b54e8853d255a028327de6a5da001d5d8a4683be3d8c74b56dec25`
+- `nested-docker-final.txt` SHA-256:
+  `49272147c9b80c39ce42df1169dff7ed68001a25bd7cf35b94d5d7de10ffd0e3`
+- `runner-final-stats.txt` SHA-256:
+  `9e2c266468643a0577b1bd2dbecce04251daaf52b54fe9055014413f2d9567f5`
+
+Remaining boundary
+
+The complete pinned 403-item Hive Engine/auth inventory remains open. The
+current long-running Hoodi deployment also has not recorded SNAP target
+completion, healer completion with an empty frontier, canonical execution
+through the consensus-authorized target, or `eth_syncing=false`. The seven-day
+shadow comparison and fourteen-day validator soak cannot start until their
+prerequisites pass.
