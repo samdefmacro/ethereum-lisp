@@ -822,6 +822,18 @@ The implementation boundary is split deliberately:
   local regression evidence rather than a successor Hive pass; exact evidence
   is in `docs/evidence/sec5-553f9f53-hive-snap-soft-byte-limit.txt`.
 
+  Exact accepted revision `06e53af531f6514afe4fdfa8e37adcb6256e8978`
+  covers pinned `TestSnapGetByteCodes` duplicate non-empty-code delivery through
+  the production eth+snap session pump and persistent backend. One available
+  durable code hash is requested four times under a 1,000-byte budget; request
+  ID 89 is preserved and four exact copies of its code body are returned.
+  Deduplicating requested hashes failed the four-item cardinality assertion.
+  The focused test, seventeen-test session-pump family, 120-test `SNAP-` family,
+  and full 1,379-test cold-unit layer passed with three optional skips.
+  Independent review approved without findings. This remains local regression
+  evidence rather than a successor Hive pass; exact evidence is in
+  `docs/evidence/sec5-06e53af5-hive-snap-duplicate-code-hash.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
