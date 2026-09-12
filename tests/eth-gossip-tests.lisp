@@ -707,6 +707,79 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
          (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
           peer)))))
 
+(deftest eth-72-single-announcer-requests-full-custody-cells
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestBlobTxAvailabilityFailure announces ten blob
+  ;; transactions from one peer and rejects a GetCells request below its
+  ;; 64-cell DataPerBlob availability threshold.  This implementation uses the
+  ;; stronger full-custody policy: with no second availability source, the
+  ;; production pump requests all 128 cells rather than this node's narrower
+  ;; custody columns.
+  (let* ((commitment (make-byte-vector +kzg-commitment-size+))
+         (fragment
+           (make-blob-sidecar
+            :blobs '()
+            :commitments (list commitment)
+            :proofs
+            (loop repeat +cell-proofs-per-blob+
+                  collect (make-byte-vector +kzg-proof-size+))))
+         (backend
+           (make-eth-serve-backend
+            :accept-transaction
+            (lambda (transaction)
+              (declare (ignore transaction))
+              (error "empty Cells response must not reach admission"))))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (transactions
+           (loop for nonce below 10
+                 collect
+                 (make-blob-transaction
+                  :chain-id 1 :nonce nonce
+                  :to (address-from-hex
+                       "0x0000000000000000000000000000000000003003")
+                  :blob-versioned-hashes
+                  (list (kzg-commitment-to-versioned-hash commitment)))))
+         (requests 0))
+    (dolist (transaction transactions)
+      (is (ethereum-lisp.eth-sync::eth-peer-queue-omitted-blob-transaction
+           peer transaction fragment)))
+    (is (= 10
+           (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
+            peer)))
+    (eth-gossip-test-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.eth-sync:eth-peer-get-cells
+            (lambda (actual-peer hashes mask &key request-id)
+              (declare (ignore request-id))
+              (incf requests)
+              (is (eq peer actual-peer))
+              (is (= 1 (length hashes)))
+              (is (bytes=
+                   (eth-gossip-transaction-hash-bytes (first transactions))
+                   (first hashes)))
+              (is (= 16 (length mask)))
+              (is (= 128
+                     (loop for byte across mask sum (logcount byte))))
+              (values nil nil mask))))
+     (lambda ()
+       ;; Readability stays true to model the talkative Hive peer. Urgent blob
+       ;; work must still run as one top-level sole-writer pump action.
+       (multiple-value-bind (actions reason)
+           (eth-peer-run-session
+            peer
+            :readable-function
+            (lambda (timeout) (declare (ignore timeout)) t)
+            :max-actions 1)
+         (is (= 1 actions))
+         (is (eq :max-actions reason)))))
+    (is (= 1 requests))
+    (is (= 9
+           (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
+            peer)))))
+
 (deftest eth-72-invalid-cells-signal-protocol-error-and-preserve-retry
   (:layer :unit :module :p2p)
   ;; Pinned geth TestBlobTxWithInvalidCells disconnects the corrupted Cells
