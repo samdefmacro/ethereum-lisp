@@ -5116,6 +5116,61 @@
         (ethereum-lisp.snap-sync::snap-sync-storage-entries
          (list (ethereum-lisp.snap:make-snap-storage-data hash body)))))))
 
+(deftest snap-account-range-serves-slim-bodies-with-geth-byte-accounting
+  (:layer :integration :module :p2p)
+  ;; snap AccountData.Body uses geth's slim account encoding: canonical empty
+  ;; storage/code commitments become empty strings. The byte threshold counts
+  ;; the 32-byte account hash plus the encoded slim body, then includes the item
+  ;; that crosses the soft limit.
+  (is (= (* 2 1024 1024)
+         (ethereum-lisp.snap-sync::snap-sync-response-byte-limit
+          most-positive-fixnum)))
+  (let ((state (make-state-db))
+        (database (make-memory-key-value-database))
+        (origin (make-byte-vector 32))
+        (limit 4000))
+    (dotimes (index 100)
+      (state-db-set-account
+       state
+       (make-address
+        (concatenate
+         'vector (make-byte-vector 19) (vector (1+ index))))
+       (make-state-account :nonce index :balance (1+ index))))
+    (let* ((trie (ethereum-lisp.state::state-db-state-trie state))
+           (expected-count
+             (loop with bytes = 0
+                   with count = 0
+                   for entry in (mpt-entry-range trie :start origin)
+                   for fields = (rlp-list-items (rlp-decode-one (cdr entry)))
+                   for slim =
+                     (make-rlp-list
+                      (first fields) (second fields)
+                      (make-byte-vector 0) (make-byte-vector 0))
+                   do (incf count)
+                      (incf bytes (+ 32 (length (rlp-encode slim))))
+                   when (> bytes limit) return count
+                   finally (return count)))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (response
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-account-range+
+              (ethereum-lisp.snap:make-snap-get-account-range
+               84 (hash32-bytes (state-db-root state)) origin
+               (make-byte-vector 32 :initial-element #xff) limit)))
+           (accounts (ethereum-lisp.snap:snap-account-range-accounts response)))
+      (is (= expected-count (length accounts)))
+      (is
+       (every
+        (lambda (account)
+          (let ((fields
+                  (rlp-list-items
+                   (ethereum-lisp.snap:snap-account-data-body account))))
+            (and (zerop (length (third fields)))
+                 (zerop (length (fourth fields))))))
+        accounts)))))
+
 (deftest snap-account-range-carries-a-verifiable-compact-boundary-proof
   (:layer :integration :module :p2p)
   (let ((state (make-state-db))

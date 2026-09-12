@@ -9,6 +9,12 @@ This matches pinned geth's lookup cap.  The wire decoder has a larger structural
 limit, but an authenticated peer must not turn one small request into unbounded
 state-store work.")
 
+(defconstant +snap-sync-soft-response-limit+ (* 2 1024 1024)
+  "Maximum uncompressed payload budget for one snap/1 response.")
+
+(defun snap-sync-response-byte-limit (requested)
+  (min requested +snap-sync-soft-response-limit+))
+
 (defun snap-sync-root-trie (database state requested-root)
   "Return the requested live state trie, or NIL when this backend lacks ROOT.
 
@@ -83,6 +89,22 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
       (error "snap storage trie value must be non-zero"))
     encoded))
 
+(defun snap-sync-slim-account-body (encoded)
+  "Return ENCODED's account body in snap's canonical slim representation."
+  (let* ((body (rlp-decode-one encoded))
+         (fields (rlp-list-items body)))
+    (unless (= 4 (length fields))
+      (error "snap account trie value must contain four fields"))
+    (destructuring-bind (nonce balance storage-root code-hash) fields
+      (make-rlp-list
+       nonce balance
+       (if (bytes= storage-root (hash32-bytes +empty-trie-hash+))
+           (make-byte-vector 0)
+           storage-root)
+       (if (bytes= code-hash (hash32-bytes +empty-code-hash+))
+           (make-byte-vector 0)
+           code-hash)))))
+
 (defun snap-sync-account-response (database state request)
   (let* ((trie
            (snap-sync-root-trie
@@ -96,29 +118,27 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
               trie
               :start (snap-get-account-range-origin request)))
            (limit (snap-get-account-range-limit request))
-           (remaining (snap-get-account-range-bytes request))
+           (byte-limit
+             (snap-sync-response-byte-limit
+              (snap-get-account-range-bytes request)))
+           (response-bytes 0)
            (accounts '())
            (last-key nil))
       (dolist (entry entries)
-        (when (>= (length accounts) +snap-max-list-items+) (return))
-        (let* ((body
-                 (rlp-decode-one (cdr entry)))
+        (let* ((body (snap-sync-slim-account-body (cdr entry)))
                (wire
                  (make-snap-account-data
                   (car entry) body))
-               (size
-                 (length
-                  (rlp-encode
-                   (ethereum-lisp.snap::snap-account-data-object wire)))))
-          (when (and accounts (> size remaining)) (return))
+               (size (+ 32 (length (rlp-encode body)))))
           (push wire accounts)
           (setf last-key (car entry))
-          (decf remaining (min remaining size))
+          (incf response-bytes size)
           ;; Pinned geth includes the item that reaches (or is the first one
           ;; beyond) Limit, then stops. Filtering with an exclusive iterator
           ;; end would omit the exact boundary and is observably incompatible.
           (when (snap-sync-key-at-or-past-limit-p (car entry) limit)
-            (return))))
+            (return))
+          (when (> response-bytes byte-limit) (return))))
       (make-snap-account-range
        (snap-get-account-range-id request)
        (nreverse accounts)
