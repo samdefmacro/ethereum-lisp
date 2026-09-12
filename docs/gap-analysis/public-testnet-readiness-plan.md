@@ -708,6 +708,20 @@ The implementation boundary is split deliberately:
   evidence rather than a successor Hive pass; exact evidence is in
   `docs/evidence/sec5-7c1e379c-hive-snap-trie-root.txt`.
 
+  Exact accepted revision `48d5a5052bffdbb80109c75909c563e5767b8cc9`
+  covers the pinned `TestSnapTrieNodes` storage-root case. A deterministic
+  account with non-empty storage is requested through the production session
+  pump using its secure account key followed by compact path zero. The response
+  preserves the request ID, contains exactly one non-empty node, and its
+  Keccak-256 hash equals the account's committed storage root. A mutation which
+  omitted available storage-trie nodes failed the cardinality assertion. The
+  focused test, nine-test session-pump family, 125-test SNAP unit family, and
+  full 1,371-test cold-unit layer passed with three optional skips. Independent
+  review approved the exact path and production boundary without blockers. This
+  remains local regression evidence rather than a successor Hive pass; exact
+  evidence is in
+  `docs/evidence/sec5-48d5a505-hive-snap-storage-root.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

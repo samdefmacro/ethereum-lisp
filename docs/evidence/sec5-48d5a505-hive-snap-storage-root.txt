@@ -1,0 +1,60 @@
+Section 5 pinned geth SNAP storage-root response regression
+
+Recorded at: 2026-09-12T19:29:20Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 48d5a5052bffdbb80109c75909c563e5767b8cc9
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+Reference case: cmd/devp2p/internal/ethtest/snap.go TestSnapTrieNodes,
+lines 690-703
+
+Scope
+
+The accepted regression creates a deterministic account with non-empty storage,
+then drives the production eth+snap session pump, request codec, SNAP dispatcher,
+persistent backend storage-trie branch, response codec, and send path. The path
+set contains the secure account key followed by compact path zero, which denotes
+the storage-trie root. The response must preserve request ID 80, contain exactly
+one non-empty node, and hash by Keccak-256 to the account's committed storage
+root.
+
+The fixture matches the pinned geth request semantics while deriving the exact
+root from the local deterministic trie rather than importing geth's
+chain-specific hard-coded expected hash.
+
+RED control
+
+The storage-trie branch in `src/networking/snap-sync/backend.lisp` was
+deliberately mutated to omit available storage nodes. The focused regression
+failed 0/1 at the one-node cardinality assertion. The mutation was fully
+reverted; the accepted revision changes only the test.
+
+Verification
+
+- `cl-workbench doctor --strict`: passed.
+- `cl-workbench check parens tests/eth-pump-tests.lisp`: passed.
+- Focused selector
+  `ETH-PEER-RUN-SESSION-ANSWERS-A-KNOWN-SNAP-STORAGE-ROOT`: 1 passed.
+- `ETH-PEER-RUN-SESSION` selector: 9 passed.
+- `SNAP` selector: 125 passed.
+- Full `cold-unit`: 1,371 passed, 3 optional skips.
+- `git diff --check`: passed.
+- Independent read-only review approved with no blockers after checking compact
+  path, account-key derivation, root-hash assertion, production call path, and
+  pinned geth behavior.
+
+Identity
+
+- Commit patch ID:
+  `3965085041cf13c492796636b55fce78668d6b2f`
+- `tests/eth-pump-tests.lisp` SHA-256:
+  `3b53e3b1b25b814e85b3b824efab84a89f12a1ef2f58f324baab116a6a102687`
+- Retained full cold-unit output SHA-256:
+  `f268d54caa5a1362de16f1cd9e3b754a58bbd2f3762b60d08dfda8fe9554ae3a`
+- Retained local output:
+  `/Users/sen/.hermes/cache/terminal-output/out-1789241207-49630-8690.log`
+
+Boundary
+
+This is deterministic local regression evidence. It is not a successor Hive
+SNAP pass, a Hoodi completion result, an amd64 artifact, or a soak result.
