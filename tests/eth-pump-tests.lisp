@@ -282,6 +282,61 @@
                 routed)))
       (setf (fdefinition read-symbol) real-read))))
 
+(deftest eth-peer-run-session-answers-an-empty-snap-trie-request
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestSnapTrieNodes distinguishes an empty Paths list
+  ;; from a list containing an empty path set: the former receives an empty
+  ;; TrieNodes response and keeps the shared eth+snap session usable.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (backend
+           (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+            database state))
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (send-symbol 'ethereum-lisp.eth-sync:eth-peer-send-snap)
+         (real-read (fdefinition read-symbol))
+         (real-send (fdefinition send-symbol))
+         (sent nil)
+         (request
+           (ethereum-lisp.snap:make-snap-get-trie-nodes
+            76 (hash32-bytes (state-db-root state)) '() 500))
+         (payload
+           (ethereum-lisp.snap:encode-snap-message
+            ethereum-lisp.snap:+snap-message-get-trie-nodes+ request)))
+    (setf (ethereum-lisp.eth-sync::eth-peer-snap-offset peer) 100
+          (ethereum-lisp.eth-sync::eth-peer-snap-backend peer) backend)
+    (unwind-protect
+         (progn
+           (setf (fdefinition read-symbol)
+                 (lambda (candidate)
+                   (is (eq peer candidate))
+                   (values :snap
+                           ethereum-lisp.snap:+snap-message-get-trie-nodes+
+                           payload)))
+           (setf (fdefinition send-symbol)
+                 (lambda (candidate message-id encoded)
+                   (is (eq peer candidate))
+                   (setf sent
+                         (list
+                          message-id
+                          (ethereum-lisp.snap:decode-snap-message
+                           message-id encoded)))))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session
+                peer :readable-function (lambda (timeout)
+                                          (declare (ignore timeout)) t)
+                :max-actions 1)
+             (is (= 1 actions))
+             (is (eq :max-actions reason))))
+      (setf (fdefinition read-symbol) real-read
+            (fdefinition send-symbol) real-send))
+    (is sent)
+    (is (= ethereum-lisp.snap:+snap-message-trie-nodes+ (first sent)))
+    (let ((response (second sent)))
+      (is (= 76 (ethereum-lisp.snap:snap-trie-nodes-id response)))
+      (is (null (ethereum-lisp.snap:snap-trie-nodes-nodes response))))))
+
 (deftest eth-peer-run-session-rejects-an-empty-snap-trie-path-set
   (:layer :unit :module :p2p)
   ;; Pinned geth 101035a1 TestSnapTrieNodes disconnects on this request.
