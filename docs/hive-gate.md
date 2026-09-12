@@ -76,6 +76,9 @@ temporary context link is removed on exit; the source archive is never changed.
   and validates a nonzero fresh result/count manifest even when Hive reports
   test failures. `HIVE_EXPECTED_TESTS` pins a diagnostic subset explicitly;
   full Engine and rpc-compat runs select their known inventories automatically.
+  For `devp2p`, it stages `scripts/hive-devp2p.Dockerfile` and passes the exact
+  observed go-ethereum revision because pinned Hive otherwise clones moving
+  master while building that simulator.
 - **`scripts/hive-runtime-smoke.sh`** — starts the runtime image and asserts
   over the wire that it answers `eth_chainId`, refuses an unauthenticated
   `engine_*` call with 401, and answers a JWT-signed one. It also builds a
@@ -283,11 +286,13 @@ proves fallback startup without weakening uploaded-genesis handling. Because
 the CLI currently serves discv4 only, `HIVE_DISCV5` is explicitly refused
 rather than silently starting the wrong protocol.
 The retained simulator build used geth
-`101035a1049c7dc468bfe973478b579d9883d7b6`; because Hive's simulator
-Dockerfile cloned moving geth master, a closing rerun must first make that
-source pin reproducible. See
+`101035a1049c7dc468bfe973478b579d9883d7b6`. The runner now replaces Hive's
+moving-master simulator Dockerfile with a reviewed template that fetches and
+verifies that exact commit, and passes the same value through
+`--sim.buildarg`. See
 `docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt` and
-`docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt`; no local repair closes
+`docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt` plus
+`docs/evidence/sec5-f19ee8d5-hive-devp2p-geth-pin.txt`; no local repair closes
 the devp2p gate before a fresh pinned Linux rerun.
 
 Revision `63408ce2` repaired the remaining pinned `eth_config/get-config`

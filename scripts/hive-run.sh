@@ -45,6 +45,7 @@ HIVE_REPO="https://github.com/ethereum/hive"
 EXECUTION_APIS_COMMIT="e5d1bb60e6c064e4b15080da07b4370d0baadf92"
 EELS_COMMIT="abbe05777ab83fb94ce18c425daaa7ab79e779c1"
 EELS_FIXTURE_SHA256="1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788"
+DEVP2P_GETH_COMMIT="101035a1049c7dc468bfe973478b579d9883d7b6"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 workdir="${HIVE_WORKDIR:-$repo_root/.dev-runtime/hive-gate}"
@@ -175,7 +176,23 @@ if find "$results_dir" -mindepth 1 -print -quit | grep -q .; then
 fi
 
 hive_args=(--client-file "$client_file" --sim "$sim" --results-root "$results_dir")
+if [ -n "$sim_limit" ]; then
+    hive_args+=(--sim.limit "$sim_limit")
+fi
 case "$sim" in
+    devp2p)
+        # Pinned Hive still clones go-ethereum master while building this
+        # simulator. Replace only that Dockerfile with a reviewed equivalent
+        # and pass the exact geth revision observed by the discovery baseline.
+        devp2p_dockerfile="$hive_dir/simulators/devp2p/Dockerfile"
+        cp "$repo_root/scripts/hive-devp2p.Dockerfile" "$devp2p_dockerfile"
+        cmp -s "$repo_root/scripts/hive-devp2p.Dockerfile" "$devp2p_dockerfile" || {
+            echo "FATAL: staged devp2p Dockerfile differs from the pinned template" >&2
+            exit 1
+        }
+        hive_args+=(--sim.buildarg "GETH_COMMIT=$DEVP2P_GETH_COMMIT")
+        log "pinning devp2p go-ethereum $DEVP2P_GETH_COMMIT"
+        ;;
     ethereum/rpc-compat|rpc-compat)
         # The pinned Hive Dockerfile defaults to execution-apis/main.  Pass the
         # reviewed commit explicitly so rpc-compat is reproducible over time.
@@ -212,13 +229,28 @@ case "$sim" in
         log "pinning execution-specs and fixtures at tests@v20.0.2 ($EELS_COMMIT)"
         ;;
 esac
-if [ -n "$sim_limit" ]; then
-    hive_args+=(--sim.limit "$sim_limit")
-fi
 if [ -n "${HIVE_EXTRA_ARGS:-}" ]; then
     # Word splitting is the point: HIVE_EXTRA_ARGS is a command-line fragment.
+    # Reject any token that can replace a reviewed run identity or source input;
+    # protected flags stay before free-form arguments so a later `--` cannot
+    # hide them from Go's standard flag parser.
     # shellcheck disable=SC2206
-    hive_args+=(${HIVE_EXTRA_ARGS})
+    extra_args=(${HIVE_EXTRA_ARGS})
+    for arg in "${extra_args[@]}"; do
+        case "$arg" in
+            -client|--client|-client=*|--client=*|\
+            -client-file|--client-file|-client-file=*|--client-file=*|\
+            -sim|--sim|-sim=*|--sim=*|\
+            -results-root|--results-root|-results-root=*|--results-root=*|\
+            -sim.limit|--sim.limit|-sim.limit=*|--sim.limit=*|\
+            -sim.limit.*|--sim.limit.*|\
+            *GETH_COMMIT=*|*branch=*|*fixtures=*)
+                echo "FATAL: HIVE_EXTRA_ARGS may not override a reviewed run identity or source input: $arg" >&2
+                exit 1
+                ;;
+        esac
+    done
+    hive_args+=("${extra_args[@]}")
 fi
 
 if [ "$prepare_only" = "1" ]; then
@@ -296,6 +328,9 @@ fi
 printf 'hive %s :: %s :: %s/%s passed\n' \
     "$HIVE_COMMIT" "$sim" "$passed_test_count" "$executed_test_count"
 case "$sim" in
+    devp2p)
+        printf 'go-ethereum %s\n' "$DEVP2P_GETH_COMMIT"
+        ;;
     ethereum/rpc-compat|rpc-compat)
         printf 'execution-apis %s\n' "$EXECUTION_APIS_COMMIT"
         ;;

@@ -1,0 +1,96 @@
+Section 5 pinned Hive devp2p go-ethereum source evidence
+
+Recorded: 2026-09-12T00:32:18Z
+Implementation base revision: f19ee8d5c0c6420cfe70ff77f9e30c070e944125
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+Hive is pinned at dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c, but that
+revision's simulators/devp2p/Dockerfile clones go-ethereum master with depth one.
+The first full Section 5 discovery run retained enough nested-Docker evidence to
+identify the source actually used as
+101035a1049c7dc468bfe973478b579d9883d7b6. This slice makes that external source
+input explicit and verifiable before a successor run.
+
+RED
+
+A fresh prepare-only run against pinned Hive completed, but its staged simulator
+Dockerfile did not contain the observed geth revision and still contained:
+
+  git clone --depth 1 https://github.com/ethereum/go-ethereum.git /go-ethereum
+
+The control exited 1 with:
+
+  RED: prepared pinned-Hive devp2p Dockerfile still clones moving go-ethereum HEAD
+
+GREEN
+
+scripts/hive-devp2p.Dockerfile is a reviewed replacement for the pinned Hive
+simulator Dockerfile. It requires GETH_COMMIT, initializes an empty repository,
+fetches only that exact object, checks out detached FETCH_HEAD, verifies HEAD,
+and then builds cmd/devp2p plus the testchain from that checkout.
+
+scripts/hive-run.sh now does the following only for --sim devp2p:
+
+- stages that template over pinned Hive's moving-source Dockerfile;
+- byte-compares the staged file with the tracked template;
+- passes --sim.buildarg
+  GETH_COMMIT=101035a1049c7dc468bfe973478b579d9883d7b6;
+- records the geth revision in the terminal result summary.
+
+A fresh prepare-only run passed these assertions:
+
+- the staged Dockerfile is byte-identical to the tracked template;
+- the printed Hive command contains the exact GETH_COMMIT build argument;
+- the staged fetch command addresses that argument explicitly;
+- the moving depth-one clone command is absent.
+
+Independent review found two initial false-evidence paths in HIVE_EXTRA_ARGS.
+First, a duplicate GETH_COMMIT followed the protected geth argument, and pinned
+Hive stores duplicate simulator build arguments in a last-value-wins map. An
+adversarial RED control therefore replaced the final value with forty zeroes
+while the result summary would still have printed the reviewed commit. Moving
+the protected argument later closed that direct override, but a second review
+showed that a following `--` would make Go's standard flag parser ignore every
+protected argument appended after it.
+
+The final runner keeps run-identity and source-pin flags before free-form
+arguments and rejects one- or two-dash HIVE_EXTRA_ARGS tokens that could replace
+client selection/file, simulator, results root, limit semantics, GETH_COMMIT,
+branch, or fixtures.
+The adversarial GETH_COMMIT plus `--` control now exits 1 before Hive invocation
+and names the forbidden token. A second control likewise refuses
+`-sim=ethereum/engine`, while benign `--loglevel 4` remains accepted after the
+protected pin. This aligns consumed run/source inputs with the reported values.
+
+Build verification
+
+The geth-builder target was built locally through Docker with the exact build
+argument. The build fetched and read back HEAD
+101035a1049c7dc468bfe973478b579d9883d7b6, compiled ./cmd/devp2p, and exited 0.
+A container readback then proved both the exact Git HEAD and an executable
+/go-ethereum/devp2p whose --help command exits successfully. A fresh staged
+pinned-Hive simulator context also built end to end, including the Hive
+simulator binary and the pinned geth testchain; its local arm64 image ID was
+sha256:edc43ede647d90d54d1b128868c4c5f60f443c1f7508cc591ef8597cbd1cffc8.
+This validates the build graph but is not the required amd64 closing artifact.
+
+- template SHA-256:
+  73cba04a71d46be86379c83f9d7b3254d58d74296856d75f9529d9a8ce268d45
+- pinned builder base:
+  golang:1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125
+- pinned run base:
+  alpine:latest@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+- bash -n scripts/hive-run.sh: pass
+- git diff --check: pass
+- cl-workbench doctor --strict: pass, no host fallback
+
+Remaining boundary
+
+This proves deterministic source selection and buildability, not Hive
+conformance or bitwise build reproducibility: APK and module resolution still
+use network services. No successor Linux devp2p suite has run. The exact client
+revision and amd64 artifacts for that run must be built, hashed, and independently
+reviewed before a live mutating authorization request. Existing Hoodi validation
+remains pinned to 0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae and was not changed.

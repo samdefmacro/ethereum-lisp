@@ -482,12 +482,16 @@ The implementation boundary is split deliberately:
   refused rather than silently entering a v5 suite with the v4 service.
   No successor Hive rerun has occurred, so the devp2p gate remains open. The
   discovery Dockerfile also cloned moving geth master; the retained layer pins
-  this run's observed source to `101035a1049c7dc468bfe973478b579d9883d7b6`,
-  but a reproducible closing rerun must make that source pin explicit. Exact
+  this run's observed source to `101035a1049c7dc468bfe973478b579d9883d7b6`.
+  The runner now stages a reviewed simulator Dockerfile that fetches and
+  verifies exactly that commit, and passes the same value as an explicit Hive
+  simulator build argument. A successor Linux run remains required. Exact
   failure partition, runner identities, hashes, and local test commands are in
   `docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt`; the discovery
   fallback repair is recorded in
-  `docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt`.
+  `docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt`; deterministic
+  simulator-source preparation is recorded in
+  `docs/evidence/sec5-f19ee8d5-hive-devp2p-geth-pin.txt`.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request
