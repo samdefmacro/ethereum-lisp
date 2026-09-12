@@ -275,6 +275,21 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
           (when (> response-bytes byte-limit) (return)))))
     (make-snap-bytecodes (snap-get-bytecodes-id request) (nreverse codes))))
 
+(defun snap-sync-trie-account-hash (bytes)
+  "Normalize a storage path-set account key like geth's common.BytesToHash.
+
+snap/1 carries this key as unconstrained bytes.  Short values are left-padded
+and overlong values retain their rightmost 32 bytes; an unavailable normalized
+account is an ordinary path miss, not a malformed request that closes the
+shared eth+snap session."
+  (let* ((bytes (ensure-byte-vector bytes))
+         (count (min 32 (length bytes)))
+         (result (make-byte-vector 32)))
+    (replace result bytes
+             :start1 (- 32 count)
+             :start2 (- (length bytes) count))
+    result))
+
 (defun snap-sync-trie-node-response (database state request)
   (let* ((account-trie
            (snap-sync-root-trie
@@ -302,26 +317,24 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
                     (incf response-bytes (length node))
                     (when (> response-bytes byte-limit)
                       (return-from serve)))))
-              (let ((account-hash (first path-set)))
-                (unless (= 32 (length account-hash))
-                  (error
-                   "snap storage trie path set requires a 32-byte account hash"))
-                (let ((storage-trie
-                        (snap-sync-account-storage-trie
-                         database state account-trie account-hash)))
-                  (when storage-trie
-                    (dolist (compact-path (rest path-set))
-                      (when (>= lookups
-                                +snap-sync-trie-node-lookups-per-request+)
-                        (return-from serve))
-                      (incf lookups)
-                      (multiple-value-bind (node present-p)
-                          (mpt-get-node-by-compact-path storage-trie compact-path)
-                        (let ((node (if present-p node (make-byte-vector 0))))
-                          (push node nodes)
-                          (incf response-bytes (length node))
-                          (when (> response-bytes byte-limit)
-                            (return-from serve)))))))))))
+              (let* ((account-hash
+                       (snap-sync-trie-account-hash (first path-set)))
+                     (storage-trie
+                       (snap-sync-account-storage-trie
+                        database state account-trie account-hash)))
+                (when storage-trie
+                  (dolist (compact-path (rest path-set))
+                    (when (>= lookups
+                              +snap-sync-trie-node-lookups-per-request+)
+                      (return-from serve))
+                    (incf lookups)
+                    (multiple-value-bind (node present-p)
+                        (mpt-get-node-by-compact-path storage-trie compact-path)
+                      (let ((node (if present-p node (make-byte-vector 0))))
+                        (push node nodes)
+                        (incf response-bytes (length node))
+                        (when (> response-bytes byte-limit)
+                          (return-from serve))))))))))
       (make-snap-trie-nodes
        (snap-get-trie-nodes-id request) (nreverse nodes)))))
 

@@ -4988,6 +4988,47 @@
         (is (plusp (length (first storage-nodes))))
         (is (zerop (length (second storage-nodes))))))))
 
+(deftest snap-trie-node-server-normalizes-storage-account-keys
+  (:layer :integration :module :p2p)
+  ;; Pinned geth normalizes storage path-set account keys with BytesToHash.
+  ;; A short key therefore denotes a (normally missing) left-padded account,
+  ;; not a malformed request that tears down the shared eth+snap session.  Hive
+  ;; sends this directly after the required empty-path-set rejection and expects
+  ;; the preceding account-root result to survive the unavailable storage key.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000042"))
+         (slot (make-hash32 (snap-test-hash 7))))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (state-db-set-storage state address slot 1)
+    (let* ((backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (root (hash32-bytes (state-db-root state)))
+           (response
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+              (ethereum-lisp.snap:make-snap-get-trie-nodes
+               84 root (list (list #(0)) (list #(1) #(0))) 5000)))
+           (nodes (ethereum-lisp.snap:snap-trie-nodes-nodes response)))
+      (is (= 84 (ethereum-lisp.snap:snap-trie-nodes-id response)))
+      (is (= 1 (length nodes)))
+      (is (plusp (length (first nodes))))
+      (let* ((account-hash (keccak-256 (address-bytes address)))
+             (overlong-account-key
+               (concat-bytes (ensure-byte-vector #(#xff)) account-hash))
+             (storage-response
+               (snap-test-call-backend
+                backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+                (ethereum-lisp.snap:make-snap-get-trie-nodes
+                 85 root (list (list overlong-account-key #(0))) 5000)))
+             (storage-nodes
+               (ethereum-lisp.snap:snap-trie-nodes-nodes storage-response)))
+        (is (= 85 (ethereum-lisp.snap:snap-trie-nodes-id storage-response)))
+        (is (= 1 (length storage-nodes)))
+        (is (plusp (length (first storage-nodes))))))))
+
 (deftest snap-trie-node-server-caps-disk-lookups
   (:layer :integration :module :p2p)
   (multiple-value-bind (state addresses)
