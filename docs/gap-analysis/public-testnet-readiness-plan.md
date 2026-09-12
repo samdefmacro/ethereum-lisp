@@ -695,6 +695,19 @@ The implementation boundary is split deliberately:
   not a successor Hive pass; exact evidence is in
   `docs/evidence/sec5-ce21fecf-hive-snap-long-path.txt`.
 
+  Exact accepted revision `7c1e379c22e213138daebbedd5c5403188625aff`
+  covers the pinned `TestSnapTrieNodes` account-root case. The production
+  session pump receives the root path before a storage path set whose short
+  account key is unavailable, returns exactly one node under the matching
+  request ID, and proves that node's Keccak-256 hash equals the requested state
+  root. A mutation which omitted available account-trie nodes failed the
+  cardinality assertion. The focused test, eight-test session-pump family,
+  124-test SNAP unit family, and exact-revision full 1,370-test cold-unit layer
+  passed with three optional skips. Independent review's sole cleanup finding
+  was corrected before the exact-revision gate. This remains local regression
+  evidence rather than a successor Hive pass; exact evidence is in
+  `docs/evidence/sec5-7c1e379c-hive-snap-trie-root.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

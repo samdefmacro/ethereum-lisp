@@ -1,0 +1,65 @@
+Section 5 pinned geth SNAP trie-root response regression
+
+Recorded at: 2026-09-12T19:19:09Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 7c1e379c22e213138daebbedd5c5403188625aff
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+Reference case: cmd/devp2p/internal/ethtest/snap.go TestSnapTrieNodes,
+lines 629-638
+
+Scope
+
+The accepted regression drives the production eth+snap session pump, request
+codec, SNAP dispatcher, response codec, and persistent SNAP backend. It creates
+a non-empty state trie, requests the account-trie root path `{0}`, then follows
+it with a storage path set whose short account key `{1}` normalizes to a missing
+account. The server must return exactly the requested root node, omit nodes for
+the unavailable storage account, preserve request ID 79, and leave the shared
+session usable. The returned node is cryptographically tied to the requested
+root by asserting that its Keccak-256 hash equals the request root.
+
+This mirrors the pinned geth case's path-set shape and `expHashes` contract. The
+local state is deterministic rather than a copy of Hive's testchain, so the
+assertion derives the exact local root instead of importing geth's chain-specific
+hard-coded hash.
+
+RED control
+
+Before acceptance, the available account-trie-node branch in
+`src/networking/snap-sync/backend.lisp` was deliberately mutated to omit present
+nodes while retaining missing-node placeholders. The focused regression exited
+nonzero because the response no longer contained exactly one root node. The
+mutation was then fully reverted; the accepted revision changes only the test.
+
+Verification
+
+- `cl-workbench doctor --strict`: passed.
+- `cl-workbench check parens tests/eth-pump-tests.lisp`: passed.
+- Focused selector
+  `ETH-PEER-RUN-SESSION-ANSWERS-A-SNAP-TRIE-ROOT-BEFORE-A-STORAGE-MISS`:
+  1 passed.
+- `ETH-PEER-RUN-SESSION` selector: 8 passed.
+- `SNAP` selector: 124 passed.
+- Exact accepted revision full `cold-unit`: 1,370 passed, 3 optional skips.
+- `git diff --check`: passed.
+- Independent review verified the production call path and pinned geth shape.
+  Final re-review found one stale ignored-variable declaration after the root-hash
+  assertion was strengthened; that declaration was removed, and the focused and
+  exact-revision full cold-unit gates passed afterward.
+
+Identity
+
+- Commit patch ID:
+  `3aadd992194c3fb4333437694eca0e6a956dfb3e`
+- `tests/eth-pump-tests.lisp` SHA-256:
+  `cd5b724b3d7a32371e459c79ce52a4b772e29e86ac3921c09074affffc0ca861`
+- Retained full cold-unit output SHA-256:
+  `740acf3445faa20b94ca9c541b84899f28e1c9f543af8ef8e8473edd4504885f`
+- Retained local output:
+  `/Users/sen/.hermes/cache/terminal-output/out-1789240678-49630-4810.log`
+
+Boundary
+
+This is deterministic local regression evidence. It is not a successor Hive
+SNAP pass, a Hoodi completion result, an amd64 artifact, or a soak result.
