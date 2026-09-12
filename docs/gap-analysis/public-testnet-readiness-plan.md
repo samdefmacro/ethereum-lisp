@@ -636,7 +636,7 @@ The implementation boundary is split deliberately:
   successor live Hive pass; exact evidence is in
   `docs/evidence/sec5-6c23ab8a-hive-invalid-cells.txt`.
 
-  Exact current revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
+  Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
   the archive SHA-256 is
