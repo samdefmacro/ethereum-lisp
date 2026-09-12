@@ -833,6 +833,94 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
              (eth-peer-announced-hash-count peer)))
       (is (= 25 (length (eth-peer-take-announced-hashes peer 25)))))))
 
+(deftest devnet-transaction-message-is-propagated-by-session-pump
+  (:layer :integration :module :p2p)
+  ;; Pinned geth TestTransaction sends one valid dynamic-fee transaction on one
+  ;; connection and waits for the node to propagate it to a second connection.
+  (let* ((chain-id 1337)
+         (private-key 2)
+         (recipient
+           (address-from-hex
+            "0x3535353535353535353535353535353535353535"))
+         (transaction
+           (eth-gossip-test-sign-dynamic-fee-transaction
+            (make-dynamic-fee-transaction
+             :chain-id chain-id :nonce 0
+             :max-priority-fee-per-gas 1
+             :max-fee-per-gas 2000000000
+             :gas-limit 21000 :to recipient :value 1)
+            private-key))
+         (sender
+           (transaction-sender transaction :expected-chain-id chain-id))
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+         (sending-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (receiving-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (pending-broadcast
+           (ethereum-lisp.cli::devnet-peer-pending-broadcast node))
+         (sent '())
+         (actions '()))
+    (chain-store-put-account-nonce store (block-hash genesis) sender 0)
+    (chain-store-put-account-balance
+     store (block-hash genesis) sender (expt 10 30))
+    (eth-gossip-test-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.eth-sync:eth-peer-send
+       (lambda (seen-peer message-id payload)
+         (is (eq receiving-peer seen-peer))
+         (push (list message-id payload) sent))))
+     (lambda ()
+       (is
+        (eth-peer-gossip-message
+         sending-peer ethereum-lisp.eth-wire:+eth-message-transactions+
+         (ethereum-lisp.eth-wire:encode-eth-transactions
+          (list transaction))))
+       (is (= 1
+              (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+               store)))
+       (multiple-value-bind (count reason)
+           (eth-peer-run-session
+            receiving-peer
+            :pending-broadcast pending-broadcast
+            :on-event (lambda (action) (push action actions))
+            :max-actions 1)
+         (is (= 1 count))
+         (is (eq :max-actions reason)))))
+    (is (equal '(:broadcast) actions))
+    (is (= 1 (length sent)))
+    (destructuring-bind (message-id payload) (first sent)
+      (cond
+        ((= ethereum-lisp.eth-wire:+eth-message-transactions+ message-id)
+         (let ((propagated
+                 (ethereum-lisp.eth-wire:decode-eth-transactions payload)))
+           (is (= 1 (length propagated)))
+           (is (bytes=
+                (eth-gossip-transaction-hash-bytes transaction)
+                (eth-gossip-transaction-hash-bytes (first propagated))))))
+        ((= ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+            message-id)
+         (multiple-value-bind (types sizes hashes)
+             (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+              payload ethereum-lisp.eth-wire:+eth-protocol-version-72+)
+           (is (equal '(2) types))
+           (is (= 1 (length sizes)))
+           (is (= 1 (length hashes)))
+           (is (bytes= (eth-gossip-transaction-hash-bytes transaction)
+                       (first hashes)))))
+        (t (is nil))))))
+
 (deftest devnet-new-pooled-txs-requests-all-fifty-eth-72-hashes
   (:layer :integration :module :p2p)
   ;; Pinned geth TestNewPooledTxs announces fifty dynamic-fee transactions over
