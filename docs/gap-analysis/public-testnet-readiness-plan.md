@@ -770,6 +770,20 @@ The implementation boundary is split deliberately:
   evidence is in
   `docs/evidence/sec5-7449e766-hive-snap-known-account-paths.txt`.
 
+  Exact accepted revision `b20d83b4a623ee1665258213dc37975b2c03f863`
+  covers pinned `TestSnapGetByteCodes` empty-code-hash semantics through the
+  production eth+snap session pump and persistent backend. A request for the
+  canonical empty code hash under a 10,000-byte budget preserves request ID 84
+  and returns exactly one zero-length code item rather than omitting it. Mutating
+  the backend to omit this item failed the one-item cardinality assertion. The
+  focused test, thirteen-test session-pump family, 129-test SNAP unit family,
+  and full 1,375-test cold-unit layer passed with three optional skips.
+  Independent review approved the canonical hash identity, pinned response
+  semantics, assertions, and production boundary without blockers. This remains
+  local regression evidence rather than a successor Hive pass; exact evidence
+  is in
+  `docs/evidence/sec5-b20d83b4-hive-snap-empty-code-hash.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
