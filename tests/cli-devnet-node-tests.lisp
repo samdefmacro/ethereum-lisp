@@ -3922,6 +3922,82 @@ really reopens the directory instead of observing the first handle's memory."
     (is (search "injected durable invalid ancestor"
                 (princ-to-string (third (first logs)))))))
 
+(deftest devnet-peer-session-sends-compressed-disconnect-on-protocol-error
+  (:layer :unit :module :p2p)
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (shutdown
+           (ethereum-lisp.cli:make-devnet-shutdown-controller))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :connection :established-connection
+            :eth-version 69
+            :remote-status
+            (ethereum-lisp.eth-wire:make-eth-status
+             :version 69 :earliest-block 0 :latest-block 10
+             :latest-block-hash (make-byte-vector 32))))
+         (entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "invalid-range-peer" :peer peer))
+         (goodbyes '())
+         (session-action
+           (lambda (seen-peer)
+             (ethereum-lisp.eth-sync:eth-peer-gossip-message
+              seen-peer
+              ethereum-lisp.eth-wire:+eth-message-block-range-update+
+              (ethereum-lisp.eth-wire:encode-eth-block-range-update
+               (ethereum-lisp.eth-wire:make-eth-block-range
+                10 8 (make-byte-vector 32 :initial-element 1)))))))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons
+       'ethereum-lisp.cli::devnet-peer-session-readable-function
+       (lambda (seen-peer)
+         (is (eq peer seen-peer))
+         (lambda (timeout) (declare (ignore timeout)) nil)))
+      (cons
+       'ethereum-lisp.eth-sync:eth-peer-run-session
+       (lambda (seen-peer &rest arguments)
+         (declare (ignore arguments))
+         (is (eq peer seen-peer))
+         (funcall session-action seen-peer)))
+      (cons
+       'ethereum-lisp.eth-sync:eth-sync-send-goodbye
+       (lambda (connection reason &key compressed)
+         (push (list connection reason compressed) goodbyes)
+         t)))
+     (lambda ()
+       (signals error
+         (ethereum-lisp.cli::devnet-peer-run-session
+          node nil shutdown
+          (lambda (socket)
+            (declare (ignore socket))
+            (values peer entry nil))))))
+    (is (equal
+         (list
+          (list :established-connection
+                ethereum-lisp.p2p:+devp2p-disconnect-subprotocol-error+
+                t))
+         goodbyes))
+    ;; A local implementation failure still tears down and is scored, but must
+    ;; not blame the remote peer with a subprotocol-error Disconnect.
+    (setf session-action
+          (lambda (seen-peer)
+            (declare (ignore seen-peer))
+            (error "injected local session failure")))
+    (signals error
+      (ethereum-lisp.cli::devnet-peer-run-session
+       node nil shutdown
+       (lambda (socket)
+         (declare (ignore socket))
+         (values peer entry nil))))
+    (is (= 1 (length goodbyes))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-range-announcement-wakes-coordinator-without-lost-race
   (:layer :integration :module :p2p)
   #+sbcl

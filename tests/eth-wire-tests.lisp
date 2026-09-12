@@ -195,9 +195,9 @@
          hash
          (ethereum-lisp.eth-wire:eth-block-range-latest-block-hash decoded)))
     (is (ethereum-lisp.eth-sync:eth-validate-block-range 10 20 hash))
-    (signals error
+    (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
       (ethereum-lisp.eth-sync:eth-validate-block-range 21 20 hash))
-    (signals error
+    (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
       (ethereum-lisp.eth-sync:eth-validate-block-range
        10 20 (make-array 32 :element-type '(unsigned-byte 8)
                          :initial-element 0)))))

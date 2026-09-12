@@ -43,6 +43,15 @@
   pending-blob-cell-fetches
   (request-counter 0))
 
+(define-condition eth-peer-protocol-error (simple-error) ()
+  (:documentation
+   "A peer-originated ETH subprotocol violation requiring disconnection."))
+
+(defun eth-peer-protocol-fail (control &rest arguments)
+  (error 'eth-peer-protocol-error
+         :format-control control
+         :format-arguments arguments))
+
 (defun eth-peer-set-sync-notification-function (peer function)
   "Install FUNCTION as PEER's validated sync-announcement notification.
 
@@ -456,11 +465,13 @@ success."
   "Validate an eth/69 served range and return true."
   (unless (and (integerp earliest) (integerp latest)
                (<= 0 earliest latest))
-    (error "eth block range is invalid: ~S through ~S" earliest latest))
+    (eth-peer-protocol-fail
+     "eth block range is invalid: ~S through ~S" earliest latest))
   (let ((hash (ensure-byte-vector latest-hash)))
     (unless (and (= (length hash) 32)
                  (not (every #'zerop hash)))
-      (error "eth block range latest hash must be a non-zero 32-byte hash")))
+      (eth-peer-protocol-fail
+       "eth block range latest hash must be a non-zero 32-byte hash")))
   t)
 
 (defun eth-peer-handshake (connection eth-offset eth-version our-status

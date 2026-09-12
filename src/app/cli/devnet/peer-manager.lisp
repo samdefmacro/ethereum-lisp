@@ -912,26 +912,37 @@ a dial knows who it is calling before it connects and so never reserves."
                   (devnet-peer-install-sync-notification node peer)
                   (when on-session-start (funcall on-session-start peer))
                   (handler-case
-                      (eth-peer-run-session
-                       peer
-                       :readable-function
-                       (devnet-peer-session-readable-function peer)
-                       :stop-p
-                       (or stop-p
-                           (lambda ()
-                             (devnet-shutdown-requested-p shutdown-controller)))
-                       :max-actions max-actions
-                       :pending-request
-                       (let ((queue (devnet-peer-entry-request-queue entry)))
-                         (and queue (devnet-peer-pending-request queue)))
-                       :snap-response-handler
-                       (let ((queue (devnet-peer-entry-request-queue entry)))
-                         (and queue (devnet-peer-snap-response-handler queue)))
-                       :pending-chain-update
-                       (devnet-peer-pending-chain-update node peer)
-                       ;; Our own pool reaches this peer through here, as DATA
-                       ;; the session loop sends -- never another thread.
-                       :pending-broadcast pending-broadcast)
+                      (handler-bind
+                          ((eth-peer-protocol-error
+                             (lambda (condition)
+                               (declare (ignore condition))
+                               ;; Hello and Status completed before PEER was
+                               ;; admitted. Report this peer-originated ETH
+                               ;; violation before the owner closes the stream.
+                               (eth-sync-send-goodbye
+                                (eth-peer-connection peer)
+                                +devp2p-disconnect-subprotocol-error+
+                                :compressed t))))
+                        (eth-peer-run-session
+                         peer
+                         :readable-function
+                         (devnet-peer-session-readable-function peer)
+                         :stop-p
+                         (or stop-p
+                             (lambda ()
+                               (devnet-shutdown-requested-p shutdown-controller)))
+                         :max-actions max-actions
+                         :pending-request
+                         (let ((queue (devnet-peer-entry-request-queue entry)))
+                           (and queue (devnet-peer-pending-request queue)))
+                         :snap-response-handler
+                         (let ((queue (devnet-peer-entry-request-queue entry)))
+                           (and queue (devnet-peer-snap-response-handler queue)))
+                         :pending-chain-update
+                         (devnet-peer-pending-chain-update node peer)
+                         ;; Our own pool reaches this peer through here, as DATA
+                         ;; the session loop sends -- never another thread.
+                         :pending-broadcast pending-broadcast))
                     (serious-condition (condition)
                       (call-with-devnet-peer-table
                        node

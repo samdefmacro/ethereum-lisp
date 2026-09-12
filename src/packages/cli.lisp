@@ -18,6 +18,7 @@
                 #:make-eth-new-block-hash
                 #:encode-eth-new-block-hashes)
   (:import-from #:ethereum-lisp.eth-sync
+                #:eth-peer-protocol-error
                 #:eth-sync-multi-peer-error
                 #:eth-sync-multi-peer-fail
                 #:eth-peer-set-sync-notification-function)

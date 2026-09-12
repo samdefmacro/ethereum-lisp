@@ -176,16 +176,16 @@ nothing about the remote identity is known before this returns."
                       :serve-backend serve-backend
                       :snap-backend snap-backend)))
 
-(defun eth-sync-send-goodbye (connection reason)
+(defun eth-sync-send-goodbye (connection reason &key (compressed nil))
   "Send a devp2p Disconnect for REASON, giving up rather than blocking.
 
 The write is gated on the socket being writable, because a peer that has stopped
 reading would otherwise hold us in FORCE-OUTPUT -- and IGNORE-ERRORS catches
 errors, not blocking. That distinction is why a farewell on a teardown path has
-to be gated rather than merely wrapped. Uncompressed, since this may precede the
-Hello exchange."
+to be gated rather than merely wrapped. COMPRESSED must be true after the Hello
+exchange and false for an admission refusal sent before it."
   #-sbcl
-  (declare (ignore connection reason))
+  (declare (ignore connection reason compressed))
   #-sbcl
   nil
   #+sbcl
@@ -194,7 +194,7 @@ Hello exchange."
      (when (or (not (sb-sys:fd-stream-p stream))
                (sb-sys:wait-until-fd-usable (sb-sys:fd-stream-fd stream)
                                             :output 1 nil))
-       (rlpx-send-disconnect connection reason :compressed nil))))
+       (rlpx-send-disconnect connection reason :compressed compressed))))
   t)
 
 (defun eth-sync-reject-connection (connection reason)
@@ -205,7 +205,7 @@ and is gated on the socket being writable: a peer that has stopped reading would
 otherwise block us in FORCE-OUTPUT, and IGNORE-ERRORS catches errors, not
 blocking. A refusal that cannot be delivered is dropped — the caller closes the
 socket either way, and the peer learns the same thing from the close."
-  (eth-sync-send-goodbye connection reason))
+  (eth-sync-send-goodbye connection reason :compressed nil))
 
 (defun eth-sync-connect-peer
     (host port remote-public-key private-key our-status
