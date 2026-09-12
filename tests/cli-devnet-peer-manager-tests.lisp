@@ -95,27 +95,55 @@
           (ethereum-lisp.cli:make-devnet-peer-table
            :self-id-hex "self" :max-peers 20
            :inbound-per-ip 1 :inbound-per-subnet 2
-           :netrestrict '("10.0.0.0/8"))))
+           :netrestrict '("198.51.100.0/24"))))
     (is (eq :netrestrict
             (ethereum-lisp.cli:devnet-peer-table-slot-verdict
-             table "192.0.2.1")))
+             table "203.0.113.1")))
     (is (eq :reserve
-            (ethereum-lisp.cli:devnet-peer-table-slot-verdict table "10.1.2.3")))
-    (ethereum-lisp.cli:devnet-peer-table-reserve-slot table "10.1.2.3")
+            (ethereum-lisp.cli:devnet-peer-table-slot-verdict
+             table "198.51.100.3")))
+    (ethereum-lisp.cli:devnet-peer-table-reserve-slot table "198.51.100.3")
     (is (eq :ip-throttled
-            (ethereum-lisp.cli:devnet-peer-table-slot-verdict table "10.1.2.3")))
-    (ethereum-lisp.cli:devnet-peer-table-release-slot table "10.1.2.3")
+            (ethereum-lisp.cli:devnet-peer-table-slot-verdict
+             table "198.51.100.3")))
+    (ethereum-lisp.cli:devnet-peer-table-release-slot table "198.51.100.3")
     (ethereum-lisp.cli:devnet-peer-table-admit
-     table (devnet-peer-table-test-entry "a" :host "10.1.2.3") 1)
+     table (devnet-peer-table-test-entry "a" :host "198.51.100.3") 1)
     (ethereum-lisp.cli:devnet-peer-table-admit
-     table (devnet-peer-table-test-entry "b" :host "10.1.2.4") 2)
+     table (devnet-peer-table-test-entry "b" :host "198.51.100.4") 2)
     (is (eq :subnet-throttled
-            (ethereum-lisp.cli:devnet-peer-table-slot-verdict table "10.1.2.5")))
+            (ethereum-lisp.cli:devnet-peer-table-slot-verdict
+             table "198.51.100.5")))
     (ethereum-lisp.cli:devnet-peer-note-score table "hostile" -100)
     (is (eq :useless-peer
             (ethereum-lisp.cli:devnet-peer-table-inbound-verdict
              table "hostile")))
     (is (= -100 (ethereum-lisp.cli:devnet-peer-score table "hostile")))))
+
+(deftest devnet-peer-table-exempts-lan-addresses-from-host-throttles
+  (:layer :unit :module :p2p)
+  ;; Hive and private testnets legitimately originate several independent node
+  ;; identities behind one bridge address. Geth likewise exempts LAN addresses
+  ;; from its source-IP throttle; the global handshake/peer bounds still apply.
+  (dolist (host '("10.1.2.3" "172.18.0.3" "192.168.1.2"
+                  "127.0.0.1" "169.254.1.2" "fd00::1" "fe80::1" "::1"
+                  "::ffff:172.18.0.3"))
+    (let ((table
+            (ethereum-lisp.cli:make-devnet-peer-table
+             :self-id-hex "self" :max-peers 20
+             :inbound-per-ip 1 :inbound-per-subnet 1)))
+      (ethereum-lisp.cli:devnet-peer-table-reserve-slot table host)
+      (is (eq :reserve
+              (ethereum-lisp.cli:devnet-peer-table-slot-verdict table host)))))
+  ;; A public source remains bounded by the configured per-host policy.
+  (let ((table
+          (ethereum-lisp.cli:make-devnet-peer-table
+           :self-id-hex "self" :max-peers 20
+           :inbound-per-ip 1 :inbound-per-subnet 2)))
+    (ethereum-lisp.cli:devnet-peer-table-reserve-slot table "198.51.100.3")
+    (is (eq :ip-throttled
+            (ethereum-lisp.cli:devnet-peer-table-slot-verdict
+             table "198.51.100.3")))))
 
 (deftest devnet-shutdown-controller-closes-registered-closeables
   ;; A peer socket is not a listener, so it needs somewhere to be registered or

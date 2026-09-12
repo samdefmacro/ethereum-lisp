@@ -127,6 +127,42 @@ MAX-PEERS 0 turns peering off entirely: every verdict refuses."
                (= (ldb (byte prefix (- 32 prefix)) address)
                   (ldb (byte prefix (- 32 prefix)) network)))))))
 
+(defun devnet-peer-lan-host-p (host)
+  "Whether HOST is loopback, private, or link-local network space.
+
+This follows go-ethereum's AddrIsLAN boundary. LAN peers remain subject to the
+global handshake and peer limits, but independent node identities behind one
+bridge/NAT address do not consume a public-source throttle as if they were one
+Internet peer."
+  (labels ((ipv4-lan-p (address)
+             (and (devnet-ipv4-integer address)
+                  (some (lambda (cidr)
+                          (devnet-cidr-matches-p address cidr))
+                        '("10.0.0.0/8" "172.16.0.0/12"
+                          "192.168.0.0/16" "127.0.0.0/8"
+                          "169.254.0.0/16"))))
+           (ipv6-lan-p (address)
+             (let* ((normalized (string-downcase address))
+                    (mapped-prefix "::ffff:")
+                    (colon (position #\: normalized))
+                    (first-hextet
+                      (and colon (plusp colon)
+                           (handler-case
+                               (parse-integer normalized :end colon :radix 16)
+                             (error () nil)))))
+               (or (string= normalized "::1")
+                   (and (<= (length mapped-prefix) (length normalized))
+                        (string= mapped-prefix normalized
+                                 :end2 (length mapped-prefix))
+                        (ipv4-lan-p
+                         (subseq normalized (length mapped-prefix))))
+                   (and first-hextet
+                        (or (= (logand first-hextet #xfe00) #xfc00)
+                            (= (logand first-hextet #xffc0) #xfe80)))))))
+    (if (find #\: host)
+        (ipv6-lan-p host)
+        (ipv4-lan-p host))))
+
 (defun devnet-peer-host-allowed-p (table host)
   (let ((ranges (devnet-peer-table-netrestrict table)))
     (or (null ranges)
@@ -171,10 +207,12 @@ Identity-free by necessity — see the file header. Returns :RESERVE or :NO-SLOT
     ((and remote-host (not (devnet-peer-host-allowed-p table remote-host)))
      :netrestrict)
     ((and remote-host
+          (not (devnet-peer-lan-host-p remote-host))
           (>= (devnet-peer-table-host-count table remote-host)
               (devnet-peer-table-inbound-per-ip table)))
      :ip-throttled)
     ((and remote-host
+          (not (devnet-peer-lan-host-p remote-host))
           (>= (devnet-peer-table-host-count table remote-host :subnet-p t)
               (devnet-peer-table-inbound-per-subnet table)))
      :subnet-throttled)
