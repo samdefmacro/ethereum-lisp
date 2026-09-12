@@ -671,6 +671,18 @@ The implementation boundary is split deliberately:
   review found no blocker. This is not a live Hive SNAP pass; exact evidence is
   in `docs/evidence/sec5-56f0cc8b-hive-snap-empty-path.txt`.
 
+  Exact accepted revision `1ade97261da305388f710c8699e4a49033f016da`
+  covers the preceding valid case from the same pinned `TestSnapTrieNodes`:
+  a nil Paths list with a 500-byte budget reaches the production session pump
+  and persistent SNAP backend, returns the matching TrieNodes request ID with
+  zero node items, and does not raise the malformed empty-path-set condition.
+  Its rejection mutation failed at that production boundary. The focused test,
+  six-test session-pump family, 122-test SNAP unit family, and full 1,368-test
+  cold-unit layer with three optional skips passed. Independent review approved
+  the one-file test delta. This is local regression evidence rather than a live
+  Hive pass; exact evidence is in
+  `docs/evidence/sec5-1ade9726-hive-snap-empty-request.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

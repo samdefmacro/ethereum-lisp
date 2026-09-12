@@ -1,0 +1,71 @@
+Section 5 pinned geth empty SNAP TrieNodes regression
+
+Recorded at: 2026-09-12T18:39:55Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 1ade97261da305388f710c8699e4a49033f016da
+Stable patch id: 5b6f9320c4bf34be4e4a21be063dce90fe494adf
+
+Pinned oracle
+
+- go-ethereum commit: 101035a1049c7dc468bfe973478b579d9883d7b6
+- cmd/devp2p/internal/ethtest/snap.go SHA-256:
+  275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+- TestSnapTrieNodes lines 607-614 sends a nil Paths list with a 500-byte
+  response budget and expects an empty TrieNodes response.
+
+Scope
+
+ETH-PEER-RUN-SESSION-ANSWERS-AN-EMPTY-SNAP-TRIE-REQUEST enters through the
+production session pump as a negotiated snap/1 GetTrieNodes message. It uses
+the persistent SNAP backend at an available state root and proves that:
+
+- an empty request is distinct from the malformed empty path set covered by the
+  adjacent regression;
+- the pump routes the request to the real SNAP server adapter;
+- the response is TrieNodes with the exact request ID and zero node items;
+- the session returns normally rather than treating the valid request as a
+  protocol error.
+
+Mutation control
+
+The backend was temporarily changed to reject a nil Paths list after resolving
+the available root. The focused test failed at the production routing boundary:
+
+  RED_EXIT=1
+  not ok ETH-PEER-RUN-SESSION-ANSWERS-AN-EMPTY-SNAP-TRIE-REQUEST -
+    snap trie node request contains no paths
+  0 tests passed, 1 failed.
+
+The mutation was removed before GREEN validation. The accepted commit changes
+only tests/eth-pump-tests.lisp.
+
+Verification
+
+- cl-workbench doctor --strict: passed before application operations.
+- cl-workbench check parens tests/eth-pump-tests.lisp: passed.
+- focused cold-unit: 1 passed.
+- ETH-PEER-RUN-SESSION family: 6 passed.
+- SNAP-matched cold-unit: 122 passed.
+- full cold-unit: 1,368 passed, 3 optional skips.
+- git diff --check: passed.
+- tests/eth-pump-tests.lisp SHA-256:
+  a1424bc4e1f592ddbc84772d2efc47b3630ac8b16b2be0eefca2c51a063700f8
+
+Review
+
+Independent read-only review approved the one-file delta with no blockers. It
+confirmed pinned-source fidelity, production pump/backend routing, response
+shape and ID assertions, and unwind-protect restoration of both temporary
+global function bindings.
+
+Push verification
+
+origin/sec5-public-bootstrap-sync resolved to
+1ade97261da305388f710c8699e4a49033f016da after push and fetch.
+
+Limits
+
+This is deterministic local conformance evidence. It is not a live Hive SNAP
+pass and does not close the Section 5 Hive gate. The successor external devp2p
+run remains required when the pinned test-host capacity prerequisite is met.
