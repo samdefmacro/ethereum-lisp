@@ -526,6 +526,16 @@ The implementation boundary is split deliberately:
   paths, and rejection evidence are in
   `docs/evidence/sec5-f79f5b2e-hive-devp2p-r39.txt`.
 
+  Exact current branch revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
+  now has a verified linux/amd64 runtime image and export. Its seven-check
+  runtime smoke passed, and the archive SHA-256 is
+  `0aa4724119b16fc018d89c1a111859ef0a5a8ecdf9b270120c0629ae1467ad86`.
+  Only documentation changed between the exact EEST revision above and this
+  runtime revision, so the runtime-sensitive tree is identical. The artifact
+  has not been uploaded or deployed; exact identities, commands, live boundary,
+  and capacity blocker are archived in
+  `docs/evidence/sec5-e96a5cc8-amd64-runtime.txt`.
+
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request
   intake only after 60.678--83.818 seconds while handler time remained 0--8 ms.

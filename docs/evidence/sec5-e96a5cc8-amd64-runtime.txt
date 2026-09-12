@@ -1,0 +1,80 @@
+Section 5 exact-current runtime artifact evidence
+
+Recorded through: 2026-09-12T13:47:04Z
+Revision: e96a5cc8908214f7d769f41c959a691fa6517b89
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This record preserves an exact linux/amd64 runtime image and export for the
+current accepted Section 5 branch revision. It contains the productive-healer
+repair plus the subsequent public-bootstrap, SNAP serving, devp2p, txpool, and
+smoke-gate fixes listed in branch history through e96a5cc8. It is local artifact
+evidence only, not a deployment or live-completion claim.
+
+Build boundary
+
+`cl-workbench doctor --strict` passed before application tooling. The canonical
+checkout was clean, its local and origin branch revisions both resolved to
+e96a5cc8908214f7d769f41c959a691fa6517b89, and the runtime was built and
+exported through the documented project broker:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-e96a5cc8-amd64
+  scripts/dev.sh runtime-export \
+    ethereum-lisp-runtime:sec5-e96a5cc8-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-e96a5cc8-amd64.tar
+
+Artifact identity
+
+- local image: ethereum-lisp-runtime:sec5-e96a5cc8-amd64;
+- image ID:
+  sha256:3c5e3dcc7d3d64edcf712fa4a7cb85914cc67ca4bfae1e703b576ae7f4007efb;
+- platform: linux/amd64;
+- revision label: e96a5cc8908214f7d769f41c959a691fa6517b89;
+- configured user: ethereum:ethereum;
+- image size: 71,984,591 bytes;
+- archive: /private/tmp/ethereum-lisp-runtime-sec5-e96a5cc8-amd64.tar;
+- archive size: 72,009,728 bytes;
+- archive SHA-256:
+  0aa4724119b16fc018d89c1a111859ef0a5a8ecdf9b270120c0629ae1467ad86;
+- archive mode at verification: 0600.
+
+Runtime verification
+
+`cl-workbench validation run runtime-smoke
+ethereum-lisp-runtime:sec5-e96a5cc8-amd64` exited zero. The broker verified the
+packaged Hoodi genesis allocation and then started the amd64 image under
+emulation with temporary public and Engine endpoints. Seven checks passed:
+
+- `--hoodi` built the packaged genesis;
+- public `eth_chainId` returned `0x539`;
+- `web3_clientVersion` identified `0xe96a5cc8`;
+- unauthenticated `engine_exchangeCapabilities` returned HTTP 401;
+- authenticated `engine_exchangeCapabilities` answered;
+- `engine_getClientVersionV1` mapped the full revision to `0xe96a5cc8`;
+- Engine-port `eth_syncing` answered.
+
+The exact current-fork EEST run is archived separately at revision 81446d47.
+The only files changed from that revision through this runtime revision are this
+plan's predecessor evidence file and the readiness plan itself, both under
+`docs/`; therefore the runtime-sensitive tree is identical to the tested EEST
+revision. That gate executed 15,393 state tests, 11,382 Engine blockchain replay
+cases, and 10,257 RLP blockchain replay cases with zero unexpected skips.
+
+Live boundary
+
+No live EL, CL, port, network, image, container, or datadir was changed while
+this artifact was built. Read-only observations at 2026-09-12T13:40:23Z and
+13:41:16Z found the exact-0c6b51bf Hoodi container still running without OOM or
+restart. Its healer processed 1,255,424 to 1,298,432 nodes while the frontier
+grew from 505,268 to 515,316 and known-incomplete nodes grew from 394,574 to
+404,629; useful processing continues, but convergence remains unproven.
+
+The exact e96a5cc8 artifact has not been uploaded or deployed. The remote
+`/data` filesystem had 8,267,563,008 available bytes at the second sample and
+remained 99% used, below the reviewed 12,884,901,888-byte Hive precondition and
+far below the approximately 56-GB (52.2-GiB) footprint observed for another
+fresh Hoodi sync. Any upload, Hive run, or fresh-datadir deployment still
+requires a new independently reviewed authorization request after additive
+storage capacity is available.
