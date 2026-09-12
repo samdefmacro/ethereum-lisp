@@ -1,0 +1,104 @@
+Section 5 SNAP account range-boundary compatibility evidence
+
+Recorded at: 2026-09-12T23:32:14Z
+Branch: sec5-public-bootstrap-sync
+Test revision: 981112ac57b929353ec939fefe5da6bd86ad46e5
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6,
+  cmd/devp2p/internal/ethtest/snap.go, TestSnapGetAccountRange lines 138-197
+Pinned reference file SHA-256:
+  275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+
+Behavioral contract
+
+GetAccountRange starts at the first available secure-trie key at or beyond the
+origin. The upper bound is inclusive in geth-compatible serving behavior: when
+the requested limit lies between available keys, the first available key at or
+beyond that limit is included. Pinned geth also exercises origin=limit=zero,
+origin equal to the first key, and origin one greater than the first key.
+
+Regression
+
+ETH-PEER-RUN-SESSION-PRESERVES-SNAP-ACCOUNT-RANGE-BOUNDARIES creates three
+committed accounts, derives their actual sorted secure-trie keys, and submits
+all five pinned boundary cases through the production eth-peer-run-session SNAP
+dispatcher, wire codec, request router, and persistent SNAP backend. It verifies
+the response message kind, request IDs, cardinalities, and exact ordered keys.
+
+Mutation RED proof
+
+A temporary production mutation applied a hard upper bound before appending an
+account whose key lay beyond the requested limit. This plausible exclusive-bound
+behavior made the focused regression RED:
+
+  container: ethereum-lisp-cold-sec5-snap-account-bounds-red-cycle985
+  container ID: 4ff506cd57bf77f95c74f2e5fb1e961e913272272d3e944e1be17806c50246ca
+  result: 0 passed, 1 failed; exit 1; OOM false
+  started: 2026-09-12T23:23:35.638119339Z
+  finished: 2026-09-12T23:24:27.584292418Z
+
+The mutation was removed before final validation. Production backend source had
+no diff when the accepted gates ran.
+
+Accepted cold validation
+
+Focused final:
+  ethereum-lisp-cold-sec5-snap-account-bounds-final-cycle985
+  ID 36bb01d4e690f2d2b92269169b7ba2c5d77db7091e736a824293bf91888a9075
+  1 passed; exit 0; OOM false
+  started 2026-09-12T23:24:57.614967585Z
+  finished 2026-09-12T23:25:49.487418595Z
+
+ETH-PEER-RUN-SESSION family:
+  ethereum-lisp-cold-sec5-session-account-bounds-cycle985
+  ID ed15642b4d108dad6de1df454a71669a68d919f04a6d1656abd78ba4f56c872b
+  25 passed; exit 0; OOM false
+  started 2026-09-12T23:25:52.599855639Z
+  finished 2026-09-12T23:26:52.992062347Z
+
+SNAP family:
+  ethereum-lisp-cold-sec5-snap-account-bounds-family-cycle985
+  ID 9062e46a1d5543fc355ed857bed6542a7adccad34c61d7b766a05dae58afff78
+  128 passed; exit 0; OOM false
+  started 2026-09-12T23:26:56.838922001Z
+  finished 2026-09-12T23:27:52.995604722Z
+
+Full cold unit:
+  ethereum-lisp-cold-sec5-snap-account-bounds-full-cycle985
+  ID 751760fa72ea4818432ea99b7da4425e3525465480644d145beae27da0c15ad3
+  1387 passed, 3 optional fixture-dependent skips; exit 0; OOM false
+  started 2026-09-12T23:27:56.601990293Z
+  finished 2026-09-12T23:28:58.215271794Z
+
+Static gates:
+  cl-workbench doctor --strict: passed before application tooling
+  cl-workbench check parens tests/eth-pump-tests.lisp: passed
+  git diff --check: passed
+
+Independent review
+
+The independent specification and quality review returned PASS with no
+blocking, major, or minor findings. It confirmed that all five pinned geth
+boundary cases are represented with matching bounds and expected ordered keys,
+that the production serving seams are exercised, and that fixture arithmetic
+and restoration are safe.
+
+Review transcript:
+  /Users/sen/.hermes/cache/delegation/live/deleg_21213454/task-0.log
+
+Live boundary
+
+The existing exact-revision Hoodi validation deployment was not mutated. A
+read-only observation at 2026-09-12T23:32:32Z found both EL and Lighthouse
+running, with no OOM, restart, or start-time change. The EL had 37 peers, but
+eth_syncing still reported currentBlock 0x0 and highestBlock 0x371e19, while
+eth_blockNumber remained 0x0. The latest healer sample reported processedNodes
+348160, frontierWorks 214253, deferredStorageWorks 1549,
+knownIncompleteNodes 94863, dynamic-expansion with no ETA, and completed NIL.
+The remote /data filesystem had 8268095488 bytes available, still below the
+rejected Hive r40 12884901888-byte precondition.
+
+Scope boundary
+
+This closes only the pinned GetAccountRange origin/limit boundary semantics. It
+does not prove the open Hive devp2p gate, Hoodi target/healer completion,
+canonical catch-up, eth_syncing=false, shadow comparison, or validator soak.

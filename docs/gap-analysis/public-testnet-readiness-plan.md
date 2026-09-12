@@ -859,6 +859,18 @@ The implementation boundary is split deliberately:
   exact evidence is in
   `docs/evidence/sec5-99b9bad3-snap-account-soft-limits.txt`.
 
+  Exact accepted revision `981112ac57b929353ec939fefe5da6bd86ad46e5`
+  covers all five pinned `TestSnapGetAccountRange` origin/limit boundary cases
+  through the production eth+snap session pump and persistent backend. It
+  preserves the first available key at or beyond the origin and geth-compatible
+  inclusive upper-bound behavior, including limits that fall between available
+  secure-trie keys. A hard-upper-bound mutation failed the focused regression.
+  The focused test, 25-test session-pump family, 128-test `SNAP-` family, and
+  full 1,387-test cold-unit layer passed with three optional skips. Independent
+  review approved without findings. This remains local regression evidence
+  rather than a live Hive SNAP pass; exact evidence is in
+  `docs/evidence/sec5-981112ac-snap-account-range-boundaries.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
