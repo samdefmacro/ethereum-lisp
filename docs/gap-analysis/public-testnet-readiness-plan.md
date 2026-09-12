@@ -501,6 +501,20 @@ The implementation boundary is split deliberately:
   identities and gates are in
   `docs/evidence/sec5-7b3e9d35-amd64-artifacts.txt`.
 
+  A later exact-`f79f5b2e` bounded run passed discv4 16/16 and 14/19 eth
+  entries; its intentionally refused, unsupported discv5 launch failed.
+  `LargeTxRequest` failed after its roughly 2,000-transaction send
+  ended in a connection read timeout. Three following transaction-related cases
+  failed on read timeouts, the enclosing eth launch hit the two-hour host
+  timeout, and SNAP was never reached: 30/36 enumerated entries passed instead
+  of completing the required 48-entry inventory. Revision `48e351a0` batches
+  inbound transaction admission, but its proposed r40 rerun was independently
+  rejected without mutation because `/data` had only 8,232,374,272 bytes
+  available against the fail-closed 12,884,901,888-byte precondition. The
+  devp2p gate therefore remains open; exact results, artifact hashes, preserved
+  paths, and rejection evidence are in
+  `docs/evidence/sec5-f79f5b2e-hive-devp2p-r39.txt`.
+
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request
   intake only after 60.678--83.818 seconds while handler time remained 0--8 ms.

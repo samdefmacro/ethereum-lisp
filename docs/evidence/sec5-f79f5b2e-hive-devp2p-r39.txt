@@ -1,0 +1,98 @@
+Section 5 Hive devp2p r39 and r40 evidence
+============================================
+
+Scope
+-----
+
+This record preserves the bounded full-devp2p attempt at exact client revision
+`f79f5b2e8521fb6cb2ee20744572ff753e996a3e` and the independently rejected
+successor attempt at revision
+`48e351a0dba13e1c1cc813cd2108b859a447b57e`. Neither attempt closes the
+Section 5 devp2p gate.
+
+Pins and retained paths
+-----------------------
+
+- Hive revision: `dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c`.
+- devp2p go-ethereum revision:
+  `101035a1049c7dc468bfe973478b579d9883d7b6`.
+- r39 evidence root on `test-ethereum-server`:
+  `/data/hoodi-sec5-hive/runs/f79f5b2e-devp2p-full-r39-20260912T091312Z`.
+- r40 authorization result:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/authorization-result.json`.
+- r40 processed request:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/processed-authorizations/20260912-202528-sec5-hive-devp2p-48e351a0-r40-20260912T122234Z.request.json`.
+
+The r39 runner loaded image ID
+`sha256:b2b0f93d9174b2842e2f12a1464460c372264188f02102a3ee8786615226b640`.
+Its inspected metadata was `linux/amd64`, user `ethereum:ethereum`, and revision
+`f79f5b2e8521fb6cb2ee20744572ff753e996a3e`.
+
+Retained r39 artifact SHA-256 values:
+
+- runtime archive:
+  `4e576d4cfc06da1a20395b602cbd3337552eaa39d34bd10c53b191e4f918fd21`;
+- source archive:
+  `688bdbb4880b0fd93fe0afc023ca34cb4313c6eb4d94cb83739ef32cd6caa077`;
+- Hive binary:
+  `cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308`;
+- Docker 27 amd64 runner archive:
+  `07bdd861f2b9a715072e03396c888b07d9195d41e5fe1c3fec8554a5b0e34421`.
+
+r39 result
+----------
+
+The simulation began at `2026-09-12T09:27:30Z` and hit its bounded timeout at
+`2026-09-12T11:27:31Z`. `hive-status.txt` records status `3`. The retained
+outer runner exited zero at `2026-09-12T11:27:37Z`, was not OOM-killed or
+restarted, and its final sample was 227.7 MiB of the 8 GiB limit, with 31 PIDs.
+Nested Docker used 2.6 GiB.
+
+The retained suite JSON enumerates 36 unique entries: 30 passed and 6 failed,
+with one timeout. The suite partition is:
+
+- discv4: 16/16 passed;
+- discv5: 0/1 passed; the client intentionally refuses the unsupported discv5
+  launch rather than advertising the discv4 service as v5;
+- eth: 14/19 passed.
+
+The eth suite passed Status, malicious-handshake and block-range controls,
+GetBlockHeaders, GetNonexistentBlockHeaders, SimultaneousRequests,
+SameRequestID, ZeroRequestID, GetBlockAccessLists, GetBlockBodies, GetReceipts,
+and GetLargeReceipts. `LargeTxRequest` then failed after its roughly
+2,000-transaction send ended in a connection read timeout. Transaction,
+InvalidTxs, and NewPooledTxs subsequently failed on connection read timeouts.
+The enclosing eth client-launch entry was terminated by the two-hour host
+timeout. SNAP was never reached, so the required 48-entry inventory was
+incomplete.
+
+The later revision `48e351a0dba13e1c1cc813cd2108b859a447b57e` batches inbound
+transaction admission to amortize repeated sender-wide work in the code path
+exercised by this test. That repair has local unit and cold verification, but
+r39 contains no profiling that proves scalar admission caused the timeout and
+r40 never ran. The repair must not be credited as live conformance evidence.
+
+r40 authorization rejection
+----------------------------
+
+The proposed exact-`48e351a0` r40 rerun was independently rejected without
+mutation. Its fail-closed precondition required 12,884,901,888 available bytes
+on `/data`; the reviewer observed 8,232,374,272 bytes and a 99%-used filesystem.
+The target r40 directory and runner container remained absent. No artifact was
+uploaded or loaded, and no existing evidence or datadir was removed, reset, or
+reused.
+
+The authorization review's final readback found the unrelated Hoodi container
+`hoodi-el-sec5-0c6b51bf-r1` still running, not OOM-killed, with its original
+`2026-09-11T15:51:43Z` start time and preserved
+`/data/hoodi-sec5-20260814/datadir-0c6b51bf-r1` mount. It observed
+8,508,485,632 available bytes, still below the r40 precondition.
+
+Open gate
+---------
+
+Run the complete pinned 48-entry devp2p inventory against the exact accepted
+amd64 revision only after additive capacity satisfies the reviewed precondition.
+Archive all suite JSON and require zero unexpected skips. Until then, r39 is a
+partial diagnostic result, r40 is an unexecuted authorization rejection, and
+the Section 5 devp2p gate remains open.
