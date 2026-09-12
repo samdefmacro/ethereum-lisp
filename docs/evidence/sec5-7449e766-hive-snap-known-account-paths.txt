@@ -1,0 +1,82 @@
+Section 5 pinned geth known SNAP account-path regression
+
+Recorded at: 2026-09-12T20:21:52Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 7449e76611857813563a1ec8a7248095e8c5e772
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+Reference case: cmd/devp2p/internal/ethtest/snap.go TestSnapTrieNodes,
+lines 651-669; makeSnapPath lines 740-745
+
+Scope
+
+The accepted regression builds a deterministic three-account state trie and
+drives the production eth+snap session pump, request codec, SNAP dispatcher,
+persistent backend account-trie traversal, response codec, and send path. It
+constructs the pinned request shape with 65 singleton account path sets, one for
+every secure-key prefix length from 1 through 65, under a 5,000-byte response
+budget. As in pinned geth, the last selected nibble is replaced with zero before
+hex-prefix compact encoding, including removal of the terminator at length 65.
+
+The fixture yields two available encoded trie nodes followed by 63 unavailable
+paths. The response must preserve request ID 83 and all 65 positions, including
+every required zero-length placeholder. Expected nodes are derived directly
+from the deterministic account trie before the request enters the independent
+production session/backend path.
+
+RED control
+
+The singleton account-path branch in
+`src/networking/snap-sync/backend.lisp` was deliberately mutated to append only
+present nodes and omit unavailable-node placeholders. The focused regression
+failed 0/1 at the exact 65-node cardinality assertion. The mutation was fully
+reverted; the accepted revision changes only the test.
+
+Verification
+
+- `cl-workbench doctor --strict`: passed.
+- Parenthesis checks for the test and temporarily mutated backend: passed.
+- Focused selector
+  `ETH-PEER-RUN-SESSION-PRESERVES-KNOWN-SNAP-ACCOUNT-PATH-CARDINALITY`:
+  1 passed after final cleanup.
+- `ETH-PEER-RUN-SESSION` selector: 12 passed after final cleanup.
+- `SNAP` selector: 128 passed after final cleanup.
+- Full `cold-unit`: 1,374 passed, 3 optional skips after final cleanup.
+- `git diff --check`: passed.
+- Independent read-only review approved without blocking findings after checking
+  exact pinned path construction and terminator behavior, the two-present plus
+  63-empty fixture shape, production session/wire/backend coverage, positional
+  assertions, overlap, and false-positive risk. Its only cleanup suggestion was
+  removal of a redundant appended terminator; that cleanup was applied before
+  all final gates.
+
+Identity
+
+- go-ethereum `snap.go` SHA-256:
+  `275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd`
+- Commit patch ID:
+  `12bf16a9fba75b11be2efd00832b59ebe963f28a`
+- `tests/eth-pump-tests.lisp` SHA-256:
+  `51a11e89c764ec2c22157e4b8782ec84e854e84e293c967223fec7d83bb46025`
+- Focused container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-known-paths-final2-cycle980`
+  (`0cdcaba1a58057569937d1fda3fa891c314aa08ded24f9feaaa107dc929d4758`),
+  `ad224273fc89d43ca7da5410613b2dab96d3c55e8df7c67ccf2a88636f2929f5`.
+- Session-family log SHA-256:
+  `b5e480e47bfb447819ca20febd24bef8d2e9656d7073f4cd1ff00af405cae25e`.
+- SNAP-family log SHA-256:
+  `66c4c080d83921d4c1f800b47569899bba8298660e489b44a2c55d361151ec8b`.
+- Full cold-unit container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-known-paths-full2-cycle980`
+  (`68c1a5c7cd32c1bece90210fb1da272d855ac41c05e190400455f09f2f5998e7`),
+  `9d8c8da5c0c6c83375e2e88648f444a4cb6b59399e534e45158d873517159019`.
+- RED mutation container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-known-paths-red-cycle980`
+  (`c96c110f0630bfd1a579efac66a8e7037e0fed2b6833292a093f7c5173540c08`),
+  `0869d59a7115ed3b5626b631296588eff5e9ff437e3b1324555863cfa8eadeae`.
+
+Boundary
+
+This is deterministic local regression evidence. It is not a successor Hive
+SNAP pass, a Hoodi completion result, an amd64 artifact, a shadow comparison, or
+a validator soak result.
