@@ -585,6 +585,25 @@ The implementation boundary is split deliberately:
   the still-required successor Hive run; exact commands and limits are in
   `docs/evidence/sec5-9b5ec2a6-hive-invalid-transactions.txt`.
 
+  Exact revision `8286eb7fb22cad22cacf45cc5f87a5bee52e24da` closes the
+  deterministic local behavior gap for pinned geth `TestBlobViolations`.
+  `NewPooledTransactionHashes` type and encoded-size metadata now survives both
+  the asynchronous session-pump request path and the synchronous one-shot path;
+  requested responses are matched by hash and wrong type, wrong size,
+  duplicate, or unrequested transactions raise the peer-protocol condition that
+  the production supervisor turns into a disconnect. Short and reordered
+  responses remain legal. Async request metadata is bounded, follows geth's
+  five-second timeout, and becomes scheduling-aware at capacity so an urgent
+  drain cannot starve the replies needed to release that capacity. The corrected
+  RED fixture failed because no peer-protocol condition was signaled before the
+  fix. The final wrong-size, wrong-type, positive-control, and capped-request
+  regressions pass, as do all 1,362 cold-unit tests with three optional skips and
+  all 568 cold-integration tests with nine optional skips. Independent pinned-
+  source review and final quality re-review approved the accepted diff without
+  required fixes. This local closure does not replace the still-required
+  successor Hive run; exact references, commands, and live limits are in
+  `docs/evidence/sec5-8286eb7f-hive-blob-violations.txt`.
+
   Exact predecessor revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
   has a verified linux/amd64 runtime image and export. Its seven-check
   runtime smoke passed, and the archive SHA-256 is

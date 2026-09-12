@@ -1,0 +1,98 @@
+Section 5 pinned geth BlobViolations regression
+
+Recorded at: 2026-09-12T16:25:02Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 8286eb7fb22cad22cacf45cc5f87a5bee52e24da
+Baseline revision: e14fb780ac118e8832bd89fe6ba3a4a876f087e3
+
+Scope
+
+This slice closes the deterministic local behavior gap corresponding to pinned
+geth devp2p TestBlobViolations. It does not claim a successor live Hive pass.
+
+Pinned primary references
+
+- go-ethereum revision:
+  101035a1049c7dc468bfe973478b579d9883d7b6
+- cmd/devp2p/internal/ethtest/suite.go SHA-256:
+  4701979b85f4abd7c626cb7f88cdf43036877864668a94465660ed7360ec526c
+- eth/fetcher/tx_fetcher.go SHA-256:
+  27045f7bbe426716ff496ced6f5fb068f2503cf4978acd5ee41ca1c6642a17bc
+- The pinned suite announces two blob transactions, first with one incorrect
+  size and then with one incorrect type, supplies the requested transactions,
+  and requires the node to disconnect.
+- The pinned fetcher uses a five-second explicit transaction-fetch timeout.
+
+Implemented behavior
+
+- NewPooledTransactionHashes retains hash, type, and encoded-size metadata.
+- Both asynchronous session-pump fetches and synchronous one-shot fetches match
+  returned transactions by hash, so legal short and reordered replies remain
+  supported.
+- A requested response containing an unrequested hash, duplicate hash, wrong
+  transaction type, or wrong encoded size signals eth-peer-protocol-error. The
+  production peer supervisor converts that condition to a devp2p disconnect.
+- Async request metadata is bounded to 64 requests and expires after the pinned
+  five-second timeout.
+- At the pending-request cap, queued transaction hashes stop being an urgent
+  drain action, allowing the session to read replies. Once metadata expires,
+  stale entries are pruned and fetching resumes.
+
+RED and GREEN evidence
+
+After correcting the synthetic eth/72 sidecar to use the cell-proof shape, the
+focused regression failed before the production fix with:
+
+  Expected condition ETHEREUM-LISP.ETH-SYNC:ETH-PEER-PROTOCOL-ERROR was not signaled
+  0 tests passed, 1 failed.
+
+The final focused checks passed:
+
+  cl-workbench validation run cold-unit --match ETH-72-POOLED-BLOB-RESPONSE-MUST-MATCH-ANNOUNCED-TYPE-AND-SIZE
+  1 test passed.
+
+  cl-workbench validation run cold-unit --match ETH-PEER-RUN-SESSION-READS-WHILE-TRANSACTION-FETCHES-ARE-CAPPED
+  1 test passed.
+
+The blob regression covers wrong size, wrong type, and matching positive-control
+responses through the production async request path. The pump regression fills
+the pending table, proves a readable peer is read rather than livelocked, then
+advances to the five-second boundary and proves stale requests are replaced by a
+fresh fetch.
+
+Broader verification
+
+- cl-workbench doctor --strict: passed.
+- cl-workbench check parens on all six changed Lisp files: passed.
+- cl-workbench validation run cold-unit: 1362 passed, 3 skipped.
+- cl-workbench validation run cold-integration: 568 passed, 9 skipped.
+- git diff --check and staged diff check: passed.
+- Specification review against the exact pinned geth TestBlobViolations:
+  APPROVE, no required fixes.
+- Initial quality review found capped-request livelock and absent request expiry.
+  Those findings were fixed with capacity-aware scheduling, five-second expiry,
+  pruning, and the pump regression.
+- Final quality re-review: APPROVE, no required fixes.
+
+Integration
+
+Commit 8286eb7fb22cad22cacf45cc5f87a5bee52e24da was pushed without force to
+origin/sec5-public-bootstrap-sync. The post-push origin ref matched the full
+local commit SHA, and the worktree was clean and synchronized before this
+evidence-only follow-up.
+
+Live boundary and remaining gate
+
+The existing Hoodi validation deployment remained untouched. At the cycle's
+read-only observation it was still the exact older runtime
+hoodi-el-sec5-0c6b51bf-r1, with 41 peers, eth_blockNumber 0x0, and eth_syncing
+reporting currentBlock 0x0 and highestBlock 0x37168b. This establishes liveness
+but no execution progress or Section 5 completion.
+
+The prior Hive r40 authorization remains rejected because the remote /data
+capacity prerequisite was not met. The latest read-only capacity check showed
+approximately 7.9 GiB available at 99% use. No new live mutation was requested
+or performed in this slice. A successor exact-revision Hive devp2p run remains
+required when the fail-closed capacity prerequisite can be satisfied without
+altering the healthy retained Hoodi deployment or existing datadirs/evidence.
