@@ -15,7 +15,8 @@
 # docs/hive-gate.md.
 #
 # Files placed by the simulator:
-#   /genesis.json  (mandatory) geth-format genesis; mapped by /mapper.jq
+#   /genesis.json  geth-format genesis; simulators may replace the bundled
+#                  discovery fallback before startup; mapped by /mapper.jq
 #   /chain.rlp     (optional)  imported as a concatenated RLP block stream
 #   /blocks/       (optional)  imported as numerically sorted individual blocks
 
@@ -87,10 +88,17 @@ if [ -n "$HIVE_AMSTERDAM_TIMESTAMP" ]; then
     unsupported "Amsterdam activation (HIVE_AMSTERDAM_TIMESTAMP)"
 fi
 
+# The CLI currently starts the unified discv4 UDP service only. Hive's discv5
+# ClientTestSpec requests v5 explicitly, so starting discv4 under that request
+# would be a silent false claim even though the bundled genesis is usable.
+if [ -n "$HIVE_DISCV5" ]; then
+    unsupported "discv5 service (HIVE_DISCV5)"
+fi
+
 # --- Configure the chain ----------------------------------------------------
 
 if [ ! -f /genesis.json ]; then
-    echo "FATAL: /genesis.json is missing; hive must upload it." >&2
+    echo "FATAL: /genesis.json is missing from both the adapter and Hive upload." >&2
     exit 1
 fi
 

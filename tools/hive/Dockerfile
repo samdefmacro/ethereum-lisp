@@ -40,6 +40,11 @@ RUN /usr/local/bin/ethereum-lisp version > /version.txt
 
 ADD ethereum-lisp.sh /ethereum-lisp.sh
 ADD mapper.jq /mapper.jq
+# Hive's discv4/discv5 ClientTestSpec cases provide chain environment but do
+# not upload the otherwise mandatory /genesis.json. Match the pinned standard
+# eth1 adapter by carrying its minimal genesis; any simulator upload replaces
+# this path before the entrypoint runs.
+ADD genesis.json /genesis.json
 RUN chmod +x /ethereum-lisp.sh
 
 RUN mkdir /hive-bin
@@ -47,8 +52,8 @@ ADD enode.sh /hive-bin/enode.sh
 RUN chmod +x /hive-bin/enode.sh
 
 # The runtime image runs as uid 10001 with a read-only-friendly layout, and the
-# adapter keeps that: /hive is the only thing it writes. Hive uploads
-# /genesis.json as root-owned 0644, which this user can read.
+# adapter keeps that: /hive is the only thing it writes. Hive may replace the
+# bundled /genesis.json as root-owned 0644, which this user can read.
 RUN mkdir -p /hive && chown 10001:10001 /hive
 USER 10001:10001
 

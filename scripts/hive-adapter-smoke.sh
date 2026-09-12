@@ -145,6 +145,22 @@ check_refused HIVE_MINER 0x0000000000000000000000000000000000000001 'HIVE_MINER'
 check_refused HIVE_GRAPHQL_ENABLED 1 'HIVE_GRAPHQL_ENABLED'
 check_refused HIVE_NODETYPE snap 'HIVE_NODETYPE=snap'
 check_refused HIVE_AMSTERDAM_TIMESTAMP 100 'HIVE_AMSTERDAM_TIMESTAMP'
+check_refused HIVE_DISCV5 1 'HIVE_DISCV5'
+
+# Discovery ClientTestSpec cases supply chain environment but no uploaded
+# genesis. Hive's standard eth1 images carry a minimal fallback at
+# /genesis.json for that contract; require this adapter to start the same way.
+container="$slug-fallback-$$"
+containers+=("$container")
+echo "==> starting $image with the bundled discovery genesis"
+docker run --detach --name "$container" --label "agent=$slug" \
+    "${hive_env[@]}" "$image" >/dev/null
+sleep 2
+if [ "$(docker inspect -f '{{.State.Running}}' "$container")" != "true" ]; then
+    fail_with_log "the adapter has no usable bundled discovery genesis"
+fi
+ok "bundled discovery genesis starts under HIVE chain configuration"
+docker rm --force "$container" >/dev/null
 
 # --- the normal path --------------------------------------------------------
 

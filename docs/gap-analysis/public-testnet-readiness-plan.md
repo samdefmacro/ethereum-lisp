@@ -473,14 +473,21 @@ The implementation boundary is split deliberately:
   timestamp changes the client's `0x9736aeb1` to the test tool's exact
   `0x15e3c946`. The mapper now preserves supported source time-fork activations
   unless Hive explicitly overrides them, and the adapter smoke has a passing
-  RED/GREEN control. The two discovery entries independently fail because their
-  simulator cases upload no genesis while this adapter requires one. No
-  successor Hive rerun has occurred, so the devp2p gate remains open. The
+  RED/GREEN control. The two discovery entries independently failed because
+  their simulator cases upload no genesis. The adapter now carries Hive's
+  pinned standard minimal genesis as the same fallback used by standard eth1
+  clients; simulator uploads still replace that path. A focused adapter
+  RED/GREEN control proves both fallback startup and uploaded-genesis override.
+  The CLI currently serves discv4 only, so `HIVE_DISCV5` is now explicitly
+  refused rather than silently entering a v5 suite with the v4 service.
+  No successor Hive rerun has occurred, so the devp2p gate remains open. The
   discovery Dockerfile also cloned moving geth master; the retained layer pins
   this run's observed source to `101035a1049c7dc468bfe973478b579d9883d7b6`,
   but a reproducible closing rerun must make that source pin explicit. Exact
   failure partition, runner identities, hashes, and local test commands are in
-  `docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt`.
+  `docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt`; the discovery
+  fallback repair is recorded in
+  `docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt`.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request

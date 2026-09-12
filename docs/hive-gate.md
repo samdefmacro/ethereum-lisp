@@ -64,7 +64,9 @@ temporary context link is removed on exit; the source archive is never changed.
   former default heap while the container itself was still below its limit.
 - **`tools/hive/`** — the Hive client definition: `Dockerfile` (layers `jq` and
   `curl` onto the runtime image), `ethereum-lisp.sh` (the `HIVE_*` contract),
-  `mapper.jq` (genesis translation), `enode.sh`, `hive.yaml`. The adapter
+  `mapper.jq` (genesis translation), `genesis.json` (Hive's pinned standard
+  fallback for discovery cases that upload none), `enode.sh`, `hive.yaml`.
+  Simulator uploads replace the fallback path before startup. The adapter
   explicitly selects `--db.engine rocksdb`: the fsync-per-record file backend
   is a small crash-safety oracle, whereas Hive's concurrent Engine/devp2p
   workloads require the production incremental backend used by public-network
@@ -79,12 +81,13 @@ temporary context link is removed on exit; the source archive is never changed.
   `engine_*` call with 401, and answers a JWT-signed one. It also builds a
   `--hoodi` genesis, which is the only check that the packaged allocation files
   still resolve from inside a saved image.
-- **`scripts/hive-adapter-smoke.sh`** — starts the adapter the way Hive starts
-  it (uploaded `/genesis.json`, `HIVE_*` in the environment, no arguments) and
-  checks that the genesis translation reaches the client, that Hive's fixed JWT
-  secret authenticates, that each refused variable exits naming itself, and
-  that `enode.sh` returns the same routable bridge address as `admin_nodeInfo`.
-  It also fails if the adapter does not select RocksDB.
+- **`scripts/hive-adapter-smoke.sh`** — starts the adapter both as discovery
+  cases do (no uploaded genesis) and as the other Hive cases do (uploaded
+  `/genesis.json`, `HIVE_*` in the environment, no arguments). It checks that
+  the bundled fallback starts, an upload replaces it and reaches the client,
+  Hive's fixed JWT secret authenticates, each refused variable exits naming
+  itself, and `enode.sh` returns the same routable bridge address as
+  `admin_nodeInfo`. It also fails if the adapter does not select RocksDB.
 - **`.github/workflows/hive.yml`** — a blocking `runtime-image` job running both
   smoke tests, and a non-blocking matrix of `ethereum/engine`,
   `ethereum/rpc-compat`, and `devp2p`.
@@ -136,6 +139,7 @@ entrypoint exits with a message naming it.
 | `HIVE_ALLOW_UNPROTECTED_TX` | `--rpc.allow-unprotected-txs` |
 | `HIVE_NODETYPE=full`/`archive`/unset | accepted, no flag: full validation with no pruning is the only mode, and the CLI rejects `--syncmode` outright |
 | `HIVE_NODETYPE=snap` | **refused** |
+| `HIVE_DISCV5` | **refused** — the CLI currently starts discv4 only |
 | `HIVE_CLIQUE_PERIOD`, `HIVE_CLIQUE_PRIVATEKEY` | **refused** — no consensus-engine selection exists |
 | `HIVE_MINER`, `HIVE_MINER_EXTRA` | **refused** — no local sealing |
 | `HIVE_GRAPHQL_ENABLED` | **refused** — `--graphql` is accepted by the CLI and does nothing |
@@ -200,7 +204,7 @@ agree on the same eight-hex-digit client commit.
 | `ethereum/rpc-compat` | wired, `continue-on-error`; exact revision `6e3e9b1d` passes the full pinned 234-case inventory |
 | `ethereum/eels/consume-engine` | not wired |
 | `ethereum/eels/consume-rlp` | not wired — requires a suite-specific current-fork review |
-| `devp2p` | wired, `continue-on-error`; first complete baseline passed 1/33, with the fork-ID adapter repair awaiting a pinned rerun and discovery startup still open |
+| `devp2p` | wired, `continue-on-error`; first complete baseline passed 1/33, with local RED/GREEN repairs for fork-ID mapping and discv4 fallback startup awaiting a pinned rerun; discv5 is now explicitly refused rather than silently running discv4 |
 | `ethereum/sync` (full-sync) | not wired — plan section 4 remains the blocker |
 | snap | not wired — plan section 5 |
 
@@ -222,9 +226,10 @@ control plane:
   `engine_exchangeCapabilities`, `engine_getClientVersionV1` and `eth_syncing`
   under a JWT.
 - `scripts/hive-adapter-smoke.sh` passes — the client image builds on top of
-  the runtime image and starts the way Hive starts it, the genesis translation
-  reaches the client, Hive's fixed JWT secret authenticates, and each refused
-  variable exits naming itself. `enode.sh` returns the same non-loopback bridge
+  the runtime image, starts both with the bundled discovery fallback and an
+  uploaded simulator genesis, preserves source fork configuration when Hive
+  supplies no override, authenticates Hive's fixed JWT secret, and refuses each
+  unsupported variable by name. `enode.sh` returns the same non-loopback bridge
   address reported by `admin_nodeInfo`.
 - `scripts/hive-run.sh --prepare-only` checks out Hive
   `dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c`, verifies the commit, and installs
@@ -272,13 +277,18 @@ one fork-ID mismatch: the uploaded genesis contained `osakaTime=180`, while the
 simulator's forkenv omitted `HIVE_OSAKA_TIMESTAMP` and the client mapper
 discarded the source activation. The mapper now retains supported source
 time-fork values unless Hive overrides them, and the local adapter RED/GREEN
-smoke passes. The two discovery entries remain a separate missing-genesis
-startup failure. The retained simulator build used geth
+smoke passes. The adapter now also bundles Hive's pinned standard minimal
+genesis for discovery entries that upload none; a second RED/GREEN control
+proves fallback startup without weakening uploaded-genesis handling. Because
+the CLI currently serves discv4 only, `HIVE_DISCV5` is explicitly refused
+rather than silently starting the wrong protocol.
+The retained simulator build used geth
 `101035a1049c7dc468bfe973478b579d9883d7b6`; because Hive's simulator
 Dockerfile cloned moving geth master, a closing rerun must first make that
 source pin reproducible. See
-`docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt`; no part of this
-failure baseline closes the devp2p gate.
+`docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt` and
+`docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt`; no local repair closes
+the devp2p gate before a fresh pinned Linux rerun.
 
 Revision `63408ce2` repaired the remaining pinned `eth_config/get-config`
 fork-ID mismatch by including `mergeNetsplitBlock` in the EIP-2124 activation

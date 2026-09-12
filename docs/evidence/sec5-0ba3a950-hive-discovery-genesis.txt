@@ -1,0 +1,97 @@
+Section 5 Hive discovery fallback-genesis adapter evidence
+
+Recorded: 2026-09-12T00:12:59Z
+Implementation base revision: 0ba3a9505e59ac8ffa0ea4bc523f7b3a4eddbb64
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+The first complete pinned Hive devp2p baseline showed that its discv4 and discv5
+ClientTestSpec cases start a client with chain environment but do not upload
+/genesis.json. The ethereum-lisp adapter treated that file as mandatory and
+exited before either discovery test could execute. This record covers the local
+RED/GREEN repair only. A fresh pinned Linux Hive rerun is still required and the
+devp2p gate remains open.
+
+Pinned reference
+
+- Hive: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+- Standard eth1 genesis Git blob:
+  7ca6f39f73143afdcde0d0b2f55be2539f0a7df1
+- Local tools/hive/genesis.json SHA-256:
+  744c8c0f80dbd291fe76672b9832ec80d51e92d081ed586c6617505f74240f8c
+
+A machine comparison returned byte_identical=True, 542 bytes, and local Git
+blob 7ca6f39f73143afdcde0d0b2f55be2539f0a7df1. This is the exact minimal
+fallback genesis shipped by Hive's standard eth1 client adapters. Hive replaces
+/genesis.json when a simulator supplies an uploaded genesis, so this fallback
+does not override suite-specific chain configuration.
+
+RED
+
+A new adapter-smoke phase started the built client image with the normal Hive
+chain environment and no bind-mounted /genesis.json:
+
+  RUNTIME_IMAGE=ethereum-lisp-runtime \
+  RUNTIME_TAG=sec5-b7bdb6da-amd64 \
+  SMOKE_SLUG=sec5-discovery-genesis-red \
+  scripts/hive-adapter-smoke.sh \
+    ethereum-lisp-hive:sec5-discovery-genesis-red
+
+Before the repair the command exited 1. The client log ended with:
+
+  FATAL: /genesis.json is missing; hive must upload it.
+  FAIL: the adapter has no usable bundled discovery genesis
+
+GREEN
+
+tools/hive/Dockerfile now installs the pinned fallback at /genesis.json. The
+entrypoint continues to map that file through the same fail-closed adapter path,
+and a simulator upload still replaces the image file before startup.
+
+  RUNTIME_IMAGE=ethereum-lisp-runtime \
+  RUNTIME_TAG=sec5-b7bdb6da-amd64 \
+  SMOKE_SLUG=sec5-discovery-reviewed-green \
+  scripts/hive-adapter-smoke.sh \
+    ethereum-lisp-hive:sec5-discovery-reviewed-green
+
+The complete smoke exited 0. It proved:
+
+- all six unsupported-variable refusal checks pass, including HIVE_DISCV5;
+- the bundled discovery genesis starts under Hive chain configuration;
+- an uploaded genesis replaces the fallback and retains its Prague/Osaka data;
+- HIVE_CHAIN_ID reaches the client;
+- RocksDB remains selected;
+- enode.sh returns the routable admin_nodeInfo address;
+- authenticated engine_exchangeCapabilities succeeds.
+
+Additional checks
+
+- bash -n scripts/hive-adapter-smoke.sh tools/hive/ethereum-lisp.sh: pass
+- python3 -m json.tool tools/hive/genesis.json: pass
+- git diff --check: pass
+- cl-workbench docs verify: pass
+- cl-workbench doctor --strict: pass, no host fallback
+- built adapter image: linux/amd64, user 10001:10001
+- in-image /genesis.json: mode 0644, root-owned, readable by runtime user
+- in-image /genesis.json SHA-256:
+  744c8c0f80dbd291fe76672b9832ec80d51e92d081ed586c6617505f74240f8c
+- tracked file is byte-identical to pinned Hive blob 7ca6f39f73143afdcde0d0b2f55be2539f0a7df1
+
+Independent review correction
+
+A read-only review reproduced the smoke and found that the first repair would
+have allowed Hive's HIVE_DISCV5=1 case to start the CLI's discv4-only UDP
+service. The added refusal regression initially failed to terminate, proving
+the silent acceptance. The final adapter explicitly rejects HIVE_DISCV5 by
+name; the reviewed GREEN smoke above confirms the fail-closed contract. This
+does not claim discv5 conformance.
+
+Remaining boundary
+
+This repair has not been built into an exact successor amd64 runtime and has not
+been exercised by a fresh pinned Hive devp2p run on Linux. The pinned simulator
+Dockerfile also cloned moving geth master in the baseline; a closing run must
+make the observed geth source pin reproducible. Existing Hoodi validation remains
+on exact runtime revision 0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae and was not
+mutated by this work.
