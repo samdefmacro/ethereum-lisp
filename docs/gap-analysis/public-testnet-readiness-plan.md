@@ -649,6 +649,19 @@ The implementation boundary is split deliberately:
   exact commands, review correction, and limits are in
   `docs/evidence/sec5-2db4c38f-hive-blob-availability.txt`.
 
+  Exact revision `085d03c38b783208489c15175c41bf8f266510c4` adds the
+  deterministic local regression for pinned geth `TestGetCells`. Two peers
+  announce the same typed blob transaction; the selected peer's production
+  session pump sends `GetPooledTransactions`, its asynchronous response handler
+  queues the omitted-payload wrapper, and the next pump action requests the
+  exact hash with the full custody mask before verified transaction/sidecar
+  admission. A removed-queue mutation failed at the expected handoff. The
+  focused test, all 68 BLOB unit tests, and the full 1,366-test cold-unit layer
+  with three optional skips passed. Initial review required explicit mask and
+  KZG-input assertions; final review approved the corrected delta. This is not a
+  socket-level or successor Hive pass; exact evidence is in
+  `docs/evidence/sec5-085d03c3-hive-get-cells.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
