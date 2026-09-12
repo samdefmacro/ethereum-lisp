@@ -1,0 +1,53 @@
+Section 5 exact linux/amd64 runtime artifact evidence
+
+Recorded at: 2026-09-12T23:50:47Z
+Branch: sec5-public-bootstrap-sync
+Revision: 970a04b06c85b0e5f733103782da072821250829
+Image: ethereum-lisp-runtime:sec5-970a04b0-amd64
+Image ID: sha256:8e5c892280b0ef3c9e02639a5c2d1c1815d38015f688f26cf71ebf5c1b94be75
+Platform: linux/amd64
+Runtime user: ethereum:ethereum
+OCI revision label: 970a04b06c85b0e5f733103782da072821250829
+
+Build and revision fence
+
+The canonical worktree was clean and HEAD equaled the named revision before the
+build. The reviewed project broker ran with RUNTIME_PLATFORM=linux/amd64 and
+built the named runtime image. HEAD and clean-tree assertions were repeated
+between build, smoke, export, and final readback; all passed.
+
+Runtime smoke
+
+The Workbench-managed runtime-smoke profile passed against the exact image:
+
+  packaged Hoodi genesis built successfully
+  eth_chainId returned 0x539
+  web3_clientVersion identified ethereum-lisp/0.1.0/CL/0x970a04b0
+  unauthenticated engine_exchangeCapabilities was rejected with HTTP 401
+  authenticated engine_exchangeCapabilities answered
+  engine_getClientVersionV1 identified
+    970a04b06c85b0e5f733103782da072821250829 / 0x970a04b0
+  eth_syncing answered on the Engine endpoint
+  smoke runner result: PASS
+
+Export
+
+Artifact:
+  /private/tmp/ethereum-lisp-runtime-sec5-970a04b0-20260912T234623Z.tar
+Size:
+  72018944 bytes
+SHA-256:
+  c22b41e3bb9e46c04ac352997e8adb5d14981a213b5291beb82123824dd7a6fd
+
+The project runtime-export broker independently required the image revision label
+to equal repository HEAD and the image platform to equal linux/amd64 before
+writing the fresh uniquely named artifact. Final Docker inspect and SHA-256
+readback matched the values above.
+
+Scope boundary
+
+This proves a reproducible exact-revision amd64 runtime artifact and local
+runtime smoke only. It was not uploaded or deployed. The existing Hoodi EL/CL
+containers and datadir were not mutated. Hive devp2p remains blocked by its
+independently rejected remote capacity precondition, and Hoodi completion,
+shadow comparison, and validator soak remain open.

@@ -882,6 +882,17 @@ The implementation boundary is split deliberately:
   local regression evidence rather than a live Hive SNAP pass; exact evidence
   is in `docs/evidence/sec5-306e5f4f-snap-account-byte-targets.txt`.
 
+  Exact accepted revision `970a04b06c85b0e5f733103782da072821250829`
+  has a verified linux/amd64 runtime image and fresh export. Image
+  `ethereum-lisp-runtime:sec5-970a04b0-amd64` has ID
+  `sha256:8e5c892280b0ef3c9e02639a5c2d1c1815d38015f688f26cf71ebf5c1b94be75`,
+  OCI revision label `970a04b06c85b0e5f733103782da072821250829`, and non-root
+  `ethereum:ethereum` runtime user. The Workbench runtime-smoke gate passed, and
+  the 72,018,944-byte export has SHA-256
+  `c22b41e3bb9e46c04ac352997e8adb5d14981a213b5291beb82123824dd7a6fd`.
+  This artifact was not deployed; exact evidence is in
+  `docs/evidence/sec5-970a04b0-amd64-runtime.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
