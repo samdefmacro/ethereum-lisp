@@ -833,6 +833,62 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
              (eth-peer-announced-hash-count peer)))
       (is (= 25 (length (eth-peer-take-announced-hashes peer 25)))))))
 
+(deftest devnet-new-pooled-txs-requests-all-fifty-eth-72-hashes
+  (:layer :integration :module :p2p)
+  ;; Pinned geth TestNewPooledTxs announces fifty dynamic-fee transactions over
+  ;; eth/72 and requires one GetPooledTransactions request for the complete set.
+  (let* ((count 50)
+         (transactions
+           (loop for nonce below count
+                 collect (eth-gossip-test-typed-transaction (1+ nonce))))
+         (hashes
+           (mapcar #'eth-gossip-transaction-hash-bytes transactions))
+         (expected (make-hash-table :test #'equalp))
+         (custody-mask (make-byte-vector 16 :initial-element #xa5))
+         (sent '()))
+    (dolist (hash hashes)
+      (setf (gethash hash expected) t))
+    (is (= count (hash-table-count expected)))
+    (multiple-value-bind (backend pool) (eth-gossip-test-backend)
+      (declare (ignore pool))
+      (let ((peer
+              (ethereum-lisp.eth-sync::%make-eth-peer
+               :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+               :serve-backend backend)))
+        (eth-gossip-test-call-with-function-overrides
+         (list
+          (cons
+           'ethereum-lisp.eth-sync:eth-peer-send
+           (lambda (seen-peer message-id payload)
+             (is (eq peer seen-peer))
+             (push (list message-id payload) sent))))
+         (lambda ()
+           (is
+            (eth-peer-gossip-message
+             peer
+             ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+             (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes
+              transactions
+              :version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+              :custody-mask custody-mask)))
+           (is (= count (eth-peer-announced-hash-count peer)))
+           (is (= count
+                  (ethereum-lisp.eth-sync::eth-peer-request-announced-transactions
+                   peer)))
+           (is (zerop (eth-peer-announced-hash-count peer)))))
+        (is (= 1 (length sent)))
+        (destructuring-bind (message-id payload) (first sent)
+          (is (= ethereum-lisp.eth-wire:+eth-message-get-pooled-transactions+
+                 message-id))
+          (multiple-value-bind (request-id requested)
+              (ethereum-lisp.eth-wire:decode-eth-get-pooled-transactions payload)
+            (is (plusp request-id))
+            (is (= count (length requested)))
+            (is (= count
+                   (length (remove-duplicates requested :test #'bytes=))))
+            (dolist (hash requested)
+              (is (gethash hash expected)))))))))
+
 (deftest devnet-large-tx-request-round-trips-batched-wire-admission
   (:layer :integration :module :p2p)
   ;; Hive's LargeTxRequest sends one Transactions payload containing 2,000
