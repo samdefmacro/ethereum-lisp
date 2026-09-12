@@ -847,6 +847,18 @@ The implementation boundary is split deliberately:
   regression evidence rather than a successor Hive pass; exact evidence is in
   `docs/evidence/sec5-3140e224-hive-snap-unknown-code-hashes.txt`.
 
+  Exact accepted revision `99b9bad3f6ccef8c63bccde6e6520231c1af7e8e`
+  covers the pinned `TestSnapGetAccountRange` one-byte and zero-byte response
+  targets through the production eth+snap session pump and persistent backend.
+  Both requests return the first available account even though its encoded body
+  exceeds the requested budget. A pre-append hard-cap mutation failed the exact
+  one-account cardinality assertion. The focused test, 24-test session-pump
+  family, 127-test `SNAP-` family, and full 1,386-test cold-unit layer passed
+  with three optional skips. Independent review approved without findings.
+  This remains local regression evidence rather than a live Hive SNAP pass;
+  exact evidence is in
+  `docs/evidence/sec5-99b9bad3-snap-account-soft-limits.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

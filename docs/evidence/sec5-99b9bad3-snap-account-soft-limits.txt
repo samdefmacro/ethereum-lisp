@@ -1,0 +1,98 @@
+Section 5 SNAP account soft-limit compatibility evidence
+
+Recorded at: 2026-09-12T23:20:27Z
+Branch: sec5-public-bootstrap-sync
+Test revision: 99b9bad3f6ccef8c63bccde6e6520231c1af7e8e
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6,
+  cmd/devp2p/internal/ethtest/snap.go, TestSnapGetAccountRange lines 115-135
+Pinned reference file SHA-256:
+  275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+
+Behavioral contract
+
+GetAccountRange uses its byte argument as a soft response target. When the
+first available account is larger than the requested budget, the server still
+returns that first account. Pinned geth exercises both a one-byte target and a
+zero-byte target and expects exactly one account for each.
+
+Regression
+
+ETH-PEER-RUN-SESSION-SERVES-FIRST-SNAP-ACCOUNT-OVER-SOFT-LIMIT creates three
+committed accounts, derives the actual first secure-trie key, and sends both
+requests through the production eth-peer-run-session SNAP dispatcher, wire
+codec, request router, and persistent SNAP backend. It verifies the response
+message kind, both request IDs, exact one-account cardinality, and the returned
+secure key.
+
+Mutation RED proof
+
+A temporary production mutation rejected an account before appending it when
+its encoded size exceeded the byte target. That plausible hard-cap behavior
+returned no account for the one-byte and zero-byte requests. The focused
+regression turned RED:
+
+  container: ethereum-lisp-cold-sec5-snap-account-soft-red-cycle985
+  container ID: 70b814e0cef1dac0adf3ae8e703bd6f16d9cfca7fa168db43e68b0e317caa3c9
+  result: 0 passed, 1 failed; exit 1; OOM false
+  started: 2026-09-12T23:13:58.039937377Z
+  finished: 2026-09-12T23:14:49.490565220Z
+
+The mutation was removed before final validation. Production backend source
+had no diff when the accepted gates ran.
+
+Accepted cold validation
+
+Focused final:
+  ethereum-lisp-cold-sec5-snap-account-soft-final-cycle985
+  ID 2bdbd44cd033bd4509b1a8b08b2acccb09289b1225b6bf70250d106fa648ad39
+  1 passed; exit 0; OOM false
+
+ETH-PEER-RUN-SESSION family:
+  ethereum-lisp-cold-sec5-session-account-soft-cycle985
+  ID 6f8ff21b4eb86dbda188528f97e410baa64bb80bfee54e989fc5b3e5f77c8f26
+  24 passed; exit 0; OOM false
+
+SNAP family:
+  ethereum-lisp-cold-sec5-snap-account-soft-family-cycle985
+  ID b39e09c08c874023eacc124b5043d5a71ce956a58ee208d8936c333f5fcc0447
+  127 passed; exit 0; OOM false
+
+Full cold unit:
+  ethereum-lisp-cold-sec5-snap-account-soft-full-cycle985
+  ID ee63eb1c0658dc44d6bf7acafb9e395cf29a979843acbd1cbcc5c90e4fdbca2d
+  1386 passed, 3 optional fixture-dependent skips; exit 0; OOM false
+
+Static gates:
+  cl-workbench doctor --strict: passed before application tooling
+  cl-workbench check parens tests/eth-pump-tests.lisp: passed
+  git diff --check: passed
+
+Independent review
+
+The independent specification and quality review returned PASS with no
+critical, high, medium, or low-severity findings. It confirmed exact pinned
+reference parity, all required production seams, non-vacuous account/order
+assertions, safe fdefinition restoration, and the strength of the pre-append
+hard-cap mutation.
+
+Review transcript:
+  /Users/sen/.hermes/cache/delegation/live/deleg_83a2ce1b/task-0.log
+
+Live boundary
+
+The existing exact-revision Hoodi validation deployment was not mutated. A
+read-only observation at 2026-09-12T23:15:45Z found both EL and Lighthouse
+running without OOM or restart. The EL retained 37 peers, but eth_syncing still
+reported currentBlock 0x0 while highestBlock advanced to 0x371dcc, and
+eth_blockNumber remained 0x0. The healer reached 2,824,192 processed nodes,
+but frontierWorks expanded to 978,430 and knownIncompleteNodes to 877,545;
+completed remained false and no target/heal completion event existed. The
+remote /data filesystem had 8,063,385,600 bytes available, below the rejected
+Hive r40 precondition.
+
+Scope boundary
+
+This closes only the pinned one-byte and zero-byte GetAccountRange response
+semantics. It does not prove the open Hive devp2p gate, Hoodi target/healer
+completion, canonical catch-up, eth_syncing=false, shadow comparison, or
+validator soak.
