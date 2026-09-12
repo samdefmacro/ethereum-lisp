@@ -1,0 +1,93 @@
+Section 5 SNAP inverted account-range compatibility evidence
+
+Recorded at: 2026-09-12T23:04:44Z
+Branch: sec5-public-bootstrap-sync
+Test revision: 92acbc20d3fe7a89059cc4023adbfc9650a66000
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6,
+  cmd/devp2p/internal/ethtest/snap.go, TestSnapGetAccountRange lines 249-286
+Pinned reference file SHA-256:
+  275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+
+Scope
+
+The pinned geth interoperability test distinguishes three inverted
+GetAccountRange requests:
+
+1. origin ff..ff, limit 00..00: no available account exists at or after the
+   origin, so the response has zero accounts.
+2. origin firstKey, limit firstKey-1: the server returns firstKey once and
+   stops, even though the limit is below the available origin.
+3. origin firstKey, limit 00..00: the server likewise returns firstKey once.
+
+The regression
+ETH-PEER-RUN-SESSION-PRESERVES-INVERTED-SNAP-ACCOUNT-RANGE-BOUNDARIES
+constructs three committed accounts, derives the real first trie key, sends all
+three requests through the production eth-peer-run-session SNAP dispatcher and
+persistent state backend, and verifies response IDs, message IDs, account
+counts, and returned account hashes.
+
+Mutation RED proof
+
+A temporary production mutation added a blanket pre-response rejection when
+origin was at or beyond limit. That superficially plausible behavior rejects
+all inverted requests, contradicting the pinned geth behavior for cases 2 and
+3. The focused regression turned RED:
+
+  container: ethereum-lisp-cold-sec5-snap-inverted-account-red-cycle984
+  container ID: 12e8ad0ba9efea6c7ae711a54acd060abc9409e69bc4a7d633f30e8c4c7ba19e
+  result: 0 passed, 1 failed; process exit 1; OOM false
+  started: 2026-09-12T22:50:54.896888126Z
+  finished: 2026-09-12T22:51:46.765512344Z
+
+The mutation was removed before final validation. Production source is
+unchanged by the accepted revision.
+
+Accepted cold validation
+
+Focused initial GREEN:
+  ethereum-lisp-cold-sec5-snap-inverted-account-green-cycle984
+  ID cb0d1fd08df9b29865253eb3476896de54e8b78d928846b06bdd592ceaa66fe7
+  1 passed; exit 0; OOM false
+
+Focused final GREEN after restoring production source:
+  ethereum-lisp-cold-sec5-snap-inverted-account-final-cycle984
+  ID 56c8381d87cc81bc96fc9d5b3f513ea3e3df1c443faa73f927ab465300dbd2d4
+  1 passed; exit 0; OOM false
+
+ETH-PEER-RUN-SESSION family:
+  ethereum-lisp-cold-sec5-session-inverted-account-cycle984
+  ID 6dc02d1d146382bcfc2d8d09d6499658f54b388446a4c169d155b1d18c81bae6
+  23 passed; exit 0; OOM false
+
+SNAP family:
+  ethereum-lisp-cold-sec5-snap-inverted-account-family-cycle984
+  ID 582e238a6e11409c44180e74f769e8ebf892d11f90c8640fbb25122414b75911
+  126 passed; exit 0; OOM false
+
+Full cold unit gate:
+  ethereum-lisp-cold-sec5-snap-inverted-account-full-cycle984
+  ID d1f65f392c6d0556bee7778d36ae082b5ae6b3bf68d3e04a61b6d4ffc37e0a0c
+  1385 passed, 3 skipped; exit 0; OOM false
+
+Static gates:
+  cl-workbench check parens tests/eth-pump-tests.lisp: passed
+  git diff --check: passed
+
+Independent review
+
+Specification compliance review: PASS. It confirmed all three pinned cases,
+the production eth-peer-run-session path, and the persistent SNAP backend.
+Review transcript:
+  /Users/sen/.hermes/cache/delegation/live/deleg_daeccf33/task-0.log
+
+Code-quality review: APPROVED with no critical, important, or minor issues. It
+confirmed fixture provenance, boundary-distinguishing inputs, assertion scope,
+global function restoration via unwind-protect, and repository style.
+Review transcript:
+  /Users/sen/.hermes/cache/delegation/live/deleg_554331d3/task-0.log
+
+Boundary of claim
+
+This evidence closes the pinned inverted GetAccountRange regression only. It
+does not prove Hoodi SNAP/healer completion, canonical execution catch-up,
+eth_syncing=false, Hive completion, shadow comparison, or validator soak.
