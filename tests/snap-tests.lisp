@@ -4937,6 +4937,57 @@
         (is (= 3 (length codes)))
         (is (every (lambda (body) (bytes= code body)) codes))))))
 
+(deftest snap-trie-node-server-preserves-path-cardinality
+  (:layer :integration :module :p2p)
+  ;; Pinned geth appends one response item for every valid account or storage
+  ;; path. A missing node is represented by an empty byte string, not omitted,
+  ;; so the requester can correlate response positions with request positions.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000042"))
+         (slot (make-hash32 (snap-test-hash 7))))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (state-db-set-storage state address slot 1)
+    (let* ((backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (root (hash32-bytes (state-db-root state)))
+           (missing-path #(0 1 2 3 4 5 6 7 8))
+           (response
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+              (ethereum-lisp.snap:make-snap-get-trie-nodes
+               81 root (list (list #(0)) (list missing-path)) 5000)))
+           (nodes (ethereum-lisp.snap:snap-trie-nodes-nodes response)))
+      (is (= 81 (ethereum-lisp.snap:snap-trie-nodes-id response)))
+      (is (= 2 (length nodes)))
+      (is (plusp (length (first nodes))))
+      (is (zerop (length (second nodes))))
+      (let* ((root-node (first nodes))
+             (boundary-response
+               (snap-test-call-backend
+                backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+                (ethereum-lisp.snap:make-snap-get-trie-nodes
+                 82 root (list (list #(0)) (list #(0)))
+                 (length root-node)))))
+        (is (= 2
+               (length
+                (ethereum-lisp.snap:snap-trie-nodes-nodes
+                 boundary-response)))))
+      (let* ((account-hash (keccak-256 (address-bytes address)))
+             (storage-response
+               (snap-test-call-backend
+                backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+                (ethereum-lisp.snap:make-snap-get-trie-nodes
+                 83 root (list (list account-hash #(0) missing-path)) 5000)))
+             (storage-nodes
+               (ethereum-lisp.snap:snap-trie-nodes-nodes storage-response)))
+        (is (= 83 (ethereum-lisp.snap:snap-trie-nodes-id storage-response)))
+        (is (= 2 (length storage-nodes)))
+        (is (plusp (length (first storage-nodes))))
+        (is (zerop (length (second storage-nodes))))))))
+
 (deftest snap-trie-node-server-caps-disk-lookups
   (:layer :integration :module :p2p)
   (multiple-value-bind (state addresses)
@@ -9321,14 +9372,13 @@
               real-get-many))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
       (is (equal '(2 1) (nreverse request-sizes)))
-      ;; One bounded MultiGet per two-code flush discovers missing hashes.
-      ;; Verified content-addressed writes need no collision point reads. The
-      ;; repeated account code crosses a flush, proving traversal-wide hashes
-      ;; are released: its second bounded MultiGet finds the durable code and
-      ;; therefore does not add another peer request.
+      ;; One bounded MultiGet per two-code flush discovers missing hashes. The
+      ;; cardinality-preserving trie response keeps requested paths aligned, so
+      ;; the three unique code hashes are probed exactly once across two
+      ;; batches; verified content-addressed writes need no collision reads.
       (is (zerop target-code-point-lookups))
       (is (= 2 target-code-lookup-batches))
-      (is (= 4 target-code-lookup-items))
+      (is (= 3 target-code-lookup-items))
       (dolist (code (list code-a code-b code-c))
         (multiple-value-bind (persisted present-p)
             (kv-get-chain-record target-database :code (keccak-256 code))

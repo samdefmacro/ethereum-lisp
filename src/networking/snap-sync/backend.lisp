@@ -262,7 +262,8 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
     (unless account-trie
       (return-from snap-sync-trie-node-response
         (make-snap-trie-nodes (snap-get-trie-nodes-id request) '())))
-    (let* ((remaining (snap-get-trie-nodes-bytes request))
+    (let* ((byte-limit (snap-get-trie-nodes-bytes request))
+           (response-bytes 0)
            (nodes '())
            (lookups 0))
       (block serve
@@ -276,11 +277,11 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
                 (incf lookups)
                 (multiple-value-bind (node present-p)
                     (mpt-get-node-by-compact-path account-trie (first path-set))
-                  (when present-p
-                    (when (and nodes (> (length node) remaining))
-                      (return-from serve))
+                  (let ((node (if present-p node (make-byte-vector 0))))
                     (push node nodes)
-                    (decf remaining (min remaining (length node))))))
+                    (incf response-bytes (length node))
+                    (when (> response-bytes byte-limit)
+                      (return-from serve)))))
               (let ((account-hash (first path-set)))
                 (unless (= 32 (length account-hash))
                   (error
@@ -296,12 +297,11 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
                       (incf lookups)
                       (multiple-value-bind (node present-p)
                           (mpt-get-node-by-compact-path storage-trie compact-path)
-                        (when present-p
-                          (when (and nodes (> (length node) remaining))
-                            (return-from serve))
+                        (let ((node (if present-p node (make-byte-vector 0))))
                           (push node nodes)
-                          (decf remaining
-                                (min remaining (length node))))))))))))
+                          (incf response-bytes (length node))
+                          (when (> response-bytes byte-limit)
+                            (return-from serve)))))))))))
       (make-snap-trie-nodes
        (snap-get-trie-nodes-id request) (nreverse nodes)))))
 
