@@ -1,0 +1,76 @@
+Section 5 pinned geth SNAP soft byte-limit regression
+
+Recorded at: 2026-09-12T21:11:21Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 553f9f5397a3265458f0f2691b8da8640f638d8e
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+Reference case: cmd/devp2p/internal/ethtest/snap.go TestSnapGetByteCodes,
+lines 505-516
+
+Scope
+
+The accepted regression sends two GetByteCodes requests through the production
+eth+snap session pump, request codec, SNAP dispatcher, persistent backend,
+response codec, and send path. Each requests three available durable code
+bodies, first with a one-byte budget and then with a zero-byte budget. Both
+responses preserve their request IDs and return the first exact code body,
+proving that the byte target is soft and is checked only after serving an item.
+
+RED control
+
+The production backend was deliberately mutated to reject a code body before
+adding it whenever that body would exceed the requested byte target. The
+focused regression then failed 0/1 at the exact one-item cardinality assertion.
+The mutation was fully reverted; the accepted revision changes only the test.
+
+Verification
+
+- `cl-workbench doctor --strict`: passed.
+- Parenthesis checks for the test and temporarily mutated backend: passed.
+- Focused selector
+  `ETH-PEER-RUN-SESSION-SERVES-FIRST-SNAP-BYTECODE-OVER-SOFT-LIMIT`:
+  1 passed.
+- `ETH-PEER-RUN-SESSION-` selector: 16 passed.
+- `SNAP-` selector: 119 passed.
+- Full `cold-unit`: 1,378 passed, 3 optional skips.
+- `git diff --check`: passed.
+- Independent read-only review approved without findings after checking both
+  pinned budgets, FIFO request/response ordering, IDs, cardinality, exact body
+  equality, production session/wire/backend coverage, mutation sensitivity,
+  and unwind-protect restoration.
+
+Identity
+
+- go-ethereum `snap.go` SHA-256:
+  `275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd`.
+- Commit patch ID:
+  `212841e0de73aca480a9adc8301a80a23c507305`.
+- `tests/eth-pump-tests.lisp` SHA-256:
+  `3c4bb5c66bbb382a35282357ab2fdc47ca988e5bf17639ee25170693fba83a6c`.
+- Focused container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-soft-limit-final-cycle981`
+  (`fd7746ef0ebd04276115e3e2e0983cc8d96f88f87fc52bd8829d1e1e59e12518`),
+  `3860ecb0bc8b70c5f052ca6ae3341be9586ceeb35ae642e2441ff4af46446b9e`.
+- Session-family container/log SHA-256:
+  `ethereum-lisp-cold-sec5-session-soft-limit-cycle981`
+  (`9134003b3f59cdf25ed571caaef701b6691d9fb61c56509c25b70315d364504e`),
+  `ff8b66e01c9cce8049e736b50062a1d2c894f974833c94ebfbb8d9ea0fccd50a`.
+- SNAP-family container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-soft-limit-family-cycle981`
+  (`5c6803d5e499097ef76667c4719d569e398c243ffaef13fa387c8143b4e7f587`),
+  `e3ad10af8d072a3cef885128f10c91686b4d2c7e8974f22ab2975b875f9e1d52`.
+- Full cold-unit container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-soft-limit-full-cycle981`
+  (`379e7cc07fdc21d3f5626e074ffc33725479eecc755a462ca5c78f59c5f05229`),
+  `edc7f14c853be157c181e2a978c0d86b1a24db753de0268a9d3ac104fae1162b`.
+- RED mutation container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-soft-limit-red-cycle981`
+  (`8a3949927d42614048cf4decea2f275d1c2861c9b785032b92c5e8b407d9774e`),
+  `42c7bd747b147dcfe2da6779e8a79f9ad557d414f6c5264aa598ec47bb6a5629`.
+
+Boundary
+
+This is deterministic local regression evidence. It is not a successor Hive
+SNAP pass, a Hoodi completion result, an amd64 artifact, a shadow comparison,
+or a validator soak result.

@@ -810,6 +810,18 @@ The implementation boundary is split deliberately:
   local regression evidence rather than a successor Hive pass; exact evidence
   is in `docs/evidence/sec5-18911a11-hive-snap-all-bytecodes.txt`.
 
+  Exact accepted revision `553f9f5397a3265458f0f2691b8da8640f638d8e`
+  covers the pinned `TestSnapGetByteCodes` one-byte and zero-byte soft-limit
+  cases through the production eth+snap session pump and persistent backend.
+  Two requests for three available durable code bodies preserve request IDs 87
+  and 88 and each return the first exact code body even though it exceeds the
+  requested byte target. A pre-add hard-cap mutation failed the exact one-item
+  cardinality assertion. The focused test, sixteen-test session-pump family,
+  119-test `SNAP-` family, and full 1,378-test cold-unit layer passed with three
+  optional skips. Independent review approved without findings. This remains
+  local regression evidence rather than a successor Hive pass; exact evidence
+  is in `docs/evidence/sec5-553f9f53-hive-snap-soft-byte-limit.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
