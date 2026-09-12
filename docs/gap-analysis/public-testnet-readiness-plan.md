@@ -834,6 +834,19 @@ The implementation boundary is split deliberately:
   evidence rather than a successor Hive pass; exact evidence is in
   `docs/evidence/sec5-06e53af5-hive-snap-duplicate-code-hash.txt`.
 
+  Exact accepted revision `3140e224de9e1bff6ee6d91083fe097f8ee62dc0`
+  completes the adjacent pinned `TestSnapGetByteCodes` unknown-hash cases through
+  the production eth+snap session pump and persistent backend. Three requests
+  cover two distinct state-root-shaped hashes, a repeated unknown state root,
+  and the canonical empty trie root; response IDs 84--86 are preserved and each
+  response contains zero code items. Mutating the backend to manufacture an
+  empty body for an absent hash failed the focused test at the content-hash
+  boundary. The focused test, eighteen-test session-pump family, 121-test
+  `SNAP-` family, and full 1,380-test cold-unit layer passed with three optional
+  skips. Independent review approved without required fixes. This remains local
+  regression evidence rather than a successor Hive pass; exact evidence is in
+  `docs/evidence/sec5-3140e224-hive-snap-unknown-code-hashes.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

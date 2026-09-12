@@ -1,0 +1,82 @@
+Section 5 pinned geth SNAP unknown code-hash regression
+
+Recorded at: 2026-09-12T21:40:38Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 3140e224de9e1bff6ee6d91083fe097f8ee62dc0
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+Reference case: cmd/devp2p/internal/ethtest/snap.go TestSnapGetByteCodes,
+lines 466-484
+
+Scope
+
+The accepted regression creates a non-empty state root, keeps the canonical
+empty trie root as a distinct control, and sends three GetByteCodes requests
+through the production eth+snap session pump, request codec, SNAP dispatcher,
+persistent backend, response codec, and send path. The requests cover two
+distinct state-root-shaped hashes, a repeated unknown state root, and the empty
+trie root. Responses preserve request IDs 84, 85, and 86 and contain zero code
+items. Unknown state hashes are ordinary misses and are not reinterpreted as
+empty code bodies.
+
+RED control
+
+After the valid fixture first passed, the production bytecode backend was
+deliberately mutated to manufacture an empty body for an absent hash. The
+focused regression failed 0/1 with `snap bytecode record does not match its
+content hash`. The mutation was fully reverted; the accepted revision changes
+only the test. Two earlier RED attempts exposed fixture errors before the
+production boundary (`make-address` received an integer, then the test used an
+unavailable `is-false` helper); both were corrected before the meaningful
+mutation control and are not counted as mutation evidence.
+
+Verification
+
+- `cl-workbench doctor --strict`: passed; runtime fingerprint
+  `0592588f919a465e091360d5eca17a52bbe3c398a580a0808160a87810c422c2`.
+- Parenthesis check for the test and temporarily mutated backend: passed.
+- Focused selector
+  `ETH-PEER-RUN-SESSION-OMITS-UNKNOWN-SNAP-CODE-HASHES`: 1 passed.
+- `ETH-PEER-RUN-SESSION-` selector: 18 passed.
+- `SNAP-` selector: 121 passed.
+- Full `cold-unit`: 1,380 passed, 3 optional skips.
+- `git diff --check`: passed.
+- Independent read-only review approved without required fixes after checking
+  the three pinned unknown-hash cases, production session/wire/backend routing,
+  request IDs, zero-item cardinality, mutation sensitivity, and
+  `unwind-protect` restoration.
+
+Identity
+
+- go-ethereum `snap.go` SHA-256:
+  `275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd`.
+- Commit patch ID:
+  `e9e1b8ac1a2e431eed8b197dad6781603c2d9192`.
+- `tests/eth-pump-tests.lisp` SHA-256:
+  `933dc765445bab6135542a80b38a35082484f41d9898bf2b5c7ece04b4e95517`.
+- Focused container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-unknown-final-cycle982`
+  (`b69e81beac71a6fb48ffcde7852ca4bca89a19952cbb5aabd0eabd59bd99298e`),
+  `718c5a018b03ad69d674980d3f2bd656ee9214c2955c7cdb34f049a331b1ffb8`.
+- Session-family container/log SHA-256:
+  `ethereum-lisp-cold-sec5-session-unknown-cycle982`
+  (`036a816bcf871d395cf7993512974ea4c682580316cb2b01f74a996d648a1a57`),
+  `2388102a9e1fde36148c2454393d87281fe8b4a8d1fad4276c3986ed6cd7d9ff`.
+- SNAP-family container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-unknown-family-cycle982`
+  (`09cd797c91eaecd148d99a84d551bcb98084a01718f0cc78bc737feb6e3e0c9f`),
+  `c25be3fd9e19f7c4df3f24fa8d441825004a15d3a7341664f0e02ec96ea9d1e9`.
+- Full cold-unit container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-unknown-full-cycle982`
+  (`f890dd4ef42a07ef673c6f96917cc1eafffbf3331889ae659f69dd49af52d178`),
+  `1911da0bb037fa38e6dd51361258a8888683a24f735972cc4fb34e3a3714625c`.
+- RED mutation container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-unknown-red2-cycle982`
+  (`2a64d180ba2ffd3313db2088f6d26cc4e340f2e604a872451a90ecc2228b5c02`),
+  `8a10720a8c7305c5fc562bdf3278b3cac9b66d3aaa276df5bb805d5a3592cbb4`.
+
+Boundary
+
+This is deterministic local regression evidence. It is not a successor Hive
+SNAP pass, a Hoodi completion result, an amd64 artifact, a shadow comparison,
+or a validator soak result.
