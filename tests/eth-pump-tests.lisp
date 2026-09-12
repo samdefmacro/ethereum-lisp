@@ -838,6 +838,115 @@
               for wanted in expected
               do (is (bytes= wanted actual)))))))
 
+(deftest eth-peer-run-session-omits-unavailable-snap-account-roots
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestSnapGetAccountRange lines 199-223 requires both
+  ;; an unknown root and an unavailable historical genesis root to return no
+  ;; accounts or proof nodes.  The retained current root is the positive control.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (address (address-from-hex
+                   "0x0000000000000000000000000000000000001234"))
+         (unknown-root (make-byte-vector 32))
+         (historical-root nil)
+         (current-root nil)
+         (backend nil)
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (send-symbol 'ethereum-lisp.eth-sync:eth-peer-send-snap)
+         (real-read (fdefinition read-symbol))
+         (real-send (fdefinition send-symbol))
+         (origin (make-byte-vector 32))
+         (limit (make-byte-vector 32 :initial-element #xff))
+         (payloads nil)
+         (sent '())
+         (provider-roots '()))
+    (setf (aref unknown-root 0) #x13
+          (aref unknown-root 1) #x37
+          historical-root (hash32-bytes (state-db-root state)))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (setf current-root (hash32-bytes (state-db-root state))
+          backend
+          (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+           database state
+           :state-provider
+           (lambda (root)
+             (push (copy-seq root) provider-roots)
+             nil))
+          payloads
+          (mapcar
+           (lambda (request)
+             (ethereum-lisp.snap:encode-snap-message
+              ethereum-lisp.snap:+snap-message-get-account-range+ request))
+           (list
+            (ethereum-lisp.snap:make-snap-get-account-range
+             90 unknown-root origin limit 4000)
+            (ethereum-lisp.snap:make-snap-get-account-range
+             91 historical-root origin limit 4000)
+            (ethereum-lisp.snap:make-snap-get-account-range
+             92 current-root origin limit 4000))))
+    (is (not (bytes= unknown-root historical-root)))
+    (is (not (bytes= historical-root current-root)))
+    (setf (ethereum-lisp.eth-sync::eth-peer-snap-offset peer) 100
+          (ethereum-lisp.eth-sync::eth-peer-snap-backend peer) backend)
+    (unwind-protect
+         (progn
+           (setf (fdefinition read-symbol)
+                 (lambda (candidate)
+                   (is (eq peer candidate))
+                   (values :snap
+                           ethereum-lisp.snap:+snap-message-get-account-range+
+                           (pop payloads))))
+           (setf (fdefinition send-symbol)
+                 (lambda (candidate message-id encoded)
+                   (is (eq peer candidate))
+                   (push
+                    (list
+                     message-id
+                     (ethereum-lisp.snap:decode-snap-message
+                      message-id encoded))
+                    sent)))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session
+                peer :readable-function (lambda (timeout)
+                                          (declare (ignore timeout))
+                                          (not (null payloads)))
+                :max-actions 3)
+             (is (= 3 actions))
+             (is (eq :max-actions reason))))
+      (setf (fdefinition read-symbol) real-read
+            (fdefinition send-symbol) real-send))
+    (setf sent (nreverse sent)
+          provider-roots (nreverse provider-roots))
+    (is (= 3 (length sent)))
+    (is (= 2 (length provider-roots)))
+    (is (bytes= unknown-root (first provider-roots)))
+    (is (bytes= historical-root (second provider-roots)))
+    (loop for response-entry in sent
+          for request-id in '(90 91 92)
+          for available-p in '(nil nil t)
+          do (is (= ethereum-lisp.snap:+snap-message-account-range+
+                    (first response-entry)))
+             (let ((response (second response-entry)))
+               (is (= request-id
+                      (ethereum-lisp.snap:snap-account-range-id response)))
+               (if available-p
+                   (progn
+                     (is (= 1 (length
+                               (ethereum-lisp.snap:snap-account-range-accounts
+                                response))))
+                     (is (plusp
+                          (length
+                           (ethereum-lisp.snap:snap-account-range-proof
+                            response)))))
+                   (progn
+                     (is (null
+                          (ethereum-lisp.snap:snap-account-range-accounts
+                           response)))
+                     (is (null
+                          (ethereum-lisp.snap:snap-account-range-proof
+                           response)))))))))
+
 (deftest eth-peer-run-session-omits-unknown-snap-code-hashes
   (:layer :unit :module :p2p)
   ;; Pinned geth 101035a1 TestSnapGetByteCodes lines 466-484 requires state
