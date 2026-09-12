@@ -1,0 +1,88 @@
+Section 5 SNAP storage-range boundary compatibility evidence
+
+Recorded at: 2026-09-12T22:20:18Z
+Branch: sec5-public-bootstrap-sync
+Test revision: 3d4cac048d9771b54909f9e241270378897d6ee7
+Pinned reference: go-ethereum 101035a1, cmd/devp2p/internal/ethtest/snap.go,
+TestSnapGetStorageRanges lines 376-427
+Pinned reference file SHA-256:
+275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+
+Behavioral contract
+
+GetStorageRanges preserves secure-trie ordering and the pinned geth boundary
+rules. An exact origin includes that slot. An exact limit includes that slot.
+When the requested limit lies between available slots, the response includes
+the next available slot past the limit so the range can be proved.
+
+Regression
+
+tests/eth-pump-tests.lisp adds:
+  ETH-PEER-RUN-SESSION-PRESERVES-SNAP-STORAGE-RANGE-BOUNDARIES
+
+The regression creates one account with three storage slots, obtains their
+actual secure-trie proof-key order, and drives five requests through the
+production eth peer session, SNAP wire codec, request router, and persistent
+SNAP backend:
+
+  full zero-to-max range                 -> all three slots
+  exact first origin to max             -> all three slots
+  origin one past first to max          -> second and third slots
+  exact first origin to exact second    -> first and second slots
+  origin past first to limit past second -> second and third slots
+
+It checks response message type, request ID, one-account group cardinality,
+result cardinality, ordering, and exact returned slot hashes.
+
+RED proof
+
+The production inclusive-boundary predicate in
+src/networking/snap-sync/backend.lisp was deliberately changed locally from
+key >= limit to key > limit. The focused cold-unit test failed on response
+cardinality as required:
+
+  container: ethereum-lisp-cold-sec5-snap-storage-boundaries-red-cycle983
+  started:   2026-09-12T22:11:58.341647419Z
+  finished:  2026-09-12T22:12:50.042757929Z
+  exit:      1
+  OOM:       false
+
+The deliberate mutation was reverted. The final source file was byte-identical
+to HEAD before the test commit, and git diff showed no production source change.
+
+GREEN verification
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-sec5-snap-storage-boundaries-final-cycle983 \
+    cl-workbench validation run cold-unit \
+    --match ETH-PEER-RUN-SESSION-PRESERVES-SNAP-STORAGE-RANGE-BOUNDARIES
+  result: 1 passed, exit 0
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-sec5-session-storage-boundaries-cycle983 \
+    cl-workbench validation run cold-unit --match ETH-PEER-RUN-SESSION
+  result: 20 passed, exit 0
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-sec5-snap-storage-boundaries-family-cycle983 \
+    cl-workbench validation run cold-unit --match SNAP-
+  result: 123 passed, exit 0
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-sec5-snap-storage-boundaries-full-cycle983 \
+    cl-workbench validation run cold-unit
+  result: 1382 passed, 3 skipped, exit 0
+
+All final containers reported OOM=false. Before this cycle's application
+validation, cl-workbench doctor --strict exited 0. The final test file also
+passed cl-workbench check parens and git diff --check.
+
+Review and integration
+
+An independent read-only review approved the live final diff. It verified
+pinned-spec parity, the five non-vacuous boundary cases, production session
+coverage, Common Lisp style, and that backend.lisp was restored without a diff.
+Commit 3d4cac04 was pushed to origin/sec5-public-bootstrap-sync and the remote
+ref was read back as 3d4cac048d9771b54909f9e241270378897d6ee7.
+
+Scope boundary
+
+This closes one SNAP storage-range server compatibility gap. It does not prove
+Section 5 completion, Hive completion, Hoodi sync completion, shadow comparison,
+or the validator soak gates.
