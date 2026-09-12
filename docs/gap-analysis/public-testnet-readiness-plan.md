@@ -797,6 +797,19 @@ The implementation boundary is split deliberately:
   pass; exact evidence is in
   `docs/evidence/sec5-5fda6c27-hive-snap-duplicate-empty-code-hash.txt`.
 
+  Exact accepted revision `18911a11546e442fb4180c0418aa8a3c00c99230`
+  covers pinned `TestSnapGetByteCodes` all-available-code delivery through the
+  production eth+snap session pump and persistent backend. Three distinct code
+  bodies stored in the durable chain-record database are requested under a
+  100,000-byte budget; the response preserves request ID 86 and returns all
+  three exact bodies in request order. Mutating the backend to ignore durable
+  code records failed the exact three-item cardinality assertion. The focused
+  test, fifteen-test session-pump family, 118-test `SNAP-` family, and full
+  1,377-test cold-unit layer passed with three optional skips. Independent
+  review approved the one-file test delta without required fixes. This remains
+  local regression evidence rather than a successor Hive pass; exact evidence
+  is in `docs/evidence/sec5-18911a11-hive-snap-all-bytecodes.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
