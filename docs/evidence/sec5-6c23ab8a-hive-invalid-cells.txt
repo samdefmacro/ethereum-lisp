@@ -1,0 +1,66 @@
+Section 5 pinned geth invalid Cells regression
+
+Recorded at: 2026-09-12T17:13:00Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 6c23ab8a3f601298528c338c322ba05bd33b2972
+Baseline revision: 695067e9f644cd9cc0c713cb25f3790f012a7a54
+
+Scope
+
+This test-only slice records deterministic coverage for pinned geth
+TestBlobTxWithInvalidCells. It does not claim a successor live Hive pass or a
+full socket-level test of the disconnect frame.
+
+Pinned primary reference
+
+- go-ethereum revision:
+  101035a1049c7dc468bfe973478b579d9883d7b6
+- cmd/devp2p/internal/ethtest/suite.go SHA-256:
+  4701979b85f4abd7c626cb7f88cdf43036877864668a94465660ed7360ec526c
+- Pinned behavior: after an omitted-payload pooled blob transaction triggers
+  GetCells, the peer returning corrupted cells is disconnected while the
+  innocent peer stays connected.
+
+Local regression boundary
+
+`ETH-72-INVALID-CELLS-SIGNAL-PROTOCOL-ERROR-AND-PRESERVE-RETRY` exercises the
+post-GetCells client path. It proves that:
+
+- KZG cell-proof rejection signals `eth-peer-protocol-error`, the condition the
+  production session supervisor maps to a compressed Subprotocol-error
+  disconnect;
+- no transaction or blob sidecar reaches backend admission after rejection;
+- a separate peer can still supply the same transaction and valid Cells data;
+- the valid retry stores one sidecar and admits one transaction.
+
+Production behavior was already correct after
+233756d8e06b6806a33554b64f99d1e31a2f62df, so this slice is regression-only.
+
+RED and GREEN evidence
+
+The test was deliberately mutated so the injected cell-proof verifier returned
+true for the corrupted response. The focused gate then failed as required:
+
+  Expected condition ETHEREUM-LISP.ETH-SYNC:ETH-PEER-PROTOCOL-ERROR was not signaled
+  0 tests passed, 1 failed.
+
+After restoring the rejecting verifier:
+
+- focused invalid-Cells regression: 1 passed;
+- BLOB unit family: 67 passed;
+- full cold-unit: 1,364 passed, 3 optional skips;
+- parenthesis and diff checks: passed.
+
+The first independent review rejected an overclaim in the test name/comment:
+the local test observes the protocol condition rather than a wire disconnect,
+and valid retry is local additional coverage rather than pinned-geth behavior.
+After correction, final read-only review returned APPROVE with no required
+fixes.
+
+Integration boundary
+
+Commit 6c23ab8a3f601298528c338c322ba05bd33b2972 was pushed without force to
+origin/sec5-public-bootstrap-sync and the remote ref matched exactly. No live
+mutation or deployment was performed. A successor live Hive devp2p inventory is
+still required.

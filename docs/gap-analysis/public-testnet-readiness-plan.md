@@ -622,6 +622,20 @@ The implementation boundary is split deliberately:
   fixes. A successor live Hive run remains required; exact evidence is in
   `docs/evidence/sec5-233756d8-hive-bad-blob-peers.txt`.
 
+  Exact revision `6c23ab8a3f601298528c338c322ba05bd33b2972` adds
+  deterministic coverage for pinned geth `TestBlobTxWithInvalidCells`. The
+  regression verifies that rejected KZG cell proofs raise the explicit
+  peer-protocol condition consumed by the production disconnect path, reach
+  neither transaction nor sidecar admission, and do not prevent a fresh peer
+  from supplying the same transaction with valid Cells data. A deliberate
+  verifier-acceptance mutation failed the focused test; after restoration, the
+  focused test and all 67 BLOB unit tests passed, as did all 1,364 cold-unit
+  tests with three optional skips. Review first rejected wording that overstated
+  what the local test and pinned geth each prove, then approved the corrected
+  boundary without remaining fixes. This is regression evidence rather than a
+  successor live Hive pass; exact evidence is in
+  `docs/evidence/sec5-6c23ab8a-hive-invalid-cells.txt`.
+
   Exact predecessor revision `c93389e762b9a4e32f2cbb0cf86ed2be5b892453`
   now has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:439cec11b9a6d57ceac558db8a9bb937ffefcb339a388ec2b1ba16e46c2de951`,
