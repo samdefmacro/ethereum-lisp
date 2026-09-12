@@ -28,9 +28,13 @@
   ;; The chain this peer's requests are answered from; NIL means we answer
   ;; nothing (see serve.lisp).
   serve-backend
-  ;; Transaction hashes this peer announced that we have not fetched yet, as a
-  ;; set (see gossip.lisp). NIL until the peer announces something.
+  ;; Transaction hashes this peer announced that we have not fetched yet,
+  ;; mapped to their advertised type/size metadata (see gossip.lisp). NIL until
+  ;; the peer announces something.
   announced-hashes
+  ;; Async GetPooledTransactions requests awaiting replies, keyed by request id.
+  ;; Their metadata lets the reply path enforce the announcement contract.
+  pending-pooled-transaction-requests
   ;; Hashes this remote peer demonstrably knows, bounded in gossip.lisp. Used to
   ;; avoid reflecting its own transactions straight back to it.
   known-transaction-hashes

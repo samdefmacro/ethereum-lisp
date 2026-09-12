@@ -189,6 +189,9 @@ how a caller observes the session without this file knowing what telemetry is."
                  (when (and (null broadcast-backlog) pending-broadcast)
                    (setf broadcast-backlog (funcall pending-broadcast)))
                  broadcast-backlog))
+             (transaction-drainable
+               (and (plusp (eth-peer-announced-hash-count peer))
+                    (eth-peer-can-request-announced-transactions-p peer now)))
              (action (eth-pump-next-action
                       policy state now
                       :readable-p readable
@@ -196,13 +199,13 @@ how a caller observes the session without this file knowing what telemetry is."
                       :request-p (and request t)
                       :drainable-p
                       (or (plusp (eth-peer-announced-block-count peer))
-                          (plusp (eth-peer-announced-hash-count peer))
+                          transaction-drainable
                           (plusp
                            (eth-peer-pending-blob-cell-fetch-count peer)))
                       :urgent-drainable-p
                       (or
                        (plusp (eth-peer-pending-blob-cell-fetch-count peer))
-                       (plusp (eth-peer-announced-hash-count peer)))
+                       transaction-drainable)
                       :chain-update-p (and chain-update t)
                       :broadcast-p (and broadcast t))))
         (when on-event (funcall on-event action))
@@ -228,7 +231,7 @@ how a caller observes the session without this file knowing what telemetry is."
            (rlpx-send-ping (eth-peer-connection peer))
            (setf (eth-pump-state-last-ping-at state) now))
           (:drain
-           (eth-peer-request-announced-transactions peer)
+           (eth-peer-request-announced-transactions peer :now now)
            (eth-peer-fetch-omitted-blob-transaction peer)
            (eth-peer-fetch-announced-block peer)
            (setf (eth-pump-state-last-drain-at state) now))

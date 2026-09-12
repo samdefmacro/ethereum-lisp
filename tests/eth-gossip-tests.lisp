@@ -833,6 +833,96 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
              (eth-peer-announced-hash-count peer)))
       (is (= 25 (length (eth-peer-take-announced-hashes peer 25)))))))
 
+(deftest eth-72-pooled-blob-response-must-match-announced-type-and-size
+  (:layer :unit :module :p2p)
+  ;; Pinned geth TestBlobViolations disconnects a peer whose fetched blob
+  ;; transaction disagrees with its eth/72 announcement metadata. Exercise both
+  ;; the wrong-size and wrong-type cases through the production request path.
+  (let* ((transactions
+           (list (eth-gossip-test-blob-transaction 41)
+                 (eth-gossip-test-blob-transaction 42)))
+         (sidecars
+           (loop repeat 2
+                 collect
+                 (make-blob-sidecar
+                  :blobs
+                  (list (make-byte-vector +blob-byte-size+
+                                          :initial-element 1))
+                  :commitments
+                  (list (make-byte-vector +kzg-commitment-size+
+                                          :initial-element 2))
+                  :proofs
+                  (loop repeat +cell-proofs-per-blob+
+                        collect (make-byte-vector +kzg-proof-size+
+                                                  :initial-element 3)))))
+         (entries
+           (mapcar #'make-blob-network-transaction transactions sidecars))
+         (hashes (mapcar #'eth-gossip-transaction-hash-bytes transactions))
+         (sizes
+           (mapcar
+            (lambda (transaction sidecar)
+              (length (blob-pooled-transaction-encoding transaction sidecar)))
+            transactions sidecars))
+         (mask (make-byte-vector 16 :initial-element #xff)))
+    (labels ((announcement (types announced-sizes)
+               (rlp-encode
+                (make-rlp-list
+                 (coerce types 'byte-vector)
+                 (apply #'make-rlp-list
+                        (mapcar #'integer-to-minimal-bytes announced-sizes))
+                 (apply #'make-rlp-list hashes)
+                 mask)))
+             (check (types announced-sizes violation-p)
+               (multiple-value-bind (backend pool) (eth-gossip-test-backend)
+                 (let ((peer
+                         (ethereum-lisp.eth-sync::%make-eth-peer
+                          :eth-version
+                          ethereum-lisp.eth-wire:+eth-protocol-version-72+
+                          :serve-backend backend))
+                       (sent '()))
+                   (eth-gossip-test-call-with-function-overrides
+                    (list
+                     (cons
+                      'ethereum-lisp.eth-sync:eth-peer-send
+                      (lambda (seen-peer message-id payload)
+                        (is (eq peer seen-peer))
+                        (push (list message-id payload) sent))))
+                    (lambda ()
+                      (is (eth-peer-gossip-message
+                           peer
+                           ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+                           (announcement types announced-sizes)))
+                      (multiple-value-bind (count reason)
+                          (eth-peer-run-session peer :max-actions 1)
+                        (is (= 1 count))
+                        (is (eq :max-actions reason)))))
+                   (is (= 1 (length sent)))
+                   (multiple-value-bind (request-id requested)
+                       (ethereum-lisp.eth-wire:decode-eth-get-pooled-transactions
+                        (second (first sent)))
+                     (is (= ethereum-lisp.eth-wire:+eth-message-get-pooled-transactions+
+                            (first (first sent))))
+                     (is (= 2 (length requested)))
+                     (let ((*kzg-cell-proof-verifier*
+                             (lambda (&rest arguments)
+                               (declare (ignore arguments))
+                               t)))
+                       (let ((response
+                               (lambda ()
+                                 (eth-peer-gossip-message
+                                  peer
+                                  ethereum-lisp.eth-wire:+eth-message-pooled-transactions+
+                                  (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
+                                   request-id entries)))))
+                         (if violation-p
+                             (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
+                               (funcall response))
+                             (is (funcall response))))))
+                   (is (= (if violation-p 0 2) (hash-table-count pool)))))))
+      (check '(3 3) (list (first sizes) (+ 10 (second sizes))) t)
+      (check '(2 3) sizes t)
+      (check '(3 3) sizes nil))))
+
 (deftest devnet-transaction-message-is-propagated-by-session-pump
   (:layer :integration :module :p2p)
   ;; Pinned geth TestTransaction sends one valid dynamic-fee transaction on one

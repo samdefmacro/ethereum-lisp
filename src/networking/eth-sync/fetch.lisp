@@ -222,19 +222,26 @@ inside a message handler: a handler can itself be running inside another
 request's wait, and this nested wait would swallow that outer reply. That is why
 announcements are queued as they arrive and drained only from here."
   (let ((backend (eth-peer-serve-backend peer))
-        (wanted (eth-peer-take-announced-hashes peer limit)))
-    (if (or (null backend) (null wanted))
+        (announcements
+          (eth-peer-take-announced-hashes peer limit :metadata-p t)))
+    (if (or (null backend) (null announcements))
         0
-        (let ((request-id (eth-peer-next-request-id peer)))
+        (let ((request-id (eth-peer-next-request-id peer))
+              (wanted
+                (mapcar #'eth-transaction-announcement-hash announcements)))
           (eth-peer-send peer +eth-message-get-pooled-transactions+
                          (encode-eth-get-pooled-transactions request-id wanted))
-          (eth-accept-transactions
-           backend
-           (eth-peer-await peer +eth-message-pooled-transactions+ request-id
-                           #'decode-eth-pooled-transactions)
-           :allow-omitted-blob-payload-p
-           (>= (eth-peer-eth-version peer) +eth-protocol-version-72+)
-           :omitted-blob-function
-           (lambda (transaction sidecar)
-             (eth-peer-queue-omitted-blob-transaction
-              peer transaction sidecar)))))))
+          (let ((transactions
+                  (eth-peer-await
+                   peer +eth-message-pooled-transactions+ request-id
+                   #'decode-eth-pooled-transactions)))
+            (eth-validate-pooled-transaction-response
+             announcements transactions)
+            (eth-accept-transactions
+             backend transactions
+             :allow-omitted-blob-payload-p
+             (>= (eth-peer-eth-version peer) +eth-protocol-version-72+)
+             :omitted-blob-function
+             (lambda (transaction sidecar)
+               (eth-peer-queue-omitted-blob-transaction
+                peer transaction sidecar))))))))

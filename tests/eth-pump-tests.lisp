@@ -118,6 +118,74 @@
       (is (= 1 request-calls))
       (is (zerop readiness-calls)))))
 
+(deftest eth-peer-run-session-reads-while-transaction-fetches-are-capped
+  (:layer :unit :module :p2p)
+  ;; Unanswered async fetches must not leave hash gossip permanently urgent.
+  ;; At capacity the pump reads replies; once the five-second geth timeout has
+  ;; elapsed, the stale metadata is pruned and the queued hash becomes fetchable.
+  (let* ((backend
+           (make-eth-serve-backend
+            :known-transaction-p
+            (lambda (hash) (declare (ignore hash)) nil)))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :serve-backend backend))
+         (pending
+           (ethereum-lisp.eth-sync::eth-peer-pending-pooled-transaction-request-table
+            peer))
+         (queued-hash (make-byte-vector 32 :initial-element #xaa))
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (send-symbol 'ethereum-lisp.eth-sync:eth-peer-send)
+         (real-read (fdefinition read-symbol))
+         (real-send (fdefinition send-symbol))
+         (events '())
+         (sends 0))
+    (dotimes (request-id 64)
+      (setf
+       (gethash request-id pending)
+       (ethereum-lisp.eth-sync::make-eth-pooled-transaction-request
+        (list
+         (ethereum-lisp.eth-sync::make-eth-transaction-announcement
+          (make-byte-vector 32 :initial-element request-id) 3 100))
+        100)))
+    (is (= 1 (eth-peer-queue-announced-hashes
+              peer backend (list queued-hash)
+              :types '(3) :sizes '(100))))
+    (unwind-protect
+         (progn
+           (setf (fdefinition read-symbol)
+                 (lambda (candidate)
+                   (is (eq peer candidate))
+                   (values :base +devp2p-message-pong+ nil))
+                 (fdefinition send-symbol)
+                 (lambda (candidate message-id payload)
+                   (declare (ignore payload))
+                   (is (eq peer candidate))
+                   (is (= ethereum-lisp.eth-wire:+eth-message-get-pooled-transactions+
+                          message-id))
+                   (incf sends)))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session
+                peer
+                :now-function (lambda () 104)
+                :readable-function
+                (lambda (timeout) (declare (ignore timeout)) t)
+                :on-event (lambda (event) (push event events))
+                :max-actions 1)
+             (is (= 1 actions))
+             (is (eq :max-actions reason)))
+           (is (equal '(:read) events))
+           (is (zerop sends))
+           (is (= 1 (eth-peer-announced-hash-count peer)))
+           (is (= 1
+                  (ethereum-lisp.eth-sync::eth-peer-request-announced-transactions
+                   peer :now 105)))
+           (is (= 1 sends))
+           (is (zerop (eth-peer-announced-hash-count peer)))
+           (is (= 1 (hash-table-count pending))))
+      (setf (fdefinition read-symbol) real-read
+            (fdefinition send-symbol) real-send))))
+
 (deftest eth-peer-run-session-retains-broadcast-behind-request
   (:layer :unit :module :p2p)
   (let* ((peer (ethereum-lisp.eth-sync::%make-eth-peer))
