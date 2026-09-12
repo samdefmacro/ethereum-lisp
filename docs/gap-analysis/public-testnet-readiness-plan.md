@@ -662,6 +662,15 @@ The implementation boundary is split deliberately:
   socket-level or successor Hive pass; exact evidence is in
   `docs/evidence/sec5-085d03c3-hive-get-cells.txt`.
 
+  Exact revision `56f0cc8b508dd35d4f47081abcc7e082f7701e72` adds a
+  production-pump regression for pinned geth `TestSnapTrieNodes`: an empty
+  path set before a valid root path raises the backend's specific protocol
+  error and sends no TrieNodes response. Mutation removal of that guard failed
+  as expected. The focused test, all 121 SNAP-matched unit tests, and the full
+  1,367-test cold-unit layer with three optional skips passed. Independent
+  review found no blocker. This is not a live Hive SNAP pass; exact evidence is
+  in `docs/evidence/sec5-56f0cc8b-hive-snap-empty-path.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

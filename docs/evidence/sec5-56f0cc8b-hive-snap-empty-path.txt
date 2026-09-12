@@ -1,0 +1,74 @@
+Section 5 pinned geth malformed SNAP TrieNodes regression
+
+Recorded at: 2026-09-12T18:26:21Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 56f0cc8b508dd35d4f47081abcc7e082f7701e72
+Stable patch id: 3b5a8ae23e5e6e90a338e8ec82582028d41f75fd
+
+Pinned oracle
+
+- go-ethereum commit: 101035a1049c7dc468bfe973478b579d9883d7b6
+- cmd/devp2p/internal/ethtest/snap.go SHA-256:
+  275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+- TestSnapTrieNodes lines 616-627 sends an empty path set before a valid
+  account-root path and requires the server to reject the request.
+
+Scope
+
+The added ETH-PEER-RUN-SESSION-REJECTS-AN-EMPTY-SNAP-TRIE-PATH-SET
+regression enters through the production session pump as a negotiated snap/1
+GetTrieNodes message. It uses the persistent SNAP backend and a retained state
+root, so the backend reaches its malformed path-set guard rather than returning
+an ordinary unavailable-root response. The test proves that:
+
+- the session routes the snap/1 request into the real server adapter;
+- the backend error specifically reports the empty path set;
+- no TrieNodes response is sent before the error escapes to the session owner,
+  whose production teardown path closes the peer.
+
+Mutation control
+
+Before the accepted GREEN run, the backend's empty-path-set error at
+src/networking/snap-sync/backend.lisp was temporarily replaced with NIL. The
+focused test then failed exactly because a response was sent:
+
+  MUTATION_EXIT=1
+  Assertion failed: (NOT SENT)
+  0 tests passed, 1 failed.
+
+The production file was restored byte-for-byte from
+/private/tmp/ethereum-lisp-snap-backend-cycle977-green.lisp before GREEN
+validation. The accepted commit changes only tests/eth-pump-tests.lisp.
+
+Verification
+
+- cl-workbench doctor --strict: passed before application operations.
+- cl-workbench check parens tests/eth-pump-tests.lisp: passed.
+- focused cold-unit: 1 passed.
+- cold-unit --match SNAP: 121 passed.
+- full cold-unit: 1,367 passed, 3 skipped.
+- git diff --check: passed.
+- final focused run after the reviewer-requested oracle-name correction:
+  1 passed.
+- tests/eth-pump-tests.lisp SHA-256:
+  22d2eb5dc1c810b6f3cb2628b9e8b2a0ac07e5a4694dcfd71f1c2a31171d629a
+
+Review
+
+Independent read-only review found no blocking issue. It confirmed the exact
+request shape, production routing, backend guard, no-response assertion, and
+unwind-protect restoration of temporary global function overrides. The review
+noted that the pinned function is TestSnapTrieNodes, not
+TestSnapGetTrieNodes; the comment was corrected before commit.
+
+Push verification
+
+origin/sec5-public-bootstrap-sync resolved to
+56f0cc8b508dd35d4f47081abcc7e082f7701e72 after push and fetch.
+
+Limits
+
+This is deterministic local conformance evidence. It is not a live Hive SNAP
+pass and does not close the Section 5 Hive gate. The successor external devp2p
+run remains required when the pinned test-host capacity prerequisite is met.
