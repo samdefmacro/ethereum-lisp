@@ -464,6 +464,24 @@ The implementation boundary is split deliberately:
   evidence roots are archived in
   `docs/evidence/sec5-694667f9-hive-engine-r25-r26.txt`.
 
+  The first complete Hive devp2p discovery baseline at exact client revision
+  `b7bdb6daa2073ece9fd595dfa3e27faf882230a8` executed 33 entries and passed
+  1/33 with zero skips. The 24 remaining eth entries and all six snap entries
+  were blocked by one Status fork-ID mismatch: the adapter discarded
+  `osakaTime=180` from the uploaded testchain genesis because the matching
+  `HIVE_OSAKA_TIMESTAMP` was absent from its forkenv. Folding that missing
+  timestamp changes the client's `0x9736aeb1` to the test tool's exact
+  `0x15e3c946`. The mapper now preserves supported source time-fork activations
+  unless Hive explicitly overrides them, and the adapter smoke has a passing
+  RED/GREEN control. The two discovery entries independently fail because their
+  simulator cases upload no genesis while this adapter requires one. No
+  successor Hive rerun has occurred, so the devp2p gate remains open. The
+  discovery Dockerfile also cloned moving geth master; the retained layer pins
+  this run's observed source to `101035a1049c7dc468bfe973478b579d9883d7b6`,
+  but a reproducible closing rerun must make that source pin explicit. Exact
+  failure partition, runner identities, hashes, and local test commands are in
+  `docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt`.
+
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request
   intake only after 60.678--83.818 seconds while handler time remained 0--8 ms.

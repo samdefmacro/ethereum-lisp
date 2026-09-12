@@ -200,7 +200,7 @@ agree on the same eight-hex-digit client commit.
 | `ethereum/rpc-compat` | wired, `continue-on-error`; exact revision `6e3e9b1d` passes the full pinned 234-case inventory |
 | `ethereum/eels/consume-engine` | not wired |
 | `ethereum/eels/consume-rlp` | not wired — requires a suite-specific current-fork review |
-| `devp2p` | wired, `continue-on-error`; the adapter's routable enode is asserted |
+| `devp2p` | wired, `continue-on-error`; first complete baseline passed 1/33, with the fork-ID adapter repair awaiting a pinned rerun and discovery startup still open |
 | `ethereum/sync` (full-sync) | not wired — plan section 4 remains the blocker |
 | snap | not wired — plan section 5 |
 
@@ -265,6 +265,20 @@ result/log hashes, and the preserved remote evidence path are archived in
 `docs/evidence/sec5-6e3e9b1d-hive-rpc-compat.txt`. This closes rpc-compat only;
 the Engine, EELS, devp2p, full-sync, snap, and live/soak gates retain their
 independent status above.
+
+The first complete devp2p discovery run at exact client revision `b7bdb6da`
+executed 33 entries and passed 1. Twenty-four eth and six snap entries shared
+one fork-ID mismatch: the uploaded genesis contained `osakaTime=180`, while the
+simulator's forkenv omitted `HIVE_OSAKA_TIMESTAMP` and the client mapper
+discarded the source activation. The mapper now retains supported source
+time-fork values unless Hive overrides them, and the local adapter RED/GREEN
+smoke passes. The two discovery entries remain a separate missing-genesis
+startup failure. The retained simulator build used geth
+`101035a1049c7dc468bfe973478b579d9883d7b6`; because Hive's simulator
+Dockerfile cloned moving geth master, a closing rerun must first make that
+source pin reproducible. See
+`docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt`; no part of this
+failure baseline closes the devp2p gate.
 
 Revision `63408ce2` repaired the remaining pinned `eth_config/get-config`
 fork-ID mismatch by including `mergeNetsplitBlock` in the EIP-2124 activation

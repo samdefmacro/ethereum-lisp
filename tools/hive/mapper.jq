@@ -44,6 +44,7 @@ def to_bool:
   end
 ;
 
+. as $genesis |
 . + {
   "config": {
     "chainId": env.HIVE_CHAIN_ID|to_int,
@@ -65,15 +66,19 @@ def to_bool:
     "mergeNetsplitBlock": env.HIVE_MERGE_BLOCK_ID|to_int,
     "terminalTotalDifficulty": (env.HIVE_TERMINAL_TOTAL_DIFFICULTY|to_int // 9223372036854775807),
     "terminalTotalDifficultyPassed": true,
-    "shanghaiTime": env.HIVE_SHANGHAI_TIMESTAMP|to_int,
-    "cancunTime": env.HIVE_CANCUN_TIMESTAMP|to_int,
-    "pragueTime": env.HIVE_PRAGUE_TIMESTAMP|to_int,
-    "osakaTime": env.HIVE_OSAKA_TIMESTAMP|to_int,
-    "bpo1Time": env.HIVE_BPO1_TIMESTAMP|to_int,
-    "bpo2Time": env.HIVE_BPO2_TIMESTAMP|to_int,
-    "bpo3Time": env.HIVE_BPO3_TIMESTAMP|to_int,
-    "bpo4Time": env.HIVE_BPO4_TIMESTAMP|to_int,
-    "bpo5Time": env.HIVE_BPO5_TIMESTAMP|to_int,
+    # Some pinned simulators copy a newer geth genesis before their forkenv has
+    # learned the matching timestamp variable. Preserve every supported source
+    # timestamp unless Hive explicitly overrides it; otherwise our node and the
+    # simulator derive different EIP-2124 fork IDs from the same test chain.
+    "shanghaiTime": ((env.HIVE_SHANGHAI_TIMESTAMP|to_int) // $genesis.config.shanghaiTime),
+    "cancunTime": ((env.HIVE_CANCUN_TIMESTAMP|to_int) // $genesis.config.cancunTime),
+    "pragueTime": ((env.HIVE_PRAGUE_TIMESTAMP|to_int) // $genesis.config.pragueTime),
+    "osakaTime": ((env.HIVE_OSAKA_TIMESTAMP|to_int) // $genesis.config.osakaTime),
+    "bpo1Time": ((env.HIVE_BPO1_TIMESTAMP|to_int) // $genesis.config.bpo1Time),
+    "bpo2Time": ((env.HIVE_BPO2_TIMESTAMP|to_int) // $genesis.config.bpo2Time),
+    "bpo3Time": ((env.HIVE_BPO3_TIMESTAMP|to_int) // $genesis.config.bpo3Time),
+    "bpo4Time": ((env.HIVE_BPO4_TIMESTAMP|to_int) // $genesis.config.bpo4Time),
+    "bpo5Time": ((env.HIVE_BPO5_TIMESTAMP|to_int) // $genesis.config.bpo5Time),
     # amsterdamTime is deliberately NOT mapped. AMSTERDAM-EXECUTION-AVAILABLE-P
     # is false and the Amsterdam Engine methods are unadvertised (plan section
     # 1), so activating the fork in the config would make the client claim a

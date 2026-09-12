@@ -1,0 +1,144 @@
+Section 5 Hive devp2p discovery and fork-ID regression evidence
+
+Recorded: 2026-09-12T00:03:54Z
+Discovery implementation revision: b7bdb6daa2073ece9fd595dfa3e27faf882230a8
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This records the first complete Hive devp2p discovery run for ethereum-lisp and
+the locally verified adapter repair for its dominant failure class. It is a
+failure inventory, not a closed Hive gate. A fresh exact-revision Linux rerun
+must pin the 33-entry inventory and pass it before Section 5 can claim devp2p
+conformance.
+
+Pinned and observed identities
+
+- Hive: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+- devp2p protocol specification: 51dc101fddd52b5d90e59a2d695a92e4d600cfaf
+- runtime platform/user/revision: linux/amd64, ethereum:ethereum,
+  b7bdb6daa2073ece9fd595dfa3e27faf882230a8
+- runtime archive SHA-256:
+  5238f8459bd9f10de4139e34e1e7d291d83468625cc8502e202eb60875ab9728
+- exact source archive SHA-256:
+  ef4b97c264d4ed66ee0ed681471d92a9d3c0dd4c61ab1e357028efee0dd1383d
+- Hive binary SHA-256:
+  cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+- amd64 runner archive SHA-256:
+  07bdd861f2b9a715072e03396c888b07d9195d41e5fe1c3fec8554a5b0e34421
+- reviewed runner script SHA-256:
+  ccbcb1c1268b9023ab9d8ae7e796d98a5ab193cc14433643df865bed90927596
+
+The pinned Hive Dockerfile clones the go-ethereum master branch while building
+the devp2p simulator. Read-only inspection of the retained nested-Docker layer
+identified the exact fetched geth revision as
+101035a1049c7dc468bfe973478b579d9883d7b6. This observed source identity is
+retained evidence for this discovery run, but the moving Dockerfile must be
+made commit-pinned before a later rerun can be a reproducible closing gate.
+
+Reviewed execution boundary
+
+Authorization request
+sec5-hive-b7bdb6da-devp2p-full-r30-20260911T233510Z was approved and executed.
+The fresh outer runner was limited to 2 CPUs, 8 GiB memory, 10 GiB
+memory-plus-swap, and 1,024 PIDs, used a read-only root filesystem, exposed no
+host ports, and mounted only its unique evidence and nested-Docker paths. It
+stopped without OOM or restart and did not mutate the active Hoodi EL,
+Lighthouse, their ports, or their datadir.
+
+External result and failure partition
+
+Hive produced four parseable suite results and 33 executed entries:
+
+- discv4: 0/1
+- discv5: 0/1
+- eth: 1/25
+- snap: 0/6
+- aggregate: 1/33 passed, 32 failed, 0 skipped
+
+The sole passing eth test was MaliciousHandshake. All other eth and snap cases
+were blocked at the Status exchange by one shared fork-ID divergence:
+ethereum-lisp advertised 0x9736aeb1 while the test tool expected 0x15e3c946.
+The two discovery suites failed earlier because those ClientTestSpec entries do
+not upload genesis.json while the ethereum-lisp adapter currently requires it.
+That is a separate adapter/suite contract class and remains open.
+
+Root cause
+
+The retained simulator testchain at geth 101035a1 contains osakaTime=180 in
+genesis.json, but its forkenv.json ends at HIVE_PRAGUE_TIMESTAMP=120 and omits
+HIVE_OSAKA_TIMESTAMP. tools/hive/mapper.jq replaced the complete source config
+with environment-derived fields, thereby discarding the supported Osaka
+activation. The test tool folded timestamps 60, 120, and 180 into EIP-2124;
+the client folded only 60 and 120. Applying the canonical CRC32 fold for the
+missing eight-byte big-endian timestamp 180 to 0x9736aeb1 produces exactly
+0x15e3c946, proving the failure boundary.
+
+Local RED/GREEN repair
+
+The adapter mapper now retains each supported source time-fork activation when
+the corresponding HIVE timestamp variable is absent, while an explicit HIVE
+value remains authoritative. Amsterdam remains deliberately excluded while
+its execution capability is unavailable.
+
+scripts/hive-adapter-smoke.sh now supplies Prague and Osaka in the uploaded
+genesis without HIVE_PRAGUE_TIMESTAMP or HIVE_OSAKA_TIMESTAMP and asserts that
+Osaka survives mapping.
+
+RED, before the mapper repair:
+
+  RUNTIME_IMAGE=ethereum-lisp-runtime \
+  RUNTIME_TAG=sec5-b7bdb6da-amd64 \
+  SMOKE_SLUG=sec5-fork-config-red \
+  scripts/hive-adapter-smoke.sh \
+    ethereum-lisp-hive:sec5-fork-config-red
+
+The adapter started, but the new assertion failed with:
+"the adapter discarded genesis osakaTime without HIVE_OSAKA_TIMESTAMP".
+
+GREEN, after the repair and valid adjacent Prague activation:
+
+  RUNTIME_IMAGE=ethereum-lisp-runtime \
+  RUNTIME_TAG=sec5-b7bdb6da-amd64 \
+  SMOKE_SLUG=sec5-fork-config-green2 \
+  scripts/hive-adapter-smoke.sh \
+    ethereum-lisp-hive:sec5-fork-config-green2
+
+The complete adapter smoke exited zero. It passed all five unsupported-variable
+refusals, RocksDB selection, source fork preservation, HIVE chain-ID override,
+routable enode equality, and authenticated Engine capability exchange.
+
+Retained remote evidence
+
+Run root:
+/data/hoodi-sec5-hive/runs/b7bdb6da-devp2p-full-r30-20260911T233201Z
+
+The root contains 1,617 retained files. The independently recomputed
+SHA-256-plus-relative-path manifest digest is:
+c52395ef750328c46efc6cd45c16ccb55f6ad1a0626a036a60984da3983a7134
+
+Key evidence hashes:
+
+- hive-status.txt:
+  5215b92d901ee7754acea96bca6bb3cc9518c0b3b3159aa32eae554726d86281
+- nested-docker-final.txt:
+  43ec6a74263a178815c7a5ec27eeb81157b681524bfbb41c37c7bffd9533647b
+- runner-final-stats.txt:
+  1a3c1ff37efa42db5b64d5e0691bb0e0bb5706999560978c99fc3fb82a446d69
+- runner-stop.txt:
+  bcc1ebb28dce87dda9983bea66106c5707dca4e9d4f318fcd8679f6e0d33e774
+- nested-runtime-inspect.txt:
+  b99d497af7bea76673872126aa5a05d7fe9ca77ce92c4e1b5118c381a2d7364d
+- runner-start-inspect.txt:
+  407a898455d4e5ec36c64e06718b82f0f73ac5f6e4dd4426983d52c6060d5e42
+- hive-devp2p-full.log:
+  01b69addd48e3a517aea76c138fec87731d396bec1398f912166ef426392a5c4
+
+Remaining boundary
+
+This local adapter repair has not been built into an exact successor runtime or
+rerun on Hive. The discv4/discv5 missing-genesis contract remains open. The
+existing Hoodi deployment still has no target-completed event, healer
+completion with an empty frontier, canonical execution through the authorized
+target, or eth_syncing=false. Shadow comparison and validator soak prerequisites
+remain unmet.

@@ -75,12 +75,13 @@ docker build \
     "$repo_root/tools/hive" >/dev/null
 
 # Shaped like the genesis Hive uploads: a body plus a config that mapper.jq
-# replaces wholesale from the environment. The bogus chainId is here on purpose
-# -- if the mapping silently failed, eth_chainId would answer 0x1 and the test
-# below would catch it.
+# overlays from the environment. The bogus chainId is here on purpose -- if the
+# mapping silently failed, eth_chainId would answer 0x1 and the test below would
+# catch it. Osaka is present only in the uploaded genesis, matching the pinned
+# devp2p testchain whose forkenv currently stops at Prague.
 cat > "$tmpdir/genesis.json" <<'JSON'
 {
-  "config": { "chainId": 1 },
+  "config": { "chainId": 1, "pragueTime": 120, "osakaTime": 180 },
   "nonce": "0x0",
   "timestamp": "0x0",
   "extraData": "0x",
@@ -165,6 +166,10 @@ fi
 case "$(docker logs "$container" 2>&1)" in
     *"--db.engine rocksdb"*) ok "Hive uses the production RocksDB backend" ;;
     *) fail_with_log "the adapter did not select --db.engine rocksdb" ;;
+esac
+case "$(docker logs "$container" 2>&1)" in
+    *'"osakaTime": 180'*) ok "uploaded supported fork config survives an absent HIVE override" ;;
+    *) fail_with_log "the adapter discarded genesis osakaTime without HIVE_OSAKA_TIMESTAMP" ;;
 esac
 
 rpc_url="http://$(docker port "$container" 8545 | head -1)"
