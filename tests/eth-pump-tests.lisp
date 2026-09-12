@@ -1299,6 +1299,126 @@
                              (ethereum-lisp.snap:snap-account-data-hash
                               (first accounts)))))))))
 
+(deftest eth-peer-run-session-preserves-snap-account-range-boundaries
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestSnapGetAccountRange lines 138-197 requires the
+  ;; first available key at or beyond the origin and the first key at or beyond
+  ;; the inclusive limit, even when that key lies outside the numeric interval.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (addresses
+           (mapcar
+            #'address-from-hex
+            '("0x0000000000000000000000000000000000000001"
+              "0x0000000000000000000000000000000000000002"
+              "0x0000000000000000000000000000000000000003")))
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (send-symbol 'ethereum-lisp.eth-sync:eth-peer-send-snap)
+         (real-read (fdefinition read-symbol))
+         (real-send (fdefinition send-symbol))
+         (zero (make-byte-vector 32))
+         (maximum (make-byte-vector 32 :initial-element #xff))
+         (payloads nil)
+         (sent '()))
+    (loop for address in addresses
+          for balance from 1
+          do (state-db-set-account
+              state address (make-state-account :balance balance)))
+    (let* ((root (hash32-bytes (state-db-root state)))
+           (entries (state-db-account-range state))
+           (keys (mapcar #'state-account-range-entry-proof-key entries))
+           (first-key (first keys))
+           (second-key (second keys))
+           (first-integer (bytes-to-integer first-key))
+           (first-minus-500
+             (ethereum-lisp.crypto::integer-to-fixed-bytes
+              (- first-integer 500) 32))
+           (first-minus-450
+             (ethereum-lisp.crypto::integer-to-fixed-bytes
+              (- first-integer 450) 32))
+           (first-plus-one
+             (ethereum-lisp.crypto::integer-to-fixed-bytes
+              (1+ first-integer) 32))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (requests
+             (list
+              (ethereum-lisp.snap:make-snap-get-account-range
+               101 root first-minus-500 first-plus-one 4000)
+              (ethereum-lisp.snap:make-snap-get-account-range
+               102 root first-minus-500 first-minus-450 4000)
+              (ethereum-lisp.snap:make-snap-get-account-range
+               103 root zero zero 4000)
+              (ethereum-lisp.snap:make-snap-get-account-range
+               104 root first-key maximum 4000)
+              (ethereum-lisp.snap:make-snap-get-account-range
+               105 root first-plus-one maximum 4000))))
+      (is (= 3 (length keys)))
+      (is (> first-integer 500))
+      (is (ethereum-lisp.validation:byte-vector-lexicographic<
+           first-key second-key))
+      (setf payloads
+            (mapcar
+             (lambda (request)
+               (ethereum-lisp.snap:encode-snap-message
+                ethereum-lisp.snap:+snap-message-get-account-range+ request))
+             requests))
+      (setf (ethereum-lisp.eth-sync::eth-peer-snap-offset peer) 100
+            (ethereum-lisp.eth-sync::eth-peer-snap-backend peer) backend)
+      (unwind-protect
+           (progn
+             (setf (fdefinition read-symbol)
+                   (lambda (candidate)
+                     (is (eq peer candidate))
+                     (values :snap
+                             ethereum-lisp.snap:+snap-message-get-account-range+
+                             (pop payloads))))
+             (setf (fdefinition send-symbol)
+                   (lambda (candidate message-id encoded)
+                     (is (eq peer candidate))
+                     (push
+                      (list
+                       message-id
+                       (ethereum-lisp.snap:decode-snap-message
+                        message-id encoded))
+                      sent)))
+             (multiple-value-bind (actions reason)
+                 (eth-peer-run-session
+                  peer :readable-function (lambda (timeout)
+                                            (declare (ignore timeout))
+                                            (not (null payloads)))
+                  :max-actions 5)
+               (is (= 5 actions))
+               (is (eq :max-actions reason))))
+        (setf (fdefinition read-symbol) real-read
+              (fdefinition send-symbol) real-send))
+      (setf sent (nreverse sent))
+      (is (= 5 (length sent)))
+      (loop for response-entry in sent
+            for request-id in '(101 102 103 104 105)
+            for expected in (list (list first-key second-key)
+                                  (list first-key)
+                                  (list first-key)
+                                  keys
+                                  (rest keys))
+            do (is (= ethereum-lisp.snap:+snap-message-account-range+
+                      (first response-entry)))
+               (let* ((response (second response-entry))
+                      (accounts
+                        (ethereum-lisp.snap:snap-account-range-accounts
+                         response))
+                      (actual
+                        (mapcar #'ethereum-lisp.snap:snap-account-data-hash
+                                accounts)))
+                 (is (= request-id
+                        (ethereum-lisp.snap:snap-account-range-id response)))
+                 (is (= (length expected) (length actual)))
+                 (loop for wanted in expected
+                       for received in actual
+                       do (is (bytes= wanted received))))))))
+
 (deftest eth-peer-run-session-omits-unavailable-snap-account-roots
   (:layer :unit :module :p2p)
   ;; Pinned geth 101035a1 TestSnapGetAccountRange lines 199-223 requires both
