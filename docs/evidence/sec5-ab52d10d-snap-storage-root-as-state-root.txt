@@ -1,0 +1,89 @@
+Section 5 SNAP storage-root-as-state-root compatibility evidence
+
+Recorded at: 2026-09-12T22:47:59Z
+Branch: sec5-public-bootstrap-sync
+Accepted revision: ab52d10d17e0b5d9d1af70c8ee3cdc706e0074c4
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6,
+cmd/devp2p/internal/ethtest/snap.go, TestSnapGetAccountRange lines 237-247
+Pinned reference file SHA-256:
+275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+
+Behavioral contract
+
+A GetAccountRange request whose root is an existing account's non-empty storage
+root must not be interpreted as a state root. The snap server returns the
+matching request ID with no accounts and no proof nodes.
+
+Regression
+
+tests/eth-pump-tests.lisp adds:
+  ETH-PEER-RUN-SESSION-IGNORES-A-STORAGE-ROOT-AS-A-SNAP-ACCOUNT-ROOT
+
+The fixture creates real non-empty account storage, derives its committed
+storage root, and proves that root differs from the state's account-trie root.
+It deliberately makes the state provider return the current state for the
+requested storage root, then drives the request through the production peer
+session, SNAP wire codec, request router, and persistent SNAP backend. The
+backend's final root check must still reject the namespace-confused result.
+The test asserts the exact provider lookup, response type and ID, and empty
+accounts and proof lists.
+
+RED proof
+
+snap-sync-root-trie was deliberately changed locally to return the supplied
+state trie without comparing its root to the requested root. The focused
+regression failed because the response exposed an account:
+
+  container: ethereum-lisp-cold-sec5-snap-storage-as-state-red2-cycle984
+  id:        2712f8a0d72829c96f9178767d8eae8d7e9605cc45ce9b7674cd6260307aabd4
+  started:   2026-09-12T22:39:01.928833212Z
+  finished:  2026-09-12T22:39:53.790494417Z
+  exit:      1
+  OOM:       false
+
+The mutation was restored before final verification; backend.lisp has no final
+diff.
+
+GREEN verification
+
+  ethereum-lisp-cold-sec5-snap-storage-as-state-final-cycle984
+  focused result: 1 passed, exit 0, OOM=false
+
+  ethereum-lisp-cold-sec5-session-storage-as-state-cycle984
+  ETH-PEER-RUN-SESSION result: 22 passed, exit 0, OOM=false
+
+  ethereum-lisp-cold-sec5-snap-storage-as-state-family-cycle984
+  SNAP- result: 125 passed, exit 0, OOM=false
+
+  ethereum-lisp-cold-sec5-snap-storage-as-state-full-cycle984
+  full cold-unit result: 1384 passed, 3 skipped, exit 0, OOM=false
+
+cl-workbench doctor --strict passed before application validation.
+cl-workbench check parens tests/eth-pump-tests.lisp and git diff --check passed.
+
+Review and integration
+
+Independent spec review passed pinned-source fidelity, production-boundary
+coverage, and non-vacuity. Independent Common Lisp quality review found no
+critical, important, or minor issue and approved the test. Commit ab52d10d was
+pushed to origin/sec5-public-bootstrap-sync; the remote ref was read back as
+ab52d10d17e0b5d9d1af70c8ee3cdc706e0074c4.
+
+Live validation boundary
+
+At 2026-09-12T22:45:02Z the unchanged exact-0c6b51bf Hoodi EL and Lighthouse
+containers were still running with zero restarts and no OOM. At the same pivot
+3611681, healer processedNodes advanced from 1318912 at 22:31:00Z to 1800192,
+while frontierWorks grew from 507442 to 653240 and knownIncompleteNodes grew
+from 405625 to 551726. This proves active local expansion, not convergence.
+There was still no target-completed or healer-completed event; eth_syncing
+reported currentBlock 0x0 and highestBlock 0x371d3e, eth_blockNumber was 0x0,
+and Lighthouse remained optimistic. Remote /data had 7947852 KiB available,
+still below the rejected Hive r40 12884901888-byte precondition.
+
+Scope boundary
+
+This closes one pinned SNAP server regression gap. It does not close the Hive
+devp2p gate, Hoodi target/healer/canonical completion, eth_syncing=false, the
+seven-day shadow comparison, or the fourteen-day validator soak. No live
+mutation was requested or performed.
