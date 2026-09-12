@@ -282,6 +282,55 @@
                 routed)))
       (setf (fdefinition read-symbol) real-read))))
 
+(deftest eth-peer-run-session-rejects-an-empty-snap-trie-path-set
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestSnapTrieNodes disconnects on this request.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (backend
+           (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+            database state))
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (send-symbol 'ethereum-lisp.eth-sync:eth-peer-send-snap)
+         (real-read (fdefinition read-symbol))
+         (real-send (fdefinition send-symbol))
+         (sent nil)
+         (caught nil)
+         (request
+           (ethereum-lisp.snap:make-snap-get-trie-nodes
+            77 (hash32-bytes (state-db-root state))
+            (list nil (list #(0))) 5000))
+         (payload
+           (ethereum-lisp.snap:encode-snap-message
+            ethereum-lisp.snap:+snap-message-get-trie-nodes+ request)))
+    (setf (ethereum-lisp.eth-sync::eth-peer-snap-offset peer) 100
+          (ethereum-lisp.eth-sync::eth-peer-snap-backend peer) backend)
+    (unwind-protect
+         (progn
+           (setf (fdefinition read-symbol)
+                 (lambda (candidate)
+                   (is (eq peer candidate))
+                   (values :snap
+                           ethereum-lisp.snap:+snap-message-get-trie-nodes+
+                           payload)))
+           (setf (fdefinition send-symbol)
+                 (lambda (&rest arguments)
+                   (declare (ignore arguments))
+                   (setf sent t)))
+           (handler-case
+               (eth-peer-run-session
+                peer :readable-function (lambda (timeout)
+                                          (declare (ignore timeout)) t)
+                :max-actions 1)
+             (error (condition) (setf caught condition))))
+      (setf (fdefinition read-symbol) real-read
+            (fdefinition send-symbol) real-send))
+    (is caught)
+    (is (search "empty path set" (princ-to-string caught)
+                :test #'char-equal))
+    (is (not sent))))
+
 (deftest eth-peer-run-session-answers-a-keepalive-and-still-returns
   (:layer :integration :module :p2p :requires-local-sockets t)
   ;; THE regression for the reader split. A peer that sends only a devp2p Ping
