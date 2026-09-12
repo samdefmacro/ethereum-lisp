@@ -228,7 +228,8 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
 
 (defun snap-sync-bytecode-response (database state request)
   (let ((by-hash (make-hash-table :test #'equalp))
-        (remaining (snap-get-bytecodes-bytes request))
+        (byte-limit (snap-get-bytecodes-bytes request))
+        (response-bytes 0)
         (codes '()))
     (dolist (entry (state-db-account-range state))
       (let ((code (state-account-range-entry-code entry)))
@@ -240,15 +241,18 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
                  by-hash)
                 code))))
     (dolist (hash (snap-get-bytecodes-hashes request))
-      (multiple-value-bind (durable-code present-p)
-          (kv-get-chain-record database :code hash)
-        (let ((code (or (and present-p durable-code) (gethash hash by-hash))))
+      (let ((code
+              (if (bytes= hash (hash32-bytes +empty-code-hash+))
+                  (make-byte-vector 0)
+                  (multiple-value-bind (durable-code present-p)
+                      (kv-get-chain-record database :code hash)
+                    (if present-p durable-code (gethash hash by-hash))))))
         (when code
           (unless (bytes= hash (keccak-256 code))
             (error "snap bytecode record does not match its content hash"))
-          (when (and codes (> (length code) remaining)) (return))
           (push (copy-seq code) codes)
-          (decf remaining (min remaining (length code)))))))
+          (incf response-bytes (length code))
+          (when (> response-bytes byte-limit) (return)))))
     (make-snap-bytecodes (snap-get-bytecodes-id request) (nreverse codes))))
 
 (defun snap-sync-trie-node-response (database state request)

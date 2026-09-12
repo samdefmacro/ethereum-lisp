@@ -4898,6 +4898,45 @@
                    (length
                     (ethereum-lisp.snap:snap-trie-nodes-nodes response))))))))))
 
+(deftest snap-bytecode-server-returns-the-empty-code-for-each-requested-hash
+  (:layer :integration :module :p2p)
+  ;; Pinned geth's devp2p GetByteCodes cases treat KECCAK256("") as an
+  ;; available zero-length code body.  Preserve request multiplicity even when
+  ;; the soft byte limit is zero; unknown hashes must still be omitted.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (backend
+           (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+            database state))
+         (empty-hash (hash32-bytes +empty-code-hash+))
+         (code #(1 2 3 4))
+         (code-hash (keccak-256 code)))
+    (kv-put-chain-record database :code code-hash code)
+    (flet ((request (id hashes byte-limit)
+             (snap-test-call-backend
+              backend ethereum-lisp.snap:+snap-message-get-bytecodes+
+              (ethereum-lisp.snap:make-snap-get-bytecodes
+               id hashes byte-limit))))
+      (let* ((response
+               (request
+                78 (list empty-hash (snap-test-hash 1)
+                         empty-hash empty-hash) 0))
+             (codes (ethereum-lisp.snap:snap-bytecodes-codes response)))
+        (is (= 78 (ethereum-lisp.snap:snap-bytecodes-id response)))
+        (is (= 3 (length codes)))
+        (is (every (lambda (body) (zerop (length body))) codes)))
+      (let ((codes
+              (ethereum-lisp.snap:snap-bytecodes-codes
+               (request 79 (list empty-hash code-hash) 0))))
+        (is (= 2 (length codes)))
+        (is (zerop (length (first codes))))
+        (is (bytes= code (second codes))))
+      (let ((codes
+              (ethereum-lisp.snap:snap-bytecodes-codes
+               (request 80 (loop repeat 4 collect code-hash) 10))))
+        (is (= 3 (length codes)))
+        (is (every (lambda (body) (bytes= code body)) codes))))))
+
 (deftest snap-trie-node-server-caps-disk-lookups
   (:layer :integration :module :p2p)
   (multiple-value-bind (state addresses)
