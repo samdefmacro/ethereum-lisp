@@ -424,6 +424,17 @@ The implementation boundary is split deliberately:
   current-fork EEST prerequisite for the revision under fresh Hoodi validation,
   but not its live/soak gates.
 
+  Exact branch revision `81446d476c9bb36db745cda202052cb61714ffb7` later repeated
+  the checksum-matched current-fork gate after the intervening networking and
+  txpool repairs. It executed all 15,393 selected state cases, 11,382 selected
+  Engine blockchain-replay cases, and 10,257 selected RLP blockchain-replay
+  cases across London through Osaka with zero unexpected skips. The adjacent
+  cold layers passed 1,360 unit tests with three optional skips and 573
+  integration tests. The generated six-line manifest is archived in
+  `docs/evidence/sec5-81446d47-eest-v20.0.2.txt`. This proves no EEST regression
+  at the exact branch revision; it does not substitute for the still-open Hive,
+  Hoodi completion, shadow, or validator gates.
+
   Exact successor `6e3e9b1ddd3c890c98db04d2bd5f367ce2300bad` closes the
   pinned Hive rpc-compat gate. Its reviewed linux/amd64 runtime ran Hive
   `dde4f59d` with Execution APIs `e5d1bb60`, selected exactly 234 unique cases,
