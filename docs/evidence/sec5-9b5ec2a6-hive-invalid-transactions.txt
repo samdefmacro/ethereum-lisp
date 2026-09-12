@@ -1,0 +1,85 @@
+Section 5 Hive TestInvalidTxs local propagation regression evidence
+
+Recorded at: 2026-09-12T15:52:52Z
+Revision: 9b5ec2a67a23381e14a2b2d9c30e5942952fdeb7
+Branch: sec5-public-bootstrap-sync
+Reference: go-ethereum TestInvalidTxs and sendInvalidTxs at commit
+  101035a1049c7dc468bfe973478b579d9883d7b6
+Pinned source SHA-256:
+  cmd/devp2p/internal/ethtest/suite.go
+    4701979b85f4abd7c626cb7f88cdf43036877864668a94465660ed7360ec526c
+  cmd/devp2p/internal/ethtest/transaction.go
+    6279a07a415fb282d771b9e35a9098d90a5482da29d30355a4811be64be884b7
+
+Scope
+
+- Add DEVNET-INVALID-TRANSACTIONS-ARE-NOT-PROPAGATED-BY-SESSION-PUMP.
+- Submit one eth/72 Transactions wire batch through the production devnet
+  backend and txpool admission boundary.
+- Cover the pinned invalid classes: a used nonce, value exceeding available
+  balance once gas is charged, gas below intrinsic gas, oversized contract
+  initcode, and an encoded non-blob transaction above the txpool byte cap.
+  Payload magnitudes use the ethereum-lisp production limits while preserving
+  the five reference rejection classes.
+- Include one valid signed dynamic-fee transaction in the same batch. Require
+  exactly that transaction to enter the pool and traverse the real
+  devnet-peer-pending-broadcast closure and eth-peer-run-session pump to a
+  second peer.
+- Decode either permitted propagation form and prove no invalid hash is sent.
+
+RED control
+
+The accepted test's pending-broadcast callback was temporarily replaced with a
+mutation that appended the five rejected transactions to the production
+callback result. The focused selector failed as intended before the mutation
+was removed:
+
+  not ok DEVNET-INVALID-TRANSACTIONS-ARE-NOT-PROPAGATED-BY-SESSION-PUMP -
+    Assertion failed: (= 1 (LENGTH SENT))
+  0 tests passed, 1 failed.
+  Test run failed: 1 test failed
+
+The accepted revision contains only the production pending-broadcast callback.
+
+GREEN validation
+
+  cl-workbench doctor --strict
+    PASS
+
+  cl-workbench check parens tests/eth-gossip-tests.lisp
+    PASS
+
+  cl-workbench validation run cold-integration \
+    --match DEVNET-INVALID-TRANSACTIONS-ARE-NOT-PROPAGATED-BY-SESSION-PUMP
+    1 test passed.
+
+  cl-workbench validation run cold-integration --match SESSION-PUMP
+    2 tests passed.
+
+  cl-workbench validation run cold-integration
+    568 tests passed, 9 optional fixture-dependent skips.
+
+  git diff --check
+    PASS
+
+Review
+
+An independent read-only specification and Common Lisp quality review inspected
+the final accepted diff after the temporary RED mutation had been removed. It
+approved the change with no required fixes, finding the test non-vacuous, the
+five rejection classes meaningful, and both the production inbound-admission
+and outbound-session-pump paths exercised. The review modified no files.
+
+Canonical integration and remote verification
+
+- Commit: 9b5ec2a67a23381e14a2b2d9c30e5942952fdeb7
+- Subject: test(p2p): reject invalid transaction propagation
+- The non-force push completed and origin/sec5-public-bootstrap-sync was read
+  back at 9b5ec2a67a23381e14a2b2d9c30e5942952fdeb7.
+
+Limits
+
+- This is deterministic local coverage of the r39 InvalidTxs timeout seam; it
+  is not a successor pinned Hive pass.
+- The exact pinned 48-entry Hive devp2p inventory and SNAP suites remain open.
+- No live system or remote datadir was mutated for this slice.

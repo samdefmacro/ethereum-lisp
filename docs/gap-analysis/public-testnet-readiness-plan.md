@@ -569,6 +569,22 @@ The implementation boundary is split deliberately:
   limits are in
   `docs/evidence/sec5-acecf50e-hive-transaction-propagation.txt`.
 
+  Exact revision `9b5ec2a67a23381e14a2b2d9c30e5942952fdeb7` adds the
+  remaining deterministic local regression for pinned geth `TestInvalidTxs`.
+  One eth/72 wire batch carries five invalid dynamic-fee transactions covering
+  a used nonce, insufficient balance, intrinsic gas, oversized initcode, and
+  encoded-size rejection plus one valid positive control. The production
+  devnet backend admits only the valid transaction, and a second peer's
+  production pending-broadcast/session-pump path propagates that exact hash and
+  none of the rejected hashes. A RED mutation that injected the invalid values
+  into the outbound callback fails the test. The accepted one-file delta passes
+  the focused selector, the two-test session-pump integration family, and the
+  568-test cold-integration layer with nine optional fixture-dependent skips.
+  Independent review approved the final diff without required fixes. This
+  protects the fourth r39 transaction timeout seam locally but does not replace
+  the still-required successor Hive run; exact commands and limits are in
+  `docs/evidence/sec5-9b5ec2a6-hive-invalid-transactions.txt`.
+
   Exact predecessor revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
   has a verified linux/amd64 runtime image and export. Its seven-check
   runtime smoke passed, and the archive SHA-256 is
