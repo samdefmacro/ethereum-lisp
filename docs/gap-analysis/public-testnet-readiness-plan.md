@@ -871,6 +871,17 @@ The implementation boundary is split deliberately:
   rather than a live Hive SNAP pass; exact evidence is in
   `docs/evidence/sec5-981112ac-snap-account-range-boundaries.txt`.
 
+  Exact accepted revision `306e5f4fe8f5a89edf689812a1f91ec497432558`
+  covers geth-compatible cumulative `GetAccountRange` byte targets. Exact one-
+  and two-item budgets return two and three ordered accounts respectively,
+  proving the next item that crosses the soft target is appended before serving
+  stops. A strict-greater-than to greater-than-or-equal mutation failed the
+  response-cardinality assertion. The focused test, 26-test session-pump family,
+  129-test `SNAP-` family, and full 1,388-test cold-unit layer passed with three
+  optional skips. Independent review approved without findings. This remains
+  local regression evidence rather than a live Hive SNAP pass; exact evidence
+  is in `docs/evidence/sec5-306e5f4f-snap-account-byte-targets.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

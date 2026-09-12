@@ -1,0 +1,113 @@
+Section 5 SNAP account cumulative byte-target evidence
+
+Recorded at: 2026-09-12T23:44:29Z
+Branch: sec5-public-bootstrap-sync
+Test revision: 306e5f4fe8f5a89edf689812a1f91ec497432558
+Pinned references: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+  eth/protocols/snap/handlers.go, ServiceGetAccountRangeQuery lines 82-102
+  cmd/devp2p/internal/ethtest/snap.go, TestSnapGetAccountRange lines 84-113
+Pinned handlers.go SHA-256:
+  ec88c4a480d3e9a4089bc50906c9ca96b69bf79b1f8dd0b94526575a44f5418a
+Pinned snap.go SHA-256:
+  275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+
+Behavioral contract
+
+Geth appends an account and increases the cumulative response size before
+checking whether size is greater than the requested Bytes target. The target is
+therefore soft: when accumulated size exactly equals the target, serving
+continues, and the next item that crosses the target is included before serving
+stops. Geth's pinned devp2p suite exercises this cumulative truncation with
+4000-, 3000-, and 2000-byte full-range requests.
+
+Regression
+
+ETH-PEER-RUN-SESSION-STOPS-SNAP-ACCOUNT-RANGE-AFTER-SOFT-LIMIT-CROSSING
+creates four committed accounts. A generous baseline response exposes their
+actual canonical slim bodies and secure-trie order. The test derives exact
+one-item and two-item encoded budgets using geth's 32-byte hash plus encoded-body
+account cost. Requests at those exact budgets are then driven through the
+production eth-peer-run-session SNAP dispatcher, request/response codecs,
+request router, and persistent backend. They must return the first two and first
+three accounts respectively, demonstrating both append-before-check and that
+serving stops rather than returning all four.
+
+Mutation RED proof
+
+A temporary production mutation changed the cumulative cutoff from `size >
+Bytes` to `size >= Bytes`. The focused test failed its response-cardinality
+assertion:
+
+  container: ethereum-lisp-cold-sec5-snap-account-crossing-red-cycle985
+  container ID: d3fda0ae50a521c51a18d0854f9643985491e0bfa46ba1c594670fbc8d27275f
+  result: 0 passed, 1 failed; exit 1; OOM false
+  started: 2026-09-12T23:38:31.822024212Z
+  finished: 2026-09-12T23:39:24.573269708Z
+
+The mutation was removed before final validation. Production backend source had
+no diff when the accepted gates ran.
+
+Accepted cold validation
+
+Focused final:
+  ethereum-lisp-cold-sec5-snap-account-crossing-final-cycle985
+  ID cc55a720488c48913507e6e6c4cba4bbe9ca5d30c13954d054459656e3a7df9a
+  1 passed; exit 0; OOM false
+  started 2026-09-12T23:39:52.887943264Z
+  finished 2026-09-12T23:40:48.267460511Z
+
+ETH-PEER-RUN-SESSION family:
+  ethereum-lisp-cold-sec5-session-account-crossing-cycle985
+  ID a6a073422160c5043ff6fbbcd34364f28af924c66636cd853272d25bf7800908
+  26 passed; exit 0; OOM false
+  started 2026-09-12T23:40:51.45883318Z
+  finished 2026-09-12T23:41:54.536291792Z
+
+SNAP family:
+  ethereum-lisp-cold-sec5-snap-account-crossing-family-cycle985
+  ID 23257a8a6c721ff6bc619d26341f001076f2f750d9fbfc93d8fdb2a73a24a4d0
+  129 passed; exit 0; OOM false
+  started 2026-09-12T23:41:57.440435918Z
+  finished 2026-09-12T23:42:50.849023096Z
+
+Full cold unit:
+  ethereum-lisp-cold-sec5-snap-account-crossing-full-cycle985
+  ID f5e7084ec510eca79c1f45521da4768ce08e936c7ff47017a85e6405ad79edf3
+  1388 passed, 3 optional fixture-dependent skips; exit 0; OOM false
+  started 2026-09-12T23:42:54.468086458Z
+  finished 2026-09-12T23:44:04.568293672Z
+
+Static gates:
+  cl-workbench doctor --strict: passed before application tooling
+  cl-workbench check parens tests/eth-pump-tests.lisp: passed
+  git diff --check: passed
+
+Independent review
+
+Independent specification and quality review returned PASS with no findings.
+It verified the pinned handler hash and append-before-strict-greater-than oracle,
+non-vacuous four-account setup, exact response counts and ordered keys, complete
+production serving path, and safe global function restoration. It also judged
+the baseline-derived sizes appropriate because they derive only fixture-specific
+costs while cardinalities and ordering remain independently asserted.
+
+Review transcript:
+  /Users/sen/.hermes/cache/delegation/live/deleg_f4a303d4/task-0.log
+
+Live boundary
+
+The existing exact-revision Hoodi deployment was not mutated. A read-only
+observation at 2026-09-12T23:44:47Z found both EL and Lighthouse running without
+OOM or restart. The EL had 37 peers, but eth_syncing reported currentBlock 0x0
+and highestBlock 0x371e4f; eth_blockNumber remained 0x0. The latest healer
+sample had processedNodes 735232, frontierWorks 336248,
+knownIncompleteNodes 217224, dynamic-expansion with no ETA, and completed NIL.
+This proves active processing but not convergence. The remote /data filesystem
+had 8214986752 bytes available, below the rejected Hive r40 12884901888-byte
+precondition.
+
+Scope boundary
+
+This closes deterministic cumulative GetAccountRange byte-target semantics. It
+does not prove the open Hive devp2p gate, Hoodi target/healer completion,
+canonical catch-up, eth_syncing=false, shadow comparison, or validator soak.
