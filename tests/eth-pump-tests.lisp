@@ -659,6 +659,96 @@
         (is (bytes= storage-root (keccak-256 (first nodes))))
         (is (bytes= expected-child (second nodes)))))))
 
+(deftest eth-peer-run-session-preserves-unsorted-snap-account-path-order
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestSnapTrieNodes lines 671-685 sends account
+  ;; paths at prefix lengths 11, 2, and 1 and requires positional responses.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (address
+           (address-from-hex "0x00000000000000000000000000000000000000df"))
+         (other-address
+           (address-from-hex "0x00000000000000000000000000000000000003e8"))
+         (outside-prefix-address
+           (address-from-hex "0x0000000000000000000000000000000000000042"))
+         (account-hash (keccak-256 (address-bytes address)))
+         (peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (send-symbol 'ethereum-lisp.eth-sync:eth-peer-send-snap)
+         (real-read (fdefinition read-symbol))
+         (real-send (fdefinition send-symbol))
+         (sent nil))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (state-db-set-account state other-address (make-state-account :balance 2))
+    (state-db-set-account
+     state outside-prefix-address (make-state-account :balance 3))
+    (labels ((account-path (length)
+               (let ((nibbles
+                       (subseq (keybytes-to-nibbles account-hash) 0 length)))
+                 (setf (aref nibbles (1- length)) 0)
+                 (hex-prefix-encode nibbles))))
+      (let* ((account-trie (ethereum-lisp.state::state-db-state-trie state))
+             (paths (list (account-path 11)
+                          (account-path 2)
+                          (account-path 1)))
+             (expected
+               (mapcar
+                (lambda (path)
+                  (multiple-value-bind (node present-p)
+                      (mpt-get-node-by-compact-path account-trie path)
+                    (if present-p node (make-byte-vector 0))))
+                paths))
+             (root (hash32-bytes (state-db-root state)))
+             (backend
+               (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+                database state))
+             (request
+               (ethereum-lisp.snap:make-snap-get-trie-nodes
+                82 root (mapcar #'list paths) 5000))
+             (payload
+               (ethereum-lisp.snap:encode-snap-message
+                ethereum-lisp.snap:+snap-message-get-trie-nodes+ request)))
+        (is (= 3 (length expected)))
+        (is (zerop (length (first expected))))
+        (is (plusp (length (second expected))))
+        (is (plusp (length (third expected))))
+        (setf (ethereum-lisp.eth-sync::eth-peer-snap-offset peer) 100
+              (ethereum-lisp.eth-sync::eth-peer-snap-backend peer) backend)
+        (unwind-protect
+             (progn
+               (setf (fdefinition read-symbol)
+                     (lambda (candidate)
+                       (is (eq peer candidate))
+                       (values :snap
+                               ethereum-lisp.snap:+snap-message-get-trie-nodes+
+                               payload)))
+               (setf (fdefinition send-symbol)
+                     (lambda (candidate message-id encoded)
+                       (is (eq peer candidate))
+                       (setf sent
+                             (list
+                              message-id
+                              (ethereum-lisp.snap:decode-snap-message
+                               message-id encoded)))))
+               (multiple-value-bind (actions reason)
+                   (eth-peer-run-session
+                    peer :readable-function (lambda (timeout)
+                                              (declare (ignore timeout)) t)
+                    :max-actions 1)
+                 (is (= 1 actions))
+                 (is (eq :max-actions reason))))
+          (setf (fdefinition read-symbol) real-read
+                (fdefinition send-symbol) real-send))
+        (is sent)
+        (is (= ethereum-lisp.snap:+snap-message-trie-nodes+ (first sent)))
+        (let* ((response (second sent))
+               (nodes (ethereum-lisp.snap:snap-trie-nodes-nodes response)))
+          (is (= 82 (ethereum-lisp.snap:snap-trie-nodes-id response)))
+          (is (= 3 (length nodes)))
+          (loop for actual in nodes
+                for wanted in expected
+                do (is (bytes= wanted actual))))))))
+
 (deftest eth-peer-run-session-answers-a-keepalive-and-still-returns
   (:layer :integration :module :p2p :requires-local-sockets t)
   ;; THE regression for the reader split. A peer that sends only a devp2p Ping
