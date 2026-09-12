@@ -1,0 +1,84 @@
+Section 5 exact-current runtime artifact evidence
+
+Recorded through: 2026-09-12T16:29:00Z
+Revision: c93389e762b9a4e32f2cbb0cf86ed2be5b892453
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This record preserves an exact linux/amd64 runtime image and export for the
+current accepted Section 5 branch revision, including the pooled-transaction
+announcement metadata and BlobViolations repair at 8286eb7f plus its evidence
+commit. It is local artifact evidence only, not a deployment or live-completion
+claim.
+
+Build boundary
+
+`cl-workbench doctor --strict` passed earlier in this worker cycle. Before the
+build, the canonical checkout was clean, local HEAD and the origin branch both
+resolved to c93389e762b9a4e32f2cbb0cf86ed2be5b892453, and no development agent
+was writing the worktree. The exact runtime was built, exported, and smoked via
+the documented project brokers:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-c93389e7-amd64
+  scripts/dev.sh runtime-export \
+    ethereum-lisp-runtime:sec5-c93389e7-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-c93389e7-amd64.tar
+  cl-workbench validation run runtime-smoke \
+    ethereum-lisp-runtime:sec5-c93389e7-amd64
+
+The build command asserted the exact local and remote revision and clean-tree
+boundary before the build, then reasserted the exact revision after build,
+export, and runtime smoke.
+
+Artifact identity
+
+- local image: ethereum-lisp-runtime:sec5-c93389e7-amd64;
+- image ID:
+  sha256:439cec11b9a6d57ceac558db8a9bb937ffefcb339a388ec2b1ba16e46c2de951;
+- platform: linux/amd64;
+- revision label: c93389e762b9a4e32f2cbb0cf86ed2be5b892453;
+- configured user: ethereum:ethereum;
+- image size: 71,993,468 bytes;
+- archive: /private/tmp/ethereum-lisp-runtime-sec5-c93389e7-amd64.tar;
+- archive size: 72,018,432 bytes;
+- archive SHA-256:
+  5b3c462575f91385d25014a296d4dc88485c5de0c9cf3e63520bfca55abb3419;
+- archive mode at verification: 0600.
+
+Runtime verification
+
+`cl-workbench validation run runtime-smoke
+ethereum-lisp-runtime:sec5-c93389e7-amd64` exited zero. Seven runtime checks
+passed:
+
+- `--hoodi` built the packaged genesis;
+- public `eth_chainId` returned `0x539`;
+- `web3_clientVersion` identified `0xc93389e7`;
+- unauthenticated `engine_exchangeCapabilities` returned HTTP 401;
+- authenticated `engine_exchangeCapabilities` answered;
+- `engine_getClientVersionV1` mapped the exact revision to `0xc93389e7`;
+- Engine-port `eth_syncing` answered.
+
+The code revision beneath the evidence-only c93389e7 commit is
+8286eb7fb22cad22cacf45cc5f87a5bee52e24da. Its current exact gates passed 1,362
+cold-unit tests with three optional skips and 568 cold-integration tests with
+nine optional skips. The BlobViolations-specific behavior and review evidence
+is archived in `docs/evidence/sec5-8286eb7f-hive-blob-violations.txt`.
+
+Live boundary
+
+No live EL, CL, port, network, image, container, or datadir was changed while
+this artifact was built. The existing older exact-0c6b51bf Hoodi validation
+container remained untouched. The most recent read-only RPC sample reported 41
+peers, `eth_blockNumber=0x0`, and `eth_syncing` currentBlock 0x0 with highestBlock
+0x37168b: process and peer liveness are established, but useful execution
+progress and Section 5 completion are not.
+
+This artifact has not been uploaded or deployed. The remote `/data` filesystem
+remains approximately 99% used with about 7.9 GiB available, below the reviewed
+12,884,901,888-byte Hive precondition. Upload, Hive execution, or a fresh-datadir
+deployment requires a new independently reviewed authorization request after
+additive capacity is available. Existing containers, datadirs, and evidence
+remain preserved.

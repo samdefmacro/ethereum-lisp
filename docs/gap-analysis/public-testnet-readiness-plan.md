@@ -604,6 +604,16 @@ The implementation boundary is split deliberately:
   successor Hive run; exact references, commands, and live limits are in
   `docs/evidence/sec5-8286eb7f-hive-blob-violations.txt`.
 
+  Exact current revision `c93389e762b9a4e32f2cbb0cf86ed2be5b892453`
+  now has a verified linux/amd64 runtime image and export. Its image ID is
+  `sha256:439cec11b9a6d57ceac558db8a9bb937ffefcb339a388ec2b1ba16e46c2de951`,
+  the archive SHA-256 is
+  `5b3c462575f91385d25014a296d4dc88485c5de0c9cf3e63520bfca55abb3419`,
+  and all seven runtime-smoke checks passed, including exact revision identity.
+  It has not been uploaded or deployed; exact build commands, identities, and
+  live limits are archived in
+  `docs/evidence/sec5-c93389e7-amd64-runtime.txt`.
+
   Exact predecessor revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
   has a verified linux/amd64 runtime image and export. Its seven-check
   runtime smoke passed, and the archive SHA-256 is
