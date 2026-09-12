@@ -951,6 +951,68 @@
       (is (= 3 (length codes)))
       (is (every (lambda (code) (zerop (length code))) codes)))))
 
+(deftest eth-peer-run-session-serves-all-requested-snap-bytecodes
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestSnapGetByteCodes lines 498-503 requires all
+  ;; available contract code bodies when the byte budget contains them.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (backend
+           (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+            database state))
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (send-symbol 'ethereum-lisp.eth-sync:eth-peer-send-snap)
+         (real-read (fdefinition read-symbol))
+         (real-send (fdefinition send-symbol))
+         (sent nil)
+         (codes (list #(1 2 3) #(4 5 6 7) #(8 9 10 11 12)))
+         (hashes (mapcar #'keccak-256 codes))
+         (request
+           (ethereum-lisp.snap:make-snap-get-bytecodes 86 hashes 100000))
+         (payload
+           (ethereum-lisp.snap:encode-snap-message
+            ethereum-lisp.snap:+snap-message-get-bytecodes+ request)))
+    (loop for hash in hashes
+          for code in codes
+          do (kv-put-chain-record database :code hash code))
+    (setf (ethereum-lisp.eth-sync::eth-peer-snap-offset peer) 100
+          (ethereum-lisp.eth-sync::eth-peer-snap-backend peer) backend)
+    (unwind-protect
+         (progn
+           (setf (fdefinition read-symbol)
+                 (lambda (candidate)
+                   (is (eq peer candidate))
+                   (values :snap
+                           ethereum-lisp.snap:+snap-message-get-bytecodes+
+                           payload)))
+           (setf (fdefinition send-symbol)
+                 (lambda (candidate message-id encoded)
+                   (is (eq peer candidate))
+                   (setf sent
+                         (list
+                          message-id
+                          (ethereum-lisp.snap:decode-snap-message
+                           message-id encoded)))))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session
+                peer :readable-function (lambda (timeout)
+                                          (declare (ignore timeout)) t)
+                :max-actions 1)
+             (is (= 1 actions))
+             (is (eq :max-actions reason))))
+      (setf (fdefinition read-symbol) real-read
+            (fdefinition send-symbol) real-send))
+    (is sent)
+    (is (= ethereum-lisp.snap:+snap-message-bytecodes+ (first sent)))
+    (let* ((response (second sent))
+           (actual (ethereum-lisp.snap:snap-bytecodes-codes response)))
+      (is (= 86 (ethereum-lisp.snap:snap-bytecodes-id response)))
+      (is (= 3 (length actual)))
+      (loop for wanted in codes
+            for body in actual
+            do (is (bytes= wanted body))))))
+
 (deftest eth-peer-run-session-answers-a-keepalive-and-still-returns
   (:layer :integration :module :p2p :requires-local-sockets t)
   ;; THE regression for the reader split. A peer that sends only a devp2p Ping
