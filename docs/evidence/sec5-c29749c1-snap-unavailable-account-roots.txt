@@ -1,0 +1,97 @@
+Section 5 SNAP unavailable account-root compatibility evidence
+
+Recorded at: 2026-09-12T22:00Z
+Branch: sec5-public-bootstrap-sync
+Test revision: c29749c1d6bc3f368c167d23f00e2df1fa07fa69
+Pinned reference: go-ethereum 101035a1, cmd/devp2p/internal/ethtest/snap.go,
+TestSnapGetAccountRange lines 199-223
+Pinned reference file SHA-256:
+275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+
+Behavioral contract
+
+A snap/1 GetAccountRange request must not serve the currently loaded state when
+the requested root is unavailable. Both an arbitrary unknown root and a real
+historical root that the configured state provider cannot resolve produce an
+AccountRange response with the original request ID, no accounts, and no proof
+nodes. A request for the retained current root remains the positive control and
+returns its account plus a non-empty proof. The provider-call assertions prove
+that unavailable roots pass through the root-indexed resolver while the current
+root does not.
+
+Regression
+
+tests/eth-pump-tests.lisp adds:
+  ETH-PEER-RUN-SESSION-OMITS-UNAVAILABLE-SNAP-ACCOUNT-ROOTS
+
+The regression drives three requests through the production eth peer session,
+SNAP wire codec, request router, and persistent SNAP state backend:
+
+  request 90: arbitrary unknown root -> empty accounts and proof
+  request 91: pre-mutation historical root unavailable from provider -> empty
+              accounts and proof
+  request 92: retained current root -> one account and non-empty proof
+
+RED proof
+
+The state-selection boundary in
+src/networking/snap-sync/backend.lisp was deliberately changed locally to
+ignore requested-root and state-provider and always return the current state.
+The focused cold-unit container then failed as required:
+
+  container: ethereum-lisp-cold-sec5-snap-account-roots-red2-cycle983
+  started:   2026-09-12T21:50:35.997452881Z
+  finished:  2026-09-12T21:51:27.866107502Z
+  exit:      1
+  OOM:       false
+
+The deliberate mutation was reverted. The production implementation remains
+root-aware and provider-aware; git diff confirmed no source change.
+
+GREEN verification
+
+After the final fixture form captured the historical root before mutating the
+state, the focused regression passed:
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-sec5-snap-account-roots-final2-cycle983 \
+    cl-workbench validation run cold-unit \
+    --match ETH-PEER-RUN-SESSION-OMITS-UNAVAILABLE-SNAP-ACCOUNT-ROOTS
+
+  started:   2026-09-12T21:58:38.029046632Z
+  finished:  2026-09-12T21:59:29.444312920Z
+  exit:      0
+  OOM:       false
+
+The pre-final-fixture session-family and broader gates also passed with the
+same behavior and implementation:
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-sec5-session-account-roots-cycle983 \
+    cl-workbench validation run cold-unit --match ETH-PEER-RUN-SESSION
+  exit: 0
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-sec5-snap-account-roots-family-cycle983 \
+    cl-workbench validation run cold-unit --match SNAP-
+  exit: 0
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-sec5-snap-account-roots-full-cycle983 \
+    cl-workbench validation run cold-unit
+  exit: 0
+
+All cold containers used runtime fingerprint
+b8aaea74d9110f2e93e6e23990acc3143ff5779b8bf216482bd9415f09c19d97.
+Before application validation, cl-workbench doctor --strict exited 0 and
+cl-workbench check parens tests/eth-pump-tests.lisp exited 0.
+
+Review and integration
+
+An independent read-only review approved the final regression with no blocking
+findings for pinned-spec parity, non-vacuity, production-boundary coverage,
+style, and absence of unintended source changes. Commit c29749c1 was pushed to
+origin/sec5-public-bootstrap-sync and the remote ref was read back as
+c29749c1d6bc3f368c167d23f00e2df1fa07fa69.
+
+Scope boundary
+
+This closes one SNAP server compatibility gap. It does not establish Section 5
+completion, Hive completion, Hoodi sync completion, shadow comparison, or the
+validator soak gates.
