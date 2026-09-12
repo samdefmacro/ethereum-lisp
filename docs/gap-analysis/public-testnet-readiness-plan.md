@@ -553,6 +553,22 @@ The implementation boundary is split deliberately:
   still-required successor Hive run; exact commands and limits are in
   `docs/evidence/sec5-7ee257f2-hive-new-pooled-regression.txt`.
 
+  Exact revision `acecf50e4405742ceed113cb627abef40f6ca9eb` adds the
+  corresponding deterministic local regression for pinned geth
+  `TestTransaction`: one peer submits a valid signed dynamic-fee transaction
+  through the production eth/72 gossip and devnet txpool-admission path, then a
+  second peer runs the production session pump with the real pending-broadcast
+  callback and must receive the same transaction hash. The assertion accepts
+  either full `Transactions` propagation or a
+  `NewPooledTransactionHashes` announcement, matching the pinned geth test. A
+  RED control fails when both production broadcast calls are removed. The
+  accepted one-file delta passes the focused selector, the three-test
+  session-pump unit family, and the 567-test cold-integration layer with nine
+  optional fixture-dependent skips. This protects the third r39 timeout seam
+  locally but does not replace the successor Hive run; exact commands and
+  limits are in
+  `docs/evidence/sec5-acecf50e-hive-transaction-propagation.txt`.
+
   Exact predecessor revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
   has a verified linux/amd64 runtime image and export. Its seven-check
   runtime smoke passed, and the archive SHA-256 is

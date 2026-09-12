@@ -1,0 +1,77 @@
+Section 5 Hive TestTransaction local propagation regression evidence
+
+Recorded at: 2026-09-12T15:32:20Z
+Revision: acecf50e4405742ceed113cb627abef40f6ca9eb
+Branch: sec5-public-bootstrap-sync
+Reference: go-ethereum TestTransaction and sendTxs at commit
+  101035a1049c7dc468bfe973478b579d9883d7b6
+Pinned helper source SHA-256:
+  5ec6f4692ae4c43af1b5693179241491f4001343b482d2801b2cc0a26c741afc
+
+Scope
+
+- Add DEVNET-TRANSACTION-MESSAGE-IS-PROPAGATED-BY-SESSION-PUMP.
+- Submit one valid signed dynamic-fee transaction as an inbound eth/72
+  Transactions message to one peer.
+- Admit it through the production devnet backend and assert the txpool count.
+- Run a second peer through the production session pump with the real devnet
+  pending-broadcast callback.
+- Require the second peer to receive exactly one propagation message containing
+  the same transaction hash. Match pinned geth by accepting either a full
+  Transactions message or a NewPooledTransactionHashes announcement.
+
+RED control
+
+The session pump's :broadcast action was temporarily changed to omit both
+eth-peer-broadcast-transactions and eth-peer-announce-transactions. The focused
+selector failed as intended:
+
+  not ok DEVNET-TRANSACTION-MESSAGE-IS-PROPAGATED-BY-SESSION-PUMP -
+    Assertion failed: (= 1 (LENGTH SENT))
+  0 tests passed, 1 failed.
+  Test run failed: 1 test failed
+  transaction_red_exit=1
+  real 56.06
+
+The production calls were restored before accepted validation. There is no
+production-source delta in the accepted revision.
+
+GREEN validation
+
+  cl-workbench check parens tests/eth-gossip-tests.lisp
+    PASS
+
+  cl-workbench validation run cold-integration \
+    --match DEVNET-TRANSACTION-MESSAGE-IS-PROPAGATED-BY-SESSION-PUMP
+    1 test passed.
+
+  cl-workbench validation run cold-unit --match ETH-PEER-RUN-SESSION
+    3 tests passed.
+    real 53.33
+
+  cl-workbench validation run cold-integration
+    567 tests passed, 9 skipped.
+    real 129.82
+
+Canonical integration and remote verification
+
+- Feature commit: 765d502e5e826cf7728b79b5739f0a8749c98787
+- Canonical cherry-pick: acecf50e4405742ceed113cb627abef40f6ca9eb
+- The focused selector passed again at the canonical commit.
+- origin/sec5-public-bootstrap-sync was read back at
+  acecf50e4405742ceed113cb627abef40f6ca9eb after a non-force push.
+
+Review
+
+The accepted one-file test delta was reviewed against the pinned geth
+TestTransaction/sendTxs behavior and the production devnet pending-broadcast
+and session-pump paths. The assertion deliberately accepts both propagation
+forms permitted by the pinned test rather than overfitting to the current
+small-transaction full-push policy. No production change was justified.
+
+Limits
+
+- This is deterministic local coverage of the r39 TestTransaction timeout seam;
+  it is not a successor pinned Hive pass.
+- The exact pinned Hive devp2p inventory and SNAP suites remain open.
+- No live system or remote datadir was mutated for this slice.
