@@ -1,0 +1,83 @@
+Section 5 exact amd64 artifacts for pinned Hive devp2p rerun
+
+Recorded: 2026-09-12T04:41:15Z
+Revision: a6ce1c1cf53b1eb140f9a1b875f574ca45add82f
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This revision contains the signed discv4 expiration repair, an observable
+compressed devp2p Disconnect for typed ETH protocol violations, and resumable
+eth/70 receipt response chunking for blocks whose receipts exceed the 10 MiB
+message cap. The artifacts below are the exact inputs prepared for an
+independently authorized fresh Linux devp2p run against pinned Hive and geth.
+
+Runtime image
+
+Image tag:
+  ethereum-lisp-runtime:sec5-a6ce1c1c-amd64
+Image ID:
+  sha256:98e1895a5d3609978165151d0aec3db22999712f733650ada0c5ca296348dfd2
+Platform:
+  linux/amd64
+Configured user:
+  ethereum:ethereum
+OCI revision label:
+  a6ce1c1cf53b1eb140f9a1b875f574ca45add82f
+Export path:
+  /private/tmp/ethereum-lisp-runtime-sec5-a6ce1c1c-amd64.tar
+Export size:
+  71999488 bytes
+Export SHA-256:
+  a0a8033b75f968e187b174e3395f778fd21b423bfc8890cfd3cc013815a2abee
+
+Source archive
+
+Archive path:
+  /private/tmp/ethereum-lisp-source-a6ce1c1c.tar
+Export size:
+  29143040 bytes
+Export SHA-256:
+  5531bf2afaac8d12631abd872166a4bdcc94ce7b8fda7b5026714c24426681be
+Archive inventory:
+  877/877 tracked revision entries; 0 missing, 0 extra
+
+Verification
+
+- `cl-workbench doctor --strict`: exit 0.
+- `cl-workbench validation run cold-unit`: 1,356 passed, 3 skipped, exit 0.
+- `cl-workbench validation run cold-integration --match
+  RLPX-REFUSES-A-CONNECTION-WITH-AN-UNCOMPRESSED-DISCONNECT`: 1 passed,
+  exit 0.
+- `cl-workbench validation run cold-integration --match ETH-SYNC-`: exit 0.
+- `cl-workbench validation run cold-integration --match
+  ETH-SERVE-ANSWERS-A-PEER-OVER-A-SOCKET`: 1 passed, exit 0.
+- `RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build
+  ethereum-lisp-runtime:sec5-a6ce1c1c-amd64`: exit 0.
+- `cl-workbench validation run runtime-smoke
+  ethereum-lisp-runtime:sec5-a6ce1c1c-amd64`: exit 0.
+- Public `eth_chainId`: `0x539`.
+- Public `web3_clientVersion`: `ethereum-lisp/0.1.0/CL/0xa6ce1c1c`.
+- Unauthenticated Engine API request: HTTP 401.
+- Authenticated `engine_exchangeCapabilities`: answered.
+- `engine_getClientVersionV1` revision:
+  `a6ce1c1cf53b1eb140f9a1b875f574ca45add82f`.
+- `scripts/dev.sh hive-adapter-smoke
+  ethereum-lisp-runtime:sec5-a6ce1c1c-amd64`: exit 0.
+- Adapter refusals: 6/6, including `HIVE_DISCV5`.
+- Bundled discovery genesis startup, uploaded fork-config preservation,
+  Hive chain-ID mapping, production RocksDB assertion, routable enode address,
+  and authenticated Engine capability checks: passed.
+- Git HEAD remained `a6ce1c1cf53b1eb140f9a1b875f574ca45add82f` and the worktree remained clean
+  through artifact creation.
+
+Boundary
+
+These checks establish exact source/runtime identity and local amd64 startup,
+adapter, unit, and focused integration behavior. They do not close the Hive
+devp2p gate. A fresh independently authorized Linux run must load these verified
+inputs, execute the exact 33-case inventory under pinned Hive
+`dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c` and pinned geth
+`101035a1049c7dc468bfe973478b579d9883d7b6`, and archive its complete results.
+The healthy Hoodi validation at runtime revision
+`0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae` was not changed.
