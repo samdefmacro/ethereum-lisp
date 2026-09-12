@@ -674,6 +674,19 @@ The implementation boundary is split deliberately:
   not uploaded or deployed; exact commands and the corrected broker invocation
   are in `docs/evidence/sec5-4cd40480-amd64-runtime.txt`.
 
+  Exact current branch revision `dba597c98cb5e974fde2c8d2ba26ffe885bde0b6`
+  also has a verified linux/amd64 runtime image and export, including every
+  accepted pinned-geth regression and evidence commit through `TestGetCells`.
+  Its image ID is
+  `sha256:c83aa9e49300369673d6eaa609fe5e47d4e4254543fc1f4a8bf27df761d95664`,
+  archive SHA-256 is
+  `c68240d8c51c31362496ee5995cec8884a4b3ce69f84b8cc8e8c8b90b7a4c7ef`,
+  and all seven runtime-smoke checks passed with exact revision identity. It was
+  not uploaded or deployed because the remote filesystem remains below the
+  reviewed Hive capacity precondition. Exact commands, identities, live
+  boundary, and capacity evidence are archived in
+  `docs/evidence/sec5-dba597c9-amd64-runtime.txt`.
+
   Exact predecessor revision `c93389e762b9a4e32f2cbb0cf86ed2be5b892453`
   now has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:439cec11b9a6d57ceac558db8a9bb937ffefcb339a388ec2b1ba16e46c2de951`,

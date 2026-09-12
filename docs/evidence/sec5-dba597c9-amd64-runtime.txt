@@ -1,0 +1,80 @@
+Section 5 exact-current runtime artifact evidence
+
+Recorded through: 2026-09-12T17:55:23Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Revision: dba597c98cb5e974fde2c8d2ba26ffe885bde0b6
+
+Scope
+
+This record preserves an exact linux/amd64 runtime image and export for the
+current accepted Section 5 branch revision, including all accepted local pinned
+geth transaction/blob regression and evidence commits through TestGetCells. It
+is local artifact evidence only, not upload, deployment, Hive, or Hoodi
+completion evidence.
+
+Build boundary
+
+`cl-workbench doctor --strict` passed before application tooling in this worker
+cycle. Immediately before the build, the canonical worktree was clean and local
+HEAD plus origin/sec5-public-bootstrap-sync both resolved to the exact revision.
+The documented project brokers built, exported, and smoked the artifact:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-dba597c9-amd64
+  scripts/dev.sh runtime-export \
+    ethereum-lisp-runtime:sec5-dba597c9-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-dba597c9-amd64.tar
+  cl-workbench validation run runtime-smoke \
+    ethereum-lisp-runtime:sec5-dba597c9-amd64
+
+The clean worktree and exact revision were reasserted after all three commands.
+
+Artifact identity
+
+- image: ethereum-lisp-runtime:sec5-dba597c9-amd64;
+- image ID:
+  sha256:c83aa9e49300369673d6eaa609fe5e47d4e4254543fc1f4a8bf27df761d95664;
+- platform: linux/amd64;
+- revision label: dba597c98cb5e974fde2c8d2ba26ffe885bde0b6;
+- configured user: ethereum:ethereum;
+- image size: 71,994,722 bytes;
+- archive: /private/tmp/ethereum-lisp-runtime-sec5-dba597c9-amd64.tar;
+- archive size: 72,019,456 bytes;
+- archive mode: 0600;
+- archive SHA-256:
+  c68240d8c51c31362496ee5995cec8884a4b3ce69f84b8cc8e8c8b90b7a4c7ef.
+
+Runtime verification
+
+The runtime-smoke gate exited zero. It proved:
+
+- packaged `--hoodi` genesis construction;
+- public `eth_chainId=0x539`;
+- `web3_clientVersion` reports `0xdba597c9`;
+- unauthenticated Engine access returns HTTP 401;
+- authenticated `engine_exchangeCapabilities` responds;
+- `engine_getClientVersionV1` identifies the full exact revision;
+- Engine-port `eth_syncing` responds.
+
+The adjacent branch validation passed 1,366 cold-unit tests with three optional
+skips. The pinned GetCells handoff boundary and review are archived in
+`docs/evidence/sec5-085d03c3-hive-get-cells.txt`.
+
+Live boundary
+
+No remote EL, CL, port, network, image, container, resource setting, or datadir
+was mutated. At 2026-09-12T17:55:16Z, the older exact-0c6b51bf Hoodi process
+remained running with 40 peers and responsive EL/CL RPC, but still reported
+`eth_blockNumber=0x0`, `eth_syncing.currentBlock=0x0`, and no target completion.
+Its healer was processing but dynamically expanding: between the 17:36:27Z and
+17:55:23Z samples, processed nodes increased from 749,568 to 1,374,208 while
+frontier work increased from 370,359 to 566,531 and known incomplete nodes from
+246,049 to 442,709. This proves activity, not convergence.
+
+The remote `/data` filesystem had 8,445,386,752 bytes available (99% used), below
+the reviewed 12,884,901,888-byte Hive precondition. This artifact has not been
+uploaded or deployed. A successor Hive run or fresh deployment requires a new
+independently reviewed authorization request only after additive capacity is
+available; existing containers, datadirs, artifacts, and evidence remain
+preserved.
