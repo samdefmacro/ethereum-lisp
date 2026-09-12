@@ -18,6 +18,30 @@
                                 :max-priority-fee-per-gas 1 :gas-limit 21000
                                 :value 4 :y-parity 1 :r 6 :s 7))
 
+(defun eth-gossip-test-sign-dynamic-fee-transaction
+    (transaction private-key)
+  "Return TRANSACTION signed by PRIVATE-KEY with its existing chain id."
+  (let* ((signature
+           (secp256k1-sign
+            (hash32-bytes
+             (dynamic-fee-transaction-signing-hash transaction))
+            private-key))
+         (r (bytes-to-integer (subseq signature 0 32)))
+         (s (bytes-to-integer (subseq signature 32 64)))
+         (y-parity (aref signature 64)))
+    (make-dynamic-fee-transaction
+     :chain-id (dynamic-fee-transaction-chain-id transaction)
+     :nonce (dynamic-fee-transaction-nonce transaction)
+     :max-priority-fee-per-gas
+     (dynamic-fee-transaction-max-priority-fee-per-gas transaction)
+     :max-fee-per-gas (dynamic-fee-transaction-max-fee-per-gas transaction)
+     :gas-limit (dynamic-fee-transaction-gas-limit transaction)
+     :to (dynamic-fee-transaction-to transaction)
+     :value (dynamic-fee-transaction-value transaction)
+     :data (dynamic-fee-transaction-data transaction)
+     :access-list (dynamic-fee-transaction-access-list transaction)
+     :y-parity y-parity :r r :s s)))
+
 (defun eth-gossip-test-blob-transaction (nonce)
   (let ((commitment
           (make-byte-vector +kzg-commitment-size+ :initial-element 2)))
@@ -808,6 +832,128 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
       (is (= +eth-max-announced-transaction-hashes+
              (eth-peer-announced-hash-count peer)))
       (is (= 25 (length (eth-peer-take-announced-hashes peer 25)))))))
+
+(deftest devnet-large-tx-request-round-trips-batched-wire-admission
+  (:layer :integration :module :p2p)
+  ;; Hive's LargeTxRequest sends one Transactions payload containing 2,000
+  ;; consecutive dynamic-fee transactions, then asks for all of them from a
+  ;; second peer. Keep that codec/handler/backend shape here while replacing
+  ;; wall-clock success with direct witnesses of the batch boundary.
+  (let* ((count 2000)
+         (chain-id 1337)
+         (private-key 1)
+         (request-id #x974)
+         (recipient
+           (address-from-hex
+            "0x3535353535353535353535353535353535353535"))
+         (transactions
+           (loop for nonce below count
+                 collect
+                 (eth-gossip-test-sign-dynamic-fee-transaction
+                  (make-dynamic-fee-transaction
+                   :chain-id chain-id :nonce nonce
+                   :max-priority-fee-per-gas 1
+                   :max-fee-per-gas 2000000000
+                   :gas-limit 21000 :to recipient)
+                  private-key)))
+         (sender
+           (transaction-sender
+            (first transactions) :expected-chain-id chain-id))
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0
+            :txpool-account-slot-limit count
+            :txpool-global-slot-limit count
+            :txpool-account-queue-limit count
+            :txpool-global-queue-limit count))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (genesis
+           (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+         (sending-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-71+
+            :serve-backend backend))
+         (requesting-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-71+
+            :serve-backend backend))
+         (requested-hashes
+           (mapcar #'eth-gossip-transaction-hash-bytes transactions))
+         (sent-hashes (make-hash-table :test #'equalp))
+         (batch-calls 0)
+         (batch-size nil)
+         (batch-accepted nil)
+         (scalar-calls 0)
+         (responses '())
+         (batch-name
+           'ethereum-lisp.txpool.application:txpool-admit-transactions)
+         (batch-function (fdefinition batch-name)))
+    ;; The test sender is funded in the node's real canonical genesis state.
+    (chain-store-put-account-nonce store (block-hash genesis) sender 0)
+    (chain-store-put-account-balance
+     store (block-hash genesis) sender (expt 10 30))
+    (dolist (hash requested-hashes)
+      (setf (gethash hash sent-hashes) t))
+    (eth-gossip-test-call-with-function-overrides
+     (list
+      (cons
+       batch-name
+       (lambda (seen-transactions seen-store seen-config seen-policy
+                &key admitted-at)
+         (incf batch-calls)
+         (setf batch-size (length seen-transactions)
+               batch-accepted
+               (funcall batch-function
+                        seen-transactions seen-store seen-config seen-policy
+                        :admitted-at admitted-at))))
+      (cons
+       'ethereum-lisp.txpool.application:txpool-admit-transaction
+       (lambda (&rest arguments)
+         (declare (ignore arguments))
+         (incf scalar-calls)
+         (error "LargeTxRequest used scalar admission")))
+      (cons
+       'ethereum-lisp.eth-sync:eth-peer-send
+       (lambda (peer message-id payload)
+         (is (eq requesting-peer peer))
+         (push (list message-id payload) responses))))
+     (lambda ()
+       (is
+        (eth-peer-gossip-message
+         sending-peer ethereum-lisp.eth-wire:+eth-message-transactions+
+         (ethereum-lisp.eth-wire:encode-eth-transactions transactions)))
+       (is (= 1 batch-calls))
+       (is (= count batch-size))
+       (is (= count batch-accepted))
+       (is (zerop scalar-calls))
+       (is (= count
+              (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+               store)))
+       (is (zerop
+            (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
+             store)))
+       (is
+        (eth-peer-gossip-message
+         requesting-peer
+         ethereum-lisp.eth-wire:+eth-message-get-pooled-transactions+
+         (ethereum-lisp.eth-wire:encode-eth-get-pooled-transactions
+          request-id requested-hashes)))))
+    (is (= 1 (length responses)))
+    (destructuring-bind (message-id payload) (first responses)
+      (is (= ethereum-lisp.eth-wire:+eth-message-pooled-transactions+
+             message-id))
+      (multiple-value-bind (received-id received)
+          (ethereum-lisp.eth-wire:decode-eth-pooled-transactions payload)
+        (is (= request-id received-id))
+        ;; The pinned test accepts a short response and validates membership;
+        ;; production deliberately examines only its bounded request prefix.
+        (is (= ethereum-lisp.eth-sync::+eth-max-pooled-transactions-serve+
+               (length received)))
+        (dolist (actual received)
+          (is (gethash (eth-gossip-transaction-hash-bytes actual)
+                       sent-hashes)))))))
 
 ;;; A full exchange over a real session.
 
