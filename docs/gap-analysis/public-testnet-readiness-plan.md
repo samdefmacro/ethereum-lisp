@@ -539,6 +539,17 @@ The implementation boundary is split deliberately:
   successor Hive run; exact commands and results are in
   `docs/evidence/sec5-8b92d05e-hive-large-tx-regression.txt`.
 
+  Exact revision `3f0d537ebf7063d9a65c618370a143e488f5d1f2` adds a second
+  deterministic local regression for pinned geth `TestNewPooledTxs`. An eth/72
+  announcement carrying fifty distinct dynamic-fee transaction hashes now must
+  produce one `GetPooledTransactions` request containing the complete distinct
+  set. The RED control fails when announced hashes are not queued; the accepted
+  one-file test delta passes the focused selector, the 13-test ETH gossip unit
+  family, and the 566-test cold-integration layer with nine optional fixture
+  skips. This protects the later r39 timeout seam but does not replace the
+  still-required successor Hive run; exact commands and limits are in
+  `docs/evidence/sec5-3f0d537e-hive-new-pooled-regression.txt`.
+
   Exact predecessor revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
   has a verified linux/amd64 runtime image and export. Its seven-check
   runtime smoke passed, and the archive SHA-256 is

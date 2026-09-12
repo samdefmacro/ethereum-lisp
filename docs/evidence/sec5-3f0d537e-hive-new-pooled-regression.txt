@@ -1,0 +1,74 @@
+Section 5 Hive NewPooledTxs local regression evidence
+
+Recorded at: 2026-09-12T14:58:55Z
+Revision: 3f0d537ebf7063d9a65c618370a143e488f5d1f2
+Branch: sec5-public-bootstrap-sync
+Reference: go-ethereum TestNewPooledTxs at
+101035a1049c7dc468bfe973478b579d9883d7b6
+
+Scope
+
+This revision adds a deterministic integration regression for the
+NewPooledTxs case that timed out after LargeTxRequest in the retained Hive
+r39 devp2p run. It exercises the eth/72 NewPooledTransactionHashes codec,
+production gossip handler, announced-hash queue, request scheduler, and
+GetPooledTransactions codec.
+
+The test generates fifty distinct dynamic-fee transaction hashes, announces
+their exact type, encoded size, and hash vectors, and requires one outbound
+GetPooledTransactions request containing all fifty distinct hashes. It also
+requires a positive request ID and proves that the peer queue is drained only
+after the request is formed. This matches the pinned upstream case's fifty-item
+announcement and complete-set request requirement.
+
+RED control
+
+The regression was run with the production call to
+eth-peer-queue-announced-hashes temporarily replaced by NIL in
+src/networking/eth-sync/gossip.lisp. The source file was restored and is not
+part of this revision.
+
+Command:
+
+  cl-workbench validation run cold-integration \
+    --match DEVNET-NEW-POOLED-TXS-REQUESTS-ALL-FIFTY-ETH-72-HASHES
+
+Result: exit 1; 0 passed, 1 failed. The deterministic failure was the assertion
+that the announced-hash count equals 50. The RED run took 60.15 seconds.
+
+GREEN and regression gates
+
+- cl-workbench doctor --strict: pass.
+- cl-workbench check parens tests/eth-gossip-tests.lisp: pass.
+- Focused cold integration before integration: 1/1 passed.
+- Focused cold integration in the canonical worktree at the accepted revision:
+  1/1 passed.
+- cl-workbench validation run cold-unit --match ETH-GOSSIP: 13/13 passed.
+- cl-workbench validation run cold-integration: 566 passed, 9 optional
+  fixture-dependent skips.
+- git diff --check and guarded SHA/status checks: pass.
+
+Review
+
+A direct specification review compared the final one-file test delta with the
+pinned upstream TestNewPooledTxs implementation. The test uses the same eth/72
+announcement shape and fifty-item complete request requirement, while adding
+stronger uniqueness and membership assertions. No correctness or scope issue
+was found.
+
+Remote verification
+
+The commit was pushed without force. Both local HEAD and
+refs/heads/sec5-public-bootstrap-sync on origin resolved to:
+
+  3f0d537ebf7063d9a65c618370a143e488f5d1f2
+
+Limits
+
+This local RED/GREEN regression protects the announcement-to-request seam. It
+is not a successful Hive devp2p rerun and does not prove that the prior timeout
+was independent of the preceding LargeTxRequest failure. The independently
+rejected r40 request remains rejected because the test host lacks its
+fail-closed free-space precondition. This evidence does not prove Hoodi
+convergence, eth_syncing=false, shadow comparison, or validator soak
+acceptance.
