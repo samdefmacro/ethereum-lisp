@@ -921,6 +921,121 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                        (first hashes)))))
         (t (is nil))))))
 
+(deftest devnet-invalid-transactions-are-not-propagated-by-session-pump
+  (:layer :integration :module :p2p)
+  ;; Pinned geth TestInvalidTxs sends five invalid dynamic-fee transactions and
+  ;; requires that none reach a second peer. Use one valid transaction in the
+  ;; same wire batch as a deterministic positive control for admission and the
+  ;; production pending-broadcast/session-pump path.
+  (let* ((chain-id 1337)
+         (private-key 1)
+         (recipient
+           (address-from-hex
+            "0x00000000000000000000000000000000000000aa"))
+         (node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json
+            (devnet-cli-funded-txpool-genesis-json
+             :config-fields (list (cons "shanghaiTime" "0x0"))
+             :gas-limit 30000000)
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+         (sender (fixture-private-key-address private-key))
+         (sending-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (receiving-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (sent '())
+         (actions '()))
+    (labels ((signed (nonce gas-limit &key to (value 0) (data #()))
+               (eth-gossip-test-sign-dynamic-fee-transaction
+                (make-dynamic-fee-transaction
+                 :chain-id chain-id :nonce nonce
+                 :max-priority-fee-per-gas 1
+                 :max-fee-per-gas 2000000000
+                 :gas-limit gas-limit :to to :value value :data data)
+                private-key)))
+      (chain-store-put-account-nonce store (block-hash genesis) sender 1)
+      (chain-store-put-account-balance
+       store (block-hash genesis) sender 1000000000000000000)
+      (let* ((valid (signed 1 21000 :to recipient :value 1))
+             (invalid
+               (list
+                ;; Nonce already used.
+                (signed 0 100000)
+                ;; Value equals the complete balance before positive gas cost.
+                (signed 2 100000 :value 1000000000000000000)
+                ;; Gas limit below intrinsic gas.
+                (signed 2 1337)
+                ;; Contract initcode exceeds EIP-3860's Shanghai limit.
+                (signed 2 1000000
+                        :data (make-byte-vector
+                               (1+ ethereum-lisp.evm.internal::+max-initcode-size+)))
+                ;; The encoded non-blob transaction exceeds the txpool byte cap.
+                (signed 2 5000000 :to recipient
+                        :data (make-byte-vector
+                               ethereum-lisp.txpool.application::+txpool-legacy-transaction-max-bytes+))))
+             (invalid-hashes
+               (mapcar #'eth-gossip-transaction-hash-bytes invalid))
+             (pending-broadcast
+               (ethereum-lisp.cli::devnet-peer-pending-broadcast node)))
+        (is
+         (eth-peer-gossip-message
+          sending-peer ethereum-lisp.eth-wire:+eth-message-transactions+
+          (ethereum-lisp.eth-wire:encode-eth-transactions
+           (append invalid (list valid)))))
+        (is (= 1
+               (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+                store)))
+        (is (zerop
+             (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
+              store)))
+        (eth-gossip-test-call-with-function-overrides
+         (list
+          (cons
+           'ethereum-lisp.eth-sync:eth-peer-send
+           (lambda (seen-peer message-id payload)
+             (is (eq receiving-peer seen-peer))
+             (push (list message-id payload) sent))))
+         (lambda ()
+           (multiple-value-bind (count reason)
+               (eth-peer-run-session
+                receiving-peer
+                :pending-broadcast pending-broadcast
+                :on-event (lambda (action) (push action actions))
+                :max-actions 1)
+             (is (= 1 count))
+             (is (eq :max-actions reason)))))
+        (is (equal '(:broadcast) actions))
+        (is (= 1 (length sent)))
+        (destructuring-bind (message-id payload) (first sent)
+          (let ((propagated-hashes
+                  (cond
+                    ((= ethereum-lisp.eth-wire:+eth-message-transactions+
+                        message-id)
+                     (mapcar
+                      #'eth-gossip-transaction-hash-bytes
+                      (ethereum-lisp.eth-wire:decode-eth-transactions payload)))
+                    ((= ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+                        message-id)
+                     (multiple-value-bind (types sizes hashes)
+                         (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+                          payload ethereum-lisp.eth-wire:+eth-protocol-version-72+)
+                       (declare (ignore types sizes))
+                       hashes))
+                    (t (is nil) '()))))
+            (is (= 1 (length propagated-hashes)))
+            (is (bytes= (eth-gossip-transaction-hash-bytes valid)
+                        (first propagated-hashes)))
+            (dolist (hash propagated-hashes)
+              (is (not (find hash invalid-hashes :test #'bytes=))))))))))
+
 (deftest devnet-new-pooled-txs-requests-all-fifty-eth-72-hashes
   (:layer :integration :module :p2p)
   ;; Pinned geth TestNewPooledTxs announces fifty dynamic-fee transactions over
