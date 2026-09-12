@@ -674,7 +674,7 @@ The implementation boundary is split deliberately:
   not uploaded or deployed; exact commands and the corrected broker invocation
   are in `docs/evidence/sec5-4cd40480-amd64-runtime.txt`.
 
-  Exact current branch revision `dba597c98cb5e974fde2c8d2ba26ffe885bde0b6`
+  Exact accepted application revision `dba597c98cb5e974fde2c8d2ba26ffe885bde0b6`
   also has a verified linux/amd64 runtime image and export, including every
   accepted pinned-geth regression and evidence commit through `TestGetCells`.
   Its image ID is
