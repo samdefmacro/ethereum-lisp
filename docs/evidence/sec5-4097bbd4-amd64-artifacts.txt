@@ -39,10 +39,21 @@ Archive path:
 Export size:
   29153280 bytes
 Export SHA-256:
-  475bdb73815821e89446664cecf60c481b37021d5ae8f692fa275cb66b9cd
+  475bdb73815821e89446646664cecf60c481b37021d5ae8f692fa275cb66b9cd
 Archive inventory:
   878/878 tracked revision entries; 0 missing, 0 extra; 878/878 Git blob
   identities matched.
+
+Operational correction
+
+The first r34 launch script accidentally copied a 61-character transcription
+of the source checksum into its fail-closed comparator. It therefore exited at
+the source checksum check before archive extraction or runner creation. A
+read-only follow-up verified that the preserved remote archive itself has the
+64-character SHA-256 recorded above, `tar -tf` exits zero, the source directory
+is still empty, and no r34 container exists. The preserved r34 evidence path is
+not reused; the successor request uses a fresh r35 path and the corrected
+checksum.
 
 Verification
 
