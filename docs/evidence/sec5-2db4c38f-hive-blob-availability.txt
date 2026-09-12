@@ -1,0 +1,68 @@
+Section 5 pinned geth blob availability regression
+
+Recorded at: 2026-09-12T17:35:29Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 2db4c38fcd35d8402fd0ca0a9847b8f8a2748dc4
+Baseline revision: 954c40bed8ebb18253d042cf10f6a775b39722cc
+
+Scope
+
+This test-only slice records deterministic coverage for pinned geth
+TestBlobTxAvailabilityFailure. It does not claim a successor live Hive pass or
+prove the behavior through a remote socket.
+
+Pinned primary reference
+
+- go-ethereum revision:
+  101035a1049c7dc468bfe973478b579d9883d7b6
+- cmd/devp2p/internal/ethtest/suite.go SHA-256:
+  4701979b85f4abd7c626cb7f88cdf43036877864668a94465660ed7360ec526c
+- Pinned behavior: after ten blob transactions are announced from one peer, a
+  GetCells request must include at least geth's 64-cell DataPerBlob availability
+  threshold. A request below that threshold fails the pinned test.
+
+Local regression boundary
+
+`ETH-72-SINGLE-ANNOUNCER-REQUESTS-FULL-CUSTODY-CELLS` queues ten omitted-payload
+blob transactions and runs the production session pump for one action. It proves
+that ethereum-lisp's stronger local policy:
+
+- schedules urgent omitted-blob work even while the transport is readable;
+- requests the oldest announced transaction exactly once;
+- supplies a 16-byte custody bitmap with all 128 cell bits set;
+- removes only that completed fetch, leaving the other nine queued.
+
+Production behavior was already correct at the baseline revision, so this slice
+is regression-only.
+
+RED and GREEN evidence
+
+The production `eth-full-custody-mask` was deliberately mutated from sixteen
+`#xff` bytes to sixteen `#x01` bytes. The focused gate then failed as required:
+
+  0 tests passed, 1 failed.
+
+The source was restored byte-for-byte before accepted validation. At the
+accepted revision:
+
+- focused full-custody regression: 1 passed;
+- BLOB unit family: 67 passed;
+- full cold-unit: 1,365 passed, 3 optional skips;
+- parenthesis and diff checks: passed.
+
+Review
+
+The first independent read-only review found the test non-vacuous but rejected
+wording that attributed an all-128-cell requirement to pinned geth. The accepted
+comment now states geth's 64-cell threshold separately from ethereum-lisp's
+stronger all-128-cell policy. Final independent read-only review approved the
+corrected commit with no remaining correctness, non-vacuity, style, scope, or
+whitespace issue.
+
+Canonical integration and limits
+
+Commit 2db4c38fcd35d8402fd0ca0a9847b8f8a2748dc4 was pushed without force to
+origin/sec5-public-bootstrap-sync and the remote ref matched exactly. No live
+mutation or deployment was performed. A successor live Hive devp2p inventory,
+including SNAP, is still required.

@@ -636,6 +636,19 @@ The implementation boundary is split deliberately:
   successor live Hive pass; exact evidence is in
   `docs/evidence/sec5-6c23ab8a-hive-invalid-cells.txt`.
 
+  Exact revision `2db4c38fcd35d8402fd0ca0a9847b8f8a2748dc4` adds the
+  deterministic local regression for pinned geth
+  `TestBlobTxAvailabilityFailure`. Ten omitted-payload blob transactions from
+  one peer enter the production session pump; the oldest is requested once with
+  ethereum-lisp's 16-byte, all-128-cell custody mask while the other nine remain
+  queued. This is stronger than the pinned test's 64-cell `DataPerBlob`
+  availability threshold. A mask-reduction mutation failed the focused test;
+  after restoration, the focused test, all 67 BLOB unit tests, and the full
+  1,365-test cold-unit layer with three optional skips passed. This local
+  regression does not replace the still-required successor Hive devp2p run;
+  exact commands, review correction, and limits are in
+  `docs/evidence/sec5-2db4c38f-hive-blob-availability.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
