@@ -683,6 +683,18 @@ The implementation boundary is split deliberately:
   Hive pass; exact evidence is in
   `docs/evidence/sec5-1ade9726-hive-snap-empty-request.txt`.
 
+  Exact accepted revision `ce21fecfed06febca131f3552a88dbe8c7696d72`
+  covers the pinned `TestSnapTrieNodes` nonsensically long account-path case.
+  The production session pump and persistent SNAP backend receive the exact
+  54-byte 0-through-8 sequence repeated six times with a 5,000-byte budget and
+  return one zero-length node item under the matching request ID. A mutation
+  which omitted the missing-node placeholder failed the cardinality assertion.
+  The focused test, seven-test session-pump family, 123-test SNAP unit family,
+  and full 1,369-test cold-unit layer with three optional skips passed.
+  Independent review found no blocker. This remains local regression evidence,
+  not a successor Hive pass; exact evidence is in
+  `docs/evidence/sec5-ce21fecf-hive-snap-long-path.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

@@ -1,0 +1,70 @@
+Section 5 pinned geth long SNAP TrieNodes path regression
+
+Recorded at: 2026-09-12T18:54:07Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: ce21fecfed06febca131f3552a88dbe8c7696d72
+Stable patch id: f5a72e619daf60e0461cd9db4eac5fee8187aa95
+
+Pinned oracle
+
+- go-ethereum commit: 101035a1049c7dc468bfe973478b579d9883d7b6
+- cmd/devp2p/internal/ethtest/snap.go SHA-256:
+  275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+- TestSnapTrieNodes lines 640-649 sends one 54-byte account-trie path made
+  from the nibble-like sequence 0 through 8 repeated six times, with a
+  5,000-byte response budget, and expects one empty node.
+
+Scope
+
+ETH-PEER-RUN-SESSION-ANSWERS-A-NONSENSICALLY-LONG-SNAP-TRIE-PATH enters
+through the production session pump as a negotiated snap/1 GetTrieNodes
+message. It uses the persistent SNAP backend at an available state root and
+proves that:
+
+- the exact pinned long path reaches the real SNAP server adapter;
+- the response is TrieNodes with the exact request ID;
+- the server preserves request cardinality by returning exactly one node item;
+- the missing node is represented by the required zero-length byte string;
+- the shared eth+snap session returns normally instead of rejecting the path.
+
+Mutation control
+
+The account-trie response branch was temporarily changed to omit a missing
+node instead of appending its empty-byte placeholder. The focused selector then
+failed at the exact cardinality assertion:
+
+  MUTATION_EXIT=1
+  Assertion failed: (= 1 (LENGTH NODES))
+  0 tests passed, 1 failed.
+
+The production file was restored before GREEN validation. The accepted commit
+changes only tests/eth-pump-tests.lisp.
+
+Verification
+
+- cl-workbench doctor --strict: passed before application operations.
+- cl-workbench check parens tests/eth-pump-tests.lisp: passed.
+- focused cold-unit: 1 passed.
+- ETH-PEER-RUN-SESSION family: 7 passed.
+- SNAP-matched cold-unit: 123 passed.
+- full cold-unit: 1,369 passed, 3 optional skips.
+- cl-workbench docs verify: passed, including its intentional RED self-test.
+- git diff --check: passed.
+- tests/eth-pump-tests.lisp SHA-256:
+  4b648efa1f1c77d68977d4ceec69a42dfca7f7f7f065ab1c5a38a86cf0d7d840
+
+Review
+
+Independent read-only review found no blockers. It confirmed exact pinned-source
+fidelity, production pump/backend routing, non-vacuous response cardinality and
+empty-byte assertions, and unwind-protect restoration of both temporary global
+function bindings. It noted that direct backend cardinality coverage already
+exists; this regression adds the exact pinned request through the production
+session-routing seam.
+
+Limits
+
+This is deterministic local conformance evidence. It is not a live Hive SNAP
+pass and does not close the Section 5 Hive gate. The successor external devp2p
+run remains required when the pinned test-host capacity prerequisite is met.
