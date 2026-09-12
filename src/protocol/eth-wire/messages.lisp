@@ -817,38 +817,48 @@ prefix byte and eth/69 carries as the first field."
             (rlp-decode-one encoded)
             encoded))))
 
-(defun eth-block-receipts-rlp-object (block version &optional (start 0))
-  "RLP object for every receipt of BLOCK, in the negotiated VERSION's format."
+(defun eth-block-receipts-rlp-object
+    (block version &optional (start 0) end)
+  "RLP object for receipts [START, END) of BLOCK in VERSION's wire format."
   (let ((transactions (block-transactions block))
         (receipts (block-receipts block)))
     (unless (= (length transactions) (length receipts))
       (error "block has ~D transactions but ~D receipts, so its receipts ~
               cannot be served"
              (length transactions) (length receipts)))
-    (when (> start (length receipts))
-      (error "receipt start index ~D exceeds block receipt count ~D"
-             start (length receipts)))
+    (setf end (or end (length receipts)))
+    (unless (<= 0 start end (length receipts))
+      (error "receipt range [~D, ~D) exceeds block receipt count ~D"
+             start end (length receipts)))
     (apply #'make-rlp-list
-           (mapcar (lambda (transaction receipt)
-                     (eth-receipt-rlp-object transaction receipt version))
-                   (nthcdr start transactions)
-                   (nthcdr start receipts)))))
+           (loop repeat (- end start)
+                 for transaction in (nthcdr start transactions)
+                 for receipt in (nthcdr start receipts)
+                 collect
+                 (eth-receipt-rlp-object
+                  transaction receipt version)))))
 
 (defun encode-eth-receipts
     (request-id blocks version &key (first-block-receipt-index 0)
-                                    last-block-incomplete)
+                                    last-block-incomplete
+                                    last-block-receipt-end-index)
   "Encode a Receipts reply carrying the receipts of each block in BLOCKS."
   (let ((groups
-          (loop for block in blocks
+          (loop for tail on blocks
+                for block = (first tail)
                 for first = t then nil
                 collect (eth-block-receipts-rlp-object
                          block version
-                         (if first first-block-receipt-index 0)))))
+                         (if first first-block-receipt-index 0)
+                         (and (null (rest tail))
+                              last-block-receipt-end-index)))))
     (rlp-encode
      (if (>= version +eth-protocol-version-70+)
          (make-rlp-list
           (integer-to-minimal-bytes request-id)
-          (if last-block-incomplete #(1) (make-byte-vector 0))
+          (if last-block-incomplete
+              (make-byte-vector 1 :initial-element 1)
+              (make-byte-vector 0))
           (apply #'make-rlp-list groups))
          (make-rlp-list
           (integer-to-minimal-bytes request-id)

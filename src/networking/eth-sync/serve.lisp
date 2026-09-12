@@ -199,11 +199,30 @@ peer would read as a shorter transaction list."
   (= (length (block-transactions block))
      (length (block-receipts block))))
 
-(defun eth-serve-receipt-blocks (backend hashes version)
+(defun eth-serve-rlp-list-length (payload-length)
+  "Encoded RLP list length for PAYLOAD-LENGTH bytes, without allocating it."
+  (+ payload-length
+     (if (< payload-length 56)
+         1
+         (1+ (length (integer-to-minimal-bytes payload-length))))))
+
+(defconstant +eth-receipts-envelope-reserve+ 32
+  "Bytes reserved inside the ETH message cap for request id, flags, and lists.")
+
+(defun eth-serve-receipt-blocks
+    (backend hashes version &key (first-block-receipt-index 0))
   "The blocks named by HASHES whose receipts we can serve, in request order.
 
 Blocks are returned rather than encoded receipts because the wire encoding
-needs each receipt's transaction type, and VERSION decides the layout."
+needs each receipt's transaction type, and VERSION decides the layout.
+
+For eth/70+, return BLOCKS, LAST-BLOCK-INCOMPLETE, and the absolute exclusive
+receipt index ending the final partial block. This implements geth's resumable
+large-receipt response: FIRST-BLOCK-RECEIPT-INDEX skips an already received
+prefix, and a single response remains below the 10 MiB ETH message cap."
+  (unless (and (integerp first-block-receipt-index)
+               (not (minusp first-block-receipt-index)))
+    (error "first block receipt index must be a non-negative integer"))
   (let ((blocks '())
         (bytes 0)
         (examined 0))
@@ -213,11 +232,57 @@ needs each receipt's transaction type, and VERSION decides the layout."
         (return))
       (incf examined)
       (let ((block (eth-serve-block-by-hash backend hash)))
-        (when (and block (eth-serve-receipts-available-p block))
-          (incf bytes (length (rlp-encode
-                               (eth-block-receipts-rlp-object block version))))
-          (push block blocks))))
-    (nreverse blocks)))
+        ;; A response is an ordered prefix of the query. Skipping a missing
+        ;; block would make eth/70's first receipt index apply to the wrong
+        ;; hash and could also let a caller mistake later receipts for it.
+        (unless (and block (eth-serve-receipts-available-p block))
+          (return))
+        (if (< version +eth-protocol-version-70+)
+            (progn
+              (incf bytes
+                    (length
+                     (rlp-encode
+                      (eth-block-receipts-rlp-object block version))))
+              (push block blocks))
+            (let* ((first-block-p (= examined 1))
+                     (start (if first-block-p first-block-receipt-index 0))
+                     (transactions (block-transactions block))
+                     (receipts (block-receipts block))
+                     (count (length receipts))
+                     (payload-length 0)
+                     (end start)
+                     (limit (max 0
+                                 (- +eth-max-message-size+
+                                    +eth-receipts-envelope-reserve+
+                                    bytes))))
+                (when (> start count)
+                  (error "receipt start index ~D exceeds block receipt count ~D"
+                         start count))
+                (loop repeat (- count start)
+                      for transaction in (nthcdr start transactions)
+                      for receipt in (nthcdr start receipts)
+                      for item-length =
+                        (length
+                         (rlp-encode
+                          (eth-receipt-rlp-object
+                           transaction receipt version)))
+                      for candidate =
+                        (eth-serve-rlp-list-length
+                         (+ payload-length item-length))
+                      while (<= candidate limit)
+                      do (incf payload-length item-length)
+                         (incf end))
+                ;; As in geth, omit a group when its first remaining receipt
+                ;; cannot fit. A normal large block always makes progress.
+                (when (and (= end start) (< start count))
+                  (return-from eth-serve-receipt-blocks
+                    (values (nreverse blocks) nil nil)))
+                (incf bytes (eth-serve-rlp-list-length payload-length))
+                (push block blocks)
+                (when (< end count)
+                  (return-from eth-serve-receipt-blocks
+                    (values (nreverse blocks) t end)))))))
+    (values (nreverse blocks) nil nil)))
 
 ;;; Dispatch.
 
@@ -247,12 +312,16 @@ serve backend — so the caller can handle it."
          (let ((version (eth-peer-eth-version peer)))
            (multiple-value-bind (request-id hashes first-index)
                (decode-eth-get-receipts payload version)
-             (eth-peer-send peer +eth-message-receipts+
-                            (encode-eth-receipts
-                             request-id
-                             (eth-serve-receipt-blocks backend hashes version)
-                             version
-                             :first-block-receipt-index first-index))))
+             (multiple-value-bind (blocks incomplete end-index)
+                 (eth-serve-receipt-blocks
+                  backend hashes version
+                  :first-block-receipt-index first-index)
+               (eth-peer-send peer +eth-message-receipts+
+                              (encode-eth-receipts
+                               request-id blocks version
+                               :first-block-receipt-index first-index
+                               :last-block-incomplete incomplete
+                               :last-block-receipt-end-index end-index)))))
          t)
         ((= eth-id +eth-message-get-block-access-lists+)
          (when (< (eth-peer-eth-version peer) +eth-protocol-version-71+)

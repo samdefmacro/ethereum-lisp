@@ -195,11 +195,70 @@ ones reachable by number."
                  (first (ethereum-lisp.eth-wire:eth-block-body-transactions
                          (first bodies))))))))
 
-(deftest eth-serve-skips-blocks-whose-receipts-are-missing
+(deftest eth-serve-chunks-large-eth70-receipt-blocks
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 resumes one >10 MiB block by receipt index. A reply
+  ;; must stop below the ETH message cap and mark the final group incomplete.
+  (let* ((count 36)
+         (transactions
+           (loop for nonce below count
+                 collect (make-legacy-transaction
+                          :nonce nonce :gas-price 2 :gas-limit 21000
+                          :value 0 :data #() :v 27 :r 4 :s 5)))
+         (large-data (make-byte-vector 300000 :initial-element #x5a))
+         (receipts
+           (loop for index below count
+                 collect
+                 (make-receipt
+                  :status 1 :cumulative-gas-used (* 21000 (1+ index))
+                  :logs
+                  (list
+                   (make-log-entry
+                    :address (make-address (make-byte-vector 20))
+                    :topics '() :data large-data)))))
+         (block (eth-serve-test-block
+                 1 (zero-hash32)
+                 :transactions transactions :receipts receipts))
+         (backend (eth-serve-test-backend (list block)))
+         (hashes (list (hash32-bytes (block-hash block)))))
+    (multiple-value-bind (first-blocks first-incomplete first-end)
+        (eth-serve-receipt-blocks
+         backend hashes 70 :first-block-receipt-index 0)
+      (is (= 1 (length first-blocks)))
+      (is first-incomplete)
+      (is (and (> first-end 0) (< first-end count)))
+      (let ((wire
+              (ethereum-lisp.eth-wire:encode-eth-receipts
+               66 first-blocks 70
+               :last-block-incomplete first-incomplete
+               :last-block-receipt-end-index first-end)))
+        (is (<= (length wire) ethereum-lisp.eth-wire:+eth-max-message-size+))
+        (multiple-value-bind (request-id groups incomplete)
+            (ethereum-lisp.eth-wire:decode-eth-receipts wire 70)
+          (is (= 66 request-id))
+          (is incomplete)
+          (is (= first-end (length (first groups))))))
+      (multiple-value-bind (remaining-blocks remaining-incomplete remaining-end)
+          (eth-serve-receipt-blocks
+           backend hashes 70 :first-block-receipt-index first-end)
+        (is (= 1 (length remaining-blocks)))
+        (is (null remaining-incomplete))
+        (is (null remaining-end))
+        (multiple-value-bind (request-id groups incomplete)
+            (ethereum-lisp.eth-wire:decode-eth-receipts
+             (ethereum-lisp.eth-wire:encode-eth-receipts
+              67 remaining-blocks 70
+              :first-block-receipt-index first-end)
+             70)
+          (is (= 67 request-id))
+          (is (null incomplete))
+          (is (= count (+ first-end (length (first groups))))))))))
+
+(deftest eth-serve-stops-before-blocks-whose-receipts-are-missing
   (:layer :unit :module :p2p)
   ;; A block held without its receipts — a header and body accepted but never
-  ;; executed — is skipped. Answering with a short receipt list would read as a
-  ;; block with fewer transactions.
+  ;; executed — ends the ordered response prefix. Answering with a short
+  ;; receipt list would read as a block with fewer transactions.
   (let* ((transaction (make-legacy-transaction :nonce 1 :gas-price 2
                                                :gas-limit 21000 :value 3
                                                :data #(1) :v 27 :r 4 :s 5))
@@ -214,9 +273,16 @@ ones reachable by number."
                   backend
                   (list (hash32-bytes (block-hash executed))
                         (hash32-bytes (block-hash unexecuted)))
-                  68)))
+                  68))
+         (no-prefix
+           (eth-serve-receipt-blocks
+            backend
+            (list (hash32-bytes (block-hash unexecuted))
+                  (hash32-bytes (block-hash executed)))
+            70 :first-block-receipt-index 1)))
     (is (= 1 (length blocks)))
-    (is (= 1 (block-header-number (block-header (first blocks)))))))
+    (is (= 1 (block-header-number (block-header (first blocks)))))
+    (is (null no-prefix))))
 
 ;;; Serving over a real connection.
 
