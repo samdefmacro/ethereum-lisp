@@ -55,8 +55,14 @@
                   (engine-pending-txpool-pending-conflict
                    txpool
                    transaction)))
+            ;; AccountSlots is a fairness guarantee, not a hard per-sender
+            ;; ceiling (geth legacypool Config). An account may use spare global
+            ;; capacity; equalize an over-guarantee account only once the global
+            ;; executable pool is full.
             (when (and (null conflict)
                        account-slot-limit
+                       global-slot-limit
+                       (>= (hash-table-count transactions) global-slot-limit)
                        (>= (engine-pending-txpool-sender-index-count
                             sender-index
                             transaction)

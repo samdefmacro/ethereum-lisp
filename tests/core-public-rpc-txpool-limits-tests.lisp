@@ -396,6 +396,9 @@
         (is (null (field old-lookup "result")))
         (is (string= sender-two-high-price-hash
                      (field (field new-lookup "result") "hash"))))
+      ;; AccountSlots is a fairness guarantee, not a hard per-sender ceiling:
+      ;; geth accepts an account above it while the global executable pool still
+      ;; has room. This is also the shape exercised by devp2p LargeTxRequest.
       (let* ((first-response
                (send-raw sender-one-nonce-zero 245 account-store config
                          :txpool-account-slot-limit 1
@@ -408,14 +411,12 @@
                (request
                 "{\"jsonrpc\":\"2.0\",\"id\":247,\"method\":\"txpool_status\",\"params\":[]}"
                 account-store
-                config))
-             (error (field second-response "error")))
+                config)))
         (is (string= (hash32-to-hex (transaction-hash sender-one-nonce-zero))
                      (field first-response "result")))
-        (is (= -32602 (field error "code")))
-        (is (string= "Pending transaction underpriced for full account slots"
-                     (field error "message")))
-        (is (string= (quantity-to-hex 1)
+        (is (string= (hash32-to-hex (transaction-hash sender-one-nonce-one))
+                     (field second-response "result")))
+        (is (string= (quantity-to-hex 2)
                      (field (field status-response "result") "pending"))))
       (let* ((first-response
                (send-raw sender-one-nonce-zero 248 replacement-store config
@@ -471,8 +472,8 @@
                      (field queued-response "result")))
         (is (string= (hash32-to-hex (transaction-hash sender-one-nonce-zero))
                      (field pending-response "result")))
-        (is (string= (quantity-to-hex 1)
+        (is (string= (quantity-to-hex 2)
                      (field (field status-response "result") "pending")))
-        (is (string= (quantity-to-hex 1)
+        (is (string= (quantity-to-hex 0)
                      (field (field status-response "result") "queued")))))))
 
