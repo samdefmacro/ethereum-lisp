@@ -1,0 +1,73 @@
+Section 5 retained SNAP account-root compatibility evidence
+
+Recorded at: 2026-09-12T22:30:02Z
+Branch: sec5-public-bootstrap-sync
+Test revision: 922f841368c0084373a8e341825264ea9cc849c5
+Pinned reference: go-ethereum 101035a1, cmd/devp2p/internal/ethtest/snap.go,
+TestSnapGetAccountRange lines 225-235
+Pinned reference file SHA-256:
+275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd
+
+Behavioral contract
+
+A GetAccountRange request for a retained historical state root is served from
+the root-indexed state provider rather than from the current state. The response
+retains its request ID and contains the historical account and a non-empty
+proof.
+
+Regression
+
+tests/eth-pump-tests.lisp adds:
+  ETH-PEER-RUN-SESSION-SERVES-A-PROVIDER-RESOLVED-SNAP-ACCOUNT-ROOT
+
+The test creates distinct current and historical states, asserts their roots
+differ, records the exact provider lookup, and drives the request through the
+production eth peer session, SNAP wire codec, request router, and persistent
+SNAP backend. It checks the response type and ID, provider call count/root,
+historical account hash, account count, and proof presence.
+
+RED proof
+
+snap-sync-state-for-root was deliberately changed locally to ignore the
+requested root and provider and return the current state. The focused regression
+failed:
+
+  container: ethereum-lisp-cold-sec5-snap-provider-root-red-cycle983
+  started:   2026-09-12T22:23:30.445871920Z
+  finished:  2026-09-12T22:24:22.193473055Z
+  exit:      1
+  OOM:       false
+
+The mutation was reverted; backend.lisp had no final diff.
+
+GREEN verification
+
+  ethereum-lisp-cold-sec5-snap-provider-root-final-cycle983
+  focused result: 1 passed, exit 0
+
+  ethereum-lisp-cold-sec5-session-provider-root-cycle983
+  ETH-PEER-RUN-SESSION result: 21 passed, exit 0
+
+  ethereum-lisp-cold-sec5-snap-provider-root-family-cycle983
+  SNAP- result: 124 passed, exit 0
+
+  ethereum-lisp-cold-sec5-snap-provider-root-full-cycle983
+  full cold-unit result: 1383 passed, 3 skipped, exit 0
+
+All final containers reported OOM=false. cl-workbench check parens and git diff
+--check passed. cl-workbench doctor --strict passed before this cycle's first
+application validation.
+
+Review and integration
+
+Independent read-only review approved the test for pinned-spec parity,
+provider-path non-vacuity, historical account identity, production-boundary
+coverage, style, and restoration of backend.lisp. Commit 922f8413 was pushed to
+origin/sec5-public-bootstrap-sync and the remote ref was read back as
+922f841368c0084373a8e341825264ea9cc849c5.
+
+Scope boundary
+
+This closes one retained-root SNAP server regression gap. It does not prove
+Section 5 completion, Hive completion, Hoodi sync completion, shadow comparison,
+or the validator soak gates.
