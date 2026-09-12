@@ -1,0 +1,78 @@
+Section 5 Hive LargeTxRequest local regression evidence
+
+Recorded at: 2026-09-12T14:22:59Z
+Revision: 8b92d05edb3504c58b0def68dc02c7384051db2f
+Branch: sec5-public-bootstrap-sync
+Reference: go-ethereum v1.17.3 TestLargeTxRequest
+
+Scope
+
+This revision adds a deterministic integration regression for the concrete Hive
+LargeTxRequest failure retained from the exact-f79f5b2e devp2p r39 run. The test
+uses the real eth Transactions and GetPooledTransactions codecs, eth gossip
+message handlers, the production devnet peer serve backend, and the real txpool
+admission path.
+
+The test signs 2,000 consecutive dynamic-fee transactions from one funded
+sender, sends them in one encoded Transactions payload, and proves that the
+backend invokes batch admission once without scalar fallback. It asserts all
+2,000 enter the pending pool, sends all 2,000 hashes in a second peer's encoded
+GetPooledTransactions request, preserves the request ID, accepts the bounded
+256-transaction production response, and checks every returned transaction
+belongs to the sent set.
+
+RED control
+
+The regression was run with only the six-line :accept-transactions callback
+introduced by 48e351a0 temporarily removed from
+src/app/cli/devnet/peer-sync.lisp. The source file was then restored byte for
+byte and is not part of this revision.
+
+Command:
+
+  cl-workbench validation run cold-integration \
+    --match DEVNET-LARGE-TX-REQUEST-ROUND-TRIPS-BATCHED-WIRE-ADMISSION
+
+Result: exit 1; 0 passed, 1 failed. The deterministic failure was:
+
+  Assertion failed: (= 1 BATCH-CALLS)
+
+The RED run took 60.35 seconds including the cold container gate.
+
+GREEN and focused gates at the accepted revision
+
+- cl-workbench doctor --strict: pass.
+- cl-workbench check parens tests/eth-gossip-tests.lisp: pass.
+- Focused cold integration regression: 1/1 passed; 56.62 seconds in the
+  canonical worktree after integration.
+- cl-workbench validation run cold-unit --match ETH-GOSSIP:
+  13/13 passed; 54.47 seconds.
+- cl-workbench validation run cold-unit --match TXPOOL-BATCH-ADMISSION:
+  2/2 passed; 54.63 seconds.
+- cl-workbench validation run cold-integration:
+  565 passed, 9 optional fixture-dependent skips; 119.57 seconds.
+- git diff --check and the guarded HEAD/status checks: pass.
+
+Review
+
+An independent review first found that the draft requested only three sample
+hashes instead of the pinned test's complete 2,000-hash request. The regression
+was corrected to send all hashes and validate a bounded short response by
+membership. A fresh independent final review approved the corrected one-file
+diff with no blocking or important findings.
+
+Remote verification
+
+The commit was pushed without force. Both local HEAD and
+refs/heads/sec5-public-bootstrap-sync on origin resolved to:
+
+  8b92d05edb3504c58b0def68dc02c7384051db2f
+
+Limits
+
+This local RED/GREEN regression protects the batch admission and request/reply
+handler shape. It is not a successful Hive devp2p rerun and does not close that
+gate. The independently rejected r40 request remains rejected because the test
+host lacks its fail-closed free-space precondition. This evidence also does not
+prove Hoodi convergence, eth_syncing=false, shadow comparison, or validator
+soak acceptance.

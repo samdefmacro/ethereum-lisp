@@ -526,8 +526,21 @@ The implementation boundary is split deliberately:
   paths, and rejection evidence are in
   `docs/evidence/sec5-f79f5b2e-hive-devp2p-r39.txt`.
 
-  Exact current branch revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
-  now has a verified linux/amd64 runtime image and export. Its seven-check
+  Revision `8b92d05edb3504c58b0def68dc02c7384051db2f` adds a deterministic
+  local LargeTxRequest integration regression over the real eth codecs,
+  gossip handlers, production devnet backend, and txpool admission path. Its
+  2,000-transaction RED control fails without the batch callback, while the
+  accepted revision admits all 2,000 in one batch and answers the complete
+  2,000-hash request with the bounded valid response. The exact-revision cold
+  integration gate passed 565 tests with nine optional fixture-dependent
+  skips. Independent review corrected the initial three-hash draft to match
+  the pinned request shape and approved the final one-file test delta. This
+  protects the local failure seam but does not replace the still-required
+  successor Hive run; exact commands and results are in
+  `docs/evidence/sec5-8b92d05e-hive-large-tx-regression.txt`.
+
+  Exact predecessor revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
+  has a verified linux/amd64 runtime image and export. Its seven-check
   runtime smoke passed, and the archive SHA-256 is
   `0aa4724119b16fc018d89c1a111859ef0a5a8ecdf9b270120c0629ae1467ad86`.
   Only documentation changed between the exact EEST revision above and this
