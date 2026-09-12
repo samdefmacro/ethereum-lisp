@@ -233,23 +233,31 @@ full data."
                   (typep (cdr entry) 'blob-sidecar))
              (setf transaction (car entry)
                    sidecar (cdr entry))))
+          (when (and (typep transaction 'blob-transaction)
+                     (null sidecar))
+            (eth-peer-protocol-fail
+             "Blob transaction network sidecar is missing"))
           (when sidecar
-            (if (and allow-omitted-blob-payload-p
-                     (typep transaction 'blob-transaction)
-                     (null (blob-sidecar-blobs sidecar))
-                     (plusp (length (blob-sidecar-commitments sidecar))))
-                (progn
-                  (eth-validate-omitted-blob-payload sidecar transaction)
-                  (when omitted-blob-function
-                    (funcall omitted-blob-function transaction sidecar))
-                  (setf sidecar nil))
-                (progn
-                  (validate-blob-sidecar-fields
-                   sidecar :transaction transaction
-                   :require-proof-verification t)
-                  (unless accept-sidecar
-                    (error "Received blob transaction but no sidecar store is configured"))
-                  (funcall accept-sidecar sidecar))))
+            (handler-case
+                (if (and allow-omitted-blob-payload-p
+                         (typep transaction 'blob-transaction)
+                         (null (blob-sidecar-blobs sidecar))
+                         (plusp (length (blob-sidecar-commitments sidecar))))
+                    (progn
+                      (eth-validate-omitted-blob-payload sidecar transaction)
+                      (when omitted-blob-function
+                        (funcall omitted-blob-function transaction sidecar))
+                      (setf sidecar nil))
+                    (progn
+                      (validate-blob-sidecar-fields
+                       sidecar :transaction transaction
+                       :require-proof-verification t)
+                      (unless accept-sidecar
+                        (error
+                         "Received blob transaction but no sidecar store is configured"))
+                      (funcall accept-sidecar sidecar)))
+              (ethereum-lisp.validation:block-validation-error (condition)
+                (eth-peer-protocol-fail "~A" condition))))
           (when (and (or (not (typep transaction 'blob-transaction)) sidecar)
                      (ignore-errors (funcall accept transaction) t))
             (incf accepted)))))

@@ -641,7 +641,7 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
     ;; The same payload is not valid before eth/72's GetCells semantics.
     (setf (ethereum-lisp.eth-sync:eth-peer-eth-version peer)
           ethereum-lisp.eth-wire:+eth-protocol-version-71+)
-    (signals block-validation-error
+    (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
       (ethereum-lisp.eth-sync:eth-peer-gossip-message
        peer ethereum-lisp.eth-wire:+eth-message-pooled-transactions+ payload))))
 
@@ -922,6 +922,100 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
       (check '(3 3) (list (first sizes) (+ 10 (second sizes))) t)
       (check '(2 3) sizes t)
       (check '(3 3) sizes nil))))
+
+(deftest eth-72-bad-blob-pool-response-does-not-poison-valid-retry
+  (:layer :unit :module :p2p)
+  ;; Pinned geth TestBlobTxWithoutSidecar and
+  ;; TestBlobTxWithMismatchedSidecar disconnect the bad peer, then request the
+  ;; same transaction successfully from a good peer.
+  (let* ((transaction (eth-gossip-test-blob-transaction 451))
+         (hash (eth-gossip-transaction-hash-bytes transaction))
+         (good-sidecar
+           (make-blob-sidecar
+            :blobs (list (make-byte-vector +blob-byte-size+ :initial-element 1))
+            :commitments
+            (list (make-byte-vector +kzg-commitment-size+ :initial-element 2))
+            :proofs
+            (loop repeat +cell-proofs-per-blob+
+                  collect (make-byte-vector +kzg-proof-size+ :initial-element 3))))
+         (bad-sidecar
+           (make-blob-sidecar
+            :blobs (list (make-byte-vector +blob-byte-size+ :initial-element 1))
+            :commitments
+            (list (make-byte-vector +kzg-commitment-size+ :initial-element 7))
+            :proofs
+            (loop repeat +cell-proofs-per-blob+
+                  collect (make-byte-vector +kzg-proof-size+ :initial-element 3))))
+         (good-entry (make-blob-network-transaction transaction good-sidecar))
+         (bad-entry (make-blob-network-transaction transaction bad-sidecar)))
+    (multiple-value-bind (backend pool) (eth-gossip-test-backend)
+      (labels
+          ((deliver-from (entry)
+             (let* ((peer
+                      (ethereum-lisp.eth-sync::%make-eth-peer
+                       :eth-version
+                       ethereum-lisp.eth-wire:+eth-protocol-version-72+
+                       :serve-backend backend))
+                    (request-id nil)
+                    (size
+                      (length
+                       (if (typep entry 'blob-network-transaction)
+                           (blob-pooled-transaction-encoding
+                            (blob-network-transaction-transaction entry)
+                            (blob-network-transaction-sidecar entry))
+                           (transaction-encoding entry)))))
+               (eth-gossip-test-call-with-function-overrides
+                (list
+                 (cons
+                  'ethereum-lisp.eth-sync:eth-peer-send
+                  (lambda (actual-peer message-id payload)
+                    (declare (ignore actual-peer))
+                    (when (= message-id
+                             ethereum-lisp.eth-wire:+eth-message-get-pooled-transactions+)
+                      (setf request-id
+                            (nth-value
+                             0
+                             (ethereum-lisp.eth-wire:decode-eth-get-pooled-transactions
+                              payload)))))))
+                (lambda ()
+                  (is
+                   (ethereum-lisp.eth-sync:eth-peer-gossip-message
+                    peer
+                    ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+                    (rlp-encode
+                     (make-rlp-list
+                      (make-byte-vector 1 :initial-element 3)
+                      (make-rlp-list (integer-to-minimal-bytes size))
+                      (make-rlp-list hash)
+                      (make-byte-vector 16)))))
+                  (is (= 1
+                         (ethereum-lisp.eth-sync::eth-peer-request-announced-transactions
+                          peer)))
+                  (is request-id)
+                  (ethereum-lisp.eth-sync:eth-peer-gossip-message
+                   peer
+                   ethereum-lisp.eth-wire:+eth-message-pooled-transactions+
+                   (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
+                    request-id (list entry))))))))
+        ;; A typed blob transaction without its network sidecar is malformed,
+        ;; not an ordinary pool rejection.
+        (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
+          (deliver-from transaction))
+        (is (zerop (hash-table-count pool)))
+        ;; A sidecar whose commitment disagrees with the transaction is also a
+        ;; peer fault and must not mark the hash as globally accepted.
+        (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
+          (deliver-from bad-entry))
+        (is (zerop (hash-table-count pool)))
+        ;; A different peer can still supply the same transaction correctly.
+        (let ((*kzg-cell-proof-verifier*
+                (lambda (blob commitment proofs)
+                  (declare (ignore blob commitment proofs))
+                  t)))
+          (is (deliver-from good-entry)))
+        (is (= 1 (hash-table-count pool)))
+        (is (bytes= (transaction-encoding transaction)
+                    (transaction-encoding (gethash hash pool))))))))
 
 (deftest devnet-transaction-message-is-propagated-by-session-pump
   (:layer :integration :module :p2p)
