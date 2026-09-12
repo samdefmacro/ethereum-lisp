@@ -604,7 +604,25 @@ The implementation boundary is split deliberately:
   successor Hive run; exact references, commands, and live limits are in
   `docs/evidence/sec5-8286eb7f-hive-blob-violations.txt`.
 
-  Exact current revision `c93389e762b9a4e32f2cbb0cf86ed2be5b892453`
+  Exact revision `233756d8e06b6806a33554b64f99d1e31a2f62df` closes the
+  deterministic local behavior gap for pinned geth
+  `TestBlobTxWithoutSidecar` and protects
+  `TestBlobTxWithMismatchedSidecar`. A fetched bare type-3 transaction now
+  raises the peer-protocol condition instead of being silently skipped;
+  deterministic malformed or commitment-mismatched sidecars are translated to
+  that same condition so the production supervisor emits the compressed
+  Subprotocol-error disconnect. Local `kzg-unavailable-error` remains distinct
+  and is not blamed on the peer. The regression proves that neither bad peer
+  poisons pool state and that a fresh good peer can supply the same transaction
+  with a valid sidecar. Its meaningful RED failed because the missing-sidecar
+  condition was absent. The final focused and adjacent blob gates pass, as do
+  all 1,363 cold-unit tests with three optional skips and all 568
+  cold-integration tests with nine optional skips. Independent review rejected
+  the initial error class and approved the corrected diff without remaining
+  fixes. A successor live Hive run remains required; exact evidence is in
+  `docs/evidence/sec5-233756d8-hive-bad-blob-peers.txt`.
+
+  Exact predecessor revision `c93389e762b9a4e32f2cbb0cf86ed2be5b892453`
   now has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:439cec11b9a6d57ceac558db8a9bb937ffefcb339a388ec2b1ba16e46c2de951`,
   the archive SHA-256 is

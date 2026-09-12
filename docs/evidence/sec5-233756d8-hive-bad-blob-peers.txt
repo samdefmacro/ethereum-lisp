@@ -1,0 +1,84 @@
+Section 5 pinned geth bad blob peer regression
+
+Recorded at: 2026-09-12T16:55:00Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 233756d8e06b6806a33554b64f99d1e31a2f62df
+Baseline revision: 5646d5378b15a0a30855ee3b04062dcbec2ad955
+
+Scope
+
+This slice covers pinned geth devp2p TestBlobTxWithoutSidecar and
+TestBlobTxWithMismatchedSidecar. It does not claim a successor live Hive pass.
+
+Pinned primary reference
+
+- go-ethereum revision:
+  101035a1049c7dc468bfe973478b579d9883d7b6
+- cmd/devp2p/internal/ethtest/suite.go SHA-256:
+  4701979b85f4abd7c626cb7f88cdf43036877864668a94465660ed7360ec526c
+- Both tests announce a blob transaction from a bad peer, deliver either a bare
+  type-3 transaction or a commitment-mismatched sidecar, require that peer to
+  disconnect, and then require successful retrieval of the same transaction
+  from a good peer.
+
+Defect and implementation
+
+A fetched bare type-3 transaction was decoded successfully and then silently
+skipped by `eth-accept-transactions`; it was not classified as a peer protocol
+violation. Deterministic sidecar validation failures used
+`block-validation-error`, while the production peer supervisor emits the
+compressed devp2p Subprotocol-error disconnect only for
+`eth-peer-protocol-error`.
+
+The accepted fix now:
+
+- rejects a blob transaction with no network sidecar as
+  `eth-peer-protocol-error`;
+- translates deterministic malformed/mismatched network sidecar validation
+  failures to the same peer-protocol condition;
+- deliberately leaves `kzg-unavailable-error` outside that translation, so a
+  missing local verification capability is not blamed on the peer;
+- retains eth/72's valid omitted-payload wrapper path for GetCells;
+- leaves the rejected hash absent from backend pool state, allowing another
+  peer to supply the same transaction correctly.
+
+RED and GREEN evidence
+
+The corrected focused regression failed before the production fix with:
+
+  Expected condition ETHEREUM-LISP.VALIDATION:BLOCK-VALIDATION-ERROR was not signaled
+  0 tests passed, 1 failed.
+
+The final regression requires `eth-peer-protocol-error` for both missing and
+mismatched sidecars, checks that neither poisons pool state, then delivers the
+same transaction with a valid sidecar from a fresh peer and observes one pooled
+transaction.
+
+Final verification
+
+- `cl-workbench doctor --strict`: passed earlier in this worker cycle.
+- Parenthesis checks on both changed Lisp files: passed.
+- Focused bad-blob regression: 1 passed.
+- Adjacent eth/72 pooled-blob family: 2 passed.
+- BLOB unit family: 67 passed.
+- Full cold-unit: 1,363 passed, 3 optional skips.
+- Full cold-integration: 568 passed, 9 optional skips.
+- Focused peer-session integration: 1 passed.
+- `git diff --check` and staged diff check: passed.
+
+Independent review initially rejected the draft because deterministic sidecar
+errors would close the socket without the explicit protocol disconnect. After
+the condition translation and expectation updates, final re-review returned
+APPROVE with no required fixes.
+
+Integration and remaining boundary
+
+Commit 233756d8e06b6806a33554b64f99d1e31a2f62df was pushed without force to
+origin/sec5-public-bootstrap-sync, and the remote branch ref matched exactly.
+
+The verified c93389e7 linux/amd64 artifact predates this code change and must not
+be represented as containing it. No new live mutation, upload, deployment, or
+datadir action was performed. The retained Hoodi deployment remains the older
+exact-0c6b51bf run, and the successor pinned Hive devp2p inventory remains
+blocked on its independently reviewed additive-capacity prerequisite.
