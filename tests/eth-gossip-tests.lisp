@@ -707,6 +707,130 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
          (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
           peer)))))
 
+(deftest eth-72-get-cells-production-handoff-admits-pooled-blob
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestGetCells announces one blob transaction from two
+  ;; peers, supplies the omitted-payload pooled wrapper to the selected peer,
+  ;; then returns valid Cells. Exercise both production pump actions and the
+  ;; asynchronous PooledTransactions handoff rather than calling the fetcher.
+  (let* ((blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proofs
+           (loop repeat +cell-proofs-per-blob+
+                 collect (make-byte-vector +kzg-proof-size+)))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003004")
+            :blob-versioned-hashes
+            (list (kzg-commitment-to-versioned-hash commitment))))
+         (fragment
+           (make-blob-sidecar :blobs '()
+                              :commitments (list commitment)
+                              :proofs proofs))
+         (entry (make-blob-network-transaction transaction fragment))
+         (hash (eth-gossip-transaction-hash-bytes transaction))
+         (size (length (blob-pooled-transaction-encoding transaction fragment)))
+         (announcement
+           (rlp-encode
+            (make-rlp-list
+             (make-byte-vector 1 :initial-element 3)
+             (make-rlp-list (integer-to-minimal-bytes size))
+             (make-rlp-list hash)
+             (make-byte-vector 16 :initial-element #xff))))
+         (accepted nil)
+         (stored nil)
+         (verifier-calls 0)
+         (backend
+           (make-eth-serve-backend
+            :accept-transaction (lambda (value) (setf accepted value))
+            :accept-blob-sidecar (lambda (value) (setf stored value))))
+         (selected-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (other-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (sent '())
+         (data-cells
+           (loop for start below +blob-byte-size+ by +bytes-per-cell+
+                 collect (subseq blob start (+ start +bytes-per-cell+))))
+         (extension-cells
+           (loop repeat (/ +cell-proofs-per-blob+ 2)
+                 collect (make-byte-vector +bytes-per-cell+
+                                           :initial-element 7))))
+    (dolist (peer (list selected-peer other-peer))
+      (is (eth-peer-gossip-message
+           peer
+           ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+           announcement)))
+    (is (= 1 (eth-peer-announced-hash-count selected-peer)))
+    (is (= 1 (eth-peer-announced-hash-count other-peer)))
+    (eth-gossip-test-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.eth-sync:eth-peer-send
+            (lambda (peer message-id payload)
+              (is (eq selected-peer peer))
+              (push (list message-id payload) sent)))
+      (cons 'ethereum-lisp.eth-sync:eth-peer-get-cells
+            (lambda (peer hashes mask &key request-id)
+              (declare (ignore request-id))
+              (is (eq selected-peer peer))
+              (is (= 1 (length hashes)))
+              (is (bytes= hash (first hashes)))
+              (is (= 16 (length mask)))
+              (is (every (lambda (byte) (= byte #xff)) mask))
+              (values hashes
+                      (list (append data-cells extension-cells))
+                      mask))))
+     (lambda ()
+       (multiple-value-bind (actions reason)
+           (eth-peer-run-session selected-peer :max-actions 1)
+         (is (= 1 actions))
+         (is (eq :max-actions reason)))
+       (is (= 1 (length sent)))
+       (is (= ethereum-lisp.eth-wire:+eth-message-get-pooled-transactions+
+              (first (first sent))))
+       (multiple-value-bind (request-id hashes)
+           (ethereum-lisp.eth-wire:decode-eth-get-pooled-transactions
+            (second (first sent)))
+         (is (= 1 (length hashes)))
+         (is (bytes= hash (first hashes)))
+         (is (eth-peer-gossip-message
+              selected-peer
+              ethereum-lisp.eth-wire:+eth-message-pooled-transactions+
+              (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
+               request-id (list entry)))))
+       (is (= 1
+              (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
+               selected-peer)))
+       (let ((*kzg-cell-proof-verifier*
+               (lambda (actual-blob actual-commitment actual-proofs)
+                 (incf verifier-calls)
+                 (and (bytes= blob actual-blob)
+                      (bytes= commitment actual-commitment)
+                      (= +cell-proofs-per-blob+ (length actual-proofs))
+                      (every #'bytes= proofs actual-proofs)))))
+         (multiple-value-bind (actions reason)
+             (eth-peer-run-session selected-peer :max-actions 1)
+           (is (= 1 actions))
+           (is (eq :max-actions reason))))))
+    (is accepted)
+    (is (= 1 verifier-calls))
+    (is (bytes= (transaction-encoding transaction)
+                (transaction-encoding accepted)))
+    (is (typep stored 'blob-sidecar))
+    (is (bytes= blob (first (blob-sidecar-blobs stored))))
+    (is (zerop
+         (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
+          selected-peer)))
+    ;; The duplicate announcer remains independently available; selecting one
+    ;; peer must not consume another peer's announcement state.
+    (is (= 1 (eth-peer-announced-hash-count other-peer)))))
+
 (deftest eth-72-single-announcer-requests-full-custody-cells
   (:layer :unit :module :p2p)
   ;; Pinned geth 101035a1 TestBlobTxAvailabilityFailure announces ten blob
