@@ -1,7 +1,7 @@
 Section 5 Hive NewPooledTxs local regression evidence
 
 Recorded at: 2026-09-12T14:58:55Z
-Revision: 3f0d537ebf7063d9a65c618370a143e488f5d1f2
+Revision: 7ee257f2ce62564029888eb93c40cbb650144062
 Branch: sec5-public-bootstrap-sync
 Reference: go-ethereum TestNewPooledTxs at
 101035a1049c7dc468bfe973478b579d9883d7b6
@@ -23,7 +23,7 @@ announcement and complete-set request requirement.
 
 RED control
 
-The regression was run with the production call to
+The first regression control was run with the production call to
 eth-peer-queue-announced-hashes temporarily replaced by NIL in
 src/networking/eth-sync/gossip.lisp. The source file was restored and is not
 part of this revision.
@@ -36,6 +36,13 @@ Command:
 Result: exit 1; 0 passed, 1 failed. The deterministic failure was the assertion
 that the announced-hash count equals 50. The RED run took 60.15 seconds.
 
+After review required the test to cover autonomous pump dispatch, a second RED
+control temporarily replaced the :drain action's call to
+eth-peer-request-announced-transactions with NIL in
+src/networking/eth-sync/pump.lisp. The same selector exited 1 with 0 passed and
+1 failed at the non-empty announced-hash queue assertion after 53.43 seconds.
+The source file was restored and is not part of this revision.
+
 GREEN and regression gates
 
 - cl-workbench doctor --strict: pass.
@@ -44,24 +51,29 @@ GREEN and regression gates
 - Focused cold integration in the canonical worktree at the accepted revision:
   1/1 passed.
 - cl-workbench validation run cold-unit --match ETH-GOSSIP: 13/13 passed.
+- cl-workbench validation run cold-unit --match ETH-PEER-RUN-SESSION: 3/3
+  passed after the review correction.
 - cl-workbench validation run cold-integration: 566 passed, 9 optional
   fixture-dependent skips.
 - git diff --check and guarded SHA/status checks: pass.
 
 Review
 
-A direct specification review compared the final one-file test delta with the
-pinned upstream TestNewPooledTxs implementation. The test uses the same eth/72
-announcement shape and fifty-item complete request requirement, while adding
-stronger uniqueness and membership assertions. No correctness or scope issue
-was found.
+An independent review found that the first draft called
+eth-peer-request-announced-transactions directly and therefore could stay green
+if the production session pump stopped autonomously selecting and executing its
+:drain action. The accepted follow-up runs eth-peer-run-session for one bounded
+action instead. The second RED control above proves that this stronger test
+fails when pump dispatch no longer invokes the requester. The final test keeps
+the pinned eth/72 announcement shape and fifty-item complete request
+requirement, plus uniqueness and membership assertions.
 
 Remote verification
 
 The commit was pushed without force. Both local HEAD and
 refs/heads/sec5-public-bootstrap-sync on origin resolved to:
 
-  3f0d537ebf7063d9a65c618370a143e488f5d1f2
+  7ee257f2ce62564029888eb93c40cbb650144062
 
 Limits
 
