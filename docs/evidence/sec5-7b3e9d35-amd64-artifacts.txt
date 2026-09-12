@@ -1,0 +1,78 @@
+Section 5 exact amd64 artifacts for pinned Hive devp2p rerun
+
+Recorded: 2026-09-12T00:55:43Z
+Revision: 7b3e9d3590a774d37db32faa9400f323d6c1c3f0
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This revision contains the uploaded-genesis fork-schedule repair, bundled pinned
+fallback genesis, explicit HIVE_DISCV5 refusal, pinned devp2p geth source, pinned
+simulator base-image manifests, and protected Hive run/source identity arguments.
+The artifacts below are the exact inputs prepared for an independently authorized
+fresh Linux devp2p run.
+
+Runtime image
+
+Image tag:
+  ethereum-lisp-runtime:sec5-7b3e9d35-amd64
+Image ID:
+  sha256:bce3c2fbab5fbab2a1b803dd65312bb1023cc449e6e99bdb3fce7e59b8de8a4d
+Platform:
+  linux/amd64
+Configured user:
+  ethereum:ethereum
+OCI revision label:
+  7b3e9d3590a774d37db32faa9400f323d6c1c3f0
+Export path:
+  /private/tmp/ethereum-lisp-runtime-sec5-7b3e9d35-amd64.tar
+Export size:
+  71984128 bytes
+Export SHA-256:
+  84111e9e69e7d09ee3d04d171fc5c80bb46a73c5d9db39efe770e8b1b614c54a
+
+Source archive
+
+Archive path:
+  /private/tmp/ethereum-lisp-source-7b3e9d35.tar
+Archive size:
+  29122560 bytes
+Archive SHA-256:
+  a7c297a9183959bdb91c702048e4a45d7ed40ea844ed09e74671670726e80fdb
+Archive inventory:
+  876/876 tracked revision entries; 0 missing, 0 extra
+
+Verification
+
+- cl-workbench doctor --strict: pass, no host Lisp fallback
+- RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build
+  ethereum-lisp-runtime:sec5-7b3e9d35-amd64: exit 0
+- scripts/dev.sh runtime-smoke
+  ethereum-lisp-runtime:sec5-7b3e9d35-amd64: exit 0
+- public eth_chainId: 0x539
+- public web3_clientVersion: ethereum-lisp/0.1.0/CL/0x7b3e9d35
+- unauthenticated Engine API request: HTTP 401
+- authenticated engine_exchangeCapabilities: answered
+- engine_getClientVersionV1 revision:
+  7b3e9d3590a774d37db32faa9400f323d6c1c3f0
+- runtime version command: ethereum-lisp/0.1.0/0x7b3e9d35
+- scripts/dev.sh hive-adapter-smoke
+  ethereum-lisp-runtime:sec5-7b3e9d35-amd64: exit 0
+- adapter refusals: 6/6, including HIVE_DISCV5
+- bundled discovery genesis startup: pass
+- uploaded fork-config preservation: pass
+- Hive chain ID mapping: pass
+- production RocksDB backend assertion: pass
+- enode address and authenticated Engine capability checks: pass
+- Git HEAD remained 7b3e9d3590a774d37db32faa9400f323d6c1c3f0
+  throughout all artifact gates; worktree remained clean
+
+Boundary
+
+These checks establish exact source/runtime identity and local amd64 startup and
+adapter behavior. They do not close the Hive devp2p gate. A fresh independently
+authorized Linux run must load these verified inputs, execute the exact 33-case
+inventory under pinned Hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c and
+pinned geth 101035a1049c7dc468bfe973478b579d9883d7b6, and archive its complete results.
+The healthy Hoodi validation at runtime revision
+0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae was not changed.

@@ -485,13 +485,21 @@ The implementation boundary is split deliberately:
   this run's observed source to `101035a1049c7dc468bfe973478b579d9883d7b6`.
   The runner now stages a reviewed simulator Dockerfile that fetches and
   verifies exactly that commit, and passes the same value as an explicit Hive
-  simulator build argument. A successor Linux run remains required. Exact
+  simulator build argument. Revision
+  `7b3e9d3590a774d37db32faa9400f323d6c1c3f0` now has an exact linux/amd64
+  runtime image and source archive prepared for the successor run. The runtime
+  archive SHA-256 is
+  `84111e9e69e7d09ee3d04d171fc5c80bb46a73c5d9db39efe770e8b1b614c54a`;
+  runtime smoke and the complete adapter smoke pass. A successor Linux run
+  remains required. Exact
   failure partition, runner identities, hashes, and local test commands are in
   `docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt`; the discovery
   fallback repair is recorded in
   `docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt`; deterministic
   simulator-source preparation is recorded in
-  `docs/evidence/sec5-f19ee8d5-hive-devp2p-geth-pin.txt`.
+  `docs/evidence/sec5-f19ee8d5-hive-devp2p-geth-pin.txt`; exact artifact
+  identities and gates are in
+  `docs/evidence/sec5-7b3e9d35-amd64-artifacts.txt`.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request

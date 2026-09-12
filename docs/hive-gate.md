@@ -292,8 +292,13 @@ verifies that exact commit, and passes the same value through
 `--sim.buildarg`. See
 `docs/evidence/sec5-b7bdb6da-hive-devp2p-discovery.txt` and
 `docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt` plus
-`docs/evidence/sec5-f19ee8d5-hive-devp2p-geth-pin.txt`; no local repair closes
-the devp2p gate before a fresh pinned Linux rerun.
+`docs/evidence/sec5-f19ee8d5-hive-devp2p-geth-pin.txt`. Exact revision
+`7b3e9d3590a774d37db32faa9400f323d6c1c3f0` now has a verified linux/amd64
+runtime archive (SHA-256
+`84111e9e69e7d09ee3d04d171fc5c80bb46a73c5d9db39efe770e8b1b614c54a`)
+and matching source archive ready for the rerun; see
+`docs/evidence/sec5-7b3e9d35-amd64-artifacts.txt`. No local repair or artifact
+build closes the devp2p gate before a fresh pinned Linux rerun.
 
 Revision `63408ce2` repaired the remaining pinned `eth_config/get-config`
 fork-ID mismatch by including `mergeNetsplitBlock` in the EIP-2124 activation
