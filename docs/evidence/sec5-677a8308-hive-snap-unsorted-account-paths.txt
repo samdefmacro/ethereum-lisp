@@ -1,0 +1,80 @@
+Section 5 pinned geth unsorted SNAP account-path regression
+
+Recorded at: 2026-09-12T20:06:43Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 677a8308fdfd31c03cd39e11edd43b8277b38ca0
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+Reference case: cmd/devp2p/internal/ethtest/snap.go TestSnapTrieNodes,
+lines 671-685
+
+Scope
+
+The accepted regression builds a deterministic three-account state trie and
+drives the production eth+snap session pump, request codec, SNAP dispatcher,
+persistent backend account-trie traversal, response codec, and send path. It
+constructs the pinned request shape with three singleton account path sets at
+nibble lengths 11, 2, and 1, in that deliberately non-key-sorted order, under a
+5,000-byte response budget.
+
+The deterministic fixture makes the first requested path absent and the second
+and third present. The response must preserve request ID 82, contain exactly
+three positional node items, keep the required zero-length placeholder first,
+and return the two available encoded trie nodes in their original request
+positions. Expected nodes are derived directly from the deterministic account
+trie before the request enters the independent production session/backend path.
+
+RED control
+
+The final response construction in `src/networking/snap-sync/backend.lisp` was
+deliberately mutated to reverse the accumulated node list instead of restoring
+request order. The focused regression failed 0/1 at its positional byte
+assertion. The mutation was fully reverted; the accepted revision changes only
+the test.
+
+Verification
+
+- `cl-workbench doctor --strict`: passed.
+- `cl-workbench check parens tests/eth-pump-tests.lisp`: passed.
+- Focused selector
+  `ETH-PEER-RUN-SESSION-PRESERVES-UNSORTED-SNAP-ACCOUNT-PATH-ORDER`:
+  1 passed.
+- `ETH-PEER-RUN-SESSION` selector: 11 passed.
+- `SNAP` selector: 127 passed.
+- Full `cold-unit`: 1,373 passed, 3 optional skips.
+- `git diff --check`: passed.
+- Independent read-only review approved without blocking findings after checking
+  pinned fixture parity, genuinely unsorted compact paths, positional
+  distinguishability, the complete session/wire/backend path, fixture validity,
+  assertions, and restoration discipline.
+
+Identity
+
+- go-ethereum `snap.go` SHA-256:
+  `275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd`
+- Commit patch ID:
+  `117c91c92c88978b01c65470c8561081754dc5db`
+- `tests/eth-pump-tests.lisp` SHA-256:
+  `8e8ed39fa6ca4443cb754ad217428f13e81b96c6ed095c9b8efd39667732d3f3`
+- Focused container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-unsorted-final-cycle980`
+  (`2ae4e10f499c8aa2f8fa20e6989bd33f5e4931c5807accd0f0113f271c13965d`),
+  `e6776f72ca9b7f605710dcd974f6fa44de739bcf00a42e092212bf69fcafbdde`.
+- Session-family log SHA-256:
+  `4d94b8b261095d213b3109f733881ec7b7d0d6119bb1754662899a8b025c9be1`.
+- SNAP-family log SHA-256:
+  `bf619dca964a2286aefcbd0a28562e26a25cfcd30dfa0f5c5ee3231e027a361b`.
+- Full cold-unit container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-unsorted-full-cycle980`
+  (`bf2ddbffd016093518f0627c1c07c0c98987e7b73a7fd4f69bb5dbf6dfbc47f2`),
+  `0a50e4fb5c75b49636a95cc70b71d45f56d7d2b1eda8de6782069a6e31fb5212`.
+- RED mutation container/log SHA-256:
+  `ethereum-lisp-cold-sec5-snap-unsorted-red3-cycle980`
+  (`fc23b4eb515537ff2d8f1f7591bf9f56d55a495aad30a210abae9bb00173377d`),
+  `8a9f0045b6c0843532c587144efe8b33b41fe4a15b33d7ad274da451b078ee84`.
+
+Boundary
+
+This is deterministic local regression evidence. It is not a successor Hive
+SNAP pass, a Hoodi completion result, an amd64 artifact, a shadow comparison, or
+a validator soak result.

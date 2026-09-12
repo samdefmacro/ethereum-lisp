@@ -738,6 +738,22 @@ The implementation boundary is split deliberately:
   is in
   `docs/evidence/sec5-5da70c3a-hive-snap-multiple-storage-nodes.txt`.
 
+  Exact accepted revision `677a8308fdfd31c03cd39e11edd43b8277b38ca0`
+  covers pinned `TestSnapTrieNodes` account paths requested out of key order. A
+  deterministic three-account fixture sends singleton compact paths at nibble
+  lengths 11, 2, and 1 through the production eth+snap session pump and
+  persistent backend under a 5,000-byte budget. The response preserves request
+  ID 82 and all three positions: an unavailable first path remains a zero-length
+  placeholder before two available encoded nodes. Reversing the backend's final
+  response order failed the positional byte assertion. The focused test,
+  eleven-test session-pump family, 127-test SNAP unit family, and full 1,373-test
+  cold-unit layer passed with three optional skips. Independent review approved
+  pinned-fixture parity, genuine non-key ordering, distinguishable responses,
+  and the complete session/wire/backend boundary without blockers. This remains
+  local regression evidence rather than a successor Hive pass; exact evidence
+  is in
+  `docs/evidence/sec5-677a8308-hive-snap-unsorted-account-paths.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
