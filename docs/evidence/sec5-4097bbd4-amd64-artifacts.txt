@@ -17,8 +17,10 @@ Runtime image
 
 Image tag:
   ethereum-lisp-runtime:sec5-4097bbd4-amd64
-Image ID:
+Local Docker Desktop image ID:
   sha256:359cbe40ddabab3eaabfda71dd80e10b8d6fea40934ce266fcb430a408a15dad
+Exported archive config / loaded image ID:
+  sha256:fbf32503f8b4247cccbb83b188d03a8b1f78de524c345b1a2ed59a29b09a429b
 Platform:
   linux/amd64
 Configured user:
@@ -51,9 +53,22 @@ of the source checksum into its fail-closed comparator. It therefore exited at
 the source checksum check before archive extraction or runner creation. A
 read-only follow-up verified that the preserved remote archive itself has the
 64-character SHA-256 recorded above, `tar -tf` exits zero, the source directory
-is still empty, and no r34 container exists. The preserved r34 evidence path is
-not reused; the successor request uses a fresh r35 path and the corrected
-checksum.
+is still empty, and no r34 container exists. The preserved r34 evidence path was
+not reused.
+
+The fresh r35 setup matched all four archive hashes and loaded the runtime into
+its nested Linux Docker daemon, then stopped before Hive because its comparator
+used Docker Desktop's local containerd image identity
+`sha256:359cbe40ddabab3eaabfda71dd80e10b8d6fea40934ce266fcb430a408a15dad`.
+The portable archive's manifest names config blob
+`sha256:fbf32503f8b4247cccbb83b188d03a8b1f78de524c345b1a2ed59a29b09a429b`,
+and Linux `docker load` correctly exposes that config digest as the image ID.
+Direct archive inspection and the retained r35 readback both prove the loaded
+image is linux/amd64, non-root `ethereum:ethereum`, and labels revision
+`4097bbd40843f76fbc8c0c402e39f85cce6708e6`. The runner exited
+without OOM or restart; no Hive case executed, and the fresh r35 path remains
+preserved. A successor request must use a new path/container and compare the
+loaded image against the archive config digest above.
 
 Verification
 
