@@ -722,6 +722,22 @@ The implementation boundary is split deliberately:
   evidence is in
   `docs/evidence/sec5-48d5a505-hive-snap-storage-root.txt`.
 
+  Exact accepted revision `5da70c3ae98f882d116e71e185668925da076382`
+  covers the pinned `TestSnapTrieNodes` multiple-storage-node case. One path set
+  carries the secure account key followed by compact root path zero and compact
+  child path `0x1b` through the production eth+snap session pump and persistent
+  backend. The response preserves request ID and returns both nodes in order:
+  the first hashes to the deterministic account's committed storage root and
+  the second exactly matches the independently constructed storage trie's
+  encoded child. A mutation which served only the first storage path failed the
+  two-node cardinality assertion. The focused test, ten-test session-pump family,
+  126-test SNAP unit family, and full 1,372-test cold-unit layer passed with
+  three optional skips. Independent review approved the exact path, response
+  ordering, production boundary, and cleanup without blockers. This remains
+  local regression evidence rather than a successor Hive pass; exact evidence
+  is in
+  `docs/evidence/sec5-5da70c3a-hive-snap-multiple-storage-nodes.txt`.
+
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,

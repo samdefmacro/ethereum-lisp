@@ -1,0 +1,66 @@
+Section 5 pinned geth SNAP multiple-storage-node regression
+
+Recorded at: 2026-09-12T19:47:12Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Accepted revision: 5da70c3ae98f882d116e71e185668925da076382
+Pinned reference: go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+Reference case: cmd/devp2p/internal/ethtest/snap.go TestSnapTrieNodes,
+lines 705-719
+
+Scope
+
+The accepted regression creates one deterministic account with two non-empty
+storage slots, then drives the production eth+snap session pump, request codec,
+SNAP dispatcher, persistent backend storage-trie traversal, response codec, and
+send path. The single path set contains the secure account key, compact root path
+zero, and compact child path 0x1b, matching the pinned request shape. The
+response must preserve request ID 81 and contain both requested nodes in order.
+The first node hashes to the account's committed storage root; the second equals
+the independently constructed deterministic storage trie's encoded child at
+compact path 0x1b.
+
+The local fixture preserves the pinned wire and ordering semantics while deriving
+canonical expected nodes from its own deterministic state instead of importing
+the testchain-specific hard-coded geth hashes.
+
+RED control
+
+The storage path traversal in
+`src/networking/snap-sync/backend.lisp` was deliberately mutated to serve only
+the first path after the account hash. The focused regression failed 0/1 at the
+expected two-node cardinality assertion. The mutation was fully reverted; the
+accepted revision changes only the test.
+
+Verification
+
+- `cl-workbench doctor --strict`: passed.
+- `cl-workbench check parens tests/eth-pump-tests.lisp`: passed.
+- Focused selector
+  `ETH-PEER-RUN-SESSION-ANSWERS-MULTIPLE-KNOWN-SNAP-STORAGE-NODES`:
+  1 passed.
+- `ETH-PEER-RUN-SESSION` selector: 10 passed.
+- `SNAP` selector: 126 passed.
+- Full `cold-unit`: 1,372 passed, 3 optional skips.
+- `git diff --check`: passed.
+- Independent read-only review approved without blocking findings after checking
+  the exact pinned request shape, deterministic child witness, complete
+  session/wire/backend path, response order, and unwind-protect restoration.
+
+Identity
+
+- go-ethereum `snap.go` SHA-256:
+  `275c4e2f2aa586134204cfe6bfee0fc4ebe7ccc0e9534e66b737f2c3e76101dd`
+- Commit patch ID:
+  `d742853bce0ef1d783d044770288acef06cc2fa6`
+- `tests/eth-pump-tests.lisp` SHA-256:
+  `b98172794577ba6fb901dc4bacf764cf80165b771c6d11e3f59e0249d158493a`
+- Retained full cold-unit output SHA-256:
+  `cfac94fb9033972c83ec9f40a1bc8ae67793d276f90c807e2639349ece75368c`
+- Retained local output:
+  `/Users/sen/.hermes/cache/terminal-output/out-1789242285-67103-190.log`
+
+Boundary
+
+This is deterministic local regression evidence. It is not a successor Hive
+SNAP pass, a Hoodi completion result, an amd64 artifact, or a soak result.
