@@ -707,6 +707,81 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
          (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
           peer)))))
 
+(deftest eth-72-invalid-cells-signal-protocol-error-and-preserve-retry
+  (:layer :unit :module :p2p)
+  ;; Pinned geth TestBlobTxWithInvalidCells disconnects the corrupted Cells
+  ;; responder while leaving the innocent peer connected. This local regression
+  ;; proves the peer-protocol condition consumed by that session path, then
+  ;; additionally checks non-admission and a valid retry from another peer.
+  (let* ((blob (make-byte-vector +blob-byte-size+))
+         (commitment (make-byte-vector +kzg-commitment-size+))
+         (proofs
+           (loop repeat +cell-proofs-per-blob+
+                 collect (make-byte-vector +kzg-proof-size+)))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003002")
+            :blob-versioned-hashes
+            (list (kzg-commitment-to-versioned-hash commitment))))
+         (fragment
+           (make-blob-sidecar :blobs '()
+                              :commitments (list commitment)
+                              :proofs proofs))
+         (cells
+           (loop repeat +cell-proofs-per-blob+
+                 collect (make-byte-vector +bytes-per-cell+)))
+         (accepted 0)
+         (stored 0)
+         (backend
+           (make-eth-serve-backend
+            :accept-transaction
+            (lambda (value) (declare (ignore value)) (incf accepted))
+            :accept-blob-sidecar
+            (lambda (value) (declare (ignore value)) (incf stored))))
+         (bad-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (good-peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (cell-response
+           (lambda (actual-peer hashes mask &key request-id)
+             (declare (ignore actual-peer request-id))
+             (values hashes (list cells) mask))))
+    (is (ethereum-lisp.eth-sync::eth-peer-queue-omitted-blob-transaction
+         bad-peer transaction fragment))
+    (let ((*kzg-cell-proof-verifier*
+            (lambda (actual-blob actual-commitment actual-proofs)
+              (declare (ignore actual-blob actual-commitment actual-proofs))
+              nil)))
+      (eth-gossip-test-call-with-function-overrides
+       (list (cons 'ethereum-lisp.eth-sync:eth-peer-get-cells cell-response))
+       (lambda ()
+         (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
+           (ethereum-lisp.eth-sync::eth-peer-fetch-omitted-blob-transaction
+            bad-peer)))))
+    (is (zerop accepted))
+    (is (zerop stored))
+    (is (ethereum-lisp.eth-sync::eth-peer-queue-omitted-blob-transaction
+         good-peer transaction fragment))
+    (let ((*kzg-cell-proof-verifier*
+            (lambda (actual-blob actual-commitment actual-proofs)
+              (and (bytes= blob actual-blob)
+                   (bytes= commitment actual-commitment)
+                   (= +cell-proofs-per-blob+ (length actual-proofs))))))
+      (eth-gossip-test-call-with-function-overrides
+       (list (cons 'ethereum-lisp.eth-sync:eth-peer-get-cells cell-response))
+       (lambda ()
+         (is (= 1
+                (ethereum-lisp.eth-sync::eth-peer-fetch-omitted-blob-transaction
+                 good-peer))))))
+    (is (= 1 accepted))
+    (is (= 1 stored))))
+
 (deftest eth-gossip-serves-only-the-pooled-transactions-it-has
   (:layer :unit :module :p2p)
   (let* ((held (eth-gossip-test-transaction 1))
