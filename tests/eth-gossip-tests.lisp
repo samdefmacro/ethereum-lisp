@@ -714,6 +714,29 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
       (is (= 2 (hash-table-count pool)))
       (is (null (gethash (eth-gossip-transaction-hash-bytes bad) pool))))))
 
+(deftest eth-gossip-delegates-plain-wire-batches-once
+  (:layer :unit :module :p2p)
+  (let* ((transactions
+           (list (eth-gossip-test-transaction 1)
+                 (eth-gossip-test-transaction 2)
+                 (eth-gossip-test-transaction 3)))
+         (calls 0)
+         (seen nil)
+         (backend
+           (make-eth-serve-backend
+            :accept-transactions
+            (lambda (batch)
+              (incf calls)
+              (setf seen batch)
+              2)
+            :accept-transaction
+            (lambda (transaction)
+              (declare (ignore transaction))
+              (error "plain batch fell back to scalar admission")))))
+    (is (= 2 (eth-accept-transactions backend transactions)))
+    (is (= 1 calls))
+    (is (eq transactions seen))))
+
 (deftest eth-gossip-fresh-chain-gate-precedes-transaction-decoding
   (:layer :unit :module :p2p)
   ;; Pinned geth checks Backend.AcceptTxs before decoding all three inbound

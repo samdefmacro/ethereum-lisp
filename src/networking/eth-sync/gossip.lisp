@@ -199,9 +199,21 @@ payloads is commitment-checked and passed to OMITTED-BLOB-FUNCTION, when given;
 it remains out of the pool until the cell fetcher assembles and verifies its
 full data."
   (let ((accept (eth-serve-backend-accept-transaction backend))
+        (accept-batch (eth-serve-backend-accept-transactions backend))
         (accept-sidecar
           (eth-serve-backend-accept-blob-sidecar backend))
         (accepted 0))
+    ;; The ordinary Transactions path has no sidecars. Let a production backend
+    ;; amortize sender-state and contiguous-prefix work across the wire batch;
+    ;; protocol-only backends retain the historical per-entry callback.
+    (when (and accept-batch
+               (every (lambda (entry)
+                        (and (not (consp entry))
+                             (not (typep entry 'blob-network-transaction))
+                             (not (typep entry 'blob-transaction))))
+                      transactions))
+      (return-from eth-accept-transactions
+        (funcall accept-batch transactions)))
     (when accept
       (dolist (entry transactions)
         (let ((transaction entry)

@@ -1,5 +1,115 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest txpool-batch-admission-retains-ordered-sender-prefix
+  (:layer :unit :module :rpc)
+  ;; Hive's LargeTxRequest sends 2000 consecutive transactions from one sender
+  ;; in one Transactions message. This is also a complexity regression: batch
+  ;; admission must not rescan the growing sender prefix for every entry.
+  (let* ((count 2000)
+         (store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1))
+         (policy
+           (ethereum-lisp.txpool.application:make-txpool-admission-policy
+            :account-slot-limit 16
+            :global-slot-limit 5120
+            :account-queue-limit 64
+            :global-queue-limit 1024))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (transactions
+           (loop for nonce below count
+                 collect
+                 (fixture-sign-legacy-transaction
+                  (make-legacy-transaction
+                   :nonce nonce :gas-price 1 :gas-limit 75000
+                   :to recipient :value 0)
+                  1 1)))
+         (sender
+           (transaction-sender (first transactions) :expected-chain-id 1))
+         (head
+           (make-block
+            :header
+            (make-block-header
+             :number 0 :timestamp 0 :gas-limit 100000000
+             :base-fee-per-gas 1))))
+    (chain-store-put-block store head :state-available-p t)
+    (chain-store-put-account-nonce store (block-hash head) sender 0)
+    (chain-store-put-account-balance
+     store (block-hash head) sender (* count 75000))
+    (let ((accepted
+            (ethereum-lisp.txpool.application:txpool-admit-transactions
+             transactions store config policy :admitted-at 1)))
+      (unless (= count accepted)
+        (error "Batch accepted ~D of ~D; pending=~D queued=~D"
+               accepted count
+               (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+                store)
+               (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
+                store))))
+    (is (= count
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+            store)))
+    (is (zerop
+         (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
+          store)))
+    (is
+     (= count
+        (ethereum-lisp.txpool:engine-payload-store-pending-contiguous-nonce
+         store sender 0 :expected-chain-id 1)))))
+
+(deftest txpool-batch-admission-invalidates-context-after-global-eviction
+  (:layer :unit :module :rpc)
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1))
+         (policy
+           (ethereum-lisp.txpool.application:make-txpool-admission-policy
+            :account-slot-limit 1 :global-slot-limit 2
+            :account-queue-limit 8 :global-queue-limit 8))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (a0 (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0 :gas-price 1 :gas-limit 75000 :to recipient :value 0)
+              1 1))
+         (b0 (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 0 :gas-price 2 :gas-limit 75000 :to recipient :value 0)
+              2 1))
+         (a1 (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 1 :gas-price 4 :gas-limit 75000 :to recipient :value 0)
+              1 1))
+         (a2 (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce 2 :gas-price 5 :gas-limit 75000 :to recipient :value 0)
+              1 1))
+         (sender-a (transaction-sender a0 :expected-chain-id 1))
+         (sender-b (transaction-sender b0 :expected-chain-id 1))
+         (head
+           (make-block
+            :header
+            (make-block-header
+             :number 0 :timestamp 0 :gas-limit 100000000
+             :base-fee-per-gas 1))))
+    (chain-store-put-block store head :state-available-p t)
+    (dolist (sender (list sender-a sender-b))
+      (chain-store-put-account-nonce store (block-hash head) sender 0)
+      (chain-store-put-account-balance
+       store (block-hash head) sender 10000000))
+    (is
+     (= 4
+        (ethereum-lisp.txpool.application:txpool-admit-transactions
+         (list a0 b0 a1 a2) store config policy :admitted-at 1)))
+    (is (= 2
+           (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+            store)))
+    (is (= 1
+           (ethereum-lisp.txpool:engine-payload-store-queued-transaction-count
+            store)))
+    (is
+     (ethereum-lisp.txpool:engine-payload-store-queued-transaction
+      store (transaction-hash a2)))))
+
 (deftest eth-rpc-send-raw-transaction-queues-retained-state-nonce-gaps
   (labels ((field (object name)
              (cdr (assoc name object :test #'string=)))

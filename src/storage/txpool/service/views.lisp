@@ -6,6 +6,13 @@
    (engine-payload-store-pending-sender-index store)
    sender))
 
+(defun engine-payload-store-pending-sender-nonce-transaction
+    (store sender nonce)
+  "Return SENDER's pending transaction at NONCE without scanning its prefix."
+  (engine-payload-store-indexed-sender-nonce-transaction
+   (engine-payload-store-pending-sender-index store)
+   sender nonce))
+
 (defun engine-payload-store-pending-transaction (store hash)
   (engine-pending-txpool-pending-transaction
    (engine-payload-store-txpool store)

@@ -23,7 +23,8 @@
    #:txpool-admission-policy-no-local-exemptions-p
    #:txpool-local-transaction-p
    #:txpool-local-transaction-predicate
-   #:txpool-admit-transaction))
+   #:txpool-admit-transaction
+   #:txpool-admit-transactions))
 
 (defpackage #:ethereum-lisp.engine-api
   (:use #:cl

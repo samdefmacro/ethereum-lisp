@@ -29,7 +29,8 @@
                       pooled-blob-sidecar pooled-transaction-sidecar
                       known-transaction-p
                       accept-transactions-p
-                      accept-transaction accept-blob-sidecar accept-block
+                      accept-transactions accept-transaction
+                      accept-blob-sidecar accept-block
                       block-access-list blob-cells)))
   "What a peer's messages are answered from, as closures rather than a store.
 
@@ -53,6 +54,9 @@ NIL, which turns off just that part."
   pooled-transaction-sidecar
   known-transaction-p
   accept-transactions-p
+  ;; Batch admission avoids repeating sender-state and txpool-prefix scans for
+  ;; one Transactions message. It returns the number accepted.
+  accept-transactions
   accept-transaction
   accept-blob-sidecar
   ;; Validate/import or buffer a propagated full block. NIL disables block

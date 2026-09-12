@@ -186,6 +186,12 @@ take the guard for the whole admission, since that mutates the pool."
        (lambda ()
          (call-with-devnet-peer-table
           node (lambda () (not (devnet-node-syncing-p node)))))
+       :accept-transactions
+       (lambda (transactions)
+         (guarded
+          (lambda ()
+            (txpool-admit-transactions
+             transactions store config policy :admitted-at (unix-time)))))
        :accept-transaction
        (lambda (transaction)
          (guarded (lambda ()

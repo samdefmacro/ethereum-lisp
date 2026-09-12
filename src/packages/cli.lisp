@@ -70,7 +70,8 @@
   (:import-from #:ethereum-lisp.txpool.application
                 #:make-txpool-admission-policy
                 #:txpool-local-transaction-predicate
-                #:txpool-admit-transaction)
+                #:txpool-admit-transaction
+                #:txpool-admit-transactions)
   (:import-from #:ethereum-lisp.node-store.persistence
                 #:make-node-store-persistence-metadata
                 #:node-store-persistence-metadata-role

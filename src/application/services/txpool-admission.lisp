@@ -146,7 +146,8 @@
    (engine-payload-store-pooled-transactions store)))
 
 (defun validate-txpool-delegation-reservations
-    (store sender transaction config &optional admission-state)
+    (store sender transaction config &optional admission-state
+     &key (sender-reserved-p nil sender-reserved-p-supplied-p))
   (declare (ignore config))
   (let ((admission-state
           (or admission-state (txpool-load-admission-state store sender))))
@@ -160,7 +161,9 @@
                  (txpool-admission-state-nonce admission-state))
         (block-validation-fail
          "eth_sendRawTransaction delegated account nonce must be current")))
-    (when (txpool-authority-reserved-p store sender)
+    (when (if sender-reserved-p-supplied-p
+              sender-reserved-p
+              (txpool-authority-reserved-p store sender))
       (block-validation-fail
        "eth_sendRawTransaction sender is reserved by a pending set-code authorization"))
     (dolist (authority (txpool-set-code-authorities transaction))
@@ -172,14 +175,15 @@
   t)
 
 (defun validate-txpool-sender-state
-    (store admission-state sender transaction)
+    (store admission-state sender transaction &key admission-expenditure)
   (when (txpool-admission-state-state-available-p admission-state)
     (when (< (transaction-nonce transaction)
              (txpool-admission-state-nonce admission-state))
       (block-validation-fail "eth_sendRawTransaction nonce too low"))
     (when (< (txpool-admission-state-balance admission-state)
-             (engine-payload-store-sender-admission-expenditure
-              store sender transaction))
+             (or admission-expenditure
+                 (engine-payload-store-sender-admission-expenditure
+                  store sender transaction)))
       (block-validation-fail
        "eth_sendRawTransaction insufficient sender balance")))
   t)
@@ -207,7 +211,8 @@
          (< (transaction-max-fee-per-gas transaction) base-fee))))
 
 (defun validate-txpool-admission
-    (transaction sender store config &optional admission-state)
+    (transaction sender store config &optional admission-state
+     &key admission-expenditure)
   (let* ((admission-state
            (or admission-state (txpool-load-admission-state store sender)))
          (head (txpool-admission-state-head admission-state))
@@ -267,7 +272,8 @@
         (block-validation-fail
          "eth_sendRawTransaction gas limit exceeds the EIP-7825 cap"))
       (validate-txpool-sender-state
-       store admission-state sender transaction)
+       store admission-state sender transaction
+       :admission-expenditure admission-expenditure)
       (validate-txpool-sender-code admission-state)))
   t)
 
@@ -292,7 +298,9 @@
   t)
 
 (defun admit-new-transaction
-    (transaction sender store config policy admitted-at admission-state)
+    (transaction sender store config policy admitted-at admission-state
+     &key admission-expenditure
+          (queued-nonce-gap-p nil queued-nonce-gap-p-supplied-p))
   (let ((local-transaction-p
           (txpool-local-transaction-p sender policy))
         (price-bump
@@ -301,7 +309,8 @@
           (txpool-local-transaction-predicate config policy)))
     (validate-admission-policy transaction local-transaction-p policy)
     (validate-txpool-admission
-     transaction sender store config admission-state)
+     transaction sender store config admission-state
+     :admission-expenditure admission-expenditure)
     (engine-payload-store-configure-txpool-promotion-policy
      store
      (txpool-admission-policy-account-slot-limit policy)
@@ -322,8 +331,10 @@
                           (unless local-transaction-p
                             (txpool-admission-policy-global-slot-limit policy))
                           :admitted-at admitted-at))
-      ((txpool-queued-nonce-gap-p
-        store sender transaction config admission-state)
+      ((if queued-nonce-gap-p-supplied-p
+           queued-nonce-gap-p
+           (txpool-queued-nonce-gap-p
+            store sender transaction config admission-state))
        (engine-payload-store-put-queued-transaction
         store transaction :price-bump-percent price-bump
                           :admitted-at admitted-at
@@ -379,3 +390,163 @@
         (admit-new-transaction
          transaction sender store config policy admitted-at admission-state)))
     hash))
+
+(defstruct (txpool-admission-batch-sender
+            (:constructor %make-txpool-admission-batch-sender))
+  admission-state
+  (costs-by-nonce (make-hash-table) :type hash-table)
+  (expenditure 0 :type (integer 0 *))
+  (contiguous-nonce 0 :type (integer 0 *))
+  sender-reserved-p)
+
+(defun txpool-admission-batch-sender-context (store sender config)
+  "Snapshot the sender-wide values whose scalar admission paths otherwise scan
+the same pool prefix once per transaction. The caller owns the store guard."
+  (let* ((admission-state (txpool-load-admission-state store sender))
+         (pooled (engine-payload-store-sender-pooled-transactions store sender))
+         (costs (make-hash-table))
+         (expenditure 0))
+    (dolist (transaction pooled)
+      (let ((cost (engine-payload-store-txpool-upfront-cost transaction)))
+        (setf (gethash (transaction-nonce transaction) costs) cost)
+        (incf expenditure cost)))
+    (%make-txpool-admission-batch-sender
+     :admission-state admission-state
+     :costs-by-nonce costs
+     :expenditure expenditure
+     :contiguous-nonce
+     (if (txpool-admission-state-state-available-p admission-state)
+         (engine-payload-store-pending-contiguous-nonce
+          store sender (txpool-admission-state-nonce admission-state)
+          :expected-chain-id (chain-config-chain-id config))
+         0)
+     :sender-reserved-p (txpool-authority-reserved-p store sender))))
+
+(defun txpool-admission-batch-note-accepted
+    (context store sender transaction)
+  (let* ((nonce (transaction-nonce transaction))
+         (costs (txpool-admission-batch-sender-costs-by-nonce context))
+         (new-cost (engine-payload-store-txpool-upfront-cost transaction)))
+    (multiple-value-bind (old-cost present-p) (gethash nonce costs)
+      (when present-p
+        (decf (txpool-admission-batch-sender-expenditure context) old-cost))
+      (setf (gethash nonce costs) new-cost)
+      (incf (txpool-admission-batch-sender-expenditure context) new-cost))
+    ;; Advance from the previous frontier rather than rescanning from state nonce.
+    ;; Promotion may have moved several queued transactions, so consult the real
+    ;; pending index until the first gap.
+    (when (txpool-admission-state-state-available-p
+           (txpool-admission-batch-sender-admission-state context))
+      (loop for nonce =
+              (txpool-admission-batch-sender-contiguous-nonce context)
+            for pending =
+              (engine-payload-store-pending-sender-nonce-transaction
+               store sender nonce)
+            while pending
+              do (incf
+                  (txpool-admission-batch-sender-contiguous-nonce context)))))
+  transaction)
+
+(defun txpool-admission-batch-pool-count (store)
+  (+ (engine-payload-store-pending-transaction-count store)
+     (engine-payload-store-queued-transaction-count store)
+     (engine-payload-store-basefee-transaction-count store)
+     (engine-payload-store-blob-transaction-count store)))
+
+(defun txpool-admit-transactions
+    (transactions store config policy &key admitted-at)
+  "Admit an inbound wire batch with scalar semantics and amortized sender scans.
+
+Invalid entries remain isolated exactly as in ETH-ACCEPT-TRANSACTIONS. Set-code
+transactions use the scalar path because each can change authority reservations
+seen by the next entry. Ordinary batches cache state, expenditure, reservation,
+and contiguous-nonce context per sender."
+  (when (find-if (lambda (transaction)
+                   (typep transaction 'set-code-transaction))
+                 transactions)
+    ;; A type-4 entry can reserve authorities used by any later entry, including
+    ;; a sender whose context was already cached. Preserve exact scalar ordering
+    ;; for the uncommon mixed batch rather than maintaining a second index here.
+    (return-from txpool-admit-transactions
+      (loop for transaction in transactions
+            count (ignore-errors
+                    (txpool-admit-transaction
+                     transaction store config policy :admitted-at admitted-at)
+                    t))))
+  (let ((contexts (make-hash-table :test #'equalp))
+        (accepted 0))
+    (dolist (transaction transactions accepted)
+      (when
+          (ignore-errors
+            (if (typep transaction 'set-code-transaction)
+                (txpool-admit-transaction
+                 transaction store config policy :admitted-at admitted-at)
+                (progn
+                  (validate-txpool-encoded-size transaction)
+                  (validate-set-code-transaction-fields transaction)
+                  (validate-set-code-authorization-signatures transaction)
+                  (let* ((hash (transaction-hash transaction))
+                         (sender
+                           (or (transaction-sender
+                                transaction
+                                :expected-chain-id (chain-config-chain-id config))
+                               (block-validation-fail
+                                "eth_sendRawTransaction transaction sender recovery failed"))))
+                    (unless (or (chain-store-transaction-location store hash)
+                                (engine-payload-store-pooled-transaction store hash))
+                      (let* ((key (address-to-hex sender))
+                             (context
+                               (or (gethash key contexts)
+                                   (setf (gethash key contexts)
+                                         (txpool-admission-batch-sender-context
+                                          store sender config))))
+                             (nonce (transaction-nonce transaction))
+                             (costs
+                               (txpool-admission-batch-sender-costs-by-nonce
+                                context))
+                             (old-transaction-present-p
+                               (nth-value 1 (gethash nonce costs)))
+                             (new-cost
+                               (engine-payload-store-txpool-upfront-cost
+                                transaction))
+                             (old-cost (gethash nonce costs 0))
+                             (candidate-expenditure
+                               (+ (-
+                                   (txpool-admission-batch-sender-expenditure
+                                    context)
+                                   old-cost)
+                                  new-cost))
+                             (pool-count-before
+                               (txpool-admission-batch-pool-count store))
+                             (queued-gap-p
+                               (and
+                                (txpool-admission-state-state-available-p
+                                 (txpool-admission-batch-sender-admission-state
+                                  context))
+                                (> nonce
+                                   (txpool-admission-batch-sender-contiguous-nonce
+                                    context)))))
+                        (validate-txpool-delegation-reservations
+                         store sender transaction config
+                         (txpool-admission-batch-sender-admission-state context)
+                         :sender-reserved-p
+                         (txpool-admission-batch-sender-sender-reserved-p
+                          context))
+                        (admit-new-transaction
+                         transaction sender store config policy admitted-at
+                         (txpool-admission-batch-sender-admission-state context)
+                         :admission-expenditure candidate-expenditure
+                         :queued-nonce-gap-p queued-gap-p)
+                        (txpool-admission-batch-note-accepted
+                         context store sender transaction)
+                        ;; Replacement can remove type-4 authority reservations,
+                        ;; while any capacity eviction can affect another cached
+                        ;; sender. Invalidate snapshots whenever insertion did not
+                        ;; produce the simple one-entry growth used by this path.
+                        (when (or old-transaction-present-p
+                                  (/= (txpool-admission-batch-pool-count store)
+                                      (1+ pool-count-before)))
+                          (clrhash contexts))))
+                    hash)))
+            t)
+        (incf accepted)))))

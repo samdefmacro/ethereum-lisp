@@ -38,6 +38,7 @@
    #:engine-payload-store-sender-pooled-transactions
    #:engine-payload-store-pending-transactions-by-sender
    #:engine-payload-store-pending-sender-transactions
+   #:engine-payload-store-pending-sender-nonce-transaction
    #:engine-payload-store-pending-contiguous-nonce
    #:engine-payload-store-pending-transaction-count
    #:engine-payload-store-queued-transaction-count
