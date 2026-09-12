@@ -838,6 +838,83 @@
               for wanted in expected
               do (is (bytes= wanted actual)))))))
 
+(deftest eth-peer-run-session-omits-unknown-snap-code-hashes
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestSnapGetByteCodes lines 466-484 requires state
+  ;; roots, repeated unknown hashes, and the empty trie root to produce no items.
+  (let* ((state (make-state-db))
+         (database (make-memory-key-value-database))
+         (peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (address (address-from-hex
+                   "0x0000000000000000000000000000000000001234"))
+         (backend nil)
+         (read-symbol 'ethereum-lisp.eth-sync:eth-peer-read-once)
+         (send-symbol 'ethereum-lisp.eth-sync:eth-peer-send-snap)
+         (real-read (fdefinition read-symbol))
+         (real-send (fdefinition send-symbol))
+         (empty-root (hash32-bytes +empty-trie-hash+))
+         (state-root nil)
+         (payloads nil)
+         (sent '()))
+    (state-db-set-account state address (make-state-account :balance 1))
+    (setf state-root (hash32-bytes (state-db-root state))
+          backend
+          (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+           database state)
+          payloads
+          (mapcar
+           (lambda (request)
+             (ethereum-lisp.snap:encode-snap-message
+              ethereum-lisp.snap:+snap-message-get-bytecodes+ request))
+           (list
+            (ethereum-lisp.snap:make-snap-get-bytecodes
+             84 (list empty-root state-root) 10000)
+            (ethereum-lisp.snap:make-snap-get-bytecodes
+             85 (list state-root state-root) 10000)
+            (ethereum-lisp.snap:make-snap-get-bytecodes
+             86 (list empty-root) 10000))))
+    (is (not (bytes= empty-root state-root)))
+    (setf (ethereum-lisp.eth-sync::eth-peer-snap-offset peer) 100
+          (ethereum-lisp.eth-sync::eth-peer-snap-backend peer) backend)
+    (unwind-protect
+         (progn
+           (setf (fdefinition read-symbol)
+                 (lambda (candidate)
+                   (is (eq peer candidate))
+                   (values :snap
+                           ethereum-lisp.snap:+snap-message-get-bytecodes+
+                           (pop payloads))))
+           (setf (fdefinition send-symbol)
+                 (lambda (candidate message-id encoded)
+                   (is (eq peer candidate))
+                   (push
+                    (list
+                     message-id
+                     (ethereum-lisp.snap:decode-snap-message
+                      message-id encoded))
+                    sent)))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session
+                peer :readable-function (lambda (timeout)
+                                          (declare (ignore timeout))
+                                          (not (null payloads)))
+                :max-actions 3)
+             (is (= 3 actions))
+             (is (eq :max-actions reason))))
+      (setf (fdefinition read-symbol) real-read
+            (fdefinition send-symbol) real-send))
+    (setf sent (nreverse sent))
+    (is (= 3 (length sent)))
+    (loop for response-entry in sent
+          for request-id in '(84 85 86)
+          do (is (= ethereum-lisp.snap:+snap-message-bytecodes+
+                    (first response-entry)))
+             (let ((response (second response-entry)))
+               (is (= request-id
+                      (ethereum-lisp.snap:snap-bytecodes-id response)))
+               (is (null
+                    (ethereum-lisp.snap:snap-bytecodes-codes response)))))))
+
 (deftest eth-peer-run-session-serves-the-empty-snap-code-hash
   (:layer :unit :module :p2p)
   ;; Pinned geth 101035a1 TestSnapGetByteCodes lines 486-490 requires one
