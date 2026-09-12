@@ -1889,11 +1889,13 @@
                          (or (block-header-base-fee-per-gas
                               (block-header child-block))
                              0)))
+                      ;; The fixture store is intentionally sparse below the
+                      ;; imported child. Pinned geth-style oracle history fills
+                      ;; those empty/missing block results with the process-local
+                      ;; last price, so the startup recommendation wins the 60th
+                      ;; percentile over each child's high-tip samples.
                       (expected-priority-fee
-                        (ethereum-lisp.public-api::eth-rpc-priority-fee-percentile
-                         (ethereum-lisp.public-api::eth-rpc-block-priority-fee-samples
-                          child-block)
-                         60))
+                        ethereum-lisp.public-api::+eth-rpc-gas-oracle-default-tip+)
                       (expected-gas-price
                         (quantity-to-hex
                          (+ (or (block-header-base-fee-per-gas
@@ -2886,7 +2888,9 @@
                   (string= expected-gas-price
                            (fixture-object-field public-gas-price-rpc
                                                  "result"))
-                  "eth_gasPrice mismatch")
+                  "eth_gasPrice mismatch: expected ~A, got ~A"
+                  expected-gas-price
+                  (fixture-object-field public-gas-price-rpc "result"))
                  (devnet-smoke-gate-require
                   (string= (quantity-to-hex expected-priority-fee)
                            (fixture-object-field public-priority-fee-rpc
