@@ -22,10 +22,22 @@
   (+ (discv4-unix-time) seconds-from-now))
 
 (defun discv4-expired-p (expiration &key (grace-seconds 2))
-  "True when EXPIRATION (a Unix timestamp) is in the past by more than
+  "True when EXPIRATION (a uint64 Unix timestamp) is in the past by more than
 GRACE-SECONDS. The discv4 spec mandates dropping packets whose expiration has
-passed; GRACE-SECONDS is a small local lenience for clock skew."
-  (< (+ expiration grace-seconds) (discv4-unix-time)))
+passed; GRACE-SECONDS is a small local lenience for clock skew.
+
+Geth interprets the wire uint64 through `time.Unix(int64(ts), 0)`. Preserve that
+boundary: values with the high bit set represent wrapped negative timestamps
+and are expired rather than implausibly far-future packets. Values outside the
+wire uint64 domain also fail closed."
+  (or (not (integerp expiration))
+      (< expiration 0)
+      (> expiration #xffffffffffffffff)
+      (let ((signed-expiration
+              (if (>= expiration #x8000000000000000)
+                  (- expiration #x10000000000000000)
+                  expiration)))
+        (< (+ signed-expiration grace-seconds) (discv4-unix-time)))))
 
 (defun discv4-endpoint-for-host (host udp-port tcp-port)
   "Build a discv4 endpoint from a dotted-quad HOST string and its ports."

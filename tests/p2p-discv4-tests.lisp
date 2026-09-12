@@ -319,6 +319,11 @@
   ;; A stamp far in the past is expired; a fresh future stamp is not.
   (is (ethereum-lisp.p2p:discv4-expired-p 1000000000))
   (is (not (ethereum-lisp.p2p:discv4-expired-p (ethereum-lisp.p2p:discv4-expiration))))
+  ;; The pinned geth discv4 suite encodes `-futureExpiration()` through its
+  ;; uint64 packet field. Geth reinterprets that value as int64 before comparing
+  ;; it with the clock, so the wrapped negative must also be expired.
+  (is (ethereum-lisp.p2p:discv4-expired-p
+       (- #x10000000000000000 (ethereum-lisp.p2p:discv4-expiration))))
   ;; grace-seconds tolerates a slightly-past stamp.
   (let ((just-past (- (ethereum-lisp.p2p:discv4-unix-time) 1)))
     (is (not (ethereum-lisp.p2p:discv4-expired-p just-past :grace-seconds 5)))
