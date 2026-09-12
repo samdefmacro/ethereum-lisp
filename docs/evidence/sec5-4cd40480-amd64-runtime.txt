@@ -1,0 +1,79 @@
+Section 5 exact-current runtime artifact evidence
+
+Recorded through: 2026-09-12T17:18:00Z
+Revision: 4cd40480a2e30ba0b451bd9a9cb14a66bd738b80
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This record preserves the exact linux/amd64 runtime image and exported archive
+for the accepted revision containing the pooled-transaction metadata fix, bad
+blob peer handling, pinned invalid-Cells regression, and their durable plan
+updates. No remote upload, image load, deployment, restart, or datadir mutation
+was performed.
+
+Verified inputs
+
+- Clean canonical worktree at the exact revision.
+- Local HEAD and origin/sec5-public-bootstrap-sync matched before the build.
+- `cl-workbench doctor --strict` passed earlier in this worker cycle.
+- Build used the reviewed project runtime broker:
+
+  RUNTIME_PLATFORM=linux/amd64 ./scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-4cd40480-amd64
+
+- Export used the reviewed project broker:
+
+  ./scripts/dev.sh runtime-export \
+    ethereum-lisp-runtime:sec5-4cd40480-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-4cd40480-20260912T171400Z.tar
+
+- Runtime validation used the canonical Workbench profile:
+
+  cl-workbench validation run runtime-smoke \
+    ethereum-lisp-runtime:sec5-4cd40480-amd64
+
+Artifact identity
+
+- Image tag:
+  ethereum-lisp-runtime:sec5-4cd40480-amd64
+- Image ID:
+  sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6
+- Platform:
+  linux/amd64
+- Runtime user:
+  ethereum:ethereum
+- OCI revision label:
+  4cd40480a2e30ba0b451bd9a9cb14a66bd738b80
+- Local archive:
+  /private/tmp/ethereum-lisp-runtime-sec5-4cd40480-20260912T171400Z.tar
+- Archive SHA-256:
+  338188a67dc8be750db5cf303a52e57f9c15180af7b3c30bf31bb4e2335ff354
+- Archive size:
+  72019968 bytes
+
+Smoke result
+
+The Workbench runtime-smoke gate passed. It verified packaged Hoodi genesis,
+public RPC, `eth_chainId`, `web3_clientVersion`, unauthenticated Engine JWT
+rejection, authenticated `engine_exchangeCapabilities`,
+`engine_getClientVersionV1` revision identity, and `eth_syncing` on the Engine
+port. The temporary smoke container was removed by the broker.
+
+Invocation correction
+
+Two initial attempts used an unsupported nested `runtime build` spelling and
+were rejected by the broker with exit 2 before a build. The correct
+`runtime-build TAG` invocation then built and exported the artifact. The first
+Workbench smoke attempt used an unsupported `--image` option and was rejected
+with exit 2; rerunning with the documented positional IMAGE passed. These were
+command-interface errors, not product or artifact failures.
+
+Live boundary
+
+The current long-running Hoodi deployment remains
+`hoodi-el-sec5-0c6b51bf-r1`, intentionally pinned to its exact older revision.
+It was not replaced merely because this artifact is newer. A successor Hive run
+also remains blocked by its fail-closed remote capacity prerequisite; the most
+recent read-only check found 8607522816 bytes available on `/data` at 99% use,
+below the retained 12884901888-byte gate.

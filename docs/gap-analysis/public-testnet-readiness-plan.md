@@ -636,6 +636,18 @@ The implementation boundary is split deliberately:
   successor live Hive pass; exact evidence is in
   `docs/evidence/sec5-6c23ab8a-hive-invalid-cells.txt`.
 
+  Exact current revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
+  has a verified linux/amd64 runtime image and export. Its image ID is
+  `sha256:f49de41135479809cb953daf21b091a47266483f60231fa8b8d2a28ac704ebe6`,
+  the archive SHA-256 is
+  `338188a67dc8be750db5cf303a52e57f9c15180af7b3c30bf31bb4e2335ff354`,
+  the archive size is 72,019,968 bytes, and the OCI revision label, non-root
+  runtime user, and platform all matched. The Workbench runtime-smoke gate
+  passed packaged Hoodi genesis, public RPC, JWT rejection/acceptance, Engine
+  capabilities and version identity, and `eth_syncing`. This local artifact was
+  not uploaded or deployed; exact commands and the corrected broker invocation
+  are in `docs/evidence/sec5-4cd40480-amd64-runtime.txt`.
+
   Exact predecessor revision `c93389e762b9a4e32f2cbb0cf86ed2be5b892453`
   now has a verified linux/amd64 runtime image and export. Its image ID is
   `sha256:439cec11b9a6d57ceac558db8a9bb937ffefcb339a388ec2b1ba16e46c2de951`,
