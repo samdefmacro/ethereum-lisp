@@ -872,9 +872,10 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
               :version ethereum-lisp.eth-wire:+eth-protocol-version-72+
               :custody-mask custody-mask)))
            (is (= count (eth-peer-announced-hash-count peer)))
-           (is (= count
-                  (ethereum-lisp.eth-sync::eth-peer-request-announced-transactions
-                   peer)))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session peer :max-actions 1)
+             (is (= 1 actions))
+             (is (eq :max-actions reason)))
            (is (zerop (eth-peer-announced-hash-count peer)))))
         (is (= 1 (length sent)))
         (destructuring-bind (message-id payload) (first sent)
