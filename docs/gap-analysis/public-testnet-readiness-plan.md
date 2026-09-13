@@ -1074,7 +1074,14 @@ The implementation boundary is split deliberately:
   with nine optional skips pass. This repairs the event's local trust boundary;
   live target execution, canonical catch-up, and `eth_syncing=false` remain open.
   Exact commands, retained log hashes, and review result are archived in
-  `docs/evidence/sec5-40be2940-snap-tail-completion.txt`.
+  `docs/evidence/sec5-40be2940-snap-tail-completion.txt`. Exact documentation
+  successor `16fe6962837be612281e2659aa91ad100f85d9c1` has a verified
+  linux/amd64 runtime image and export containing that guard. Its seven-check
+  runtime smoke passed, and the 72,015,360-byte archive has SHA-256
+  `99fc93388c1fe3df7f9c5358217d56858af6cf73113488d4e49b86d2767dc8ab`.
+  It has not been uploaded or deployed; exact identities and the live capacity
+  boundary are archived in
+  `docs/evidence/sec5-16fe6962-amd64-runtime.txt`.
 
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
