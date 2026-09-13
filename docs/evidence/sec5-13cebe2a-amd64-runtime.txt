@@ -1,0 +1,50 @@
+Section 5 exact linux/amd64 runtime artifact evidence
+
+Recorded at: 2026-09-13T15:11:34Z
+Branch: sec5-public-bootstrap-sync
+Revision: 13cebe2a06f65fde4bd827a1e280aa1210854c2a
+Image: ethereum-lisp-runtime:sec5-13cebe2a-amd64
+Image ID: sha256:dbd63cf06f85e3738fa59d920e78c84b7e983862b9999c6690580cda84b87709
+Platform: linux/amd64
+Runtime user: ethereum:ethereum
+OCI revision label: 13cebe2a06f65fde4bd827a1e280aa1210854c2a
+Image size: 71998664 bytes
+
+Build and revision fence
+
+The canonical worktree was clean and HEAD equaled the named revision before the build. The documented project runtime-build broker ran with RUNTIME_PLATFORM=linux/amd64. HEAD and clean-tree assertions passed after build, runtime smoke, export, and final image readback.
+
+Runtime smoke
+
+The Workbench-managed runtime-smoke profile passed against the exact image:
+
+  packaged Hoodi genesis built successfully
+  eth_chainId returned 0x539
+  web3_clientVersion identified ethereum-lisp/0.1.0/CL/0x13cebe2a
+  unauthenticated engine_exchangeCapabilities was rejected with HTTP 401
+  authenticated engine_exchangeCapabilities answered
+  engine_getClientVersionV1 identified
+    13cebe2a06f65fde4bd827a1e280aa1210854c2a / 0x13cebe2a
+  eth_syncing answered on the Engine endpoint
+  smoke runner result: PASS
+
+Export
+
+Artifact:
+  /private/tmp/ethereum-lisp-runtime-sec5-13cebe2a-20260913T151042Z.tar
+Size:
+  72024064 bytes
+Mode:
+  -rw-------
+SHA-256:
+  e696de80af5e65a93dda47493951c309f45f3d75f016ffffff650f0ead32863d
+
+The project runtime-export broker independently required the image revision label to equal repository HEAD and the image platform to equal linux/amd64 before writing the fresh uniquely named artifact. Final Docker inspect and SHA-256 readback matched the values above.
+
+Live boundary
+
+This artifact was not uploaded or deployed. The preserved Hoodi container hoodi-el-sec5-0c6b51bf-r1 remains running on exact revision 0c6b51bf with StartedAt 2026-09-11T15:51:43.71057739Z, OOMKilled=false, and RestartCount=0. Its existing datadir was not mutated. Read-only observations showed healer processing advancing while frontierWorks and knownIncompleteNodes continued to expand; eth_syncing remained an object with currentBlock 0x0 and eth_blockNumber remained 0x0. At inspection /data had 51,484,155,904 bytes available at 93% utilization, so no fresh additive long-running datadir was created. No live mutation was performed.
+
+Scope boundary
+
+This proves a reproducible exact-revision amd64 runtime artifact and local runtime smoke only. Hoodi target completion, empty healer frontier, canonical execution, real eth_syncing=false, shadow comparison, and validator soak remain open.
