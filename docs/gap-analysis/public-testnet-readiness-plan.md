@@ -649,6 +649,24 @@ The implementation boundary is split deliberately:
   exact commands, review correction, and limits are in
   `docs/evidence/sec5-2db4c38f-hive-blob-availability.txt`.
 
+  Authorized full devp2p run r47 at exact revision `7daf9130` then exposed a
+  second edge in the same pinned geth `TestBlobTxAvailabilityFailure`. Geth
+  distributes four blobs across ten blob-typed transactions, leaving six
+  version-1 network wrappers with zero blobs, commitments, proofs, and blob
+  hashes. The client disconnected because it required every omitted wrapper to
+  have a positive commitment count; its announcement-size reconstruction also
+  lost the empty wrapper's version byte. Exact accepted revision
+  `1a9898a3be87cf92896fd13464959073704d1eda` accepts that vacuous wire wrapper,
+  preserves its decoded version for size validation, bypasses an empty GetCells
+  request, and leaves semantic rejection to normal transaction admission. The
+  RED control failed on the one-byte size mismatch. The final 13-test ETH-72,
+  70-test BLOB, 1,391-test cold-unit with three optional skips, and seven-test
+  BLOB-SIDECAR integration gates passed; independent review found no remaining
+  issue. Its exact linux/amd64 runtime and source archives passed runtime and
+  Hive-adapter smoke, but the repair still requires a fresh authorized Hive
+  rerun. Exact failure, test, artifact, and hash evidence is in
+  `docs/evidence/sec5-1a9898a3-hive-zero-blob-availability.txt`.
+
   Exact revision `085d03c38b783208489c15175c41bf8f266510c4` adds the
   deterministic local regression for pinned geth `TestGetCells`. Two peers
   announce the same typed blob transaction; the selected peer's production
