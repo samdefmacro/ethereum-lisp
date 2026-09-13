@@ -960,6 +960,10 @@ BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix.
 
 (deftest eth-sync-multiplexes-eth-72-and-snap-1-over-one-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; Hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c runs go-ethereum
+  ;; 101035a1049c7dc468bfe973478b579d9883d7b6
+  ;; cmd/devp2p/internal/ethtest/snap.go Suite.TestSnapStatus lines 45--52:
+  ;; dial with snap enabled, then complete the Hello and eth Status peering seam.
   (let* ((config (eth-sync-test-config))
          (server-static
            #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
@@ -1009,7 +1013,13 @@ BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix.
                                                (eth-peer-eth-version peer)
                                                :snap-offset
                                                (ethereum-lisp.eth-sync:eth-peer-snap-offset
-                                                peer))))
+                                                peer)
+                                               :snap-version
+                                               (ethereum-lisp.eth-sync:eth-peer-snap-version
+                                                peer)
+                                               :status-version
+                                               (ethereum-lisp.eth-wire:eth-status-version
+                                                (eth-peer-remote-status peer)))))
                               (ignore-errors
                                (sb-bsd-sockets:socket-close socket))))
                         (error (condition) (setf server-error condition))))
@@ -1033,8 +1043,14 @@ BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix.
                               ethereum-lisp.snap:+snap-message-get-account-range+
                               request)))
                       (is (= 72 (eth-peer-eth-version peer)))
-                      (is (integerp
-                           (ethereum-lisp.eth-sync:eth-peer-snap-offset peer)))
+                      ;; eth/72 owns 22 ids after the 16 base-protocol ids.
+                      (is (= 38
+                             (ethereum-lisp.eth-sync:eth-peer-snap-offset peer)))
+                      (is (= 1
+                             (ethereum-lisp.eth-sync:eth-peer-snap-version peer)))
+                      (is (= 72
+                             (ethereum-lisp.eth-wire:eth-status-version
+                              (eth-peer-remote-status peer))))
                       (is (= 42
                              (ethereum-lisp.snap:snap-account-range-id
                               response)))
@@ -1049,7 +1065,9 @@ BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix.
              (when server-error
                (error "snap multiplex server failed: ~A" server-error))
              (is (= 72 (getf server-result :eth-version)))
-             (is (integerp (getf server-result :snap-offset))))
+             (is (= 38 (getf server-result :snap-offset)))
+             (is (= 1 (getf server-result :snap-version)))
+             (is (= 72 (getf server-result :status-version))))
         (eth-sync-listener-close listener)))))
 
 ;;;; End-to-end initial block download: produce real valid blocks on one store
