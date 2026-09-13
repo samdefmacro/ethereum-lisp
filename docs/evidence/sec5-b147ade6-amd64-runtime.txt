@@ -4,7 +4,10 @@ Recorded at: 2026-09-13T02:13:23Z
 Branch: sec5-public-bootstrap-sync
 Revision: b147ade6f2b506f67a86ec54cc82a9722c38789f
 Image: ethereum-lisp-runtime:sec5-b147ade6-amd64
-Image ID: sha256:5f5063db004d4a3c8e20a983137b4b9b0c64fe6a7b2cb413189dfb9d42a6faf6
+Local multi-platform image ID:
+  sha256:5f5063db004d4a3c8e20a983137b4b9b0c64fe6a7b2cb413189dfb9d42a6faf6
+Portable linux/amd64 config/image digest:
+  sha256:e624b85ebf541c83e29666037a1443f4822654d65761004c1a1f9b97c2586292
 Platform: linux/amd64
 Runtime user: ethereum:ethereum
 OCI revision label: b147ade6f2b506f67a86ec54cc82a9722c38789f
@@ -52,13 +55,30 @@ SHA-256:
 
 The project runtime-export broker independently required the image revision
 label to equal repository HEAD and the platform to equal linux/amd64 before
-writing the fresh artifact. Final Docker inspection and SHA-256 readback matched
-the values above.
+writing the fresh artifact. Final local Docker inspection and SHA-256 readback
+matched the values above. The OCI archive's selected linux/amd64 manifest names
+config digest `e624b85e...6292`; loading the archive into a plain linux/amd64
+daemon produces that digest as the Docker image ID. The local `5f5063db...faf6`
+ID identifies the source daemon's multi-platform image/index and is not portable
+across `docker save`/`docker load`.
+
+External identity-check evidence
+
+A reviewed r43 Hive devp2p attempt on 2026-09-13 uploaded the checksum-matched
+runtime, source, and Hive artifacts into a fresh evidence directory. The nested
+linux/amd64 daemon loaded the runtime successfully and read back platform,
+non-root user, and exact OCI revision, but the runner compared its image ID with
+the non-portable local multi-platform ID. It failed closed before Hive started:
+zero result JSON files were produced and no `hive-status.txt` was written. The
+runner was stopped without OOM or restart, and all prior Hoodi containers,
+datadirs, and evidence remained untouched. The successor request must compare
+the loaded image with the portable config/image digest above.
 
 Scope boundary
 
-This proves an exact-revision amd64 runtime artifact and local runtime smoke. It
-was not uploaded or deployed. The existing Hoodi EL/CL containers and datadir
-were not mutated. A fresh full Hive devp2p rerun is still required to establish
-external interoperability, and Hoodi completion, shadow comparison, and
-validator soak remain open.
+This proves an exact-revision amd64 runtime artifact and local runtime smoke. The
+artifact was uploaded only into the isolated failed r43 Hive evidence directory;
+it was not deployed as a Hoodi EL. The existing Hoodi EL/CL containers and
+datadir were not mutated. A fresh full Hive devp2p rerun is still required to
+establish external interoperability, and Hoodi completion, shadow comparison,
+and validator soak remain open.

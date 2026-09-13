@@ -889,13 +889,21 @@ The implementation boundary is split deliberately:
   wrappers are rejected. Its focused BLOB family passed 69/69; cold-unit passed
   1,389 with three optional skips; cold-integration passed 568 with nine optional
   skips; independent final review approved without findings. The verified
-  linux/amd64 image `ethereum-lisp-runtime:sec5-b147ade6-amd64` has ID
-  `sha256:5f5063db004d4a3c8e20a983137b4b9b0c64fe6a7b2cb413189dfb9d42a6faf6`,
+  linux/amd64 image `ethereum-lisp-runtime:sec5-b147ade6-amd64` has local
+  multi-platform ID
+  `sha256:5f5063db004d4a3c8e20a983137b4b9b0c64fe6a7b2cb413189dfb9d42a6faf6`;
+  its portable linux/amd64 config/image digest is
+  `sha256:e624b85ebf541c83e29666037a1443f4822654d65761004c1a1f9b97c2586292`,
   and its 72,018,432-byte export has SHA-256
   `527924597b5e86c23d6c4db6346c8b17bb431750401e669f4461d0ab5cb3ce7a`.
-  Workbench runtime smoke passed. This is exact local regression and artifact
-  evidence; a fresh full Hive devp2p rerun remains required. Exact evidence is
-  in `docs/evidence/sec5-b147ade6-amd64-runtime.txt`.
+  Workbench runtime smoke passed. A reviewed r43 external attempt loaded that
+  archive but failed closed before Hive startup because the runner compared the
+  loaded linux/amd64 image against the non-portable local ID; it produced zero
+  result JSON files, stopped without OOM or restart, and preserved all existing
+  validation state. This is exact local regression, artifact, and fail-closed
+  identity evidence; a successor full Hive devp2p rerun using the portable
+  digest remains required. Exact evidence is in
+  `docs/evidence/sec5-b147ade6-amd64-runtime.txt`.
 
   Exact accepted revision `970a04b06c85b0e5f733103782da072821250829`
   has a verified linux/amd64 runtime image and fresh export. Image
