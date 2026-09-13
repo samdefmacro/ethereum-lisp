@@ -229,10 +229,46 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
       (is (equal '(3) types))
       (is (equal
            (list
-            (length (blob-pooled-transaction-encoding transaction sidecar)))
+            (length
+             (blob-network-transaction-encoding
+              (make-blob-network-transaction transaction sidecar))))
            sizes))
       (is (bytes= (eth-gossip-transaction-hash-bytes transaction)
                   (first hashes))))))
+
+(deftest eth-72-new-pooled-blob-announcement-uses-omitted-blob-size
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 advertises BlobPool SizeWithoutBlob for eth/72.
+  ;; The version and cell-proof metadata remain present; only the blob list is
+  ;; empty because the peer retrieves cells separately with GetCells.
+  (let* ((transaction (eth-gossip-test-blob-transaction 31))
+         (base-sidecar (eth-gossip-test-blob-sidecar))
+         (full-sidecar
+           (make-blob-sidecar
+            :blobs (blob-sidecar-blobs base-sidecar)
+            :commitments (blob-sidecar-commitments base-sidecar)
+            :proofs
+            (loop repeat +cell-proofs-per-blob+
+                  collect (make-byte-vector +kzg-proof-size+))))
+         (omitted-sidecar
+           (make-blob-sidecar
+            :blobs '()
+            :commitments (blob-sidecar-commitments full-sidecar)
+            :proofs (blob-sidecar-proofs full-sidecar)))
+         (entry (make-blob-network-transaction transaction full-sidecar)))
+    (multiple-value-bind (types sizes hashes mask)
+        (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+         (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes
+          (list entry)
+          :version ethereum-lisp.eth-wire:+eth-protocol-version-72+)
+         ethereum-lisp.eth-wire:+eth-protocol-version-72+)
+      (declare (ignore types hashes mask))
+      (is (equal
+           (list
+            (length
+             (blob-network-transaction-encoding
+              (make-blob-network-transaction transaction omitted-sidecar))))
+           sizes)))))
 
 (deftest eth-new-pooled-transaction-hashes-rejects-ragged-columns
   (:layer :unit :module :p2p)
@@ -537,11 +573,20 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
               (blob-sidecar-proofs
                (served-sidecar
                 ethereum-lisp.eth-wire:+eth-protocol-version-69+)))))
+      (is (plusp
+           (length
+            (blob-sidecar-blobs
+             (served-sidecar
+              ethereum-lisp.eth-wire:+eth-protocol-version-69+)))))
       (is (= +cell-proofs-per-blob+
              (length
               (blob-sidecar-proofs
                (served-sidecar
-                ethereum-lisp.eth-wire:+eth-protocol-version-72+))))))))
+                ethereum-lisp.eth-wire:+eth-protocol-version-72+)))))
+      (is (null
+           (blob-sidecar-blobs
+            (served-sidecar
+             ethereum-lisp.eth-wire:+eth-protocol-version-72+)))))))
 
 (deftest eth-gossip-serves-and-verifies-versioned-blob-wrapper
   (:layer :unit :module :p2p)
@@ -731,7 +776,10 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                               :proofs proofs))
          (entry (make-blob-network-transaction transaction fragment))
          (hash (eth-gossip-transaction-hash-bytes transaction))
-         (size (length (blob-pooled-transaction-encoding transaction fragment)))
+         (size
+           (length
+            (blob-network-transaction-encoding
+             (make-blob-network-transaction transaction fragment))))
          (announcement
            (rlp-encode
             (make-rlp-list
@@ -1113,7 +1161,7 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
   (let* ((transactions
            (list (eth-gossip-test-blob-transaction 41)
                  (eth-gossip-test-blob-transaction 42)))
-         (sidecars
+         (full-sidecars
            (loop repeat 2
                  collect
                  (make-blob-sidecar
@@ -1127,15 +1175,44 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                   (loop repeat +cell-proofs-per-blob+
                         collect (make-byte-vector +kzg-proof-size+
                                                   :initial-element 3)))))
+         (sidecars (mapcar #'blob-sidecar-without-blobs full-sidecars))
          (entries
            (mapcar #'make-blob-network-transaction transactions sidecars))
+         (full-entries
+           (mapcar #'make-blob-network-transaction
+                   transactions full-sidecars))
          (hashes (mapcar #'eth-gossip-transaction-hash-bytes transactions))
          (sizes
            (mapcar
             (lambda (transaction sidecar)
-              (length (blob-pooled-transaction-encoding transaction sidecar)))
+              ;; Pinned geth announces the eth/72 v1 network encoding, including
+              ;; the one-byte sidecar version between the transaction and blobs.
+              (length
+               (blob-network-transaction-encoding
+                (make-blob-network-transaction transaction sidecar))))
             transactions sidecars))
+         (full-sizes
+           (mapcar (lambda (entry)
+                     (length (blob-network-transaction-encoding entry)))
+                   full-entries))
          (mask (make-byte-vector 16 :initial-element #xff)))
+    ;; ETH/72 omits the blob payload but keeps the v1 sidecar byte.  Pinned
+    ;; geth's SizeWithoutBlob includes it, so reconstructing from a decoded
+    ;; wrapper must not silently fall back to the one-byte-shorter v0 shape.
+    (let* ((transaction (first transactions))
+           (sidecar (first sidecars))
+           (omitted-sidecar
+             (make-blob-sidecar
+              :blobs '()
+              :commitments (blob-sidecar-commitments sidecar)
+              :proofs (blob-sidecar-proofs sidecar))))
+      (is (= (1+ (length
+                  (blob-pooled-transaction-encoding
+                   transaction omitted-sidecar)))
+             (length
+              (blob-network-transaction-encoding
+               (make-blob-network-transaction
+                transaction omitted-sidecar))))))
     (labels ((announcement (types announced-sizes)
                (rlp-encode
                 (make-rlp-list
@@ -1144,7 +1221,8 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                         (mapcar #'integer-to-minimal-bytes announced-sizes))
                  (apply #'make-rlp-list hashes)
                  mask)))
-             (check (types announced-sizes violation-p)
+             (check (types announced-sizes violation-p
+                     &optional (served-entries entries) response-payload-function)
                (multiple-value-bind (backend pool) (eth-gossip-test-backend)
                  (let ((peer
                          (ethereum-lisp.eth-sync::%make-eth-peer
@@ -1184,15 +1262,34 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                                  (eth-peer-gossip-message
                                   peer
                                   ethereum-lisp.eth-wire:+eth-message-pooled-transactions+
-                                  (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
-                                   request-id entries)))))
+                                  (if response-payload-function
+                                      (funcall response-payload-function request-id)
+                                      (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
+                                       request-id served-entries))))))
                          (if violation-p
                              (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
                                (funcall response))
                              (is (funcall response))))))
-                   (is (= (if violation-p 0 2) (hash-table-count pool)))))))
+                   (is (zerop (hash-table-count pool)))
+                   (is (= (if violation-p 0 2)
+                          (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
+                           peer)))))))
       (check '(3 3) (list (first sizes) (+ 10 (second sizes))) t)
       (check '(2 3) sizes t)
+      ;; Even self-consistent full-payload metadata cannot make the prohibited
+      ;; eth/72 response shape acceptable.
+      (check '(3 3) full-sizes t full-entries)
+      ;; The v1 marker is mandatory.  Proof cardinality must not let an
+      ;; unversioned v0 wrapper masquerade as the eth/72 form.
+      (check
+       '(3 3) sizes t entries
+       (lambda (request-id)
+         (rlp-encode
+          (make-rlp-list
+           (integer-to-minimal-bytes request-id)
+           (apply #'make-rlp-list
+                  (mapcar #'blob-pooled-transaction-encoding
+                          transactions sidecars))))))
       (check '(3 3) sizes nil))))
 
 (deftest eth-72-bad-blob-pool-response-does-not-poison-valid-retry
@@ -1203,21 +1300,25 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
   (let* ((transaction (eth-gossip-test-blob-transaction 451))
          (hash (eth-gossip-transaction-hash-bytes transaction))
          (good-sidecar
-           (make-blob-sidecar
-            :blobs (list (make-byte-vector +blob-byte-size+ :initial-element 1))
-            :commitments
-            (list (make-byte-vector +kzg-commitment-size+ :initial-element 2))
-            :proofs
-            (loop repeat +cell-proofs-per-blob+
-                  collect (make-byte-vector +kzg-proof-size+ :initial-element 3))))
+           (blob-sidecar-without-blobs
+            (make-blob-sidecar
+             :blobs (list (make-byte-vector +blob-byte-size+ :initial-element 1))
+             :commitments
+             (list (make-byte-vector +kzg-commitment-size+ :initial-element 2))
+             :proofs
+             (loop repeat +cell-proofs-per-blob+
+                   collect (make-byte-vector +kzg-proof-size+
+                                             :initial-element 3)))))
          (bad-sidecar
-           (make-blob-sidecar
-            :blobs (list (make-byte-vector +blob-byte-size+ :initial-element 1))
-            :commitments
-            (list (make-byte-vector +kzg-commitment-size+ :initial-element 7))
-            :proofs
-            (loop repeat +cell-proofs-per-blob+
-                  collect (make-byte-vector +kzg-proof-size+ :initial-element 3))))
+           (blob-sidecar-without-blobs
+            (make-blob-sidecar
+             :blobs (list (make-byte-vector +blob-byte-size+ :initial-element 1))
+             :commitments
+             (list (make-byte-vector +kzg-commitment-size+ :initial-element 7))
+             :proofs
+             (loop repeat +cell-proofs-per-blob+
+                   collect (make-byte-vector +kzg-proof-size+
+                                             :initial-element 3)))))
          (good-entry (make-blob-network-transaction transaction good-sidecar))
          (bad-entry (make-blob-network-transaction transaction bad-sidecar)))
     (multiple-value-bind (backend pool) (eth-gossip-test-backend)
@@ -1232,9 +1333,7 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                     (size
                       (length
                        (if (typep entry 'blob-network-transaction)
-                           (blob-pooled-transaction-encoding
-                            (blob-network-transaction-transaction entry)
-                            (blob-network-transaction-sidecar entry))
+                           (blob-network-transaction-encoding entry)
                            (transaction-encoding entry)))))
                (eth-gossip-test-call-with-function-overrides
                 (list
@@ -1280,14 +1379,10 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
           (deliver-from bad-entry))
         (is (zerop (hash-table-count pool)))
         ;; A different peer can still supply the same transaction correctly.
-        (let ((*kzg-cell-proof-verifier*
-                (lambda (blob commitment proofs)
-                  (declare (ignore blob commitment proofs))
-                  t)))
-          (is (deliver-from good-entry)))
-        (is (= 1 (hash-table-count pool)))
-        (is (bytes= (transaction-encoding transaction)
-                    (transaction-encoding (gethash hash pool))))))))
+        (is (deliver-from good-entry))
+        ;; The valid eth/72 fragment awaits GetCells and must not enter the pool
+        ;; before its reconstructed blob payload is verified.
+        (is (zerop (hash-table-count pool)))))))
 
 (deftest devnet-transaction-message-is-propagated-by-session-pump
   (:layer :integration :module :p2p)

@@ -239,7 +239,7 @@ announcements are queued as they arrive and drained only from here."
              announcements transactions)
             (eth-accept-transactions
              backend transactions
-             :allow-omitted-blob-payload-p
+             :require-omitted-blob-payload-p
              (>= (eth-peer-eth-version peer) +eth-protocol-version-72+)
              :omitted-blob-function
              (lambda (transaction sidecar)

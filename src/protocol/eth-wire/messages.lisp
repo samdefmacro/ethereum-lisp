@@ -540,8 +540,13 @@ otherwise a block number."
                                       (sidecar
                                         (eth-pooled-entry-sidecar entry)))
                                   (if sidecar
-                                      (blob-pooled-transaction-encoding
-                                       transaction sidecar)
+                                      (blob-network-transaction-encoding
+                                       (make-blob-network-transaction
+                                        transaction
+                                        (if (>= version
+                                                +eth-protocol-version-72+)
+                                            (blob-sidecar-without-blobs sidecar)
+                                            sidecar)))
                                       (transaction-encoding transaction))))))
                             entries))
              (apply #'make-rlp-list

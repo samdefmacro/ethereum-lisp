@@ -903,12 +903,14 @@
    #:blob-sidecar-blobs
    #:blob-sidecar-commitments
    #:blob-sidecar-proofs
+   #:blob-sidecar-without-blobs
    #:blob-sidecar-versioned-hashes
    #:+blob-sidecar-cell-proofs-per-blob+
    #:blob-network-transaction
    #:make-blob-network-transaction
    #:blob-network-transaction-transaction
    #:blob-network-transaction-sidecar
+   #:blob-network-transaction-sidecar-version
    #:blob-network-transaction-encoding
    #:blob-network-transaction-from-rlp
    #:blob-pooled-transaction-from-encoding

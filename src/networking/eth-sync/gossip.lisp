@@ -194,16 +194,16 @@ does not turn the fragment into a full blob sidecar."
 
 (defun eth-accept-transactions
     (backend transactions
-     &key allow-omitted-blob-payload-p omitted-blob-function)
+     &key require-omitted-blob-payload-p omitted-blob-function)
   "Offer TRANSACTIONS to the backend's pool, and return how many it took.
 
 A transaction the pool turns down — badly signed, underpriced, a nonce too far
 ahead — is skipped rather than raised as a session error. Peers relay freely and
 do not pre-filter for us, so one unusable transaction in a batch must not cost
-us the connection.  A valid eth/72 pooled wrapper that intentionally omits blob
-payloads is commitment-checked and passed to OMITTED-BLOB-FUNCTION, when given;
-it remains out of the pool until the cell fetcher assembles and verifies its
-full data."
+us the connection.  When REQUIRE-OMITTED-BLOB-PAYLOAD-P is true, as for eth/72,
+blob payloads are prohibited and the remaining sidecar is commitment-checked.
+The validated fragment is passed to OMITTED-BLOB-FUNCTION, when given, and stays
+out of the pool until the cell fetcher assembles and verifies its full data."
   (let ((accept (eth-serve-backend-accept-transaction backend))
         (accept-batch (eth-serve-backend-accept-transactions backend))
         (accept-sidecar
@@ -223,11 +223,14 @@ full data."
     (when accept
       (dolist (entry transactions)
         (let ((transaction entry)
-              (sidecar nil))
+              (sidecar nil)
+              (sidecar-version nil))
           (cond
             ((typep entry 'blob-network-transaction)
              (setf transaction (blob-network-transaction-transaction entry)
-                   sidecar (blob-network-transaction-sidecar entry)))
+                   sidecar (blob-network-transaction-sidecar entry)
+                   sidecar-version
+                   (blob-network-transaction-sidecar-version entry)))
             ((and (consp entry)
                   (typep (car entry) 'blob-transaction)
                   (typep (cdr entry) 'blob-sidecar))
@@ -239,11 +242,15 @@ full data."
              "Blob transaction network sidecar is missing"))
           (when sidecar
             (handler-case
-                (if (and allow-omitted-blob-payload-p
-                         (typep transaction 'blob-transaction)
-                         (null (blob-sidecar-blobs sidecar))
-                         (plusp (length (blob-sidecar-commitments sidecar))))
+                (if (and require-omitted-blob-payload-p
+                         (typep transaction 'blob-transaction))
                     (progn
+                      (unless (eql sidecar-version 1)
+                        (eth-peer-protocol-fail
+                         "Received unversioned blob sidecar on eth/72"))
+                      (when (blob-sidecar-blobs sidecar)
+                        (eth-peer-protocol-fail
+                         "Received blob transaction with blob payload on eth/72"))
                       (eth-validate-omitted-blob-payload sidecar transaction)
                       (when omitted-blob-function
                         (funcall omitted-blob-function transaction sidecar))
@@ -406,7 +413,11 @@ the peer matches it up by hash rather than by position."
             ((and (typep transaction 'blob-transaction) sidecar-reader)
              (let ((sidecar (funcall sidecar-reader transaction)))
                (when sidecar
-                 (push (make-blob-network-transaction transaction sidecar)
+                 (push (make-blob-network-transaction
+                        transaction
+                        (if (>= version +eth-protocol-version-72+)
+                            (blob-sidecar-without-blobs sidecar)
+                            sidecar))
                        found))))
             ((and transaction (eth-gossipable-transaction-p transaction))
              (push transaction found))))))
@@ -475,7 +486,8 @@ METADATA-P, return the retained announcement records instead of bare hashes."
   (let ((transaction (eth-pooled-entry-transaction entry))
         (sidecar (eth-pooled-entry-sidecar entry)))
     (length (if sidecar
-                (blob-pooled-transaction-encoding transaction sidecar)
+                (blob-network-transaction-encoding
+                 (make-blob-network-transaction transaction sidecar))
                 (transaction-encoding transaction)))))
 
 (defun eth-validate-pooled-transaction-response (announcements transactions)
@@ -647,7 +659,7 @@ the predicate retains the protocol library's historical accepting behavior."
               peer request-id transactions)
              (eth-accept-transactions
               backend transactions
-              :allow-omitted-blob-payload-p
+              :require-omitted-blob-payload-p
               (>= (eth-peer-eth-version peer) +eth-protocol-version-72+)
               :omitted-blob-function
               (lambda (transaction sidecar)

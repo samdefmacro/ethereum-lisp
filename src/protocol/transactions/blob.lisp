@@ -158,11 +158,19 @@
   (commitments '() :type list)
   (proofs '() :type list))
 
+(defun blob-sidecar-without-blobs (sidecar)
+  "Copy SIDECAR with an empty blob list, retaining commitments and proofs."
+  (make-blob-sidecar
+   :blobs '()
+   :commitments (blob-sidecar-commitments sidecar)
+   :proofs (blob-sidecar-proofs sidecar)))
+
 (defstruct (blob-network-transaction
             (:constructor make-blob-network-transaction
-                (transaction sidecar)))
+                (transaction sidecar &optional sidecar-version)))
   transaction
-  sidecar)
+  sidecar
+  (sidecar-version nil :type (or null (unsigned-byte 8))))
 
 (defun byte-list-rlp-object (values)
   (apply #'make-rlp-list (mapcar #'ensure-byte-vector values)))
@@ -174,11 +182,17 @@
          (blobs (blob-sidecar-blobs sidecar))
          (commitments (blob-sidecar-commitments sidecar))
          (proofs (blob-sidecar-proofs sidecar))
+         (wire-version (blob-network-transaction-sidecar-version value))
          (cell-proof-p
-           (and (plusp (length blobs))
-                (= (length proofs)
-                   (* (length blobs)
-                      +blob-sidecar-cell-proofs-per-blob+)))))
+           ;; ETH/72 omits blobs from the pooled wrapper and fetches their
+           ;; cells separately.  Commitments, not the possibly empty blob
+           ;; list, therefore identify the version-1 proof cardinality.
+           (if wire-version
+               (= wire-version 1)
+               (and (plusp (length commitments))
+                    (= (length proofs)
+                       (* (length commitments)
+                          +blob-sidecar-cell-proofs-per-blob+))))))
     (concat-bytes
      #(3)
      (rlp-encode
@@ -223,7 +237,8 @@
                       (rlp-list-items (nth (+ offset 2) fields)))
               :proofs
               (mapcar #'ensure-byte-vector
-                      (rlp-list-items (nth (+ offset 3) fields))))))))))
+                      (rlp-list-items (nth (+ offset 3) fields))))
+             (if versioned-p version 0)))))))
 
 (defun blob-sidecar-versioned-hashes (sidecar)
   (mapcar #'kzg-commitment-to-versioned-hash
