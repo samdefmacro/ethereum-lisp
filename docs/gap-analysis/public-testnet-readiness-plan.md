@@ -1097,6 +1097,17 @@ The implementation boundary is split deliberately:
   shadow, or validator-soak gates. Exact commands and retained log hashes are in
   `docs/evidence/sec5-616709b5-gap-queue-lifecycle.txt`.
 
+  Exact revision `ade47e78bea7f4703af7615652112ee6432236c6` also closes a
+  sync-status authority defect at the SNAP target boundary. Candidate execution
+  no longer retires a CL forkchoice target before canonical publication; the
+  target is consumed only inside the authorized durable publication transaction,
+  and rollback restores it. This keeps `eth_syncing` true after a target becomes
+  executable but before the CL retries forkchoiceUpdated. Full cold unit is
+  `1392/1392` with three skips, bounded SNAP target integration is `3/3`, and an
+  exact linux/amd64 runtime artifact passed smoke verification. RED/GREEN logs,
+  independent review, artifact identity, and hashes are archived in
+  `docs/evidence/sec5-ade47e78-forkchoice-publication.txt`.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

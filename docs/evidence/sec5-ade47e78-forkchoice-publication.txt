@@ -1,0 +1,118 @@
+Section 5 forkchoice-target publication and amd64 runtime evidence
+
+Recorded through: 2026-09-13T11:49:43Z
+Repository: samdefmacro/ethereum-lisp
+Branch: sec5-public-bootstrap-sync
+Revision: ade47e78bea7f4703af7615652112ee6432236c6
+
+Defect and trust boundary
+
+A forkchoice sync target was removed as soon as a noncanonical candidate gained
+execution state. During SNAP bootstrap that state transition occurs after the
+Consensus Layer's earlier forkchoiceUpdated call returned SYNCING, while the
+target is still noncanonical. Consequently `eth_syncing` could become false
+before Engine-authorized canonical publication.
+
+The repair keeps the forkchoice target through header/body admission and
+candidate execution. `publish-canonical-block` now consumes the exact target
+inside the same authorized `chain-store-atomic-commit` that changes the
+canonical head and invokes durability. A durability failure journals the target
+value and metadata back along with the canonical view. This does not invent a
+forkchoice state or canonically publish from P2P/SNAP authority; the CL must
+retry forkchoiceUpdated after the target becomes executable.
+
+RED
+
+At parent revision 8707b75e3f9c1db785c4b0cac239c485480dce98, an isolated
+detached worktree used the new publication regression without the production
+repair. `cl-workbench doctor --strict` passed there. This command exited 1:
+
+  cl-workbench validation run cold-unit \
+    --match BLOCK-IMPORT-PUBLICATION-ENFORCES-AUTHORITY-AND-ORDERS-DURABILITY
+
+The assertion immediately after noncanonical candidate import found that the
+forkchoice target had already disappeared. The isolated worktree was then
+removed; no canonical or unrelated worktree was changed.
+
+Retained RED artifacts:
+
+- `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-forkchoice-publication-red-ade47e78.log`
+  SHA-256 `7a12b7b26ab22e3f5172695debdc98a4d19f9908146a6a835835ce3f59df1598`;
+- `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-forkchoice-publication-red-doctor.log`
+  SHA-256 `e539d0c32ac5573157d67efbdcb5db7dcc03d79815dc6616d4782fdb0c644c66`.
+
+GREEN and regressions
+
+At exact revision ade47e78:
+
+- full `cold-unit`: 1,392 passed, 3 skipped, exit 0;
+- `cold-integration --match DEVNET-SNAP-TARGET`: 3 passed, exit 0;
+- focused publication tests: 3 passed, exit 0;
+- focused `ETH-SYNCING-NODE-SNAPSHOT-REPORTS-KNOWN-TARGET-BEFORE-PUBLICATION`:
+  1 passed, exit 0;
+- `git diff --check`: clean.
+
+The tests prove that:
+
+- state-available noncanonical execution retains the pending target;
+- `eth_syncing` continues reporting the target after candidate execution;
+- successful authorized canonical publication consumes the target;
+- an unauthorized publication attempt does not consume it;
+- persistence failure restores both canonical state and the target;
+- existing bounded SNAP target-tail scenarios remain green.
+
+Retained exact-revision logs:
+
+- full unit:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-forkchoice-publication-unit-ade47e78.log`,
+  SHA-256 `110f4f2a658df8acaff433024c942b3643d4ed3d7efd62505748fd628609813c`;
+- SNAP integration:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-forkchoice-publication-snap-ade47e78.log`,
+  SHA-256 `1254868986b3c44b95796d41028b10d63f905d56c60c1ca67ed4b663ab189a20`.
+
+An independent read-only review found no blockers. It confirmed Engine authority
+is checked before target removal, cache removal is journaled within the atomic
+publication transaction, rollback restores value and metadata, and candidate
+execution no longer permits a false sync-complete state.
+
+Exact amd64 runtime artifact
+
+The clean exact revision was built, exported, and smoked through the documented
+project brokers from 2026-09-13T11:47:42Z through 2026-09-13T11:49:43Z:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-ade47e78-amd64
+  scripts/dev.sh runtime-export \
+    ethereum-lisp-runtime:sec5-ade47e78-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-ade47e78-amd64.tar
+  cl-workbench validation run runtime-smoke \
+    ethereum-lisp-runtime:sec5-ade47e78-amd64
+
+Identity:
+
+- image ID:
+  `sha256:796ab515188eccce464f8f4c77ec2fe2e9ea744a0609550c662b0ec6cf3d217a`;
+- platform: `linux/amd64`;
+- revision label: `ade47e78bea7f4703af7615652112ee6432236c6`;
+- configured user: `ethereum:ethereum`;
+- image size: 71,991,596 bytes;
+- archive size: 72,016,896 bytes;
+- archive mode: 0600;
+- archive SHA-256:
+  `8fbcc382ade6cb7cbdaaa45249c25f50132f27289f0e1820527a6deaeeb4ecfe`.
+
+Runtime smoke proved packaged Hoodi genesis construction, public RPC,
+unauthenticated Engine rejection, authenticated Engine capability exchange,
+exact full-revision identity, and an Engine-port `eth_syncing` response. The
+retained build/export/smoke log is
+`/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-ade47e78-runtime.log`,
+SHA-256
+`bca1f86d51a6f6e2d3b9dfe9e80251fecb4585db9d04875f4a0d5ca519fae7ce`.
+
+Live boundary
+
+This artifact was not uploaded or deployed. No remote container, datadir, port,
+network, JWT, image, or resource setting was mutated. The existing
+`hoodi-el-sec5-0c6b51bf-r1` validation remains on its older exact revision and
+continues healing. A fresh exact-revision deployment still requires a reviewed
+authorization and additive capacity meeting the 80 GiB precondition.
