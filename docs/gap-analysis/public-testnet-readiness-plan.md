@@ -1157,6 +1157,21 @@ The implementation boundary is split deliberately:
   `docs/evidence/sec5-bb9cf83d-completed-snap-scheduling.txt`. Live Hoodi
   canonical publication and real `eth_syncing=false` remain unproven.
 
+  The accepted successor tree at exact revision
+  `f8aa75752468d290fe1426900dbb488d9b106b54` now has a verified linux/amd64
+  runtime image and export. Image
+  `ethereum-lisp-runtime:sec5-f8aa7575-amd64` has ID
+  `sha256:0debc492ffa155db62e8765a41b1022d38006adb20ca6e811ffa6a1e92873078`,
+  exact OCI revision identity, and non-root `ethereum:ethereum` runtime user.
+  All seven runtime-smoke checks passed. The 72,023,040-byte fresh export has
+  SHA-256
+  `5b0cf180dbed388440df7e386e1401be0017e2a5643e6ed53c57bdffcf6a34e6`.
+  It was not uploaded or deployed: the preserved live `/data` volume has less
+  free space than the existing Hoodi datadir footprint, so the required fresh
+  additive datadir cannot be created safely. Exact commands, identities, and
+  the live boundary are archived in
+  `docs/evidence/sec5-f8aa7575-amd64-runtime.txt`.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan
