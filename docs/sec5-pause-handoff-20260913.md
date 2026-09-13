@@ -16,6 +16,28 @@ Canonical branch at the pause boundary:
   `13cebe2a06f65fde4bd827a1e280aa1210854c2a`
 - repository and all listed worktrees were clean before this handoff was added.
 
+The following clean local development branches were also pushed to matching
+`origin` branch names so their exact pointers survive the model handoff:
+
+- `parallel/blob-receipts` — `fe1321129ae0292393f6283c9a8e352a6f3625b9`;
+- `parallel/eth-syncing` — `98ebe8b56743c83b42f42236b87620ac440fe545`;
+- `parallel/log-limits` — `cc27ecc4909f56d39dc3d6fd8e28fa83c0e3ce9d`;
+- `section5/hive-large-tx-regression-cycle974` —
+  `8b92d05edb3504c58b0def68dc02c7384051db2f`;
+- `section5/hive-new-pooled-cycle975` —
+  `bd2c2bad8490e48c6a1e01bc654b8202d9ff776c`;
+- `section5/hive-snap-status-cycle986` —
+  `dbf02a55bf882de1b15371e0630a23696492fd99`;
+- `section5/hive-transaction-cycle975` —
+  `765d502e5e826cf7728b79b5739f0a8749c98787`;
+- `section5/new-pooled-pump-review-cycle975` —
+  `1f04b33a6a395b70990a1acc802629915225a789`;
+- `section5/queue-close-lifecycle` —
+  `7f56efda7ddabe1c00a8c3c051e2e81539680cea`.
+
+The detached deployment worktree points to `13cebe2a` and has no unique
+unreferenced commit; that revision is already retained by the canonical branch.
+
 The Section 5 supervisor process was terminated. Its watchdog and the
 `ethereum-lisp` eight-hour progress-report cron job were paused. No local
 `ethereum-lisp`, Workbench, Hive, authorization-review, or supervisor process
