@@ -1061,6 +1061,21 @@ The implementation boundary is split deliberately:
   Exact artifact, deployment, predecessor failure, and live-start evidence are
   archived in `docs/evidence/sec5-0c6b51bf-completion-barrier-live-start.txt`.
 
+  Exact revision `40be2940cef4475ff55c3345286972aced6d23ce` closes a
+  separate false-positive completion boundary found while reviewing the final
+  post-pivot tail. The shared forward-import option intentionally accepts
+  `ACCEPTED` and `SYNCING` as durable buffering results, but the SNAP tail caller
+  had ignored that returned status and could emit `peer.snap.target_completed`
+  before the complete target was executable. The tail now requires exact
+  `VALID` for every newly imported block and fails before the completion event
+  otherwise; retry preserves the completed pivot and already executable tail
+  prefix. The production-call-site RED regression, focused selector, 1,391-test
+  cold-unit layer with three optional skips, and 568-test cold-integration layer
+  with nine optional skips pass. This repairs the event's local trust boundary;
+  live target execution, canonical catch-up, and `eth_syncing=false` remain open.
+  Exact commands, retained log hashes, and review result are archived in
+  `docs/evidence/sec5-40be2940-snap-tail-completion.txt`.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

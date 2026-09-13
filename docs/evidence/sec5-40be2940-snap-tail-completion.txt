@@ -1,0 +1,76 @@
+Section 5 SNAP target-tail completion guard
+
+Recorded: 2026-09-13T10:39:00Z
+Revision: 40be2940cef4475ff55c3345286972aced6d23ce
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+This slice closes a false-positive completion boundary in
+`devnet-node-snap-sync-pivot-attempt`. After installing the verified SNAP pivot,
+the bounded tail importer called `devnet-peer-sync-import-block` with
+`require-valid-p`, but that shared forward-acquisition option intentionally
+accepts `ACCEPTED` and `SYNCING` as durable buffering outcomes and rejects only
+`INVALID`. The caller ignored the returned payload status and could therefore
+emit `peer.snap.target_completed` before every post-pivot block was executable.
+
+The fix keeps the forward downloader's established buffering contract unchanged.
+At the narrower post-pivot tail boundary, every newly imported block must return
+exactly `VALID`; any other payload status raises a storage error before the
+completion event. A retry retains the completed pivot/state work, skips tail
+blocks whose state is already available, and emits completion only after all
+remaining tail imports return `VALID`.
+
+RED
+
+The regression extends
+`DEVNET-SNAP-TARGET-DOWNLOADS-ONLY-THE-BOUNDED-PIVOT-TAIL` through the production
+pivot-attempt call site. Its first tail import returns `ACCEPTED`, then requires a
+storage error and zero `peer.snap.target_completed` events. Against the prior
+application implementation, the focused gate failed with:
+
+`Expected condition ETHEREUM-LISP.VALIDATION:STORAGE-ERROR was not signaled`
+
+Retained RED log:
+
+- `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-tail-valid-red.log`
+- SHA-256: `5cdc98264fae9b4847adccccd7ce85f92527193001dbf94873e9059e5b01dfe8`
+
+GREEN
+
+The same regression then switches the tail result to `VALID`, retries the
+unchanged durable session, and requires exactly one completion event.
+
+Commands and exact results:
+
+- `cl-workbench validation run cold-integration --match DEVNET-SNAP-TARGET-DOWNLOADS-ONLY-THE-BOUNDED-PIVOT-TAIL`
+  passed 1 test.
+- `cl-workbench validation run cold-unit` passed 1,391 tests with 3 optional
+  skips.
+- `cl-workbench validation run cold-integration` passed 568 tests with 9
+  optional fixture-dependent skips.
+- `git diff --check` passed.
+
+Retained GREEN logs:
+
+- focused: `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-tail-valid-green.log`
+  SHA-256: `862935ddf4b608892c6eb8cfb9b7ade51681da45abe77d4e039f7e2746474b4a`
+- unit: `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-tail-valid-unit.log`
+  SHA-256: `5ea45b193fbee930cc9f6586dcecdd3b82932746fb52e2a1f042c63e14d3865e`
+- integration: `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-tail-valid-integration.log`
+  SHA-256: `0a3e2c54b0ce73c2dfd43527238418a9449379b969be052c6162fa09e4bc503d`
+
+Independent review
+
+An independent Common Lisp review inspected the production boundary, error
+classification, retry behavior, and regression assertions. It approved the
+final change without required fixes and separately reran the focused cold
+integration selector successfully.
+
+Limits
+
+This is a local fail-closed completion-signal repair. It does not prove that the
+live Hoodi deployment has completed its healer, executed the target, reached a
+canonical head, or returned `eth_syncing=false`. The existing live deployment
+runs older revision `0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae`; no live state
+was changed for this slice. Shadow and validator-soak gates remain open.
