@@ -487,13 +487,13 @@ METADATA-P, return the retained announcement records instead of bare hashes."
 (defun eth-pooled-entry-announcement-size (entry)
   (let ((transaction (eth-pooled-entry-transaction entry))
         (sidecar (eth-pooled-entry-sidecar entry)))
-    (length (if sidecar
-                (blob-network-transaction-encoding
-                 (make-blob-network-transaction
-                  transaction sidecar
-                  (when (typep entry 'blob-network-transaction)
-                    (blob-network-transaction-sidecar-version entry))))
-                (transaction-encoding transaction)))))
+    (if sidecar
+        (blob-network-transaction-announcement-size
+         (make-blob-network-transaction
+          transaction sidecar
+          (when (typep entry 'blob-network-transaction)
+            (blob-network-transaction-sidecar-version entry))))
+        (length (transaction-encoding transaction)))))
 
 (defun eth-validate-pooled-transaction-response (announcements transactions)
   "Require every returned transaction to match one requested announcement."

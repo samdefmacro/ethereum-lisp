@@ -175,34 +175,55 @@
 (defun byte-list-rlp-object (values)
   (apply #'make-rlp-list (mapcar #'ensure-byte-vector values)))
 
-(defun blob-network-transaction-encoding (value)
-  "Encode the EIP-4844/EIP-7594 pooled-transaction wrapper."
-  (let* ((transaction (blob-network-transaction-transaction value))
-         (sidecar (blob-network-transaction-sidecar value))
-         (blobs (blob-sidecar-blobs sidecar))
+(defun %blob-network-transaction-versioned-p (value)
+  (let* ((sidecar (blob-network-transaction-sidecar value))
          (commitments (blob-sidecar-commitments sidecar))
          (proofs (blob-sidecar-proofs sidecar))
-         (wire-version (blob-network-transaction-sidecar-version value))
-         (cell-proof-p
-           ;; ETH/72 omits blobs from the pooled wrapper and fetches their
-           ;; cells separately.  Commitments, not the possibly empty blob
-           ;; list, therefore identify the version-1 proof cardinality.
-           (if wire-version
-               (= wire-version 1)
-               (and (plusp (length commitments))
-                    (= (length proofs)
-                       (* (length commitments)
-                          +blob-sidecar-cell-proofs-per-blob+))))))
+         (wire-version (blob-network-transaction-sidecar-version value)))
+    ;; ETH/72 omits blobs from the pooled wrapper and fetches their cells
+    ;; separately. Commitments, not the possibly empty blob list, therefore
+    ;; identify the version-1 proof cardinality when no decoded version exists.
+    (if wire-version
+        (= wire-version 1)
+        (and (plusp (length commitments))
+             (= (length proofs)
+                (* (length commitments)
+                   +blob-sidecar-cell-proofs-per-blob+))))))
+
+(defun %blob-network-sidecar-rlp-object (value)
+  (let* ((sidecar (blob-network-transaction-sidecar value))
+         (fields
+           (append
+            (when (%blob-network-transaction-versioned-p value) (list 1))
+            (list (byte-list-rlp-object (blob-sidecar-blobs sidecar))
+                  (byte-list-rlp-object (blob-sidecar-commitments sidecar))
+                  (byte-list-rlp-object (blob-sidecar-proofs sidecar))))))
+    (apply #'make-rlp-list fields)))
+
+(defun blob-network-transaction-encoding (value)
+  "Encode the EIP-4844/EIP-7594 pooled-transaction wrapper."
+  (let ((transaction (blob-network-transaction-transaction value))
+        (sidecar-fields
+          (rlp-list-items (%blob-network-sidecar-rlp-object value))))
     (concat-bytes
      #(3)
      (rlp-encode
       (apply #'make-rlp-list
              (append
               (list (blob-transaction-payload transaction))
-              (when cell-proof-p (list 1))
-              (list (byte-list-rlp-object blobs)
-                    (byte-list-rlp-object commitments)
-                    (byte-list-rlp-object proofs))))))))
+              sidecar-fields))))))
+
+(defun blob-network-transaction-announcement-size (value)
+  "Return geth's transaction-size metadata for a pooled blob wrapper.
+
+Pinned geth 101035a1 Transaction.Size and BlobPool SizeWithoutBlob add the
+canonical typed transaction size to a separately framed sidecar list. This can
+differ by one byte from the complete network wrapper when its outer RLP list
+crosses a length-prefix boundary."
+  (+ (length
+      (transaction-encoding
+       (blob-network-transaction-transaction value)))
+     (length (rlp-encode (%blob-network-sidecar-rlp-object value)))))
 
 (defun blob-network-transaction-from-rlp (bytes)
   "Decode a canonical blob transaction or its network sidecar wrapper."

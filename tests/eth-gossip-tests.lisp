@@ -1304,11 +1304,26 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
             :chain-id 1
             :to (address-from-hex
                  "0x0000000000000000000000000000000000003005")
+            ;; Cross the 56-byte RLP-list prefix boundary used by the signed
+            ;; Hive fixture; below it the two size formulas happen to agree.
+            :data (make-byte-vector 64 :initial-element #x30)
             :blob-versioned-hashes '()))
          (sidecar (make-blob-sidecar))
          (entry (make-blob-network-transaction transaction sidecar 1))
          (hash (eth-gossip-transaction-hash-bytes transaction))
-         (size (length (blob-network-transaction-encoding entry)))
+         ;; Pinned geth 101035a1 announces Transaction.Size(), which adds the
+         ;; canonical typed transaction size to the separately framed sidecar
+         ;; fields.  For this empty v1 sidecar that is one byte shorter than the
+         ;; complete network wrapper's RLP framing.
+         (size
+           (+ (length (transaction-encoding transaction))
+              (length
+               (rlp-encode
+                (make-rlp-list
+                 (integer-to-minimal-bytes 1)
+                 (make-rlp-list)
+                 (make-rlp-list)
+                 (make-rlp-list))))))
          (accepted nil)
          (backend
            (make-eth-serve-backend
@@ -1318,6 +1333,15 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
             :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
             :serve-backend backend))
          (request-id nil))
+    (is (= (1+ size) (length (blob-network-transaction-encoding entry))))
+    (multiple-value-bind (types sizes hashes mask)
+        (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+         (ethereum-lisp.eth-wire:encode-eth-new-pooled-transaction-hashes
+          (list entry)
+          :version ethereum-lisp.eth-wire:+eth-protocol-version-72+)
+         ethereum-lisp.eth-wire:+eth-protocol-version-72+)
+      (declare (ignore types hashes mask))
+      (is (equal (list size) sizes)))
     (eth-gossip-test-call-with-function-overrides
      (list
       (cons 'ethereum-lisp.eth-sync:eth-peer-send

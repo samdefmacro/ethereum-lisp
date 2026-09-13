@@ -534,19 +534,23 @@ otherwise a block number."
              (apply #'make-rlp-list
                     (mapcar (lambda (entry)
                               (integer-to-minimal-bytes
-                               (length
-                                (let ((transaction
-                                        (eth-pooled-entry-transaction entry))
-                                      (sidecar
-                                        (eth-pooled-entry-sidecar entry)))
-                                  (if sidecar
-                                      (blob-network-transaction-encoding
-                                       (make-blob-network-transaction
-                                        transaction
-                                        (if (>= version
-                                                +eth-protocol-version-72+)
-                                            (blob-sidecar-without-blobs sidecar)
-                                            sidecar)))
+                               (let ((transaction
+                                       (eth-pooled-entry-transaction entry))
+                                     (sidecar
+                                       (eth-pooled-entry-sidecar entry)))
+                                 (if sidecar
+                                     (blob-network-transaction-announcement-size
+                                      (make-blob-network-transaction
+                                       transaction
+                                       (if (>= version
+                                               +eth-protocol-version-72+)
+                                           (blob-sidecar-without-blobs sidecar)
+                                           sidecar)
+                                       (when (typep entry
+                                                    'blob-network-transaction)
+                                         (blob-network-transaction-sidecar-version
+                                          entry))))
+                                     (length
                                       (transaction-encoding transaction))))))
                             entries))
              (apply #'make-rlp-list

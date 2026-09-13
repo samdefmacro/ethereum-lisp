@@ -242,6 +242,7 @@
    #:blob-network-transaction-sidecar
    #:blob-network-transaction-sidecar-version
    #:blob-network-transaction-encoding
+   #:blob-network-transaction-announcement-size
    #:blob-network-transaction-from-rlp
    #:blob-pooled-transaction-from-encoding
    #:blob-pooled-transaction-encoding
