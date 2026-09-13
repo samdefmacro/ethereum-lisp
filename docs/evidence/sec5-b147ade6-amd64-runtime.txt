@@ -1,0 +1,64 @@
+Section 5 exact linux/amd64 runtime artifact evidence
+
+Recorded at: 2026-09-13T02:13:23Z
+Branch: sec5-public-bootstrap-sync
+Revision: b147ade6f2b506f67a86ec54cc82a9722c38789f
+Image: ethereum-lisp-runtime:sec5-b147ade6-amd64
+Image ID: sha256:5f5063db004d4a3c8e20a983137b4b9b0c64fe6a7b2cb413189dfb9d42a6faf6
+Platform: linux/amd64
+Runtime user: ethereum:ethereum
+OCI revision label: b147ade6f2b506f67a86ec54cc82a9722c38789f
+
+Accepted protocol slice
+
+The exact revision aligns ETH/72 pooled blob transaction behavior with pinned
+go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6. It preserves and requires the
+version-1 sidecar marker, omits blob payloads from ETH/72 announcements and
+PooledTransactions replies, announces SizeWithoutBlob including the marker,
+and rejects full-payload or unversioned pooled wrappers on ETH/72. The focused
+BLOB family passed 69/69 tests. The full cold-unit layer passed 1,389 tests with
+three optional skips, and the full cold-integration layer passed 568 tests with
+nine optional skips. Independent final review approved without findings.
+
+Build and identity
+
+The canonical worktree was clean at the named revision before the build. The
+reviewed project runtime-build broker ran with RUNTIME_PLATFORM=linux/amd64.
+Docker inspection confirmed linux/amd64, non-root ethereum:ethereum, the image
+ID above, and the exact OCI revision label.
+
+Runtime smoke
+
+The Workbench-managed runtime-smoke profile passed against the exact image:
+
+  packaged Hoodi genesis built successfully
+  eth_chainId returned 0x539
+  web3_clientVersion identified ethereum-lisp/0.1.0/CL/0xb147ade6
+  unauthenticated engine_exchangeCapabilities was rejected with HTTP 401
+  authenticated engine_exchangeCapabilities answered
+  engine_getClientVersionV1 identified
+    b147ade6f2b506f67a86ec54cc82a9722c38789f / 0xb147ade6
+  eth_syncing answered on the Engine endpoint
+  smoke runner result: PASS
+
+Export
+
+Artifact:
+  /private/tmp/ethereum-lisp-runtime-sec5-b147ade6-amd64.tar
+Size:
+  72018432 bytes
+SHA-256:
+  527924597b5e86c23d6c4db6346c8b17bb431750401e669f4461d0ab5cb3ce7a
+
+The project runtime-export broker independently required the image revision
+label to equal repository HEAD and the platform to equal linux/amd64 before
+writing the fresh artifact. Final Docker inspection and SHA-256 readback matched
+the values above.
+
+Scope boundary
+
+This proves an exact-revision amd64 runtime artifact and local runtime smoke. It
+was not uploaded or deployed. The existing Hoodi EL/CL containers and datadir
+were not mutated. A fresh full Hive devp2p rerun is still required to establish
+external interoperability, and Hoodi completion, shadow comparison, and
+validator soak remain open.

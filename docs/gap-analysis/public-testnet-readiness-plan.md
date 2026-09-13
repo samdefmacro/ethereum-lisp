@@ -882,6 +882,21 @@ The implementation boundary is split deliberately:
   local regression evidence rather than a live Hive SNAP pass; exact evidence
   is in `docs/evidence/sec5-306e5f4f-snap-account-byte-targets.txt`.
 
+  Exact accepted revision `b147ade6f2b506f67a86ec54cc82a9722c38789f`
+  aligns ETH/72 pooled blob wrappers with pinned geth: version-1 identity is
+  preserved and required, blobs are omitted from announcements and responses,
+  `SizeWithoutBlob` includes the version byte, and full-payload or unversioned
+  wrappers are rejected. Its focused BLOB family passed 69/69; cold-unit passed
+  1,389 with three optional skips; cold-integration passed 568 with nine optional
+  skips; independent final review approved without findings. The verified
+  linux/amd64 image `ethereum-lisp-runtime:sec5-b147ade6-amd64` has ID
+  `sha256:5f5063db004d4a3c8e20a983137b4b9b0c64fe6a7b2cb413189dfb9d42a6faf6`,
+  and its 72,018,432-byte export has SHA-256
+  `527924597b5e86c23d6c4db6346c8b17bb431750401e669f4461d0ab5cb3ce7a`.
+  Workbench runtime smoke passed. This is exact local regression and artifact
+  evidence; a fresh full Hive devp2p rerun remains required. Exact evidence is
+  in `docs/evidence/sec5-b147ade6-amd64-runtime.txt`.
+
   Exact accepted revision `970a04b06c85b0e5f733103782da072821250829`
   has a verified linux/amd64 runtime image and fresh export. Image
   `ethereum-lisp-runtime:sec5-970a04b0-amd64` has ID
