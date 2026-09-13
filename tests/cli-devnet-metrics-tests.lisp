@@ -223,20 +223,32 @@
     (is (eq :ran (ethereum-lisp.cli:call-with-devnet-sync-claim
                   node (lambda () :ran))))))
 
-(deftest devnet-sync-claim-gates-inbound-transaction-processing
+(deftest devnet-semantic-sync-gates-inbound-transaction-processing
   (:layer :unit :module :cli)
+  ;; The coordinator claim serializes passes, but a pass can hold it while no
+  ;; catch-up work exists. Pinned Hive sends FCU before its transaction cases and
+  ;; expects that fresh chain to accept gossip during such an idle pass.
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-json *eth-sync-paris-genesis-json*
                 :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
          (backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
          (predicate
            (ethereum-lisp.eth-sync::eth-serve-backend-accept-transactions-p
-            backend)))
+            backend))
+         (target (make-hash32 (make-byte-vector 32 :initial-element 1))))
     (is (functionp predicate))
     (is (funcall predicate))
     (unwind-protect
          (progn
            (is (ethereum-lisp.cli:devnet-node-claim-sync node))
-           (is (null (funcall predicate))))
+           (is (funcall predicate)))
       (ethereum-lisp.cli:devnet-node-release-sync node))
+    (unwind-protect
+         (progn
+           (ethereum-lisp.chain-store:engine-payload-store-put-forkchoice-sync-target
+            store target :block-number 1)
+           (is (null (funcall predicate))))
+      (ethereum-lisp.chain-store:engine-payload-store-remove-forkchoice-sync-target
+       store target))
     (is (funcall predicate))))

@@ -127,6 +127,24 @@ can be tested without making cryptographic capability a test precondition."
                (devnet-pooled-blob-sidecar store transaction))))))
    hashes mask))
 
+(defun devnet-node-accept-inbound-transactions-p (node)
+  "Whether NODE is semantically fresh enough to admit peer transaction gossip.
+
+The coordinator's SYNCING-P slot is only a mutex for one finite pass; it is true
+while an idle pass inspects an already-current chain.  Gate gossip on the same
+forkchoice/height facts as eth_syncing instead, so a real SNAP or execution gap
+still rejects transactions without making the serialization claim observable as
+false sync state."
+  (call-with-devnet-node-store-guard
+   node
+   (lambda ()
+     (let ((current
+             (chain-store-head-number (devnet-node-store node))))
+       (multiple-value-bind (highest forkchoice-target-p)
+           (devnet-node-sync-highest-block node)
+         (not (or forkchoice-target-p
+                  (and highest (> highest current)))))))))
+
 (defun devnet-peer-serve-backend (node)
   "A serve backend answering a peer's requests and gossip from NODE's store.
 
@@ -178,14 +196,12 @@ take the guard for the whole admission, since that mutates the pool."
                                t)
                           (and (chain-store-transaction-location store key) t))))))
        ;; Pinned geth drops inbound Transactions, pooled-transaction replies,
-       ;; and hash announcements before decoding until its chain is fresh. The
-       ;; coordinator's claim is our authoritative active-catch-up boundary.
-       ;; Read it under the peer-table mutex, before taking the store guard, so
-       ;; public tx gossip cannot contend with SNAP persistence.
+       ;; and hash announcements before decoding until its chain is fresh. Use
+       ;; the same forkchoice/height facts exposed by eth_syncing; the coordinator
+       ;; claim merely serializes finite passes and can be held while already
+       ;; current, as in Hive immediately after a VALID forkchoice update.
        :accept-transactions-p
-       (lambda ()
-         (call-with-devnet-peer-table
-          node (lambda () (not (devnet-node-syncing-p node)))))
+       (lambda () (devnet-node-accept-inbound-transactions-p node))
        :accept-transactions
        (lambda (transactions)
          (guarded
