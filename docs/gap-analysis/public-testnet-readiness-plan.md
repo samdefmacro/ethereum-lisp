@@ -667,6 +667,25 @@ The implementation boundary is split deliberately:
   rerun. Exact failure, test, artifact, and hash evidence is in
   `docs/evidence/sec5-1a9898a3-hive-zero-blob-availability.txt`.
 
+  Exact accepted revision `0395792914fdcda41cf76c43ae292f261315f0d5`
+  then corrected the final pooled-wrapper size mismatch against pinned geth
+  `101035a1049c7dc468bfe973478b579d9883d7b6`: BlobPool
+  `SizeWithoutBlob` announcement metadata uses the canonical typed transaction
+  size plus the separately framed sidecar list, rather than the complete
+  network wrapper's outer RLP length. Its reviewed
+  linux/amd64 runtime ran the complete pinned 48-entry Hive devp2p inventory.
+  Discv4 passed 16/16, eth passed 25/25, and snap passed 6/6; the only failure
+  was the client's explicit fail-closed refusal of the unsupported discv5
+  service. Thus the required discv4/eth/snap surface passed 47/47 with zero
+  skips, while the complete inventory is reported honestly as 47/48. Relative
+  to retained r49, eth client launch and BlobTxAvailabilityFailure moved from
+  failed to passed with no passed-to-failed regression. The runner exited
+  normally without OOM or restart, and the reviewer rechecked 3/3 artifact and
+  945/945 evidence hashes. This closes the Section 5 required Hive devp2p
+  surface; it does not implement discv5 or close the live Hoodi, shadow, or
+  validator-soak gates. Exact artifacts, counts, and retained paths are in
+  `docs/evidence/sec5-03957929-hive-devp2p-r54.txt`.
+
   Exact revision `085d03c38b783208489c15175c41bf8f266510c4` adds the
   deterministic local regression for pinned geth `TestGetCells`. Two peers
   announce the same typed blob transaction; the selected peer's production
