@@ -435,6 +435,21 @@ The implementation boundary is split deliberately:
   at the exact branch revision; it does not substitute for the still-open Hive,
   Hoodi completion, shadow, or validator gates.
 
+  The exact application tree at
+  `0395792914fdcda41cf76c43ae292f261315f0d5` subsequently repeated all five
+  aggregate executors and all three non-vacuity manifests against the same
+  checksum-matched `tests@v20.0.2` corpus. It executed 15,393 state cases,
+  11,382 Engine blockchain-replay cases, and 10,257 RLP blockchain-replay cases
+  with the same reviewed 579 and 636 expected exclusions and zero unexpected
+  skips. Every retained container exited zero without OOM. The clean checkout's
+  only difference from the application revision was the already committed r54
+  evidence documentation, so no source, test, build input, or fixture adapter
+  differed from the exact runtime used by the pinned Hive devp2p run. Exact
+  selectors, hashes, container identities, and counts are archived in
+  `docs/evidence/sec5-03957929-eest-v20.0.2.txt`. This closes the stable
+  current-fork EEST prerequisite for that application tree; the live Hoodi,
+  shadow, and validator gates remain open.
+
   Exact successor `6e3e9b1ddd3c890c98db04d2bd5f367ce2300bad` closes the
   pinned Hive rpc-compat gate. Its reviewed linux/amd64 runtime ran Hive
   `dde4f59d` with Execution APIs `e5d1bb60`, selected exactly 234 unique cases,
