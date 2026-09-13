@@ -18,8 +18,15 @@
 (defparameter *engine-rpc-http-request-timeout-seconds* 30
   "Wall-clock seconds allowed for reading and answering one request.
 
-NIL disables the deadline. A peer that connects and then sends nothing would
-otherwise block the listener forever.")
+NIL disables the deadline. The deadline starts once the peer has begun a
+request; keep-alive idle time has its own, longer budget.")
+
+(defparameter *engine-rpc-http-idle-timeout-seconds* 120
+  "Wall-clock seconds allowed while waiting for a connection's next request.
+
+NIL disables the deadline. This matches go-ethereum's distinct 120-second
+IdleTimeout so a consensus client's pooled Engine connection is not closed by
+the shorter per-request deadline.")
 
 (defconstant +engine-rpc-http-default-guarded-connections+ 32
   "Default socket-worker budget for a service with a request guard.")
@@ -45,6 +52,19 @@ expiry would tear down the listener instead of the one stalled request."
          (handler-case (sb-sys:with-deadline (:seconds timeout) ,@body)
            (sb-sys:deadline-timeout ()
              (error "HTTP request exceeded the ~A second deadline" timeout)))
+         (progn ,@body)))
+  #-sbcl
+  `(progn ,@body))
+
+(defmacro engine-rpc-http-with-idle-deadline (&body body)
+  "Run BODY under the configured keep-alive idle deadline, when one is set."
+  #+sbcl
+  `(let ((timeout *engine-rpc-http-idle-timeout-seconds*))
+     (if timeout
+         (handler-case (sb-sys:with-deadline (:seconds timeout) ,@body)
+           (sb-sys:deadline-timeout ()
+             (error "HTTP connection exceeded the ~A second idle deadline"
+                    timeout)))
          (progn ,@body)))
   #-sbcl
   `(progn ,@body))

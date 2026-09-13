@@ -16,11 +16,17 @@
      :fields fields)
     (unwind-protect
          (loop with last-response = nil
+               with first-request-p = t
+               ;; The first request starts under the normal request deadline.
+               ;; Only a reused connection gets the longer keep-alive wait.
+               ;; PEEK-CHAR leaves the next request's first byte buffered.
+               do (unless first-request-p
+                    (let ((next
+                            (engine-rpc-http-with-idle-deadline
+                              (peek-char nil input-stream nil :eof))))
+                      (when (eq next :eof)
+                        (return last-response))))
                do (multiple-value-bind (response close-p)
-                      ;; The deadline is per request, not per connection.  A
-                      ;; healthy keep-alive connection can live indefinitely,
-                      ;; while an idle or stalled request still releases its
-                      ;; bounded worker promptly.
                       (engine-rpc-http-with-request-deadline
                         (rpc-http-handle-stream
                          input-stream
@@ -41,6 +47,7 @@
                          :telemetry-fields fields))
                     (when response
                       (setf last-response response))
+                    (setf first-request-p nil)
                     (when close-p
                       (return last-response))))
       (ethereum-lisp.telemetry:telemetry-metric
@@ -76,6 +83,12 @@ the supervising node treats it as a shutdown request."
        :fields (append fields
                        (list (cons "error" (format nil "~A" condition))))))))
 
+(defun engine-rpc-http-worker-drain-timeout-seconds ()
+  "Return a shutdown budget that outlasts idle plus request deadlines."
+  (+ 5
+     (or *engine-rpc-http-request-timeout-seconds* 0)
+     (or *engine-rpc-http-idle-timeout-seconds* 0)))
+
 (defun engine-rpc-http-drain-connection-workers (semaphore limit)
   "Wait for in-flight connection workers to finish, returning true when drained.
 
@@ -87,9 +100,9 @@ report success while a worker still holds a connection."
   (if (null semaphore)
       t
       (let ((deadline
-              (+ (get-internal-real-time)
-                 (* (+ 5 (or *engine-rpc-http-request-timeout-seconds* 0))
-                    internal-time-units-per-second))))
+             (+ (get-internal-real-time)
+                (* (engine-rpc-http-worker-drain-timeout-seconds)
+                   internal-time-units-per-second))))
         (loop for acquired from 0 below limit
               do (let ((remaining (/ (- deadline (get-internal-real-time))
                                      internal-time-units-per-second)))

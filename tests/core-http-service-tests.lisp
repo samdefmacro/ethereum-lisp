@@ -890,6 +890,84 @@ Content-Type: application/json
       (signals block-validation-error
         (make-engine-rpc-http-service :import-function nil)))))
 
+#+sbcl
+(defclass engine-rpc-http-delayed-eof-input-stream
+    (sb-gray:fundamental-character-input-stream)
+  ((delegate :initarg :delegate
+             :reader engine-rpc-http-delayed-eof-delegate)
+   (delay-seconds :initarg :delay-seconds
+                  :reader engine-rpc-http-delayed-eof-seconds)))
+
+#+sbcl
+(defmethod sb-gray:stream-read-char
+    ((stream engine-rpc-http-delayed-eof-input-stream))
+  (let ((char
+          (read-char (engine-rpc-http-delayed-eof-delegate stream) nil :eof)))
+    (when (eq char :eof)
+      (sleep (engine-rpc-http-delayed-eof-seconds stream)))
+    char))
+
+#+sbcl
+(defmethod sb-gray:stream-unread-char
+    ((stream engine-rpc-http-delayed-eof-input-stream) char)
+  (unread-char char (engine-rpc-http-delayed-eof-delegate stream)))
+
+#+sbcl
+(deftest engine-rpc-http-persistent-idle-wait-outlives-request-deadline
+  (let* ((body
+           "{\"jsonrpc\":\"2.0\",\"id\":31,\"method\":\"eth_chainId\",\"params\":[]}")
+         (request
+           (format nil
+                   "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                   (length body) body))
+         (input
+           (make-instance 'engine-rpc-http-delayed-eof-input-stream
+                          :delegate (make-string-input-stream request)
+                          :delay-seconds 0.2d0))
+         (output (make-string-output-stream))
+         (*engine-rpc-http-request-timeout-seconds* 0.05d0)
+         (*engine-rpc-http-idle-timeout-seconds* 1d0))
+    ;; The 30-second request deadline must restart only after a persistent
+    ;; connection becomes readable. Pinned go-ethereum revision
+    ;; 38271784c2b31926563806da9a2e023b88f5e7a8 keeps a distinct 120-second
+    ;; idle timeout; conflating the two closes Lighthouse's pooled connection
+    ;; before its next upcheck.
+    (let ((response
+            (engine-rpc-http-service-handle-stream
+             (make-engine-rpc-http-service) input output)))
+      (is (search "HTTP/1.1 200 OK" response))
+      (is (search "Connection: keep-alive" response)))))
+
+#+sbcl
+(deftest engine-rpc-http-idle-wait-keeps-a-separate-deadline
+  (let* ((body
+           "{\"jsonrpc\":\"2.0\",\"id\":32,\"method\":\"eth_chainId\",\"params\":[]}")
+         (request
+           (format nil
+                   "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                   (length body) body))
+         (input
+           (make-instance 'engine-rpc-http-delayed-eof-input-stream
+                          :delegate (make-string-input-stream request)
+                          :delay-seconds 0.2d0))
+         (*engine-rpc-http-request-timeout-seconds* 1d0)
+         (*engine-rpc-http-idle-timeout-seconds* 0.05d0))
+    (signals error
+      (engine-rpc-http-service-handle-stream
+       (make-engine-rpc-http-service) input (make-broadcast-stream)))))
+
+#+sbcl
+(deftest engine-rpc-http-partial-request-keeps-request-deadline
+  (let* ((input
+           (make-instance 'engine-rpc-http-delayed-eof-input-stream
+                          :delegate (make-string-input-stream "POST")
+                          :delay-seconds 0.2d0))
+         (*engine-rpc-http-request-timeout-seconds* 0.05d0)
+         (*engine-rpc-http-idle-timeout-seconds* 1d0))
+    (signals error
+      (engine-rpc-http-service-handle-stream
+       (make-engine-rpc-http-service) input (make-broadcast-stream)))))
+
 (deftest engine-rpc-http-service-reuses-http11-connection
   (labels ((request (id close-p)
              (let ((body
@@ -940,6 +1018,11 @@ Content-Type: application/json
     (setf (engine-rpc-http-clock-advanced-p stream) t)
     (funcall (engine-rpc-http-clock-advancing-function stream)))
   (read-char (engine-rpc-http-clock-advancing-delegate stream) nil :eof))
+
+#+sbcl
+(defmethod sb-gray:stream-unread-char
+    ((stream engine-rpc-http-clock-advancing-input-stream) char)
+  (unread-char char (engine-rpc-http-clock-advancing-delegate stream)))
 
 #+sbcl
 (deftest engine-rpc-http-samples-jwt-clock-after-request-intake
@@ -1325,8 +1408,22 @@ Content-Type: application/json
   (is (plusp *engine-rpc-http-max-header-lines*))
   (is (or (null *engine-rpc-http-request-timeout-seconds*)
           (plusp *engine-rpc-http-request-timeout-seconds*)))
+  (is (or (null *engine-rpc-http-idle-timeout-seconds*)
+          (plusp *engine-rpc-http-idle-timeout-seconds*)))
   ;; go-ethereum caps RPC bodies at 5 MiB; stay at or below that.
   (is (<= *engine-rpc-http-max-body-bytes* (* 5 1024 1024))))
+
+(deftest engine-rpc-http-worker-drain-outlasts-both-deadlines
+  (let ((*engine-rpc-http-request-timeout-seconds* 7)
+        (*engine-rpc-http-idle-timeout-seconds* 11))
+    (is (= 23
+           (ethereum-lisp.rpc-http::
+            engine-rpc-http-worker-drain-timeout-seconds))))
+  (let ((*engine-rpc-http-request-timeout-seconds* nil)
+        (*engine-rpc-http-idle-timeout-seconds* nil))
+    (is (= 5
+           (ethereum-lisp.rpc-http::
+            engine-rpc-http-worker-drain-timeout-seconds)))))
 
 (deftest engine-rpc-http-read-accepts-crlf-framed-requests
   ;; Every standards-compliant client sends CRLF. Reading from a socket keeps
