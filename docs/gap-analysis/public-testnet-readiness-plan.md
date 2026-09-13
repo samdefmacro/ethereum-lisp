@@ -1083,6 +1083,20 @@ The implementation boundary is split deliberately:
   boundary are archived in
   `docs/evidence/sec5-16fe6962-amd64-runtime.txt`.
 
+  Exact revision `616709b5d901c0df46f1b9e53de91efa28ecf097` closes a
+  continuous-sync lifecycle race in hash-origin gap filling. A live-peer snapshot
+  could retain a session after teardown closed its request queue but before peer
+  table removal; that typed queue-close condition escaped the peer retry loop and
+  could terminate the coordinator pass. Queue closure now records a lifecycle
+  event and tries the next snapshot member, while ordinary malformed backfill
+  responses retain their existing failure event and all-peer exhaustion still
+  reaches the coordinator retry boundary. The production-path RED regression,
+  exact-revision focused selector, 1,392-test cold-unit layer with three optional
+  skips, and related queue integration test pass. Independent review approved the
+  change without blockers. This is not deployed and does not close live Hoodi,
+  shadow, or validator-soak gates. Exact commands and retained log hashes are in
+  `docs/evidence/sec5-616709b5-gap-queue-lifecycle.txt`.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

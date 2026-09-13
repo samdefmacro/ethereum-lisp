@@ -1,0 +1,100 @@
+Section 5 continuous-sync gap queue lifecycle repair
+
+Recorded: 2026-09-13T11:21:33Z
+Revision: 616709b5d901c0df46f1b9e53de91efa28ecf097
+Branch: sec5-public-bootstrap-sync
+
+Scope
+
+`devnet-node-fill-sync-gaps-with-live-peer` iterates a snapshot of live peer
+entries and submits each gap-fill operation to its session-owned request queue.
+Normal session teardown closes that queue before removing the entry from the
+peer table. A queue can therefore close after the snapshot but before submit.
+The prior handler covered only `eth-sync-backfill-peer-error`, allowing the typed
+`devnet-peer-request-queue-closed` lifecycle condition to escape and terminate a
+continuous-sync coordinator pass before another live peer was tried.
+
+The repair handles only that typed lifecycle condition. It records
+`peer.sync.gap_peer_closed`, continues to the next snapshot member, and leaves
+ordinary malformed/refused backfill responses on the existing
+`peer.sync.gap_peer_failed` path. If no snapshot member succeeds, the existing
+multi-peer exhaustion condition still reaches the coordinator retry boundary.
+
+RED
+
+A test-only checkout combined the regression from this revision with predecessor
+application revision `d6536f44c0ce19162169fdd9fe913fe6b4c69781`. The production
+call site first received an ordinary backfill failure, then a queue-close race,
+and had a third live peer available. The focused cold-unit selector failed before
+reaching the third peer:
+
+- `Test run failed: 1 test failed`
+- `not ok DEVNET-GAP-FILL-RETRIES-AFTER-A-LIVE-PEER-QUEUE-CLOSES - peer session request queue is closed`
+- `0 tests passed, 1 failed.`
+
+Retained RED evidence:
+
+- strict Workbench preflight:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-gap-queue-red-doctor.log`
+  SHA-256: `716f724f9d7a43461ef1e76a6b9a0c3f8517156fd050fc125238c7340751cc4b`
+- focused test-only predecessor run:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-gap-queue-red-616709b5-test-only.log`
+  SHA-256: `5f4c2fd95d6900011c822e6801c5dec464542b54a59fe2c059a8003e040a37b3`
+
+The uniquely created detached RED worktree was removed after preserving those
+logs; no unrelated worktree was modified.
+
+GREEN
+
+The regression exercises the production live-entry snapshot and request-queue
+submission path. It distinguishes an ordinary `eth-sync-backfill-peer-error`, a
+subsequent typed queue close, and a final successful peer. It requires all three
+queues to be tried in order, the successful result to return, and exactly one of
+each existing-failure and new-lifecycle telemetry event.
+
+Exact-revision commands and results:
+
+- `cl-workbench validation run cold-unit --match GAP-FILL-RETRIES`
+  passed 1 test.
+- `cl-workbench validation run cold-unit`
+  passed 1,392 tests with 3 optional skips.
+- `cl-workbench validation run cold-integration --match DEVNET-PEER-REQUEST-QUEUE-PRESERVES`
+  passed 1 test.
+- `git diff --check` passed before commit.
+
+Retained GREEN logs:
+
+- focused:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-gap-queue-focused-616709b5.log`
+  SHA-256: `52bc09225fe8e4faefd5ae2b6c722e23477e20a9d1568e3c8f94d41a0c4f62b8`
+- full cold-unit:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-gap-queue-unit-616709b5.log`
+  SHA-256: `1a465ca5f3b17353167079e912affb2245c04cd0847040b0de303f134e1cd8a9`
+- related queue integration:
+  `/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1000-gap-queue-integration-616709b5.log`
+  SHA-256: `3c3e61b5e0d5e1895a6c04dab58ab6d1100ef2e0aacd8d5170bc84516c3350f9`
+
+Independent review
+
+An independent Common Lisp concurrency/lifecycle review approved the final
+change without blocking issues. It confirmed the close-before-peer-table-removal
+race, the typed handler's retry behavior, preservation of ordinary backfill
+failure classification, and the existing all-peers-exhausted coordinator retry
+boundary. The reviewer independently reran the focused and related cold gates.
+
+Commit and remote verification
+
+Commit `616709b5d901c0df46f1b9e53de91efa28ecf097` was pushed without force to
+`origin/sec5-public-bootstrap-sync`. `git ls-remote` returned that exact SHA for
+`refs/heads/sec5-public-bootstrap-sync`.
+
+Limits
+
+This local lifecycle repair prevents a normal disconnect race from escaping one
+continuous-sync pass. It does not change or replace the live Hoodi deployment,
+which remains on revision `0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae`.
+At inspection, that container was running but still reported current block zero;
+healer counters were active while frontier and known-incomplete counts were
+expanding, so convergence and completion were not established. Live target
+completion, canonical catch-up, `eth_syncing=false`, shadow comparison, and
+validator-soak gates remain open.
