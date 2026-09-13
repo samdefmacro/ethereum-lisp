@@ -261,7 +261,7 @@ rather than a node's peering state."
     (is (not (funcall guard-predicate "eth_syncing")))
     (is (funcall guard-predicate "engine_newPayloadV4"))))
 
-(deftest eth-syncing-node-snapshot-reports-known-state-unavailable-target-height
+(deftest eth-syncing-node-snapshot-reports-known-target-before-publication
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-json *eth-sync-paris-genesis-json*
                 :port 0))
@@ -286,6 +286,14 @@ rather than a node's peering state."
       (is (listp snapshot))
       (is (string= "0x0"
                    (cdr (assoc "currentBlock" snapshot :test #'string=))))
+      (is (string= "0x7"
+                   (cdr (assoc "highestBlock" snapshot :test #'string=)))))
+    ;; Executability does not end sync before the pending CL forkchoice is
+    ;; canonically published.
+    (engine-payload-store-put-block
+     store block :state-available-p t :canonicalize-p nil)
+    (let ((snapshot (funcall snapshot-function)))
+      (is (listp snapshot))
       (is (string= "0x7"
                    (cdr (assoc "highestBlock" snapshot :test #'string=)))))))
 

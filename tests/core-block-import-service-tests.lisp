@@ -827,7 +827,14 @@
 (deftest block-import-publication-enforces-authority-and-orders-durability
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)
+    (engine-payload-store-put-forkchoice-sync-target
+     store (block-hash child) :block-number 1)
     (import-block-candidate store child config)
+    ;; Executability alone cannot complete consensus-driven sync. The target
+    ;; remains pending until Engine-authorized canonical publication succeeds.
+    (is (= 1 (length (engine-payload-store-forkchoice-sync-targets store))))
+    (is (hash32= (block-hash child)
+                 (first (engine-payload-store-forkchoice-sync-targets store))))
     (signals block-validation-error
       (publish-canonical-block
        store child config :authority :local-dev))
@@ -865,7 +872,8 @@
                    'ethereum-lisp.canonical-chain:canonical-chain-transition)))
       (is (equal '(:prune :persist) (nreverse events)))
       (is (hash32= (block-hash child)
-                   (block-hash (chain-store-head-block store)))))))
+                   (block-hash (chain-store-head-block store))))
+      (is (null (engine-payload-store-forkchoice-sync-targets store))))))
 
 (deftest block-import-snap-pivot-is-bounded-authorized-and-nonfinal-target
   (multiple-value-bind (store config parent pivot)
@@ -990,6 +998,8 @@
   (multiple-value-bind (store config parent child)
       (block-import-test-fixture)
     (import-block-candidate store child config)
+    (engine-payload-store-put-forkchoice-sync-target
+     store (block-hash child) :block-number 1)
     (let ((state
             (make-forkchoice-state
              :head-block-hash (block-hash child)
@@ -1010,7 +1020,10 @@
     (is (hash32= (block-hash parent)
                  (chain-store-checkpoint-block-hash
                   (chain-store-head-checkpoint store))))
-    (is (null (chain-store-canonical-hash store 1)))))
+    (is (null (chain-store-canonical-hash store 1)))
+    (is (= 1 (length (engine-payload-store-forkchoice-sync-targets store))))
+    (is (hash32= (block-hash child)
+                 (first (engine-payload-store-forkchoice-sync-targets store))))))
 
 (deftest block-import-build-helper-is-one-authorized-rollback-boundary
   (multiple-value-bind (store config parent child)

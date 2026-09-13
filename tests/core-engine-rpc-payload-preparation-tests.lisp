@@ -105,7 +105,7 @@
     (is (member :requests arguments))
     (is (not (member :block-access-list arguments)))))
 
-(deftest forkchoice-sync-target-survives-header-until-state-is-available
+(deftest forkchoice-sync-target-survives-candidate-execution
   (let* ((store (make-engine-payload-memory-store))
          (block
            (make-block
@@ -125,11 +125,14 @@
     (let ((targets (engine-payload-store-forkchoice-sync-targets store)))
       (is (= 1 (length targets)))
       (is (hash32= hash (first targets))))
-    ;; The stateful execution commit is the lifecycle boundary that retires
-    ;; the target from the downloader.
+    ;; Execution makes the target locally VALID but does not apply the pending
+    ;; CL forkchoice. Keep reporting sync until authorized publication consumes
+    ;; this exact head inside its durability transaction.
     (engine-payload-store-put-block
      store block :state-available-p t :canonicalize-p nil)
-    (is (null (engine-payload-store-forkchoice-sync-targets store)))))
+    (let ((targets (engine-payload-store-forkchoice-sync-targets store)))
+      (is (= 1 (length targets)))
+      (is (hash32= hash (first targets))))))
 
 (deftest engine-rpc-invalid-payload-attributes-still-apply-forkchoice
   (labels ((field (object name)
