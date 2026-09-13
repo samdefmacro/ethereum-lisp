@@ -227,13 +227,64 @@
         (close stream)))))
 
 #+sbcl
+(defun devnet-cli-http-request-with-close (request)
+  "Make the one-shot E2E client ask an HTTP/1.1 server to close its socket."
+  (let* ((crlf-separator
+           (coerce (list #\Return #\Linefeed #\Return #\Linefeed)
+                   'string))
+         (lf-separator (format nil "~%~%"))
+         (crlf-position (search crlf-separator request))
+         (separator-position
+           (or crlf-position (search lf-separator request))))
+    (unless separator-position
+      (error "HTTP request lacks a header terminator"))
+    ;; Insert unconditionally. Multiple Connection fields are equivalent to one
+    ;; comma-separated field, and the close token must override any keep-alive
+    ;; token supplied by a one-shot test request.
+    (concatenate
+     'string
+     (subseq request 0 separator-position)
+     (if crlf-position
+         (format nil "~C~CConnection: close"
+                 #\Return #\Linefeed)
+         (format nil "~%Connection: close"))
+     (subseq request separator-position))))
+
+(deftest devnet-cli-one-shot-http-request-requires-close
+  (:layer :unit :module :cli :launches-processes nil)
+  #-sbcl
+  (skip-test "One-shot HTTP request shaping requires SBCL")
+  #+sbcl
+  (let* ((crlf (coerce (list #\Return #\Linefeed) 'string))
+         (request
+           (concatenate
+            'string
+            "POST / HTTP/1.1" crlf
+            "Connection: keep-alive" crlf crlf
+            "Connection: body-text"))
+         (expected
+           (concatenate
+            'string
+            "POST / HTTP/1.1" crlf
+            "Connection: keep-alive" crlf
+            "Connection: close" crlf crlf
+            "Connection: body-text")))
+    (is (string= expected
+                 (devnet-cli-http-request-with-close request)))
+    (is (string= (format nil "GET / HTTP/1.1~%Connection: close~%~%")
+                 (devnet-cli-http-request-with-close
+                  (format nil "GET / HTTP/1.1~%~%"))))
+    (signals error
+      (devnet-cli-http-request-with-close "GET / HTTP/1.1"))))
+
+#+sbcl
 (defun devnet-cli-http-endpoint-request (endpoint request)
   (multiple-value-bind (host port)
       (devnet-cli-http-endpoint-host-port endpoint)
     (let ((stream (devnet-cli-connect-stream host port)))
       (unwind-protect
            (progn
-             (write-string request stream)
+             (write-string (devnet-cli-http-request-with-close request) stream)
              (finish-output stream)
              (devnet-cli-read-stream-string stream))
         (close stream)))))
