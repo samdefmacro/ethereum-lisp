@@ -4319,6 +4319,66 @@ really reopens the directory instead of observing the first handle's memory."
     (is (= 0 source-calls))
     (is (= 0 download-calls))))
 
+(deftest devnet-gap-fill-retries-after-a-live-peer-queue-closes
+  (:layer :unit :module :p2p)
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (failed-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "failed-gap-peer" :peer :failed-peer
+            :request-queue :failed-queue))
+         (closed-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "closed-gap-peer" :peer :closed-peer
+            :request-queue :closed-queue))
+         (live-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "live-gap-peer" :peer :live-peer
+            :request-queue :live-queue))
+         (submissions '())
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+            (lambda (seen-node &key snap-only-p)
+              (is (eq node seen-node))
+              (is (null snap-only-p))
+              (list failed-entry closed-entry live-entry)))
+      (cons 'ethereum-lisp.cli::devnet-peer-request-queue-submit
+            (lambda (queue function)
+              (push queue submissions)
+              (case queue
+                (:failed-queue
+                 (error
+                  (make-condition
+                   'ethereum-lisp.eth-sync:eth-sync-backfill-peer-error
+                   :format-control "injected malformed gap response"
+                   :format-arguments nil)))
+                (:closed-queue
+                 (error 'ethereum-lisp.cli::devnet-peer-request-queue-closed))
+                (otherwise (funcall function)))))
+      (cons 'ethereum-lisp.cli::devnet-peer-fill-sync-gaps
+            (lambda (seen-node peer)
+              (is (eq node seen-node))
+              (is (eq :live-peer peer))
+              17))
+      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+            (lambda (seen-node name &rest fields)
+              (is (eq node seen-node))
+              (push (cons name fields) logs))))
+     (lambda ()
+       (is (= 17
+              (ethereum-lisp.cli::devnet-node-fill-sync-gaps-with-live-peer
+               node)))))
+    (is (equal '(:failed-queue :closed-queue :live-queue)
+               (reverse submissions)))
+    (is (= 1 (count "peer.sync.gap_peer_closed" logs
+                    :key #'first :test #'string=)))
+    (is (= 1 (count "peer.sync.gap_peer_failed" logs
+                    :key #'first :test #'string=)))))
+
 (deftest devnet-multi-sync-hash-backfills-a-same-height-reorg-parent
   (:layer :unit :module :p2p)
   (let* ((node

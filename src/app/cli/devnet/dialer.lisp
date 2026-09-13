@@ -2373,6 +2373,13 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
            (lambda ()
              (devnet-peer-fill-sync-gaps
               node (devnet-peer-entry-peer entry)))))
+      (devnet-peer-request-queue-closed (condition)
+        ;; The live-peer snapshot races normal session teardown. Queue closure is
+        ;; transport lifecycle, so retry another snapshot member without treating
+        ;; it as a failed gap response or terminating continuous sync.
+        (devnet-peer-manager-log
+         node "peer.sync.gap_peer_closed"
+         "peer" (devnet-peer-entry-id-hex entry) "error" condition))
       (eth-sync-backfill-peer-error (condition)
         (devnet-peer-manager-log
          node "peer.sync.gap_peer_failed"
