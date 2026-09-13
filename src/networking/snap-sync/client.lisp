@@ -259,6 +259,13 @@ The durable checkpoint deliberately remains much smaller. A resumed legal
 same 1,024-path per-peer requests as geth instead of degenerating to one remote
 round trip per node. This fixed live cap covers all fifty 1,024-path peer
 flights plus bounded trie expansion without making peer input unbounded.")
+(defconstant +snap-sync-heal-max-net-expansion-per-work+ 63
+  "Worst-case frontier growth after integrating one local trie node.
+
+An account-subtree proof can replace its popped candidate with sixty-four
+storage dependencies, for a net increase of sixty-three works. That dominates
+the seventeen-work net increase from a sixteen-child branch carrying both
+subtree and node-completion sentinels.")
 (defparameter *snap-sync-heal-pipeline-refill-work-quantum* 4096
   "Maximum local works examined by one live-pipeline refill.
 
@@ -2968,10 +2975,12 @@ frontier concurrently."
     (stack-count missing-count missing-limit checkpoint-room)
   "Bound one local read batch by progress and worst-case trie expansion.
 
-Each popped external reference can expose at most sixteen children, increasing
-the frontier by fifteen works. Stay within the durable checkpoint bound
-throughout its normal soft-target region, and use the separate live bound for a
-larger resumed frontier so remote batching does not collapse at 8,192 works."
+Each popped external reference can expose either sixty-four account-subtree
+storage dependencies, or sixteen children plus both completion sentinels. The
+former increases the frontier by sixty-three works and is the whole-class
+bound. Stay within the durable checkpoint bound throughout its normal
+soft-target region, and use the separate live bound for a larger resumed
+frontier so remote batching does not collapse at 8,192 works."
   (unless (and (integerp stack-count) (not (minusp stack-count))
                (integerp missing-count) (not (minusp missing-count))
                (integerp missing-limit) (> missing-limit missing-count)
@@ -2988,7 +2997,9 @@ larger resumed frontier so remote batching does not collapse at 8,192 works."
                +snap-sync-heal-checkpoint-max-works+
                +snap-sync-heal-live-frontier-max-works+))
          (expansion-room
-           (floor (max 0 (- frontier-limit stack-count)) 15)))
+           (floor
+            (max 0 (- frontier-limit stack-count))
+            +snap-sync-heal-max-net-expansion-per-work+)))
     (min +snap-sync-heal-local-reads-per-batch+
          (- missing-limit missing-count)
          checkpoint-room
@@ -6105,6 +6116,13 @@ for more missing hashes."
                               (< missing-count missing-limit)
                               (or
                                (not bounded-refill-p)
+                               (<=
+                                (+ stack-count missing-count
+                                   deferred-storage-count remote-work-count
+                                   +snap-sync-heal-max-net-expansion-per-work+)
+                                +snap-sync-heal-live-frontier-max-works+))
+                              (or
+                               (not bounded-refill-p)
                                (plusp
                                 (snap-sync-heal-pipeline-refill-work-room
                                  examined-count)))
@@ -6462,14 +6480,22 @@ for more missing hashes."
                     ;; checkpoint callback. Publish the pipeline-owned frontier
                     ;; count first so those sentinels remain barriers.
                     (setf remote-work-count outstanding)
-                    (let ((available
-                            (min
-                             room
+                    (let* ((frontier-room
                              (max
-                              (if stack 1 0)
+                              0
                               (- +snap-sync-heal-live-frontier-max-works+
                                  outstanding stack-count
-                                 deferred-storage-count)))))
+                                 deferred-storage-count)))
+                           (available
+                             (if
+                              (< frontier-room
+                                 +snap-sync-heal-max-net-expansion-per-work+)
+                              0
+                              (min room frontier-room))))
+                      ;; A saturated generation must return to the event loop.
+                      ;; Forcing one more local work here lets blocked post-order
+                      ;; sentinels and their discovered children grow without a
+                      ;; bound while any remote request remains outstanding.
                       (if (plusp available)
                           (let ((new-missing
                                   (collect-missing available t)))

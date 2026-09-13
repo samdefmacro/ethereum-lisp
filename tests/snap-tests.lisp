@@ -5908,6 +5908,100 @@
            (is (= 2 yield-calls)))
       (setf (fdefinition pipeline-name) real-pipeline))))
 
+#+sbcl
+(deftest snap-state-healer-stops-pipeline-refill-at-live-frontier-cap
+  (:layer :unit :module :p2p)
+  (let* ((database (make-memory-key-value-database))
+         (pivot-bytes (snap-test-hash 242))
+         (missing-reference (snap-test-hash 243))
+         (branch-object
+           (apply #'make-rlp-list
+                  (append
+                   (loop repeat 16 collect missing-reference)
+                   (list (make-byte-vector 0)))))
+         (branch-encoded (rlp-encode branch-object))
+         (branch-reference (keccak-256 branch-encoded))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (error "The synthetic pipeline must not issue a peer request"))))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 pivot-bytes)
+            :pivot-number 7002
+            :state-root (make-hash32 missing-reference)
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 244))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 245))
+            :authority-id (make-hash32 (snap-test-hash 246))
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil (make-byte-vector 0) missing-reference))
+         (branch-work
+           (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+            :account nil (make-byte-vector 0) branch-reference))
+         (pipeline-name
+           'ethereum-lisp.snap-sync::snap-sync-heal-run-pipeline)
+         (real-pipeline (fdefinition pipeline-name))
+         (refill-called-p nil)
+         (refill-result :not-called)
+         (expansion-result :not-called)
+         (below-cap-result :not-called))
+    (let ((batch (make-kv-write-batch)))
+      ;; The first local pass moves 1,024 works into INITIAL-WORKS and leaves a
+      ;; local branch followed by one missing work on STACK.
+      (kv-batch-put-chain-record
+       batch :trie-node branch-reference branch-encoded)
+      (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+       batch progress
+       (append (loop repeat 1024 collect work) (list branch-work work))
+       0 0 0 0 0)
+      (kv-apply-batch database batch))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition pipeline-name)
+            (lambda (&rest arguments)
+              (let ((initial-works (nth 1 arguments))
+                    (refill (nth 7 arguments)))
+                (is (= 1024 (length initial-works)))
+                (is (functionp refill))
+                (setf refill-called-p t
+                      refill-result
+                      (funcall
+                       refill 2
+                       (- ethereum-lisp.snap-sync::+snap-sync-heal-live-frontier-max-works+
+                          2))
+                      expansion-result
+                      (funcall
+                       refill 65
+                       (- ethereum-lisp.snap-sync::+snap-sync-heal-live-frontier-max-works+
+                          65))
+                      below-cap-result
+                      (funcall refill most-positive-fixnum 0))
+                (throw 'synthetic-saturated-pipeline nil))))
+           (catch 'synthetic-saturated-pipeline
+             (ethereum-lisp.snap-sync::snap-sync-heal-state
+              database (list source) progress (* 2 1024 1024)))
+           (is refill-called-p)
+           (is (null refill-result))
+           ;; One permitted local branch consumes part of the reserved room.
+           ;; The bounded refill must return to the event loop before examining
+           ;; any child or the trailing missing work.
+           (is (null expansion-result))
+           (is (plusp (length below-cap-result))))
+      (setf (fdefinition pipeline-name) real-pipeline))))
+
 (deftest snap-heal-checkpoint-bounds-large-live-frontiers
   (:layer :unit :module :p2p)
   ;; A real Hoodi soft-limit left an older fetched batch below the subtree being
@@ -6999,9 +7093,9 @@
       (is (> largest-batch 1))
       (is (<= largest-batch
               ethereum-lisp.snap-sync::+snap-sync-heal-local-reads-per-batch+))
-      ;; Even if every prefetched work is a 16-way branch, replacing the
-      ;; popped batch with all children stays below the hard checkpoint cap
-      ;; throughout the soft-target region.
+      ;; Even if every prefetched account-subtree candidate expands to the full
+      ;; sixty-four deferred storage dependencies, the batch stays below the
+      ;; hard checkpoint cap throughout the soft-target region.
       (loop for stack-count from 1 to
               ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-frontier-target+
             for batch =
@@ -7013,21 +7107,24 @@
                  stack-count 1)
                 ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-node-interval+))
             do (is
-                (<= (+ (- stack-count batch) (* 16 batch))
+                (<= (+ stack-count
+                       (*
+                        ethereum-lisp.snap-sync::+snap-sync-heal-max-net-expansion-per-work+
+                        batch))
                     ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)))
-      ;; The soft durable region is still bounded by worst-case sixteen-way
-      ;; expansion, even though a larger transient frontier may use the full
-      ;; database MultiGet width.
+      ;; The soft durable region is still bounded by worst-case whole-class
+      ;; expansion, even though a larger transient frontier may use a wider
+      ;; database MultiGet batch.
       (is
-       (= 546
+       (= 130
           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
            1 0 2048 2048)))
       (is
-       (= 292
+       (= 69
           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
            3800 0 296 2048)))
       (is
-       (= 4096
+       (= 1921
           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
            10000 0 8192 8192)))
       (multiple-value-bind (persisted-root present-p)
