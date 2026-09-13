@@ -1673,11 +1673,7 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
          (node
            (ethereum-lisp.cli:make-devnet-node
             :genesis-json *eth-sync-paris-genesis-json*
-            :port 0 :public-port 0
-            :txpool-account-slot-limit count
-            :txpool-global-slot-limit count
-            :txpool-account-queue-limit count
-            :txpool-global-queue-limit count))
+            :port 0 :public-port 0))
          (store (ethereum-lisp.cli::devnet-node-store node))
          (genesis
            (ethereum-lisp.cli::devnet-node-genesis-block node))

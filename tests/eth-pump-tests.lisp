@@ -242,6 +242,51 @@
       (setf (fdefinition broadcast-symbol) real-broadcast
             (fdefinition announce-symbol) real-announce))))
 
+(deftest eth-peer-run-session-does-not-delay-ready-broadcasts
+  (:layer :unit :module :p2p)
+  ;; Hive's pinned sendTxs allows two seconds for all 2,000 transactions. A
+  ;; retained 64-entry broadcast queue therefore must not pay the ordinary
+  ;; 50ms socket-read wait before every wire batch. Poll for inbound data, but
+  ;; use a nonblocking readiness check whenever outbound data is already ready.
+  (let* ((peer (ethereum-lisp.eth-sync::%make-eth-peer))
+         (broadcast-symbol
+           'ethereum-lisp.eth-sync:eth-peer-broadcast-transactions)
+         (announce-symbol
+           'ethereum-lisp.eth-sync:eth-peer-announce-transactions)
+         (real-broadcast (fdefinition broadcast-symbol))
+         (real-announce (fdefinition announce-symbol))
+         (read-timeouts '())
+         (sent 0))
+    (unwind-protect
+         (progn
+           (setf (fdefinition broadcast-symbol)
+                 (lambda (candidate transactions)
+                   (declare (ignore transactions))
+                   (is (eq peer candidate))
+                   (incf sent)
+                   1)
+                 (fdefinition announce-symbol)
+                 (lambda (candidate transactions)
+                   (declare (ignore transactions))
+                   (is (eq peer candidate))
+                   0))
+           (multiple-value-bind (actions reason)
+               (eth-peer-run-session
+                peer
+                :readable-function
+                (lambda (timeout)
+                  (push timeout read-timeouts)
+                  nil)
+                :pending-broadcast (lambda () (list :transaction))
+                :max-actions 1)
+             (is (= 1 actions))
+             (is (eq :max-actions reason)))
+           (is (= 1 sent))
+           (is (= 1 (length read-timeouts)))
+           (is (zerop (first read-timeouts))))
+      (setf (fdefinition broadcast-symbol) real-broadcast
+            (fdefinition announce-symbol) real-announce))))
+
 (deftest eth-peer-run-session-routes-a-pipelined-snap-response
   (:layer :unit :module :p2p)
   (let* ((peer (ethereum-lisp.eth-sync::%make-eth-peer))

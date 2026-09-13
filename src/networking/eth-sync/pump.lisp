@@ -172,23 +172,31 @@ how a caller observes the session without this file knowing what telemetry is."
              ;; starve the request queue.
              (request (and (not stopping)
                            pending-request (funcall pending-request)))
-             (readable
-               (and (not stopping) (null request)
-                    readable-function
-                    (funcall readable-function
-                             (eth-pump-policy-read-tick-seconds policy))
-                    t))
-             (chain-update (and (not stopping) (not readable) (null request)
-                                pending-chain-update
-                                (funcall pending-chain-update)))
              ;; PENDING-BROADCAST advances a per-peer txpool cursor. Retain its
              ;; returned batch until this sole writer actually sends it; a read
              ;; or coordinator request may legitimately outrank it this turn.
+             ;;
+             ;; Resolve it before the readiness gate so ready outbound work makes
+             ;; that gate a nonblocking poll. Otherwise every 64-entry batch pays
+             ;; the normal 50ms idle wait; pinned Hive's 2,000-transaction relay
+             ;; then spends most of its two-second deadline merely polling an
+             ;; intentionally quiet receiving peer.
              (broadcast
                (unless stopping
                  (when (and (null broadcast-backlog) pending-broadcast)
                    (setf broadcast-backlog (funcall pending-broadcast)))
                  broadcast-backlog))
+             (readable
+               (and (not stopping) (null request)
+                    readable-function
+                    (funcall readable-function
+                             (if broadcast
+                                 0
+                                 (eth-pump-policy-read-tick-seconds policy)))
+                    t))
+             (chain-update (and (not stopping) (not readable) (null request)
+                                pending-chain-update
+                                (funcall pending-chain-update)))
              (transaction-drainable
                (and (plusp (eth-peer-announced-hash-count peer))
                     (eth-peer-can-request-announced-transactions-p peer now)))
