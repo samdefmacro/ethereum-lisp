@@ -1145,6 +1145,18 @@ The implementation boundary is split deliberately:
   SHA-256 hashes, review history, and the read-only live boundary are archived
   in `docs/evidence/sec5-fcf458ca-snap-live-frontier.txt`.
 
+  Exact revision `bb9cf83d7c6d482f6aa6bf4afaea63e4f62f0f99` fixes a restart
+  scheduling defect after SNAP target execution. Completed state progress and a
+  matching skeleton previously continued to force every later target through
+  the SNAP scheduler. The scheduler now retains the session until its exact
+  target is executable, then ignores only the matching completed residue;
+  mismatching skeleton work and forkchoice publication authority remain active.
+  The regression was RED before the fix, both focused RocksDB integration gates
+  passed, and the exact revision passed `1397/1397` cold unit tests with three
+  explicit skips. Commands, hashes, review, and scope limits are archived in
+  `docs/evidence/sec5-bb9cf83d-completed-snap-scheduling.txt`. Live Hoodi
+  canonical publication and real `eth_syncing=false` remain unproven.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

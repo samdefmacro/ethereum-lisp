@@ -1,0 +1,89 @@
+Section 5 completed SNAP scheduling release
+
+Revision
+
+bb9cf83d7c6d482f6aa6bf4afaea63e4f62f0f99
+fix(sync): ignore completed durable SNAP target
+
+Defect
+
+`devnet-node-durable-snap-pivot-number` treated every persisted SNAP state or skeleton record as unfinished. A completed state session and its matching skeleton therefore continued to make `devnet-node-snap-target-required-p` true after the completed target had become executable. On restart, later short Engine targets could be routed back through SNAP instead of ordinary bounded synchronization.
+
+Invariant
+
+- Incomplete state work remains pinned.
+- A completed state session remains pinned until its exact target is executable.
+- Once that target's state is available, a matching skeleton (`last-hash == target-hash`) is historical residue and neither record forces subsequent targets through SNAP scheduling.
+- A mismatching skeleton remains active.
+- Forkchoice publication authority remains separate; this change does not delete or release retained forkchoice targets.
+
+RED
+
+Command:
+
+cl-workbench validation run cold-integration --match DEVNET-SNAP-TARGET-DOWNLOADS-ONLY-THE-BOUNDED-PIVOT-TAIL
+
+Result before the source fix:
+
+not ok DEVNET-SNAP-TARGET-DOWNLOADS-ONLY-THE-BOUNDED-PIVOT-TAIL
+Assertion failed: (NULL (DEVNET-NODE-DURABLE-SNAP-PIVOT-NUMBER NODE))
+0 tests passed, 1 failed.
+
+Log:
+
+/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1002-completed-snap-session-red.log
+sha256 0a6657eef00fce6fdef4eced2e400d2cbee6f76d849f4c4394bdba3db6060e4d
+
+Focused GREEN
+
+Command:
+
+cl-workbench validation run cold-integration --match DEVNET-SNAP-TARGET-DOWNLOADS-ONLY-THE-BOUNDED-PIVOT-TAIL
+
+Result:
+
+1 test passed.
+
+Log:
+
+/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1002-completed-snap-session-focused-green.log
+sha256 c1e86c7c3db24382a01448859e0d61bd023de5558dca993f4f7ec0cd5010761c
+
+Focused regression gate
+
+Commands:
+
+cl-workbench validation run cold-integration --match DEVNET-SNAP-TARGET-DOWNLOADS-ONLY-THE-BOUNDED-PIVOT-TAIL
+cl-workbench validation run cold-integration --match DEVNET-SNAP-STALE-PIVOT-REBASES-SKELETON-AND-STATE-TOGETHER
+
+Result:
+
+2 focused invocations passed, 1 test each.
+
+Log:
+
+/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1002-completed-snap-session-focused-final.log
+sha256 40788e9369af8bf3aa0a7514f19088be23d0956542de0f0f2b9ca41660157ae5
+
+Exact-revision broader gate
+
+Command at exact revision bb9cf83d7c6d482f6aa6bf4afaea63e4f62f0f99:
+
+cl-workbench validation run cold-unit
+
+Result:
+
+1397 tests passed, 3 skipped.
+
+Log:
+
+/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1002-completed-snap-session-cold-unit-bb9cf83d.log
+sha256 0d80018e28edcd080b78398e7da49b6b2f7ee5e21f3a19d9eeacf93363c28402
+
+Review
+
+An independent read-only review reported no blocking correctness findings. It confirmed that executable state releases only matching completed SNAP metadata, mismatching skeletons remain active, and forkchoice target retention remains separate until canonical publication. It noted only a non-blocking opportunity for a future explicit mismatching-skeleton assertion.
+
+Scope boundary
+
+This regression proves restart scheduling semantics in the local integration harness. It does not prove live Hoodi canonical publication or `eth_syncing=false`; those remain live acceptance gates.
