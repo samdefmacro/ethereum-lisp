@@ -3332,10 +3332,19 @@ really reopens the directory instead of observing the first handle's memory."
                      (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
                       batch durable-state-progress)
                      (kv-apply-batch database batch))
+                   (is (= 100
+                          (ethereum-lisp.cli::devnet-node-durable-snap-pivot-number
+                           node)))
                    (kv-put-chain-record
                     database :state-history (hash32-bytes target-hash)
                     (hash32-bytes
                      (block-header-state-root (block-header target))))
+                   ;; Once the completed target is executable, its matching
+                   ;; durable state/skeleton records must not force every later
+                   ;; Engine target back through SNAP scheduling after restart.
+                   (is (null
+                        (ethereum-lisp.cli::devnet-node-durable-snap-pivot-number
+                         node)))
                    (is (hash32=
                         newer-target-hash
                         (ethereum-lisp.cli::devnet-node-active-snap-target

@@ -1295,24 +1295,45 @@ the transport which supplied it."
      (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes fixed))))
 
 (defun devnet-node-durable-snap-pivot-number (node)
-  "Return the highest pivot whose range/skeleton work is already durable."
+  "Return the highest pivot whose unfinished SNAP work is still durable.
+
+A completed state session continues to pin scheduling until its target is
+executable.  Once that target's state is available, matching state and skeleton
+metadata are historical residue and must not force later Engine targets through
+SNAP again."
   (let ((store (devnet-node-store node)))
     (when (database-engine-payload-store-p store)
       (call-with-devnet-node-store-guard
        node
        (lambda ()
          (let ((database (database-engine-payload-store-database store))
+               (completed-target nil)
                (numbers '()))
            (multiple-value-bind (progress present-p)
                (ethereum-lisp.snap-sync:snap-sync-read-progress database)
              (when present-p
-               (push
-                (ethereum-lisp.snap-sync:snap-sync-progress-pivot-number
-                 progress)
-                numbers)))
+               (let ((target
+                       (ethereum-lisp.snap-sync:snap-sync-progress-target-hash
+                        progress)))
+                 (if (and
+                      (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                       progress)
+                      target
+                      (chain-store-state-available-p store target))
+                     (setf completed-target target)
+                     (push
+                      (ethereum-lisp.snap-sync:snap-sync-progress-pivot-number
+                       progress)
+                      numbers)))))
            (multiple-value-bind (progress present-p)
                (node-store-read-snap-skeleton-progress database)
-             (when present-p
+             (when (and present-p
+                        (not
+                         (and completed-target
+                              (hash32=
+                               completed-target
+                               (node-store-snap-skeleton-progress-last-hash
+                                progress)))))
                (push
                 (node-store-snap-skeleton-progress-pivot-number progress)
                 numbers)))
