@@ -1292,6 +1292,69 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                           transactions sidecars))))))
       (check '(3 3) sizes nil))))
 
+(deftest eth-72-zero-blob-pooled-response-needs-no-cell-fetch
+  (:layer :unit :module :p2p)
+  ;; Pinned geth 101035a1 TestBlobTxAvailabilityFailure creates ten blob-typed
+  ;; transactions but distributes only four blobs among them.  The remaining
+  ;; version-1 wrappers have no blobs, commitments, or proofs.  They may be
+  ;; rejected by the pool, but they are not malformed wire sidecars and must
+  ;; neither disconnect the peer nor trigger an empty GetCells request.
+  (let* ((transaction
+           (make-blob-transaction
+            :chain-id 1
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003005")
+            :blob-versioned-hashes '()))
+         (sidecar (make-blob-sidecar))
+         (entry (make-blob-network-transaction transaction sidecar 1))
+         (hash (eth-gossip-transaction-hash-bytes transaction))
+         (size (length (blob-network-transaction-encoding entry)))
+         (accepted nil)
+         (backend
+           (make-eth-serve-backend
+            :accept-transaction (lambda (value) (setf accepted value))))
+         (peer
+           (ethereum-lisp.eth-sync::%make-eth-peer
+            :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+            :serve-backend backend))
+         (request-id nil))
+    (eth-gossip-test-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.eth-sync:eth-peer-send
+            (lambda (actual-peer message-id payload)
+              (is (eq peer actual-peer))
+              (when (= message-id
+                       ethereum-lisp.eth-wire:+eth-message-get-pooled-transactions+)
+                (setf request-id
+                      (nth-value
+                       0
+                       (ethereum-lisp.eth-wire:decode-eth-get-pooled-transactions
+                        payload)))))))
+     (lambda ()
+       (is (eth-peer-gossip-message
+            peer
+            ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+            (rlp-encode
+             (make-rlp-list
+              (make-byte-vector 1 :initial-element 3)
+              (make-rlp-list (integer-to-minimal-bytes size))
+              (make-rlp-list hash)
+              (make-byte-vector 16 :initial-element #xff)))))
+       (multiple-value-bind (actions reason)
+           (eth-peer-run-session peer :max-actions 1)
+         (is (= 1 actions))
+         (is (eq :max-actions reason)))))
+    (is request-id)
+    (is (eth-peer-gossip-message
+         peer ethereum-lisp.eth-wire:+eth-message-pooled-transactions+
+         (ethereum-lisp.eth-wire:encode-eth-pooled-transactions
+          request-id (list entry))))
+    (is accepted)
+    (is (bytes= (transaction-encoding transaction)
+                (transaction-encoding accepted)))
+    (is (zerop
+         (ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count peer)))))
+
 (deftest eth-72-bad-blob-pool-response-does-not-poison-valid-retry
   (:layer :unit :module :p2p)
   ;; Pinned geth TestBlobTxWithoutSidecar and

@@ -167,9 +167,9 @@ does not turn the fragment into a full blob sidecar."
          (commitments (blob-sidecar-commitments sidecar))
          (proofs (blob-sidecar-proofs sidecar))
          (commitment-count (length commitments)))
-    (unless (and (null blobs) (plusp commitment-count))
+    (unless (null blobs)
       (ethereum-lisp.validation:block-validation-fail
-       "eth/72 omitted blob wrapper must contain commitments but no blobs"))
+       "eth/72 omitted blob wrapper must not contain blobs"))
     (unless (= commitment-count
                (ethereum-lisp.consensus:transaction-blob-count transaction))
       (ethereum-lisp.validation:block-validation-fail
@@ -202,8 +202,9 @@ ahead — is skipped rather than raised as a session error. Peers relay freely a
 do not pre-filter for us, so one unusable transaction in a batch must not cost
 us the connection.  When REQUIRE-OMITTED-BLOB-PAYLOAD-P is true, as for eth/72,
 blob payloads are prohibited and the remaining sidecar is commitment-checked.
-The validated fragment is passed to OMITTED-BLOB-FUNCTION, when given, and stays
-out of the pool until the cell fetcher assembles and verifies its full data."
+A fragment with commitments is passed to OMITTED-BLOB-FUNCTION, when given, and
+stays out of the pool until the cell fetcher assembles and verifies its full
+data.  A zero-blob transaction has no cells to fetch and is offered directly."
   (let ((accept (eth-serve-backend-accept-transaction backend))
         (accept-batch (eth-serve-backend-accept-transactions backend))
         (accept-sidecar
@@ -252,9 +253,10 @@ out of the pool until the cell fetcher assembles and verifies its full data."
                         (eth-peer-protocol-fail
                          "Received blob transaction with blob payload on eth/72"))
                       (eth-validate-omitted-blob-payload sidecar transaction)
-                      (when omitted-blob-function
-                        (funcall omitted-blob-function transaction sidecar))
-                      (setf sidecar nil))
+                      (when (plusp (length (blob-sidecar-commitments sidecar)))
+                        (when omitted-blob-function
+                          (funcall omitted-blob-function transaction sidecar))
+                        (setf sidecar nil)))
                     (progn
                       (validate-blob-sidecar-fields
                        sidecar :transaction transaction
@@ -487,7 +489,10 @@ METADATA-P, return the retained announcement records instead of bare hashes."
         (sidecar (eth-pooled-entry-sidecar entry)))
     (length (if sidecar
                 (blob-network-transaction-encoding
-                 (make-blob-network-transaction transaction sidecar))
+                 (make-blob-network-transaction
+                  transaction sidecar
+                  (when (typep entry 'blob-network-transaction)
+                    (blob-network-transaction-sidecar-version entry))))
                 (transaction-encoding transaction)))))
 
 (defun eth-validate-pooled-transaction-response (announcements transactions)
