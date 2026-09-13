@@ -1,0 +1,113 @@
+Section 5 Engine HTTP keep-alive idle deadline evidence
+
+Revision
+
+- application/source revision:
+  0cffbcb4a43692e0aa213f5047bce2e9995d9b49
+- commit: fix(engine): separate HTTP keep-alive idle deadline
+- pinned reference: go-ethereum
+  38271784c2b31926563806da9a2e023b88f5e7a8
+
+Observed failure boundary
+
+The active exact-0c6b51bf Hoodi deployment continued to report authenticated
+Engine connection failures of the form:
+
+  HTTP request exceeded the 30 second deadline
+
+A six-hour read-only sample ending 2026-09-13T12:46:50Z contained eleven
+`engine.rpc.http.connection.error` events. Both the EL and Lighthouse remained
+running with zero restarts and no OOM. This observation identifies the live
+boundary but does not validate the successor because 0cffbcb4 is not deployed.
+
+The deterministic pre-fix control selected
+`ENGINE-RPC-HTTP-PERSISTENT-IDLE-WAIT-OUTLIVES-REQUEST-DEADLINE` and failed as
+expected after the first successful request while waiting for EOF on the reused
+connection:
+
+  not ok ENGINE-RPC-HTTP-PERSISTENT-IDLE-WAIT-OUTLIVES-REQUEST-DEADLINE \
+    - HTTP request exceeded the 0.05d0 second deadline
+  0 tests passed, 1 failed.
+
+Implementation boundary
+
+The accepted revision retains a 30-second initial/per-request deadline and adds
+a distinct 120-second wait for the next request on a reused HTTP/1.1
+connection. The idle probe uses PEEK-CHAR, so the first byte remains available
+to the normal request parser. Initial silent connections and partial requests
+remain under the request deadline. Listener shutdown now waits for the
+sequential idle plus request deadlines and the existing five-second margin.
+
+Verification
+
+All application commands ran through Common Lisp Workbench after
+`cl-workbench doctor --strict` passed.
+
+Focused accepted-revision results:
+
+- ENGINE-RPC-HTTP-PERSISTENT-IDLE-WAIT-OUTLIVES-REQUEST-DEADLINE: 1 passed
+- ENGINE-RPC-HTTP-IDLE-WAIT-KEEPS-A-SEPARATE-DEADLINE: 1 passed
+- ENGINE-RPC-HTTP-PARTIAL-REQUEST-KEEPS-REQUEST-DEADLINE: 1 passed
+- ENGINE-RPC-HTTP-SERVICE-REUSES-HTTP11-CONNECTION: 1 passed
+- ENGINE-RPC-HTTP-SAMPLES-JWT-CLOCK-AFTER-REQUEST-INTAKE: 1 passed
+- ENGINE-RPC-HTTP-WORKER-DRAIN-OUTLASTS-BOTH-DEADLINES: 1 passed
+- cold-unit: 1,396 passed, 3 optional skips, 0 failures
+
+Retained local logs and SHA-256:
+
+- cycle1001-http-idle-red.log
+  8f85332bfdd2cb027404203c3b3da42bb3b6257c8d7611f5a63753e2304cb2a0
+- cycle1001-http-idle-focused-final.log
+  4aa5ffd48d36aa29230e453ac02813aaac267a4b25c97f9c419e088c35fff932
+- cycle1001-http-idle-drain-focused-final.log
+  7a8795c7a67c869a9cacb413f8225acac39e59ea2d30f3bbd09df6ab9c1c4c75
+- cycle1001-http-idle-cold-unit-final.log
+  d2feab41225dc8b8816ca665c4ac5b4339b3bf72d1079ddc5bbeb8f3d4ef21d0
+
+Exact linux/amd64 artifact
+
+- image: ethereum-lisp-runtime:sec5-0cffbcb4-amd64
+- local image/index ID:
+  sha256:7b4b3aa30e0b2f45598db751876bd1ca06c6f44f72a69248e49145f10ad79079
+- linux/amd64 manifest digest:
+  sha256:f707725f1bf1d545e20940b063eb0795b127d4c54906134a017e6a0cfb18982e
+- config digest:
+  sha256:0733a266c6e0f2b7ecf3be78e8ff8a127a11d8bac2d5fe696b9e53e7709a899d
+- OCI revision:
+  0cffbcb4a43692e0aa213f5047bce2e9995d9b49
+- platform: linux/amd64
+- runtime user: ethereum:ethereum
+- runtime export: /private/tmp/ethereum-lisp-runtime-sec5-0cffbcb4-amd64.tar
+- runtime export size: 72,023,552 bytes
+- runtime export SHA-256:
+  7bccf918c47d100f898a2096403275a2fbcf7138cf1a0646910abba83fbf6a08
+- source archive: /private/tmp/ethereum-lisp-source-0cffbcb4.tar
+- source archive size: 29,583,360 bytes
+- source archive SHA-256:
+  05ea8d71fa4986e356b95162a03d3eaf76f6c77522b4e54bbe6927886a869570
+- Workbench runtime-smoke: passed built-in Hoodi genesis, public RPC,
+  authenticated Engine API, `eth_syncing`, and exact revision identity
+
+Review and live limit
+
+Independent review found that the first implementation's listener-drain budget
+covered only the request deadline. The accepted revision sums the idle and
+request deadlines plus the existing margin; the focused drain regression and
+full cold-unit layer were rerun after that correction.
+
+At 2026-09-13T12:46:46Z, the active validation deployment was still exact
+0c6b51bf, not this revision. It was running without restart or OOM, but its
+healer remained incomplete (`frontierWorks=485476`,
+`knownIncompleteNodes=371744`, `completed=NIL`), public RPC still returned
+`currentBlock=0x0`, and `/data` had 51,557,384,192 bytes available. The preserved
+active datadir occupied 55,834,157,056 bytes. A fresh exact-0cffbcb4 datadir
+therefore cannot be started safely while preserving the old datadir under the
+current capacity. No deployment, restart, datadir reuse, deletion, or other live
+mutation was performed.
+
+Conclusion
+
+This closes the deterministic Engine keep-alive deadline defect and provides an
+exact verified runtime artifact. It does not provide live Lighthouse validation
+of that artifact and does not close SNAP/healer completion, canonical catch-up,
+`eth_syncing=false`, shadow, or validator-soak gates.

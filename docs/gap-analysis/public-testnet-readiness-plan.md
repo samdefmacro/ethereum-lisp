@@ -1108,6 +1108,22 @@ The implementation boundary is split deliberately:
   independent review, artifact identity, and hashes are archived in
   `docs/evidence/sec5-ade47e78-forkchoice-publication.txt`.
 
+  Exact successor `0cffbcb4a43692e0aa213f5047bce2e9995d9b49` closes the
+  Engine HTTP connection-lifetime defect observed on the active Hoodi pair. A
+  reused HTTP/1.1 connection now receives a separate 120-second idle wait before
+  its next request, while initial and partial requests retain the 30-second
+  request deadline; listener shutdown covers both sequential intervals. The
+  deterministic RED failed at the short deadline, six focused timeout,
+  keep-alive, JWT-clock, and drain tests pass, and cold-unit is `1396/1396` with
+  three optional skips. Its exact linux/amd64 runtime passed smoke verification;
+  the 72,023,552-byte export has SHA-256
+  `7bccf918c47d100f898a2096403275a2fbcf7138cf1a0646910abba83fbf6a08`.
+  The successor is not deployed. The preserved active datadir is larger than
+  the test host's remaining `/data` capacity, so a fresh exact-revision datadir
+  cannot be added safely without independent capacity remediation. Exact
+  commands, review correction, artifact identity, live boundary, and hashes are
+  archived in `docs/evidence/sec5-0cffbcb4-engine-http-idle.txt`.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan
