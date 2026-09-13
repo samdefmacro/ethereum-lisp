@@ -1124,6 +1124,27 @@ The implementation boundary is split deliberately:
   commands, review correction, artifact identity, live boundary, and hashes are
   archived in `docs/evidence/sec5-0cffbcb4-engine-http-idle.txt`.
 
+  Exact revision `fcf458ca45369ad5cf14688bbdc7c15a24d00ac8` repairs a
+  separate live-frontier enforcement defect exposed by the preserved
+  exact-`0c6b51bf` Hoodi run. Its healer reached `frontierWorks=730946` and
+  `knownIncompleteNodes=617673` while the declared live ceiling was 131,072,
+  remained in `dynamic-expansion`, and had not completed. The asynchronous
+  TrieNodes refill forced another local work whenever the DFS stack was
+  non-empty, even after stack, deferred, and remote work had consumed the
+  frontier budget. The repair reserves the whole-class 63-work net expansion
+  bound (one popped account-subtree candidate may expose 64 storage
+  dependencies), rechecks that budget before every bounded local-refill batch,
+  and returns to the remote event loop when exhausted. The production closure
+  regression was RED before the repair; the final five focused unit/integration
+  regressions passed, followed by the exact-commit cold-unit layer at
+  `1397/1397` with three optional skips. Independent review found no remaining
+  Critical, High, or Medium issue after correcting both sentinel/dependency
+  arithmetic and the per-iteration gate. The exact commit was pushed and read
+  back from `origin/sec5-public-bootstrap-sync`. The successor is not deployed,
+  so this is a tested repair rather than live completion evidence. Exact logs,
+  SHA-256 hashes, review history, and the read-only live boundary are archived
+  in `docs/evidence/sec5-fcf458ca-snap-live-frontier.txt`.
+
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
   removes that superseded negative instead of leaving the final healer to scan

@@ -1,0 +1,87 @@
+Section 5 SNAP live pipeline frontier bound
+
+Revision
+
+fcf458ca45369ad5cf14688bbdc7c15a24d00ac8
+fix(snap): bound live pipeline refill
+
+Observed production defect
+
+The preserved Hoodi validation deployment remains exact revision
+0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae, not this repair. A read-only
+observation on 2026-09-13 found its healer still expanding at pivot 3,615,524:
+processedNodes=2,031,616, reusedNodes=2,030,668, fetchedNodes=1,400,
+requests=418, frontierWorks=730,946, deferredStorageWorks=632,
+remoteWorks=0, knownIncompleteNodes=617,673, netDrainRate=-147,
+etaStatus=dynamic-expansion, and completed=NIL. The declared live-frontier
+ceiling is 131,072 works. The process remained running with zero restarts and
+used 6.567 GiB of its 10-GiB container limit. Its preserved datadir occupied
+55,744,054,199 bytes; /data had 51,597,180,928 bytes available. Public RPC
+returned eth_blockNumber=0x0 and eth_syncing currentBlock=0x0,
+highestBlock=0x372c90. These facts prove useful processing without convergence
+or Section 5 completion.
+
+Root cause and repair
+
+The asynchronous TrieNodes pipeline REFILL closure forced at least one local
+work whenever STACK was non-empty, even when stack, deferred, and outstanding
+remote work had exhausted the live-frontier budget. collect-missing could then
+repeat local expansion during the same refill. Post-order completion barriers
+and newly exposed descendants therefore had no effective stop while remote work
+remained outstanding.
+
+The repair removes that forced refill. It reserves the whole-class maximum net
+expansion of one local work before entering and before every bounded-refill
+iteration. The maximum is 63 works: one popped account-subtree candidate can be
+replaced by the allowed 64 deferred storage dependencies. This dominates the
+17-work net increase from a 16-child branch carrying both subtree and
+node-completion sentinels. The ordinary non-pipeline one-item DFS escape remains
+available, so an already oversized durable continuation can still drain.
+
+RED and GREEN
+
+The production-path regression installs a legal 1,026-work durable checkpoint.
+The initial local pass assigns 1,024 missing works to the synthetic pipeline and
+leaves a local 16-child branch plus a trailing missing work on STACK. It invokes
+the actual REFILL closure with production-consistent room/outstanding pairs and
+proves three boundaries: a saturated generation returns no work; one permitted
+local branch consumes reserved room and returns to the event loop before a child
+or trailing missing work is examined; and ordinary free room still progresses.
+The initial regression failed because saturated REFILL returned work:
+
+/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1002-live-frontier-red.log
+SHA-256 d31838c37b043e8d7186278f77a47643e4fcec637917118e6bd3bc05208a19f9
+0 passed, 1 failed
+
+The final exact candidate tree passed the new regression, stale-yield pipeline
+regression, large-frontier checkpoint regression, local trie batch regression,
+and oversized-overdue frontier integration regression, 5/5:
+
+/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1002-live-frontier-focused-final-v3.log
+SHA-256 af93fd22077693783edbb2326f71e5a23654c61ac08a5447a6cab84488cd0c6a
+
+After commit, exact revision fcf458ca passed the complete cold-unit layer:
+1,397 tests passed, 3 optional skips.
+
+/Users/sen/.hermes/runtime/ethereum-lisp-sec5-supervisor/cycle1002-live-frontier-cold-unit-fcf458ca.log
+SHA-256 490563ae85ca0b41d33c7fd1c290e14da126fff6dbe9ff5f8939844c0c4b2ac9
+
+Review
+
+Independent static review first identified two under-reserved expansion classes:
+both completion sentinels on a 16-child branch, and a completed account subtree
+expanding to 64 storage dependencies. A second review identified that guarding
+only REFILL entry was insufficient because collect-missing can execute multiple
+local batches. The implementation and regression were extended after each
+finding. Final independent review found no Critical, High, or Medium correctness,
+liveness, arithmetic, or non-vacuity issue in the resulting diff.
+
+Git and live boundary
+
+The verified commit was pushed without force. origin/sec5-public-bootstrap-sync
+read back as fcf458ca45369ad5cf14688bbdc7c15a24d00ac8.
+
+No live container, datadir, port, resource, JWT, network, or deployment state was
+mutated. The active exact-0c6b51bf run and datadir remain preserved. This repair
+has not yet produced exact-revision Hoodi completion evidence and does not close
+Section 5.
