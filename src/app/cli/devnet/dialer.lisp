@@ -2287,9 +2287,22 @@ must prove the new state root before either record can authorize publication."
                         (storage-fail
                          "Snap skeleton block ~A disappeared"
                          (hash32-to-hex header-hash)))
-                      (devnet-peer-sync-import-block
-                       node block :require-valid-p t
-                       :invalid-head-hash target-hash)))))
+                      (multiple-value-bind (status)
+                          (devnet-peer-sync-import-block
+                           node block :require-valid-p t
+                           :invalid-head-hash target-hash)
+                        ;; REQUIRE-VALID-P is shared with forward acquisition,
+                        ;; where ACCEPTED and SYNCING are legitimate durable
+                        ;; buffering outcomes.  After the pivot state exists,
+                        ;; however, every bounded tail block must execute before
+                        ;; TARGET-COMPLETED can be published.
+                        (unless
+                            (string= +payload-status-valid+
+                                     (payload-status-status status))
+                          (storage-fail
+                           "Snap target tail block ~A returned ~A instead of VALID"
+                           (hash32-to-hex header-hash)
+                           (payload-status-status status))))))))
               (devnet-peer-manager-log
                node "peer.snap.target_completed"
                "pivot" pivot-number "target" target-number)

@@ -3139,6 +3139,8 @@ really reopens the directory instead of observing the first handle's memory."
                         (persistence
                           (ethereum-lisp.cli::devnet-node-persistence-state node))
                         (tail-imports 0)
+                        (tail-status +payload-status-accepted+)
+                        (target-completed-events 0)
                         (durable-state-progress nil)
                         (download-observation nil))
                    (devnet-peer-sync-call-with-function-overrides
@@ -3227,12 +3229,29 @@ really reopens the directory instead of observing the first handle's memory."
                         (incf tail-imports)
                         (values
                          (make-payload-status
-                          :status +payload-status-valid+)
-                         block nil))))
+                          :status tail-status)
+                         block nil)))
+                     (cons
+                      'ethereum-lisp.cli::devnet-peer-manager-log
+                      (lambda (callback-node name &rest fields)
+                        (declare (ignore fields))
+                        (is (eq node callback-node))
+                        (when (string= "peer.snap.target_completed" name)
+                          (incf target-completed-events)))))
                     (lambda ()
+                      ;; State completion at the pivot is not target completion.
+                      ;; Every post-pivot block must execute before this path may
+                      ;; publish the Section 5 completion event.
+                      (signals ethereum-lisp.validation:storage-error
+                        (ethereum-lisp.cli::devnet-node-snap-sync-target
+                         node target-hash))
+                      (is (= 0 target-completed-events))
+                      (setf tail-status +payload-status-valid+
+                            tail-imports 0)
                       (is (= 64
                              (ethereum-lisp.cli::devnet-node-snap-sync-target
-                              node target-hash)))))
+                              node target-hash)))
+                      (is (= 1 target-completed-events))))
                    ;; The old implementation started at canonical genesis+1.
                    ;; The bounded implementation starts at the 64-block pivot.
                    (is (equal (list (list :bounded-source) 100 164 t t)
