@@ -20,6 +20,35 @@
           (is (eq :external core-status))
           (is (eq engine-symbol core-symbol)))))))
 
+(deftest engine-forkchoice-valid-status-defers-sync-target-cleanup
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore config child))
+    (let ((stale-hash
+            (hash32-from-hex
+             "0x1111111111111111111111111111111111111111111111111111111111111111"))
+          (head-hash (block-hash parent)))
+      (engine-payload-store-put-forkchoice-sync-target
+       store stale-hash :block-number 1)
+      (engine-payload-store-put-forkchoice-sync-target
+       store head-hash :block-number 0)
+      (let ((status
+              (engine-forkchoice-memory-status
+               store
+               (make-forkchoice-state
+                :head-block-hash head-hash
+                :safe-block-hash head-hash
+                :finalized-block-hash head-hash))))
+        (is (string= +payload-status-valid+
+                     (payload-status-status status)))
+        ;; Checkpoint validation and canonical publication happen after this
+        ;; status probe, so it cannot mutate targets outside their rollback frame.
+        (let ((targets
+                (engine-payload-store-forkchoice-sync-targets store)))
+          (is (= 2 (length targets)))
+          (is (find stale-hash targets :test #'hash32=))
+          (is (find head-hash targets :test #'hash32=)))))))
+
 (deftest engine-new-payload-params-status-wraps-validation
   (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
          (recipient (address-from-hex

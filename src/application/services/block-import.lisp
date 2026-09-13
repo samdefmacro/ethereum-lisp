@@ -833,10 +833,17 @@ forkchoiceUpdated publication succeeds normally."
            ;; callers retain the historical default reconciliation behavior.
            :reconcile-unchanged-head-p
            (not (eq authority :engine-forkchoice)))
-        ;; A forkchoice sync target represents consensus-authorized work until
-        ;; the same hash is canonical. Candidate execution alone is insufficient
-        ;; because Engine may already have returned SYNCING for this FCU.
-        (engine-payload-store-remove-forkchoice-sync-target store hash)
+        ;; A successful Engine FCU supersedes the complete pending target set.
+        ;; Other authorized publication modes retain the narrower historical
+        ;; behavior and consume only the hash they actually published. Keep both
+        ;; paths inside this atomic rollback frame so validation or durability
+        ;; failures preserve every prior target.
+        (if (eq authority :engine-forkchoice)
+            (dolist (target
+                     (engine-payload-store-forkchoice-sync-targets store))
+              (engine-payload-store-remove-forkchoice-sync-target
+               store target))
+            (engine-payload-store-remove-forkchoice-sync-target store hash))
         (let ((finalized (chain-store-finalized-block store)))
           ;; Prune before persistence so the durable adapter can delete the same
           ;; finalized cache entries in its transition batch.

@@ -840,6 +840,14 @@
        store child config :authority :local-dev))
     (is (hash32= (block-hash parent)
                  (block-hash (chain-store-head-block store))))
+    ;; A later executable FCU supersedes every older sync target only after
+    ;; checkpoint validation and canonical publication enter the rollback frame.
+    (engine-payload-store-put-forkchoice-sync-target
+     store
+     (hash32-from-hex
+      "0x1111111111111111111111111111111111111111111111111111111111111111")
+     :block-number 2)
+    (is (= 2 (length (engine-payload-store-forkchoice-sync-targets store))))
     (let ((events '())
           (state
             (make-forkchoice-state
@@ -1000,6 +1008,11 @@
     (import-block-candidate store child config)
     (engine-payload-store-put-forkchoice-sync-target
      store (block-hash child) :block-number 1)
+    (engine-payload-store-put-forkchoice-sync-target
+     store
+     (hash32-from-hex
+      "0x1111111111111111111111111111111111111111111111111111111111111111")
+     :block-number 2)
     (let ((state
             (make-forkchoice-state
              :head-block-hash (block-hash child)
@@ -1021,9 +1034,10 @@
                  (chain-store-checkpoint-block-hash
                   (chain-store-head-checkpoint store))))
     (is (null (chain-store-canonical-hash store 1)))
-    (is (= 1 (length (engine-payload-store-forkchoice-sync-targets store))))
-    (is (hash32= (block-hash child)
-                 (first (engine-payload-store-forkchoice-sync-targets store))))))
+    (is (= 2 (length (engine-payload-store-forkchoice-sync-targets store))))
+    (is (find (block-hash child)
+              (engine-payload-store-forkchoice-sync-targets store)
+              :test #'hash32=))))
 
 (deftest block-import-build-helper-is-one-authorized-rollback-boundary
   (multiple-value-bind (store config parent child)
@@ -1039,6 +1053,11 @@
         (build-import-and-publish-block store builder config))
       (is (= 1 builder-calls))
       (is (null (chain-store-known-block store (block-hash child))))
+      (engine-payload-store-put-forkchoice-sync-target
+       store
+       (hash32-from-hex
+        "0x1111111111111111111111111111111111111111111111111111111111111111")
+       :block-number 2)
       (multiple-value-bind (head receipts transition)
           (build-import-and-publish-block
            store builder config
@@ -1059,7 +1078,10 @@
       (is (= 1 durability-calls))
       (is (chain-store-state-available-p store (block-hash child)))
       (is (hash32= (block-hash child)
-                   (block-hash (chain-store-head-block store)))))))
+                   (block-hash (chain-store-head-block store))))
+      ;; Local-dev publication must not discard unrelated consensus sync work.
+      (is (= 1 (length
+                (engine-payload-store-forkchoice-sync-targets store)))))))
 
 (deftest block-import-p2p-durability-validation-error-rolls-back-candidate
   (multiple-value-bind (store config parent child)

@@ -70,6 +70,12 @@
                   (block-header-number (block-header finalized-block))))
       "forkchoice safe block is older than finalized block")))
 
+(defun engine-forkchoice-remove-stale-sync-targets (store head-hash)
+  "Discard superseded FCU targets while retaining HEAD-HASH until publication."
+  (dolist (old (engine-payload-store-forkchoice-sync-targets store))
+    (unless (hash32= old head-hash)
+      (engine-payload-store-remove-forkchoice-sync-target store old))))
+
 (defun engine-forkchoice-memory-status (store state)
   (unless (typep store 'engine-payload-memory-store)
     (return-from engine-forkchoice-memory-status
@@ -95,9 +101,7 @@
        ;; registering only completely unknown heads makes the coordinator lose
        ;; the CL target precisely after skeleton recovery. Forkchoice has one
        ;; current head, so replace every abandoned target in either case.
-       (dolist (old (engine-payload-store-forkchoice-sync-targets store))
-         (unless (hash32= old head-hash)
-           (engine-payload-store-remove-forkchoice-sync-target store old)))
+       (engine-forkchoice-remove-stale-sync-targets store head-hash)
        (let ((known (chain-store-known-block store head-hash)))
          (engine-payload-store-put-forkchoice-sync-target
           store head-hash
