@@ -2366,15 +2366,8 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
             (head-number (chain-store-head-number store))
             (head-hash (chain-store-canonical-hash store head-number))
             (target
-              (first
-               (sort
-                (remove-if
-                 (lambda (block)
-                   (<= (block-header-number (block-header block)) head-number))
-                 (engine-payload-store-remote-block-list store))
-                #'> :key
-                (lambda (block)
-                  (block-header-number (block-header block)))))))
+              (engine-payload-store-highest-remote-block-above
+               store head-number)))
        (when target
          (values head-number head-hash
                  (block-header-number (block-header target))

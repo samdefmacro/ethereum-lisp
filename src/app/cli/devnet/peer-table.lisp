@@ -331,9 +331,7 @@ Engine forkchoice and is validated against the persistence authority; it is
 therefore a stronger source than a peer-advertised head."
   (let* ((store (devnet-node-store node))
          (remote-highest
-           (loop for block in (engine-payload-store-remote-block-list store)
-                 maximize
-                 (block-header-number (block-header block))))
+           (engine-payload-store-remote-block-highest-number store))
          (snap-highest (devnet-node-durable-snap-highest-block node)))
     (multiple-value-bind (targets target-highest)
         (engine-payload-store-forkchoice-sync-targets store)

@@ -1,5 +1,66 @@
 (in-package #:ethereum-lisp.test)
 
+(deftest engine-payload-store-remote-height-copies-no-block
+  (:layer :unit :module :core)
+  ;; Every cache entry already records its height at put time, so answering
+  ;; "how high is the remote cache" must not materialise a block. Copying one
+  ;; re-encodes and re-decodes each of its transactions, and the callers that
+  ;; wanted only this scalar run per gossip message and per eth_syncing, which
+  ;; is what stalled Hoodi; see
+  ;; docs/evidence/sec5-83c5e3ce-pool-deadline.txt for the surrounding run.
+  (let* ((store (make-engine-payload-memory-store))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (copy-name
+           'ethereum-lisp.chain-store::engine-payload-store-copy-block)
+         (real-copy (fdefinition copy-name))
+         (copies 0))
+    (dolist (number '(11 9 14 12))
+      (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+       store
+       (make-block
+        :header
+        (make-block-header
+         :parent-hash (zero-hash32)
+         :beneficiary address
+         :state-root +empty-trie-hash+
+         :mix-hash (zero-hash32)
+         :number number
+         :gas-limit 50000
+         :timestamp (+ 70 number)))))
+    (unwind-protect
+         (progn
+           (setf (fdefinition copy-name)
+                 (lambda (&rest arguments)
+                   (incf copies)
+                   (apply real-copy arguments)))
+           (is (= 14
+                  (ethereum-lisp.chain-store:engine-payload-store-remote-block-highest-number
+                   store)))
+           (is (zerop copies))
+           ;; Selecting one block above a height copies exactly that block,
+           ;; not the whole cache.
+           (let ((above
+                   (ethereum-lisp.chain-store:engine-payload-store-highest-remote-block-above
+                    store 11)))
+             (is above)
+             (is (= 14 (block-header-number (block-header above))))
+             (is (= 1 copies)))
+           (is (null
+                (ethereum-lisp.chain-store:engine-payload-store-highest-remote-block-above
+                 store 14)))
+           (is (= 1 copies))
+           ;; The copying list accessor remains available and still copies, so
+           ;; this test measures the new path rather than a disabled copier.
+           (is (= 4 (length
+                     (ethereum-lisp.chain-store:engine-payload-store-remote-block-list
+                      store))))
+           (is (= 5 copies)))
+      (setf (fdefinition copy-name) real-copy))
+    (is (null
+         (ethereum-lisp.chain-store:engine-payload-store-remote-block-highest-number
+          (make-engine-payload-memory-store))))))
+
 (deftest chain-store-export-import-kv-restores-remote-blocks
   (let* ((path
            (merge-pathnames

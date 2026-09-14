@@ -486,13 +486,72 @@ put call supplied BLOCK-NUMBER."
 
 (defun engine-payload-store-remote-block-list
     (store &key (now (unix-time)))
-  "Return copied remote blocks after enforcing count/byte/age bounds."
+  "Return copied remote blocks after enforcing count/byte/age bounds.
+
+Copying a block re-encodes and re-decodes every transaction it holds, so a
+caller that only needs a height must use
+ENGINE-PAYLOAD-STORE-REMOTE-BLOCK-HIGHEST-NUMBER instead."
   (setf store (chain-store-require-memory-store store))
   (engine-payload-store-enforce-cache-bounds
    store :remote-block now nil)
   (loop for block being the hash-values
           of (memory-chain-store-remote-blocks store)
         collect (engine-payload-store-copy-block block)))
+
+(defun engine-payload-store-remote-block-highest-number
+    (store &key (now (unix-time)))
+  "Return the highest cached remote block number without copying a block.
+
+Every cache entry already carries its height, recorded at put time by
+ENGINE-PAYLOAD-STORE-CACHE-VALUE-BLOCK-NUMBER, so the answer needs metadata
+only.  Deriving it from ENGINE-PAYLOAD-STORE-REMOTE-BLOCK-LIST instead put a
+full re-serialise and re-parse of every cached transaction on the per-message
+gossip and ETH_SYNCING paths, which is what stalled Hoodi."
+  (setf store (chain-store-require-memory-store store))
+  (engine-payload-store-enforce-cache-bounds
+   store :remote-block now nil)
+  (let ((highest nil))
+    (maphash
+     (lambda (key entry)
+       (declare (ignore key))
+       (let ((number
+               (and (typep entry 'chain-store-cache-entry-metadata)
+                    (chain-store-cache-entry-metadata-block-number entry))))
+         (when number
+           (setf highest (if highest (max highest number) number)))))
+     (memory-chain-store-remote-block-metadata store))
+    highest))
+
+(defun engine-payload-store-highest-remote-block-above
+    (store number &key (now (unix-time)))
+  "Return one copy of the highest cached remote block above NUMBER, or NIL.
+
+The caller wants a single block, so select it on metadata heights and copy only
+the winner rather than every cached block."
+  (setf store (chain-store-require-memory-store store))
+  (engine-payload-store-enforce-cache-bounds
+   store :remote-block now nil)
+  (let ((best-key nil)
+        (best-number nil)
+        (metadata (memory-chain-store-remote-block-metadata store)))
+    (maphash
+     (lambda (key block)
+       (let* ((entry (gethash key metadata))
+              (height
+                (if (typep entry 'chain-store-cache-entry-metadata)
+                    (chain-store-cache-entry-metadata-block-number entry)
+                    nil))
+              (height (or height
+                          (block-header-number (block-header block)))))
+         (when (and height
+                    (> height number)
+                    (or (null best-number) (> height best-number)))
+           (setf best-key key
+                 best-number height))))
+     (memory-chain-store-remote-blocks store))
+    (when best-key
+      (engine-payload-store-copy-block
+       (gethash best-key (memory-chain-store-remote-blocks store))))))
 
 (defun engine-payload-store-put-remote-block
     (store block &key (now (unix-time)))

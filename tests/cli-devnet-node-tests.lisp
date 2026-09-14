@@ -4950,6 +4950,68 @@ loop cannot block on a message that never comes."
     (is (getf reenabled :discovery-enabled-p))
     (is (null (getf dns-disabled :discovery-dns)))))
 
+(deftest devnet-transaction-gossip-gate-never-waits-for-the-store-guard
+  (:layer :unit :module :p2p)
+  ;; This gate runs on every inbound Transactions, NewPooledTransactionHashes,
+  ;; and PooledTransactions message. docs .cursor/rules/p2p-concurrency.mdc:
+  ;; nothing on a background thread may WAIT for the store guard, because the
+  ;; guard is held for a whole block import and waiting stops the peer session
+  ;; rather than slowing it. A live Hoodi profile found this gate holding the
+  ;; blocking guard for about 70% of all allocation samples.
+  (let ((node
+          (ethereum-lisp.cli:make-devnet-node
+           :genesis-json *eth-sync-paris-genesis-json*
+           :port 0 :public-port 0)))
+    ;; Fresh nodes refuse gossip until the guard has been free at least once.
+    (is (null
+         (ethereum-lisp.cli::devnet-node-accept-inbound-transactions-cache
+          node)))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::call-with-devnet-node-store-guard
+            (lambda (seen-node thunk)
+              (declare (ignore seen-node thunk))
+              (error "The gossip gate must not wait for the store guard")))
+      (cons 'ethereum-lisp.cli::call-with-devnet-node-store-guard-if-free
+            (lambda (seen-node thunk)
+              (declare (ignore thunk))
+              (is (eq node seen-node))
+              (values nil nil))))
+     (lambda ()
+       ;; Guard busy: reuse the previous verdict instead of blocking.
+       (is (null
+            (ethereum-lisp.cli::devnet-node-accept-inbound-transactions-p
+             node)))))
+    ;; A free guard records its verdict, and a later busy guard reuses it.
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::call-with-devnet-node-store-guard
+            (lambda (seen-node thunk)
+              (declare (ignore seen-node thunk))
+              (error "The gossip gate must not wait for the store guard")))
+      (cons 'ethereum-lisp.cli::call-with-devnet-node-store-guard-if-free
+            (lambda (seen-node thunk)
+              (declare (ignore seen-node))
+              (values (funcall thunk) t))))
+     (lambda ()
+       (is (ethereum-lisp.cli::devnet-node-accept-inbound-transactions-p
+            node))
+       (is (ethereum-lisp.cli::devnet-node-accept-inbound-transactions-cache
+            node))))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.cli::call-with-devnet-node-store-guard
+            (lambda (seen-node thunk)
+              (declare (ignore seen-node thunk))
+              (error "The gossip gate must not wait for the store guard")))
+      (cons 'ethereum-lisp.cli::call-with-devnet-node-store-guard-if-free
+            (lambda (seen-node thunk)
+              (declare (ignore seen-node thunk))
+              (values nil nil))))
+     (lambda ()
+       (is (ethereum-lisp.cli::devnet-node-accept-inbound-transactions-p
+            node))))))
+
 (deftest devnet-discovery-has-a-genesis-fork-filter-while-store-is-busy
   (:layer :unit :module :p2p)
   (let* ((node

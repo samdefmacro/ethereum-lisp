@@ -1071,6 +1071,8 @@
    #:engine-payload-store-state-available-p
    #:engine-payload-store-remote-block
    #:engine-payload-store-remote-block-list
+   #:engine-payload-store-remote-block-highest-number
+   #:engine-payload-store-highest-remote-block-above
    #:engine-payload-store-put-forkchoice-sync-target
    #:engine-payload-store-forkchoice-sync-targets
    #:engine-payload-store-mark-invalid

@@ -66,10 +66,8 @@ neither."
 
 (defun engine-rpc-sync-highest-block (store &key (now (unix-time)))
   "Return the highest buffered remote block and whether forkchoice work exists."
-  (let ((highest nil))
-    (dolist (block (engine-payload-store-remote-block-list store :now now))
-       (let ((number (block-header-number (block-header block))))
-         (setf highest (if highest (max highest number) number))))
+  (let ((highest
+          (engine-payload-store-remote-block-highest-number store :now now)))
     (multiple-value-bind (targets target-highest)
         (engine-payload-store-forkchoice-sync-targets store :now now)
       (when target-highest

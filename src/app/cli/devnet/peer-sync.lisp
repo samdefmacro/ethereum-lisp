@@ -134,16 +134,25 @@ The coordinator's SYNCING-P slot is only a mutex for one finite pass; it is true
 while an idle pass inspects an already-current chain.  Gate gossip on the same
 forkchoice/height facts as eth_syncing instead, so a real SNAP or execution gap
 still rejects transactions without making the serialization claim observable as
-false sync state."
-  (call-with-devnet-node-store-guard
-   node
-   (lambda ()
-     (let ((current
-             (chain-store-head-number (devnet-node-store node))))
-       (multiple-value-bind (highest forkchoice-target-p)
-           (devnet-node-sync-highest-block node)
-         (not (or forkchoice-target-p
-                  (and highest (> highest current)))))))))
+false sync state.
+
+This gate runs on every inbound Transactions, NewPooledTransactionHashes, and
+PooledTransactions message, so it must not wait for the store guard: that guard
+is held for a whole block import, and waiting stops the peer session rather
+than slowing it. Reuse the previous verdict while the guard is busy."
+  (multiple-value-bind (verdict computed-p)
+      (call-with-devnet-node-store-guard-if-free
+       node
+       (lambda ()
+         (let ((current
+                 (chain-store-head-number (devnet-node-store node))))
+           (multiple-value-bind (highest forkchoice-target-p)
+               (devnet-node-sync-highest-block node)
+             (not (or forkchoice-target-p
+                      (and highest (> highest current))))))))
+    (if computed-p
+        (setf (devnet-node-accept-inbound-transactions-cache node) verdict)
+        (devnet-node-accept-inbound-transactions-cache node))))
 
 (defun devnet-peer-serve-backend (node)
   "A serve backend answering a peer's requests and gossip from NODE's store.

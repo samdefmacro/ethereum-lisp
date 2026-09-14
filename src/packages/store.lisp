@@ -214,6 +214,8 @@
    #:+engine-blob-sidecar-cache-max-age-seconds+
    #:engine-payload-store-remote-block
    #:engine-payload-store-remote-block-list
+   #:engine-payload-store-remote-block-highest-number
+   #:engine-payload-store-highest-remote-block-above
    #:engine-payload-store-put-remote-block
    #:engine-payload-store-remove-remote-block
    #:engine-payload-store-put-forkchoice-sync-target

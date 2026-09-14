@@ -174,6 +174,12 @@ the established pool instead of relearning it from the cold minimum."
   ;; The same guard, but giving up rather than waiting. See
   ;; CALL-WITH-DEVNET-NODE-STORE-GUARD-IF-FREE.
   store-guard-try-function
+  ;; Last computed transaction-gossip admission verdict. Every inbound
+  ;; Transactions, NewPooledTransactionHashes, and PooledTransactions message
+  ;; consults that gate, so it must never wait on the store guard; a busy node
+  ;; reuses this value instead. NIL until the guard is first free, which
+  ;; refuses gossip while a fresh node is still syncing.
+  (accept-inbound-transactions-cache nil)
   persistence-state
   ;; One durable candidate sink is shared by Engine and P2P imports.  The P2P
   ;; path may additionally supply a peer-sync progress record that the adapter
