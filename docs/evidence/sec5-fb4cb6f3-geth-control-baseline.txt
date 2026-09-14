@@ -1,0 +1,112 @@
+Section 5 same-host geth control baseline
+
+Purpose
+
+Separate "our client is slow" from "public Hoodi snap peers are slow" by running
+the pinned geth v1.17.4 control on the same host, in the same hour, against the
+same public peer population, from an empty datadir.
+
+Subject under test
+
+ethereum-lisp revision fb4cb6f351c9ff68e048c78aa356d6dcaf6af8fc, container
+hoodi-el-sec5-fb4cb6f3, fresh datadir
+/data/hoodi-sec5-20260814/datadir-fb4cb6f3, started 2026-09-14T03:43:26Z,
+12 GiB memory bound, non-root, read-only root, all capabilities dropped.
+
+Control
+
+geth v1.17.4, image ID
+sha256:9389d3371a5cde510edb5dfa10a759f7ef98bd8676e6491ce79ab1050306478b,
+container hoodi-geth-control-20260914, empty datadir
+/data/hoodi-sec5-20260814/geth-control-20260914, started 2026-09-14T06:02:36Z
+through scripts/hoodi-geth-benchmark-gate.sh with the same Lighthouse alias
+hoodi-el-public-36a22e47, the same JWT, the same hoodi-frozen/hoodi-net
+networks, the same public P2P port, non-root, read-only root, all capabilities
+dropped, no-new-privileges. The ethereum-lisp container was stopped for the
+duration and restored afterwards; neither datadir was copied or deleted.
+
+Host
+
+test-ethereum-server (10-7-47-31), 8 vCPU AMD EPYC, 15 GiB RAM, Linux
+5.15.0-112-generic. Data filesystem measured at 0.182 ms random 4 KiB O_DIRECT
+reads (about 5,500 IOPS at queue depth one) and 718 MB/s sequential. Host
+network was near idle throughout (534 KiB/s receive, 305 KiB/s transmit
+measured during the ethereum-lisp run) and load average was 1.34.
+
+Result
+
+geth reached a synced head in 78 minutes.
+
+    elapsed   datadir      peers   state progress
+    15m15s     23.08 GiB     17    11.71% state, 31.83% chain
+    52m39s     73.10 GiB     28    63.75% state, 76.98% chain
+    78m03s     98.79 GiB      -    complete, importing live blocks
+
+At 2026-09-14T07:20:39Z its eth_syncing reported currentBlock 0x373fae
+(3,620,782) at or beyond highestBlock 0x373f95 (3,620,757), with
+healingTrienodes 0x0 and healingBytecode 0x0. Cumulative totals:
+
+    syncedAccounts        45,195,834      (9,926,880,692 bytes)
+    syncedStorage        280,478,408     (64,179,667,362 bytes)
+    syncedBytecodes        4,851,411      (4,464,478,677 bytes)
+    healedTrienodes           65,631         (18,343,178 bytes)
+
+It was importing live chain segments at the head by 07:19-07:20.
+
+ethereum-lisp over the same window
+
+    elapsed   datadir      peers   snap sources   account ranges complete
+    15m         0.15 GiB     11         -          0 of 64
+    2h00m       4.57 GiB     13         9          0 of 64
+
+Sustained rate: roughly 0.65 MB/s against geth's roughly 25.8 MB/s over its
+first fifteen minutes and about 21 MB/s averaged to completion. The gap is
+approximately fortyfold at comparable peer counts.
+
+Conclusion
+
+Public Hoodi snap peers served a complete state and chain download to a pinned
+reference client in 78 minutes on this exact host and hour. Peer availability,
+host CPU, host memory, disk latency, and host network are therefore excluded as
+causes of the ethereum-lisp range-download stall. The bottleneck is in our
+client.
+
+Secondary observations
+
+geth logged "Unexpected storage ranges packet" and "Expired request does not
+exist" repeatedly throughout its run, discarded those responses, and continued
+without retiring the peer. Our run classified 1,972 comparable events as
+peer.snap.dependency_failed, 571 of them as an unclassified reason, over a much
+smaller volume of work. Whether our handling of a late or expired response is
+materially more costly than geth's is an open question for the range-download
+audit, not a conclusion of this control.
+
+Our per-peer telemetry during the stall recorded accountRttMs 40558,
+accountTimeoutMs 60000, accountCap 524288, storageCap 65536, and a pool-wide
+requestTimeoutMs of 8618, while dependency failures were dominated by 716
+expiries at the 6.00 second floor.
+
+One parity question was raised and closed during this investigation: geth does
+size request capacity from its request timeout rather than from a raw
+round-trip target. eth/protocols/snap/sync.go at the vendored commit
+38271784c2b31926563806da9a2e023b88f5e7a8 computes
+`targetTTL := s.rates.TargetTimeout()` and then
+`s.rates.Capacity(id, kind, targetTTL)` at lines 1029-1035, 1126-1132,
+1229-1235, 1386-1392, and 1514-1520. Our matching behaviour is correct and is
+not the defect.
+
+Scope
+
+This control establishes a baseline and excludes environmental causes. It does
+not identify the defect, and it does not bear on the separately fixed healer
+dependency-deferral loop recorded in
+docs/evidence/sec5-c0cce53d-heal-deferral-frontier.txt, which is in the final
+healing phase that this run never reached.
+
+Disposition
+
+The geth control container is preserved stopped with its datadir intact at
+/data/hoodi-sec5-20260814/geth-control-20260914 (98.79 GiB). The ethereum-lisp
+container was restored at 2026-09-14T07:21:20Z and is running on its own
+preserved datadir. Data filesystem utilisation after the control was 70% with
+204 GiB available.
