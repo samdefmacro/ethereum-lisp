@@ -1,0 +1,141 @@
+Section 5 SNAP pool-deadline release
+
+Revision
+
+83c5e3ce77e64038943bbf8188e1666962e66d9a
+fix(snap): apply one pool deadline to every request kind
+
+Defect
+
+Every SNAP request deadline was the maximum of the pool's confidence-scaled
+target and a per-message-kind floor of three times that kind's own round-trip
+EWMA, plus a 30-second floor for a StorageRanges assignment already at 512 KiB.
+A kind with no successful sample was seeded at
++devnet-snap-qos-max-rtt-seconds+ (20 seconds), so its first deadline was 60
+seconds.
+
+Request capacity is sized from that same deadline, which is correct and matches
+geth. Combining the two was not. The loop:
+
+  a cold kind is seeded at the 20-second maximum
+  -> its deadline is 3 x 20 = 60 seconds
+  -> capacity is sized to fill 60 seconds, so requests grow toward 512 KiB
+  -> deliveries genuinely take tens of seconds
+  -> the round-trip EWMA climbs toward 40 seconds
+  -> 3 x 40 re-clamps to the 60-second ceiling and never comes down
+
+Reference
+
+Pinned geth 38271784c2b31926563806da9a2e023b88f5e7a8 keeps one round trip per
+peer, seeded from the pool median, and arms every SNAP request with the same
+pool-wide deadline:
+
+  eth/protocols/snap/sync.go:560
+    s.rates.Track(id, msgrate.NewTracker(s.rates.MeanCapacities(),
+                                         s.rates.MedianRoundTrip()))
+  eth/protocols/snap/sync.go:1086, 1197, 1345, 1482, 1598
+    req.timeout = time.AfterFunc(s.rates.TargetTimeout(), ...)
+
+Those five sites cover account-range, bytecode, storage-range, trie-node, and
+heal-bytecode requests. There is no per-message-kind deadline anywhere in geth,
+and no analogue of the 30-second storage floor.
+
+The earlier per-kind floor was introduced to stop a fast message kind tuning the
+pool down to its two-second minimum before a slower, nested StorageRanges
+response had ever been sampled. That concern is real, but geth already answers
+it: a slow storage delivery updates the shared per-peer round trip, which feeds
+the pool median, which widens the deadline for every kind together. The
+replacement preserves that path.
+
+Fix
+
+devnet-peer-snap-message-timeout-locked returns the pool target timeout.
+The per-kind round-trip slot, its 20-second cold seed, and
++devnet-snap-storage-full-range-timeout-seconds+ are removed. Capacity sizing,
+the 0.1 throughput EWMA, the 1.01 overestimation, the 64 KiB/512 KiB clamps,
+the pool tuner, confidence detuning, and the zero-delivery capacity slash are
+unchanged and already matched geth.
+
+RED
+
+Command:
+
+cl-workbench validation run cold-unit --match \
+  DEVNET-SNAP-REQUEST-DEADLINE-IS-POOL-WIDE-FOR-EVERY-KIND
+
+Control: redefine devnet-peer-snap-message-timeout-locked to return
+max(pool, 60s), reproducing the stalled revision's cold per-kind deadline.
+
+Result:
+
+not ok DEVNET-SNAP-REQUEST-DEADLINE-IS-POOL-WIDE-FOR-EVERY-KIND
+Assertion failed: (= ETHEREUM-LISP.TEST::POOL
+                     (ETHEREUM-LISP.TEST::TIMEOUT ...))
+
+That is the exact assertion the stalled revision failed: with a six-second pool
+target its storage deadline read sixty.
+
+Exact-revision gates
+
+cl-workbench validation run cold-all
+  1400 tests passed, 3 skipped.   (unit)
+  569 tests passed, 9 skipped.    (integration)
+  34 tests passed.                (e2e)
+  31 tests passed.                (e2e)
+Exit 0, no unexpected skip, no compile warning under /workspace/src.
+
+cl-workbench validation run runtime-smoke \
+  ethereum-lisp-runtime:sec5-83c5e3ce-amd64
+  All seven checks passed.
+
+Runtime artifact
+  /private/tmp/ethereum-lisp-runtime-sec5-83c5e3ce-20260914T075500Z.tar
+  72,018,944 bytes
+  sha256 60f1b892cb0d81fbaa094e1811c0485d448521cf7d6d999863b6bc705a00e667
+  remote image sha256:412b6ca98954104a109e1982ee90aa508688fe3551c5eb86adf7e12a77b52ba2
+
+Live measurement
+
+Container hoodi-el-sec5-83c5e3ce, fresh datadir
+/data/hoodi-sec5-20260814/datadir-83c5e3ce, started 2026-09-14T07:44:36Z on
+test-ethereum-server with the same 12 GiB bound, Lighthouse alias, JWT,
+networks, and public P2P port as the predecessor.
+
+At sixteen minutes, against the predecessor at fifteen:
+
+  metric                fb4cb6f3        83c5e3ce
+  datadir                0.15 GiB        5.87 GiB
+  peer round trip       40,558 ms        1,544 ms
+  account deadline      60,000 ms        6,000 ms
+  pool deadline          8,618 ms        6,000 ms
+  pivot_unavailable          628               2
+  progress events            362             614
+
+Throughput moved from about 0.17 MB/s to about 6.3 MB/s, roughly thirty-seven
+fold. The per-kind deadline now equals the pool deadline, which is the
+behavioural assertion. The measured 1,544 ms round trip is close to the
+1.5 seconds implied by the geth control's own throughput
+(78,571,026,731 payload bytes in 78 minutes at roughly fifty concurrent
+512 KiB requests), so the two clients now operate in the same latency regime.
+
+Remaining gap
+
+geth reached 23.08 GiB in its first fifteen minutes against our 5.87 GiB, so a
+roughly fourfold difference remains. The concurrency audit puts our range-phase
+ceiling at about 26-34 concurrent requests against geth's 27-50, which accounts
+for part of it; SBCL decode cost inside measured delivery latency is the other
+candidate and is not yet quantified. That is a separate, open question.
+
+Scope
+
+This closes the deadline ratchet and is verified at unit, integration, e2e,
+runtime-smoke, and live-throughput level. It does not by itself complete
+Section 5. The run must still reach peer.snap.target_completed, finish healing
+with an empty frontier on the fix recorded in
+docs/evidence/sec5-c0cce53d-heal-deferral-frontier.txt, return
+eth_syncing=false, and execute the canonical head through its
+consensus-authorized target, before the shadow and validator soak gates.
+
+The predecessor container hoodi-el-sec5-fb4cb6f3 and its datadir are preserved
+stopped. The geth control container and its datadir are preserved stopped. No
+datadir was copied or deleted.
