@@ -8127,6 +8127,191 @@
           (is present-p)
           (is (bytes= persisted-root (hash32-bytes second-root))))))))
 
+(deftest snap-heal-dependency-deferral-ignores-the-live-frontier
+  (:layer :unit :module :p2p)
+  ;; Deferring a proved account subtree's storage roots replaces one popped
+  ;; work with at most sixty-four, and skips every descendant.  Declining it
+  ;; expands that whole subtree instead, so a frontier term here is not a
+  ;; bound but a feedback loop: the Hoodi run at 0c6b51bf passed the live cap
+  ;; thirty seconds into its walk and never deferred again for forty-four
+  ;; hours.  Only the deferred-storage target may gate this branch.
+  (is (ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p 0 16))
+  (is (ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p 0 64))
+  ;; The exact deferred/dependency shape observed while the live healer was
+  ;; refusing to defer.
+  (is (ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p 1100 16))
+  ;; The deferred-storage target remains the real bound, inclusive.
+  (is (ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p
+       (- ethereum-lisp.snap-sync::+snap-sync-heal-deferred-storage-target+ 16)
+       16))
+  (is (null
+       (ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p
+        (- ethereum-lisp.snap-sync::+snap-sync-heal-deferred-storage-target+ 15)
+        16)))
+  ;; A candidate naming no storage dependency is not a deferral.
+  (is (null (ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p 0 0)))
+  (signals error
+    (ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p -1 16))
+  (signals error
+    (ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p 0 -1)))
+
+(deftest snap-state-healer-declined-deferral-costs-more-than-it-saves
+  (:layer :integration :module :p2p)
+  ;; The live stall's arithmetic, made deterministic.  One account subtree
+  ;; below coarse nibble three holds 256 accounts, sixteen of which own
+  ;; storage.  A persisted dependency proof lets the healer replace that whole
+  ;; account walk with those sixteen storage roots.  Declining the exchange is
+  ;; what the over-cap production path did for forty-four hours, so it must
+  ;; decode strictly more nodes here; were it ever the cheaper branch, gating
+  ;; it on a live frontier would have been sound and this witness would fail.
+  (let* ((storage-tries
+           (loop for bucket below 16
+                 collect
+                 (let ((trie (make-mpt)))
+                   (dotimes (slot 8 trie)
+                     (mpt-put trie (snap-test-index-hash (+ (* 64 bucket) slot))
+                              (rlp-encode (+ 1 slot)))))))
+         (account-trie (make-mpt))
+         (dependencies '())
+         (account-hashes (make-array 256 :initial-element nil)))
+    (dotimes (index 256)
+      ;; Every key sits below coarse nibble three, so one depth-one subtree
+      ;; covers the entire account population.
+      (let* ((key (make-byte-vector 32))
+             (storage-trie (when (< index 16) (nth index storage-tries)))
+             (storage-root
+               (if storage-trie
+                   (make-hash32 (mpt-root-hash storage-trie))
+                   +empty-trie-hash+)))
+        (setf (aref key 0) (+ #x30 (floor index 16))
+              (aref key 31) (mod index 16)
+              (aref account-hashes index) key)
+        (mpt-put account-trie key
+                 (state-account-rlp
+                  (make-state-account
+                   :nonce index :balance (+ 100000 index)
+                   :storage-root storage-root)))
+        (when storage-trie
+          (push (cons (copy-seq key) storage-root) dependencies))))
+    (setf dependencies (nreverse dependencies))
+    (let* ((account-root (make-hash32 (mpt-root-hash account-trie)))
+           (account-records (mpt-dirty-node-records account-trie))
+           (subtree-references
+             (mapcar #'cdr
+                     (mpt-hashed-subtrees-with-prefix-at-depth account-trie 1)))
+           (source
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Deferral fixture requested an account range"))
+              :storage-ranges
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Deferral fixture requested a storage range"))
+              :bytecodes
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Deferral fixture requested bytecode"))
+              :trie-nodes
+              (lambda (&rest arguments)
+                (declare (ignore arguments))
+                (error "Deferral fixture requested a trie node"))))
+           (genesis (make-hash32 (snap-test-hash 246)))
+           (authority (make-hash32 (snap-test-hash 247)))
+           (predicate-name
+             'ethereum-lisp.snap-sync::snap-sync-heal-defer-dependencies-p)
+           (real-predicate (fdefinition predicate-name))
+           (consulted 0))
+      (is (= 16 (length dependencies)))
+      (is (= 1 (length subtree-references)))
+      (labels
+          ((seeded-database ()
+             ;; Both arms start from the identical durable picture: the whole
+             ;; account trie present but explicitly incomplete, every storage
+             ;; trie present and already proved closed, and one dependency
+             ;; proof naming the sixteen storage roots below the subtree.
+             (let ((database (make-memory-key-value-database))
+                   (batch (make-kv-write-batch)))
+               (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+                database batch account-records)
+               (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+                batch (mapcar #'car account-records))
+               (dolist (storage-trie storage-tries)
+                 (let ((records (mpt-dirty-node-records storage-trie)))
+                   (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+                    database batch records))
+                 (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+                  batch (mpt-root-hash storage-trie) :storage-root))
+               (ethereum-lisp.snap-sync::snap-sync-populate-account-subtree-dependencies-batch
+                batch (first subtree-references) dependencies)
+               (kv-apply-batch database batch)
+               database))
+           (heal (database)
+             (let ((processed nil) (skipped nil))
+               (ethereum-lisp.snap-sync::snap-sync-heal-state
+                database (list source)
+                (ethereum-lisp.snap-sync::snap-sync-make-progress
+                 :pivot-hash (make-hash32 (snap-test-hash 248))
+                 :pivot-number 6120 :state-root account-root
+                 :partial-root +empty-trie-hash+
+                 :target-hash (make-hash32 (snap-test-hash 249))
+                 :chain-id 560048 :genesis-hash genesis
+                 :authority-id authority :completed-p nil
+                 :complete-node-scheme-p t
+                 :tasks
+                 (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                  :count 1 :completed-p t))
+                350
+                :on-heal-progress
+                (lambda (snapshot)
+                  (when
+                      (ethereum-lisp.snap-sync::snap-sync-heal-progress-completed-p
+                       snapshot)
+                    (setf
+                     processed
+                     (ethereum-lisp.snap-sync::snap-sync-heal-progress-processed-nodes
+                      snapshot)
+                     skipped
+                     (ethereum-lisp.snap-sync::snap-sync-heal-progress-skipped-subtrees
+                      snapshot)))))
+               (values processed skipped))))
+        (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                1)
+              (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                1)
+              (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                2))
+          (let ((deferring-database (seeded-database))
+                (refusing-database (seeded-database))
+                (deferring-processed nil) (deferring-skipped nil)
+                (refusing-processed nil) (refusing-skipped nil))
+            (unwind-protect
+                 (progn
+                   (setf (fdefinition predicate-name)
+                         (lambda (&rest arguments)
+                           (incf consulted)
+                           (apply real-predicate arguments)))
+                   (multiple-value-setq
+                       (deferring-processed deferring-skipped)
+                     (heal deferring-database))
+                   ;; Exactly what the live healer did once its frontier passed
+                   ;; the cap: never take the deferral branch.
+                   (setf (fdefinition predicate-name)
+                         (lambda (&rest arguments)
+                           (declare (ignore arguments))
+                           nil))
+                   (multiple-value-setq (refusing-processed refusing-skipped)
+                     (heal refusing-database)))
+              (setf (fdefinition predicate-name) real-predicate))
+            ;; Measured here: one decoded node against 290, from a single
+            ;; 256-account subtree.  The live trie has millions.
+            (is (plusp consulted))
+            (is (plusp deferring-processed))
+            (is (plusp refusing-processed))
+            (is (> refusing-processed deferring-processed))
+            (is (> deferring-skipped refusing-skipped))))))))
+
 (deftest snap-state-healer-rejects-marker-only-storage-difference-frontier
   (:layer :integration :module :p2p)
   ;; Keep the account branch explicitly incomplete because its leaf names the

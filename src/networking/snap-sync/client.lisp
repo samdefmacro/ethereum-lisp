@@ -3005,6 +3005,28 @@ frontier so remote batching does not collapse at 8,192 works."
          checkpoint-room
          (max 1 expansion-room))))
 
+(defun snap-sync-heal-defer-dependencies-p
+    (deferred-storage-count dependency-count)
+  "Return true when a proved account subtree may be skipped for its storage.
+
+Deferring replaces one popped candidate with DEPENDENCY-COUNT storage roots and
+skips the whole account walk; declining re-reads the node and expands every
+descendant instead, which costs far more frontier than the at-most-64 works it
+avoided.  The live frontier must therefore not appear in this decision.  When it
+did, a Hoodi run stalled for forty-four hours: the frontier passed
++SNAP-SYNC-HEAL-LIVE-FRONTIER-MAX-WORKS+ thirty seconds into the walk, which
+disabled deferral, which grew the frontier, which kept deferral disabled.  The
+deferred-storage target is the bound that applies here, because the traversal
+loop stops on that same value."
+  (unless (and (integerp deferred-storage-count)
+               (not (minusp deferred-storage-count))
+               (integerp dependency-count)
+               (not (minusp dependency-count)))
+    (error "Invalid snap heal dependency deferral counts"))
+  (and (plusp dependency-count)
+       (<= (+ deferred-storage-count dependency-count)
+           +snap-sync-heal-deferred-storage-target+)))
+
 (defun snap-sync-heal-pipeline-refill-work-room (examined)
   "Return the remaining deterministic local-work quantum after EXAMINED."
   (unless (and (integerp examined) (not (minusp examined))
@@ -6242,16 +6264,9 @@ for more missing hashes."
                                         (aref candidate-presence
                                               candidate-index))
                                      (incf skipped-subtrees))
-                                    ((and
-                                      dependencies
-                                      (<= (+ deferred-storage-count
-                                             (length dependencies))
-                                          +snap-sync-heal-deferred-storage-target+)
-                                      (<= (+ stack-count missing-count
-                                             deferred-storage-count
-                                             remote-work-count
-                                             (length dependencies))
-                                          +snap-sync-heal-live-frontier-max-works+))
+                                    ((snap-sync-heal-defer-dependencies-p
+                                      deferred-storage-count
+                                      (length dependencies))
                                      (dolist (commitment dependencies)
                                        (defer-storage-reference
                                         (car commitment)
@@ -6672,15 +6687,9 @@ for more missing hashes."
                                         (aref candidate-presence
                                               candidate-index))
                                      (incf skipped-subtrees))
-                                    ((and
-                                      dependencies
-                                      (<= (+ deferred-storage-count
-                                             (length dependencies))
-                                          +snap-sync-heal-deferred-storage-target+)
-                                      (<= (+ stack-count missing-count
-                                             deferred-storage-count
-                                             (length dependencies))
-                                          +snap-sync-heal-live-frontier-max-works+))
+                                    ((snap-sync-heal-defer-dependencies-p
+                                      deferred-storage-count
+                                      (length dependencies))
                                      ;; The account trie and its code are
                                      ;; complete. Keep the explicitly listed
                                      ;; storage roots in the ordinary bounded
