@@ -5780,47 +5780,74 @@ loop cannot block on a message that never comes."
   #-sbcl
   (is t))
 
-(deftest devnet-snap-message-rtt-prevents-cross-type-timeout-collapse
+(deftest devnet-snap-request-deadline-is-pool-wide-for-every-kind
   (:layer :unit :module :p2p)
+  ;; Pinned geth 38271784c2b31926563806da9a2e023b88f5e7a8 arms every SNAP
+  ;; request with s.rates.TargetTimeout(): eth/protocols/snap/sync.go lines
+  ;; 1086, 1197, 1345, 1482, and 1598 for account, bytecode, storage,
+  ;; trie-node, and heal-bytecode requests respectively. It keeps one round
+  ;; trip per peer, not one per message kind.
+  ;;
+  ;; A per-kind deadline floor was tried here and inverted. Seeded at the
+  ;; 20-second maximum it produced a 60-second deadline while the pool asked
+  ;; for six; capacity is sized from that same deadline, so requests grew to
+  ;; fill 60 seconds, deliveries then genuinely took 40 seconds, and the
+  ;; round-trip EWMA pinned the deadline at its ceiling permanently. Hoodi
+  ;; measured 0.65 MB/s against this reference's 21 MB/s on the same host and
+  ;; hour; see docs/evidence/sec5-fb4cb6f3-geth-control-baseline.txt.
   #+sbcl
   (let* ((qos (ethereum-lisp.cli::make-devnet-snap-qos))
          (queue (ethereum-lisp.cli::make-devnet-peer-request-queue qos))
-         (storage-id ethereum-lisp.snap:+snap-message-storage-ranges+))
-    ;; Fast message kinds may tune the shared pool to its two-second floor
-    ;; before this peer ever requests StorageRanges. The first storage rate must
-    ;; nevertheless be cold because it has no storage service-time sample yet.
+         (storage-id ethereum-lisp.snap:+snap-message-storage-ranges+)
+         (code-id ethereum-lisp.snap:+snap-message-bytecodes+)
+         (account-id ethereum-lisp.snap:+snap-message-account-range+))
     (setf (ethereum-lisp.cli::devnet-snap-qos-round-trip qos) 2d0
           (ethereum-lisp.cli::devnet-snap-qos-confidence qos) 1d0
           (ethereum-lisp.cli::devnet-snap-qos-tuned-at qos)
           (get-internal-real-time)
           (ethereum-lisp.cli::devnet-peer-request-queue-snap-round-trip queue)
           2d0)
-    (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
-     queue storage-id)
-    (flet ((storage-timeout ()
+    (flet ((timeout (response-id)
              (sb-thread:with-mutex
                  ((ethereum-lisp.cli::devnet-peer-request-queue-lock queue))
                (ethereum-lisp.cli::devnet-peer-snap-message-timeout-locked
-                queue storage-id))))
-      (is (= 6d0 (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
-      (is (= 60d0 (storage-timeout)))
-      ;; One successful ten-second storage delivery moves only this message
-      ;; EWMA from 20 to 19 seconds, hence a 57-second bounded deadline.
+                queue response-id))))
+      (let ((pool (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+        (is (= 6d0 pool))
+        ;; A cold kind must not escalate above the pool. This is the exact
+        ;; assertion the stalled revision failed: storage read 60 here.
+        (is (= pool (timeout storage-id)))
+        (is (= pool (timeout code-id)))
+        (is (= pool (timeout account-id))))
+      ;; A slow storage delivery still widens the deadline, but the geth way:
+      ;; through the shared per-peer round trip, which the pool median then
+      ;; picks up for every kind at once rather than for storage alone.
       (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
        queue storage-id 1000 10d0)
-      (is (< (abs (- 57d0 (storage-timeout))) 1d-12))
-      ;; A timeout records zero throughput but must not ratchet the service
-      ;; time upward or discard its last successful observation.
-      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
-       queue storage-id 0 57d0)
-      (is (< (abs (- 57d0 (storage-timeout))) 1d-12))
       (is (< (abs
-              (- 57d0
-                 (nth-value
-                  3
-                  (ethereum-lisp.cli::devnet-peer-request-queue-snap-statistics
-                   queue storage-id))))
+              (- 2.8d0
+                 (ethereum-lisp.cli::devnet-peer-request-queue-snap-round-trip
+                  queue)))
              1d-12))
+      (is (= (timeout storage-id) (timeout code-id)))
+      ;; Force the pool's periodic retune, which geth performs once per cached
+      ;; round trip, and require the widening to reach every kind together.
+      (setf (ethereum-lisp.cli::devnet-snap-qos-tuned-at qos) 0)
+      (let ((widened (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)))
+        (is (> widened 6d0))
+        (is (= widened (timeout storage-id)))
+        (is (= widened (timeout code-id)))
+        (is (= widened (timeout account-id))))
+      ;; A timeout slashes this kind's throughput to the minimum probe without
+      ;; holding the peer for a per-kind ceiling.
+      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
+       queue storage-id 0 30d0)
+      (is (= ethereum-lisp.cli::+devnet-snap-min-request-bytes+
+             (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
+              queue storage-id)))
+      (is (= (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)
+             (timeout storage-id)))
+      ;; The dispatched job carries that same pool deadline.
       (let ((job
               (ethereum-lisp.cli::make-devnet-peer-request-job
                (lambda () nil)
@@ -5831,45 +5858,19 @@ loop cannot block on a message that never comes."
         (is (eq job
                 (ethereum-lisp.cli::devnet-peer-request-queue-take-eligible
                  queue)))
-        (is (< (abs
-                (- 57d0
-                   (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
-                    job)))
-               1d-12))
+        (is (= (timeout storage-id)
+               (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
+                job)))
         (setf (ethereum-lisp.cli::devnet-peer-request-queue-active queue) nil))
-      ;; Repeated fast full-size deliveries can legitimately decay the
-      ;; message RTT, but their global-deadline assignment is already clamped
-      ;; to 512 KiB. Retain bounded decode headroom without enlarging it.
+      ;; Repeated full-size deliveries must not create a standing deadline
+      ;; above the pool for the kind that happens to be large.
       (dotimes (index 50)
         (declare (ignore index))
         (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
          queue storage-id
          ethereum-lisp.cli::+devnet-snap-max-request-bytes+ 1d0))
-      (is (< (abs (- 30d0 (storage-timeout))) 1d-12))
-      (is (= ethereum-lisp.cli::+devnet-snap-max-request-bytes+
-             (ethereum-lisp.cli::devnet-peer-request-queue-snap-capacity
-              queue storage-id)))
-      (let ((job
-              (ethereum-lisp.cli::make-devnet-peer-request-job
-               (lambda () nil)
-               :snap-response-id storage-id
-               :snap-request-id 911)))
-        (setf (ethereum-lisp.cli::devnet-peer-request-queue-pending queue)
-              (list job))
-        (is (eq job
-                (ethereum-lisp.cli::devnet-peer-request-queue-take-eligible
-                 queue)))
-        (is (< (abs
-                (- 30d0
-                   (ethereum-lisp.cli::devnet-peer-request-job-timeout-seconds
-                    job)))
-               1d-12))
-        (setf (ethereum-lisp.cli::devnet-peer-request-queue-active queue) nil))
-      ;; A timeout resets throughput, so the next 64 KiB probe returns to the
-      ;; six-second pool deadline instead of holding a dead peer for 30 seconds.
-      (ethereum-lisp.cli::devnet-peer-request-queue-record-snap-delivery
-       queue storage-id 0 30d0)
-      (is (< (abs (- 6d0 (storage-timeout))) 1d-12))))
+      (is (= (ethereum-lisp.cli::devnet-snap-qos-target-timeout qos)
+             (timeout storage-id)))))
   #-sbcl
   (is t))
 

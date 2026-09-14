@@ -72,14 +72,6 @@ capacity near one on ordinary one-to-two-second public peers.")
 (defconstant +devnet-snap-qos-timeout-limit-seconds+ 60d0
   "Geth's maximum timeout for one SNAP request.")
 
-(defconstant +devnet-snap-storage-full-range-timeout-seconds+ 30d0
-  "Bounded decode headroom for a StorageRanges assignment already at 512 KiB.
-
-Once throughput times the live pool deadline reaches the protocol cap, a longer
-deadline cannot make the response larger.  SBCL can therefore retain this
-headroom for the nested RLP decode without weakening the adaptive small probe
-used after a timeout resets throughput.")
-
 (defconstant +devnet-snap-qos-cold-timeout-seconds+ 60d0
   "Geth's initial three-times-20-second timeout for an untuned peer pool.")
 
@@ -239,15 +231,15 @@ used after a timeout resets throughput.")
 
 #+sbcl
 (defstruct (devnet-peer-snap-rate
-            (:constructor make-devnet-peer-snap-rate
-                (throughput round-trip)))
+            (:constructor make-devnet-peer-snap-rate (throughput)))
+  ;; Geth tracks throughput per message kind but round-trip per peer, and every
+  ;; SNAP deadline comes from the pool.  A per-kind service time was tried here
+  ;; and inverted: seeded at the 20-second maximum it produced a 60-second
+  ;; deadline, which sized 60-second requests, which made deliveries genuinely
+  ;; take 40 seconds, which held the deadline at its ceiling.  Slow storage
+  ;; decode still widens the deadline the way geth widens it, through the
+  ;; shared per-peer round trip below feeding the pool median.
   throughput
-  ;; Geth's pool RTT is shared across message types.  In SBCL, however, fully
-  ;; decoding a nested StorageRanges response is part of delivery latency and
-  ;; is materially more expensive than decoding a small ByteCodes response.
-  ;; Retain a per-message service-time floor so fast message kinds cannot tune
-  ;; a legitimate storage response below its own observed completion time.
-  round-trip
   (samples 0))
 
 #+sbcl
@@ -328,12 +320,7 @@ used after a timeout resets throughput.")
               (make-devnet-peer-snap-rate
                (devnet-snap-qos-queue-throughput
                 (devnet-peer-request-queue-snap-qos queue)
-                queue response-id)
-               ;; A response kind with no successful sample is cold even when
-               ;; faster kinds have already tuned the shared peer RTT.  Starting
-               ;; it from the pool's current value would let a first, nested
-               ;; StorageRanges reply inherit ByteCodes' six-second deadline.
-               +devnet-snap-qos-max-rtt-seconds+)))
+                queue response-id))))
         (setf (gethash response-id
                        (devnet-peer-request-queue-snap-rates queue))
               rate)
@@ -341,34 +328,15 @@ used after a timeout resets throughput.")
 
 #+sbcl
 (defun devnet-peer-snap-message-timeout-locked (queue response-id)
-  "Return a bounded deadline that preserves RESPONSE-ID's service-time floor.
+  "Return the pool deadline geth applies to every SNAP request kind.
 
-The node-wide value remains geth's confidence-scaled target.  A message kind
-whose successful deliveries are slower may retain up to the same 60-second
-ceiling.  Zero deliveries never update this floor, so a timeout cannot ratchet
-it upward indefinitely."
-  (let* ((qos (devnet-peer-request-queue-snap-qos queue))
-         (global-timeout (devnet-snap-qos-target-timeout qos))
-         (rate (devnet-peer-request-queue-snap-rate queue response-id))
-         (full-storage-range-p
-           (and (= response-id
-                   ethereum-lisp.snap:+snap-message-storage-ranges+)
-                (>= (ceiling
-                     (+ 1d0
-                        (* +devnet-snap-capacity-overestimation+
-                           (devnet-peer-snap-rate-throughput rate)
-                           global-timeout)))
-                    +devnet-snap-max-request-bytes+))))
-    (if (null qos)
-        global-timeout
-        (max
-         global-timeout
-         (if full-storage-range-p
-             +devnet-snap-storage-full-range-timeout-seconds+
-             0d0)
-         (min +devnet-snap-qos-timeout-limit-seconds+
-              (* +devnet-snap-qos-timeout-scale+
-                 (devnet-peer-snap-rate-round-trip rate)))))))
+RESPONSE-ID is accepted so callers stay uniform, but it deliberately does not
+select the deadline: `assignAccountTasks' and its storage, bytecode, and
+trie-node siblings all arm `s.rates.TargetTimeout()' in pinned geth
+38271784c2b31926563806da9a2e023b88f5e7a8. A per-kind floor here is what
+stalled Hoodi at roughly 0.65 MB/s against that reference's 21 MB/s."
+  (declare (ignore response-id))
+  (devnet-snap-qos-target-timeout (devnet-peer-request-queue-snap-qos queue)))
 
 #+sbcl
 (defun devnet-peer-snap-capacity-target-seconds-locked
@@ -464,12 +432,9 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
       (devnet-snap-qos-record-throughput
        (devnet-peer-request-queue-snap-qos queue)
        queue response-id throughput)
+      ;; Geth updates one round trip per peer, from any delivered kind, and a
+      ;; zero delivery leaves it alone (msgrate.Tracker.Update).
       (when (plusp delivered-units)
-        (setf (devnet-peer-snap-rate-round-trip rate)
-              (+ (* (- 1d0 +devnet-snap-qos-measurement-impact+)
-                    (devnet-peer-snap-rate-round-trip rate))
-                 (* +devnet-snap-qos-measurement-impact+
-                    (float elapsed 1d0))))
         (devnet-peer-request-queue-update-round-trip-locked queue elapsed))
       capacity)))
 
