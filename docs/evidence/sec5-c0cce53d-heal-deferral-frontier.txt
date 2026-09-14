@@ -1,0 +1,140 @@
+Section 5 healer dependency-deferral release
+
+Revision
+
+c0cce53d284c593bf966a9962c7d68a1a0bb7f00
+fix(snap): defer proved subtrees regardless of frontier
+
+Defect
+
+Final TrieNodes healing decides, per proved account-subtree candidate, between
+two branches. Deferring replaces the popped candidate with the at most
+sixty-four storage roots its dependency proof names and skips the whole account
+walk. Declining re-reads the node and expands every descendant instead.
+
+Both production call sites gated deferral on the live frontier:
+
+    (<= (+ stack-count missing-count deferred-storage-count remote-work-count
+           (length dependencies))
+        +snap-sync-heal-live-frontier-max-works+)
+
+Declining costs far more frontier than the at most sixty-four works the gate
+withheld, so the gate grew the quantity it was meant to bound and then stayed
+false because it had grown. The adjacent
++snap-sync-heal-deferred-storage-target+ check is the bound that actually
+applies to this branch; the traversal loop already stops on the same value.
+
+Live evidence
+
+Deployment hoodi-el-sec5-0c6b51bf-r1, revision
+0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae, ran 2026-09-11T15:51:43Z through
+2026-09-13T15:20:47Z on test-ethereum-server (10-7-47-31). Flat-range download
+held 15:58:17Z to 18:51:56Z; all 4,285 peer.snap.progress, 4,285
+peer.snap.page_profile, and 18,166 peer.snap.storage_profile events fall in that
+window. The remaining 44.5 hours were final healing alone: 4,971
+peer.snap.heal_progress events, 45 peer.snap.pivot_rebased events, and zero
+peer.snap.target_completed events.
+
+One complete pivot generation, pivot 3616136, sampled from that log:
+
+    timestamp             processed  frontier  incomplete  deferred
+    2026-09-13T14:24:56           0         1           1         0
+    2026-09-13T14:25:26      62,440   138,979      28,345         0
+    2026-09-13T14:31:52     292,864   211,533      95,962     1,100
+    2026-09-13T15:20:18   1,773,568   684,653     570,754     1,100
+
+The frontier passes +snap-sync-heal-live-frontier-max-works+ (131,072) within
+the first thirty seconds and never returns below it, so the gate was false for
+the rest of the generation. Growth is linear for 55 minutes with no inflection
+and the ratios stay constant (frontier/processed 0.386, incomplete/processed
+0.322), which is a non-terminating walk rather than a slow one. Every sample
+reports discoveredRate above processedRate: netDrainRate held near -175 and
+etaStatus stayed dynamic-expansion. reusedNodes was 1,772,933 of 1,773,568
+processed, so the amplification was local re-expansion, not peer latency.
+
+Host measurement excludes storage as the cause. The datadir filesystem served
+0.182 ms random 4 KiB O_DIRECT reads (about 5,500 IOPS at queue depth one) and
+718 MB/s sequential, against a healer processing roughly 500 nodes per second.
+
+Fix
+
+snap-sync-heal-defer-dependencies-p takes only the deferred-storage count and
+the dependency count. Both call sites call it. The live frontier no longer
+participates in the decision.
+
+RED
+
+Command:
+
+cl-workbench validation run cold-unit --match \
+  SNAP-HEAL-DEPENDENCY-DEFERRAL-IGNORES-THE-LIVE-FRONTIER
+
+Control: redefine snap-sync-heal-defer-dependencies-p to return NIL for every
+input, reproducing the over-cap production decision.
+
+Result:
+
+not ok SNAP-HEAL-DEPENDENCY-DEFERRAL-IGNORES-THE-LIVE-FRONTIER
+Assertion failed: (ETHEREUM-LISP.SNAP-SYNC::SNAP-SYNC-HEAL-DEFER-DEPENDENCIES-P
+                   0 16)
+
+Focused GREEN
+
+Command:
+
+cl-workbench validation run cold-unit --match \
+  SNAP-HEAL-DEPENDENCY-DEFERRAL-IGNORES-THE-LIVE-FRONTIER
+
+Result:
+
+ok SNAP-HEAL-DEPENDENCY-DEFERRAL-IGNORES-THE-LIVE-FRONTIER
+1 test passed.
+
+Cost measurement
+
+snap-state-healer-declined-deferral-costs-more-than-it-saves builds one
+depth-one account subtree holding 256 accounts, sixteen of which own persisted
+storage tries, plus the dependency proof naming those sixteen storage roots. It
+heals the same seeded database twice through the production healer, once with
+the real predicate and once with deferral refused as the over-cap path refused
+it.
+
+Measured:
+
+    deferring  processed 1    skipped subtrees 17
+    refusing   processed 290  skipped subtrees 16
+
+One subtree of 256 accounts costs 290 decoded nodes instead of one. The live
+trie holds millions.
+
+Exact-revision gates
+
+cl-workbench validation run cold-unit
+1400 tests passed, 3 skipped.
+
+cl-workbench validation run cold-integration
+569 tests passed, 9 skipped.
+
+The three unit skips are the optional
+ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT fixture families; the nine integration
+skips are the optional fixture-dependent families. Both counts are one above the
+13cebe2a baseline of 1,399 and 568, accounting for the two tests added here.
+
+Scope
+
+This is a tested repair of a local decision plus its two production call sites.
+It is not live completion evidence. Section 5 still requires a fresh-datadir
+Hoodi run on this revision recording peer.snap.target_completed, healer
+completion with an empty frontier, eth_syncing=false, and canonical execution
+through the consensus-authorized target, followed by the shadow and validator
+soak gates.
+
+Unchanged by this revision
+
+The traversal loop at the local (non-refill) call site still does not apply
++snap-sync-heal-live-frontier-max-works+; only the bounded-refill path does.
+That asymmetry is why the frontier could exceed the cap in the first place. It
+is left alone deliberately: with deferral restored the frontier has a draining
+branch again, and capping a purely local traversal that has nothing to fetch
+would stall it rather than bound it. Live behaviour on this revision decides
+whether a separate bound is still needed.
