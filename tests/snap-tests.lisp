@@ -3375,6 +3375,7 @@
         (older-epoch (make-memory-key-value-database))
         (previous-epoch (make-memory-key-value-database))
         (unsafe-storage-epoch (make-memory-key-value-database))
+        (untrusted-absence-epoch (make-memory-key-value-database))
         (malformed (make-memory-key-value-database)))
     (is
      (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -3442,11 +3443,23 @@
      (not
       (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
        unsafe-storage-epoch)))
+    ;; Epoch five wrote the same markers but never trusted their absence, so
+    ;; its stores keep their content and still walk rather than skip.
     (let ((batch (make-kv-write-batch)))
       (ethereum-lisp.database:kv-batch-put-chain-record
        batch :metadata
        ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
-       #(6))
+       ethereum-lisp.snap-sync::+snap-sync-untrusted-absence-complete-node-scheme-value+)
+      (kv-apply-batch untrusted-absence-epoch batch))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+       untrusted-absence-epoch)))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
+       #(7))
       (kv-apply-batch malformed batch))
     (signals ethereum-lisp.validation:storage-error
       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -8363,8 +8376,16 @@
           (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
            batch second-root)
           (when (eq database exact-database)
+            ;; A real writer marks every persisted record it has not proved
+            ;; closed, storage included: SNAP-SYNC-INCOMPLETE-RECORD-HASHES
+            ;; takes the exact complement of the range's complete references.
+            ;; Marking only the account side would model a store this epoch
+            ;; cannot produce, and the healer would rightly skip the unmarked
+            ;; storage nodes. The epoch's storage skip has its own positive
+            ;; control in SNAP-STATE-HEALER-SKIPS-CLOSED-STORAGE-SUBTREES.
             (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
-             batch (mapcar #'car account-records)))
+             batch (append (mapcar #'car account-records)
+                           (mapcar #'car first-storage-records))))
           (kv-apply-batch database batch)))
       (labels ((progress (seed complete-node-scheme-p)
                  (ethereum-lisp.snap-sync::snap-sync-make-progress
@@ -8423,13 +8444,206 @@
             ;; healed-subtree proof is available.
             (is (plusp exact-processed))))))))
 
+(deftest snap-sync-never-persists-a-trie-node-apart-from-its-marker
+  (:layer :integration :module :p2p)
+  ;; The crash-safety half of the closure epoch. Skipping an unmarked storage
+  ;; node is only sound because a node and its negative marker cannot be
+  ;; separated: KV-APPLY-BATCH-BUFFERED applies a batch atomically and a crash
+  ;; drops whole trailing batches rather than splitting one. That argument
+  ;; fails the moment any writer puts a trie node in one batch and its marker
+  ;; in another, which no unit test of the healer would catch.
+  ;;
+  ;; Run a real import and inspect every batch it applies: each persisted trie
+  ;; node must travel with either its own marker or that marker's deletion,
+  ;; the latter meaning the range proved the subtree closed.
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (target-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (source
+             (snap-test-source
+              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+               source-database source-state)))
+           (node-prefix
+             (aref (ethereum-lisp.database::kv-chain-record-key
+                    :trie-node (snap-test-hash 0))
+                   0))
+           (inspected 0)
+           (orphans '())
+           (real-apply (fdefinition 'ethereum-lisp.database:kv-apply-batch))
+           (real-buffered
+             (fdefinition 'ethereum-lisp.database:kv-apply-batch-buffered)))
+      (labels
+          ((marker-key (hash)
+             (ethereum-lisp.database::kv-chain-record-key
+              :metadata
+              (ethereum-lisp.snap-sync::snap-sync-incomplete-node-identifier
+               hash)))
+           (inspect-batch (batch)
+             (let ((operations
+                     (reverse
+                      (ethereum-lisp.database::kv-write-batch-operations
+                       batch)))
+                   (marker-keys (make-hash-table :test #'equalp))
+                   (nodes '()))
+               (dolist (operation operations)
+                 (let ((key (second operation)))
+                   (when (and (plusp (length key))
+                              (= (aref key 0) node-prefix))
+                     (case (first operation)
+                       (:put (push (subseq key 1) nodes))))
+                   (setf (gethash key marker-keys) t)))
+               (dolist (hash nodes)
+                 (incf inspected)
+                 (unless (nth-value 1 (gethash (marker-key hash) marker-keys))
+                   (push hash orphans))))))
+        (unwind-protect
+             (progn
+               ;; Only the importing store is under the closure contract. The
+               ;; fixture's source backend persists served tries through
+               ;; MPT-PERSIST, which writes trie nodes with no markers by
+               ;; design and must not be mistaken for a client writer.
+               (setf (fdefinition 'ethereum-lisp.database:kv-apply-batch)
+                     (lambda (database batch)
+                       (when (eq database target-database)
+                         (inspect-batch batch))
+                       (funcall real-apply database batch)))
+               (setf (fdefinition
+                      'ethereum-lisp.database:kv-apply-batch-buffered)
+                     (lambda (database batch)
+                       (when (eq database target-database)
+                         (inspect-batch batch))
+                       (funcall real-buffered database batch)))
+               (ethereum-lisp.snap-sync:snap-sync-import-state
+                target-database source
+                :pivot-hash (make-hash32 (snap-test-hash 231))
+                :pivot-number 44 :state-root root
+                :target-hash (make-hash32 (snap-test-hash 232))
+                :chain-id 560048
+                :genesis-hash (make-hash32 (snap-test-hash 233))
+                :authority-id (make-hash32 (snap-test-hash 234))))
+          (setf (fdefinition 'ethereum-lisp.database:kv-apply-batch)
+                real-apply)
+          (setf (fdefinition 'ethereum-lisp.database:kv-apply-batch-buffered)
+                real-buffered)))
+      ;; A witness that the import really wrote nodes, so an empty run cannot
+      ;; pass this vacuously.
+      (is (plusp inspected))
+      (is (null orphans)))))
+
+(deftest snap-state-healer-skips-closed-storage-subtrees
+  (:layer :integration :module :p2p)
+  ;; The closure epoch's positive control, and the reason it is safe.
+  ;;
+  ;; A store born under this epoch cannot hold an unmarked storage node above
+  ;; a missing descendant: SNAP-SYNC-INCOMPLETE-RECORD-HASHES marks the exact
+  ;; complement of the range's complete references, MPT-PROVED-RANGE-SUBTREES
+  ;; only names subtrees whose every descendant was rebuilt in the same batch,
+  ;; and KV-APPLY-BATCH-BUFFERED applies that batch atomically. So an unmarked
+  ;; storage node is closed and the healer may skip it, which is geth's
+  ;; AddSubTrie contract at 38271784c2b31926563806da9a2e023b88f5e7a8.
+  ;;
+  ;; Both arms below use the same complete storage trie. The only difference
+  ;; is whether its records carry negative markers. Unmarked must skip;
+  ;; marked must still walk, because a marker is what an open subtree looks
+  ;; like and dropping that would be the b23c7d57 defect.
+  (let* ((state (make-state-db))
+         (address (snap-test-address-from-integer 1)))
+    (loop for index from 1 to 512
+          do (state-db-set-storage
+              state address (make-hash32 (snap-test-index-hash index))
+              (+ 700000 index)))
+    (let* ((root (state-db-root state))
+           (storage-root (state-db-get-storage-root state address))
+           (tries (state-db-persistence-tries state))
+           (account-records (mpt-dirty-node-records (first tries)))
+           (storage-records (mpt-dirty-node-records (second tries)))
+           (source-database (make-memory-key-value-database))
+           (source
+             (snap-test-source
+              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+               source-database state))))
+      (is (plusp (length storage-records)))
+      (labels
+          ((seeded (mark-storage-p)
+             (let ((database (make-memory-key-value-database))
+                   (batch (make-kv-write-batch)))
+               (is
+                (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+                 database))
+               (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+                database batch (append account-records storage-records))
+               (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+                batch root
+                (cons (ethereum-lisp.crypto:keccak-256 (address-bytes address))
+                      storage-root))
+               (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+                batch root)
+               ;; Accounts stay marked in both arms: an unmarked account
+               ;; subtree may still name code or storage that is not durable,
+               ;; so this epoch deliberately does not trust it.
+               (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+                batch (mapcar #'car account-records))
+               (when mark-storage-p
+                 (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+                  batch (mapcar #'car storage-records)))
+               (kv-apply-batch database batch)
+               database))
+           (heal (database seed)
+             (let ((processed nil) (skipped nil))
+               (ethereum-lisp.snap-sync::snap-sync-heal-state
+                database (list source)
+                (ethereum-lisp.snap-sync::snap-sync-make-progress
+                 :pivot-hash (make-hash32 (snap-test-hash seed))
+                 :pivot-number 6140 :state-root root
+                 :partial-root +empty-trie-hash+
+                 :target-hash (make-hash32 (snap-test-hash (1+ seed)))
+                 :chain-id 560048
+                 :genesis-hash (make-hash32 (snap-test-hash 243))
+                 :authority-id (make-hash32 (snap-test-hash 244))
+                 :completed-p nil :complete-node-scheme-p t
+                 :tasks
+                 (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                  :count 1 :completed-p t))
+                350
+                :on-heal-progress
+                (lambda (snapshot)
+                  (when
+                      (ethereum-lisp.snap-sync::snap-sync-heal-progress-completed-p
+                       snapshot)
+                    (setf
+                     processed
+                     (ethereum-lisp.snap-sync::snap-sync-heal-progress-processed-nodes
+                      snapshot)
+                     skipped
+                     (ethereum-lisp.snap-sync::snap-sync-heal-progress-skipped-subtrees
+                      snapshot)))))
+               (values processed skipped))))
+        (multiple-value-bind (unmarked-processed unmarked-skipped)
+            (heal (seeded nil) 245)
+          (multiple-value-bind (marked-processed marked-skipped)
+              (heal (seeded t) 247)
+            (is (plusp marked-processed))
+            ;; Trusting closure must strictly reduce the walk.
+            (is (< unmarked-processed marked-processed))
+            (is (> unmarked-skipped marked-skipped))))))))
+
 (deftest snap-state-healer-does-not-trust-storage-marker-absence
   (:layer :integration :module :p2p)
   ;; Live Hoodi revision b23c7d57 exhausted the visible healer frontier, then
   ;; bounded-tail execution opened a missing child below an unmarked persisted
-  ;; storage branch.  Marker absence cannot replace an explicit subtree proof:
-  ;; a legacy or interrupted writer can leave a parent without either its child
-  ;; record or a conservative negative marker.
+  ;; storage branch.  A legacy or interrupted writer can leave a parent without
+  ;; either its child record or a conservative negative marker, so for such a
+  ;; store marker absence must never replace an explicit subtree proof.
+  ;;
+  ;; The store below is exactly that shape: storage records persisted with one
+  ;; descendant missing and no negative markers at all. The current closure
+  ;; epoch cannot produce it, so this store must stay outside that epoch and
+  ;; keep the conservative walk. The epoch's own storage behaviour is covered
+  ;; by SNAP-STATE-HEALER-SKIPS-CLOSED-STORAGE-SUBTREES, which also proves a
+  ;; marked storage node is still fetched.
   (let* ((state (make-state-db))
          (address (snap-test-address-from-integer 1)))
     (loop for index from 1 to 2048
@@ -8459,15 +8673,22 @@
               :chain-id 560048
               :genesis-hash (make-hash32 (snap-test-hash 251))
               :authority-id (make-hash32 (snap-test-hash 252))
-              :completed-p nil :complete-node-scheme-p t
+              :completed-p nil :complete-node-scheme-p nil
               :tasks
               (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
                :count 1 :completed-p t)))
            (fetched nil))
       (is omitted)
+      ;; A store already holding trie nodes cannot enter the closure epoch,
+      ;; which is what keeps this shape on the conservative path.
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.database:kv-batch-put-chain-record
+         batch :trie-node (snap-test-hash 253) #(1 2 3))
+        (kv-apply-batch target-database batch))
       (is
-       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
-        target-database))
+       (not
+        (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+         target-database)))
       (let ((batch (make-kv-write-batch)))
         (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
          target-database batch
@@ -8680,10 +8901,19 @@
       (is
        (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
         target-database))
-      (let ((batch (make-kv-write-batch)))
+      (let ((batch (make-kv-write-batch))
+            (retained
+              (append account-records
+                      (nthcdr (length omitted) storage-records))))
         (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
-         target-database batch
-         (append account-records (nthcdr (length omitted) storage-records)))
+         target-database batch retained)
+        ;; This subtree is open, so under the closure epoch its records carry
+        ;; negative markers. Persisting them bare would model a store the
+        ;; epoch cannot produce and would let the healer skip them, which is
+        ;; the separate concern of SNAP-STATE-HEALER-SKIPS-CLOSED-STORAGE-
+        ;; SUBTREES rather than this test's publication ordering.
+        (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+         batch (mapcar #'car retained))
         (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
          batch root
          (cons

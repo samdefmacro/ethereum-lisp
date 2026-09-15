@@ -181,8 +181,28 @@ that post-order completion sentinels seldom permit in production.")
   "Versioned value for an incomplete content-addressed trie node.")
 (defparameter +snap-sync-complete-node-scheme-identifier+
   "snap-complete-trie-node-scheme")
-(defparameter +snap-sync-complete-node-scheme-value+ #(5)
-  "Marks a trie store whose node negatives follow conservative closure epoch 5.")
+(defparameter +snap-sync-complete-node-scheme-value+ #(6)
+  "Marks a trie store where an unmarked storage node proves its own closure.
+
+Three properties make that true by construction for a store born under this
+epoch, and only for its storage tries.  Every persisted record is either marked
+incomplete or named in the range's complete references, because
+SNAP-SYNC-INCOMPLETE-RECORD-HASHES takes the exact complement.  Those complete
+references can only name subtrees rebuilt whole in the same batch, because
+MPT-PROVED-RANGE-SUBTREES returns a node only when DIRTY-SUBTREE-P holds for
+every descendant and never returns a clean proof edge.  And a node travels with
+its marker, because KV-APPLY-BATCH-BUFFERED applies a batch atomically and a
+crash drops whole trailing batches rather than splitting one.
+
+Account nodes are deliberately excluded.  SNAP-SYNC-CLASSIFY-ACCOUNT-RANGE-
+SUBTREES puts a dependency-carrying account subtree into the same complete
+references, so an unmarked account node can still own code or storage that is
+not durable; that is the 03263d2f seam and it still requires the dependency
+proof.  Epoch five wrote identical markers but trusted neither kind, so its
+healer walked the whole trie: a Hoodi run visited 14,968,832 nodes and grew its
+frontier to 4,829,326 without converging, while geth healed 65,631 nodes.")
+(defparameter +snap-sync-untrusted-absence-complete-node-scheme-value+ #(5)
+  "Recognized but never trusted marker from the whole-trie-walk epoch.")
 (defparameter +snap-sync-unsafe-storage-complete-node-scheme-value+ #(4)
   "Recognized but never trusted marker from the unsafe storage-proof epoch.")
 (defparameter +snap-sync-previous-complete-node-scheme-value+ #(3)
@@ -838,6 +858,8 @@ observational and not consensus-visible."
       ;; account and dependency seams. Keep their content, but never interpret
       ;; marker absence as proof after an upgrade.
       ((or
+        (bytes=
+         value +snap-sync-untrusted-absence-complete-node-scheme-value+)
         (bytes=
          value +snap-sync-unsafe-storage-complete-node-scheme-value+)
         (bytes= value +snap-sync-previous-complete-node-scheme-value+)
@@ -6098,19 +6120,36 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                (snap-sync-heal-work-path work)
                (snap-sync-heal-work-reference work)
                :marker-state :complete)))
-           (let ((reference (snap-sync-heal-work-reference work)))
-             (when (and complete-node-scheme-p
-                        (byte-vector-p reference)
-                        (= 32 (length reference))
-                        (nth-value
-                         1 (gethash reference incomplete-nodes)))
-               (stack-push
-                (snap-sync-make-heal-work
-                 (snap-sync-heal-work-kind work)
-                 (snap-sync-heal-work-account-hash work)
-                 (snap-sync-heal-work-path work)
-                 reference :marker-state :node-complete))))
-           (process-object work object))
+           (let* ((reference (snap-sync-heal-work-reference work))
+                  (hash-addressed-p
+                    (and (byte-vector-p reference)
+                         (= 32 (length reference))))
+                  (marked-p
+                    (and hash-addressed-p
+                         (nth-value
+                          1 (gethash reference incomplete-nodes)))))
+             (cond
+               ((and complete-node-scheme-p marked-p)
+                (stack-push
+                 (snap-sync-make-heal-work
+                  (snap-sync-heal-work-kind work)
+                  (snap-sync-heal-work-account-hash work)
+                  (snap-sync-heal-work-path work)
+                  reference :marker-state :node-complete))
+                (process-object work object))
+               ((and complete-node-scheme-p
+                     hash-addressed-p
+                     (eq :storage (snap-sync-heal-work-kind work))
+                     (not (snap-sync-heal-work-fetched-p work)))
+                ;; Durably present, unmarked, and a storage node, so this
+                ;; epoch's construction already closes its descendants and
+                ;; expanding them only rediscovers closed state. Accounts are
+                ;; excluded: an unmarked account subtree may still name code
+                ;; or storage that is not durable, which only its dependency
+                ;; proof can settle. Any ARMED proof sentinel pushed above
+                ;; still publishes.
+                (incf skipped-subtrees))
+               (t (process-object work object)))))
          (collect-missing (maximum &optional bounded-refill-p)
            "Advance local trie work and return at most MAXIMUM missing hashes.
 
