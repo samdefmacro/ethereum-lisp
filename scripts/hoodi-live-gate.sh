@@ -274,7 +274,10 @@ REMOTE
     fi
     [ "$state" = "upload" ] || fail "unexpected seccomp upload preflight result: $state"
     note "uploading the pinned Docker 26.1.4 io_uring seccomp profile"
-    scp "$seccomp_profile" "$host:$partial"
+    # -O uses the legacy SCP transfer instead of SFTP. The gate host's
+    # sftp-server closes the connection immediately, and the artifact is
+    # verified by checksum after arrival either way.
+    scp -O "$seccomp_profile" "$host:$partial"
     ssh "$host" bash -s -- \
         "$remote_seccomp_profile" "$partial" "$seccomp_sha256" <<'REMOTE'
 set -eu
@@ -324,7 +327,7 @@ REMOTE
     [ "$state" = "upload" ] || fail "unexpected upload preflight result: $state"
 
     note "uploading the runtime-only image archive"
-    scp "$artifact" "$host:$partial"
+    scp -O "$artifact" "$host:$partial"
     ssh "$host" bash -s -- "$remote_artifact" "$partial" "$artifact_sha256" <<'REMOTE'
 set -eu
 final="$1"; partial="$2"; expected="$3"
