@@ -1,0 +1,161 @@
+Section 5 healing completeness audit and a reverted attempt
+
+Status
+
+Diagnosis and a rejected fix. No source change is retained from this work. The
+three fixes that did land this cycle are recorded separately in
+docs/evidence/sec5-c0cce53d-heal-deferral-frontier.txt,
+docs/evidence/sec5-83c5e3ce-pool-deadline.txt, and the geth control baseline in
+docs/evidence/sec5-fb4cb6f3-geth-control-baseline.txt.
+
+The measurement that prompted it
+
+Revision 646da5897448f98d421d9c85e4701c4957404429 was the first to complete flat
+range download on public Hoodi: container hoodi-el-sec5-646da589 started
+2026-09-14T15:28:46Z and finished the range phase at 18:07:38Z, 2 hours 39
+minutes, with 4,285 account-progress events. Final healing then ran 8 hours 47
+minutes on a stable pivot 3623644 with zero rebases and did not converge. At
+2026-09-15T02:54:34Z, immediately before a clean operator stop:
+
+    processedNodes      14,968,832      frontierWorks          4,829,326
+    reusedNodes         14,967,759      knownIncompleteNodes   4,705,927
+    fetchedNodes             1,080      skippedSubtrees       25,611,885
+    requests                   563      promotedSubtrees               0
+    processedRate            433/s      discoveredRate             557/s
+    netDrainRate              -124      etaStatus      dynamic-expansion
+    dynamicUsageBytes     1.74 GB       gcRunMs               11,509,503
+
+On the same chain the pinned geth v1.17.4 control healed 65,631 trie nodes and
+11 bytecodes in a 78-minute total sync. We fetched fewer nodes than geth healed
+(1,080) while visiting 14.97 million local ones.
+
+Root cause: two different completeness models
+
+Geth treats hash presence as proof that the whole subtree is present, and skips
+without descending. trie/sync.go at
+38271784c2b31926563806da9a2e023b88f5e7a8:
+
+    289  func (s *Sync) AddSubTrie(root common.Hash, path []byte, ...) {
+    294      exist, inconsistent := s.hasNode(owner, inner, root)
+    295      if exist {
+    296          // The entire subtrie is already present in the database.
+    297          return
+
+The same short circuit appears for children at lines 630-640. What makes it
+sound is write ordering: commitNodeRequest at lines 673-691 decrements the
+parent's dependency count and commits the parent only at deps == 0, so a
+node is written only after all of its descendants. Flat generation has the same
+property through the stack trie, and an incomplete right boundary is never
+flushed at all (eth/protocols/snap/gentrie.go lines 316-320, hashTrie.commit
+returns without Hash() when not complete).
+
+Our healer instead treats marker absence as unproven and descends:
+
+    src/networking/snap-sync/client.lisp, decode-local-node
+    ;; Marker presence remains a conservative instruction to traverse a
+    ;; node, but marker absence is not proof that every descendant is
+    ;; durable.
+    (declare (ignore incomplete-p))
+
+So our heal cost is the number of local nodes under unproven prefixes rather
+than the number of missing nodes.
+
+A separate, concrete defect found on the way
+
+When the deferred-storage plan exceeds +snap-sync-deferred-storage-max-works+
+(8,192), promotion fail-closes to zero and the heal frontier falls back to a
+walk from the state root rather than from the storage roots:
+
+    src/networking/snap-sync/client.lisp lines 5574-5585
+           (stack
+             (cond
+               (checkpoint-present-p ...)
+               ((and planned-storage-present-p
+                     (not planned-storage-overflow-p))
+                planned-storage)
+               ((hash32= state-root +empty-trie-hash+) nil)
+               (t
+                (list
+                 (snap-sync-make-heal-work
+                  :account nil (make-byte-vector 0) root-bytes)))))
+
+The geth control reported 4,851,411 bytecodes on this chain, so the deferred
+plan was far above 8,192 and this run necessarily took the fallback. That also
+explains promotedSubtrees = 0, which shares the same overflow condition in
+snap-sync-promote-complete-range-plan. Raising or paginating this bound is a
+real improvement, but on its own it does not make healing terminate, because
+the walk still descends into every present node beneath each storage root.
+
+What was attempted and why it was reverted
+
+The prerequisite for geth's model already holds here. mpt-dirty-nodes returns
+"newly allocated nodes, children before parents", and every writer places a
+node and its incomplete marker in one atomic batch. Those five sites are
+client.lisp 1072-1076, 2318-2325, 2427-2435, 5063-5070, and 6436-6440; two of
+them say so explicitly in comments. The epoch mechanism already distinguishes a
+store born under the current contract from a legacy one, and
+snap-sync-enable-complete-node-scheme-p is even documented as enabling
+"geth-like hash presence only for a store born under this contract".
+
+The attempt was therefore: advance the closure epoch from five to six, keep
+epoch five recognised but untrusted, and in integrate-present-work skip a
+present, unmarked, locally read node instead of expanding it.
+
+That change fails three existing regressions, and the two that matter reproduce
+the exact defects they were written for:
+
+    snap-state-healer-does-not-trust-storage-marker-absence
+      Assertion failed: (PLUSP FETCHED)
+    snap-state-healer-never-confuses-account-presence-with-dependency-closure
+      Assertion failed: (PLUSP FETCHED)
+    snap-state-healer-rejects-marker-only-storage-difference-frontier
+      Assertion failed: (ZEROP EXACT-SKIPPED)
+
+The first two mean the healer stopped fetching a node that is genuinely
+missing. That is precisely the live b23c7d57 failure archived in
+docs/evidence/sec5-b23c7d57-storage-closure-failure.txt, where a node reported
+completed=T with frontierWorks=0 and knownIncompleteNodes=0 and then exited 26
+seconds later on missing persisted trie node 0x5dc4...5b95, and the matching
+account-side failure at 03263d2f.
+
+Those tests construct a store holding an unmarked present parent above a
+missing child, which is exactly the state epoch six declares impossible. They
+could only be updated if the writer were first proven incapable of producing
+that state. It is not proven. The identified risk surface is the boundary
+proof-node persistence at client.lisp 1824-1828, which writes clean resolver
+nodes from the range proof:
+
+      ;; Boundary proof nodes are decoded and used by MPT-VERIFY-RANGE-PROOF,
+      ;; but are clean resolver nodes in its reconstructed trie. Persist their
+      ;; raw content too or a later traversal could reach a missing boundary.
+
+Geth deliberately does the opposite and never persists an incomplete boundary.
+Relaxing a closure rule while that path still writes open parents is how both
+previous false-completion defects shipped, so the change was reverted rather
+than the tests adjusted.
+
+Required order for a future attempt
+
+1. Make the invariant true by construction before trusting it. Either stop
+   persisting open boundary parents, matching hashTrie.commit(false), or prove
+   every such node always carries a marker written in the same batch.
+2. Only then advance the closure epoch and let the healer skip present unmarked
+   nodes, keeping epoch five recognised but untrusted.
+3. Keep snap-state-healer-does-not-trust-storage-marker-absence and
+   snap-state-healer-never-confuses-account-presence-with-dependency-closure
+   green throughout; they must be re-expressed against a legacy store rather
+   than weakened, because their subject is legacy behaviour.
+4. Add crash injection at every node/marker batch seam, since the whole
+   argument rests on that atomicity.
+5. Separately, raise or paginate +snap-sync-deferred-storage-max-works+ so a
+   chain with millions of contracts does not fall back to a state-root walk.
+
+Live disposition
+
+hoodi-el-sec5-646da589 was stopped cleanly at 2026-09-15T02:55:47Z, exit 0, no
+OOM, with its 51.37 GiB datadir preserved for inspection. Its shutdown emitted
+the same SBCL memory fault previously seen on 0c6b51bf
+("CORRUPTION WARNING ... Memory fault at 0x562478000000"), so that fault is
+reproducible on shutdown and is a separate open item. The geth control
+container and datadir remain preserved. The data filesystem was at 79% with
+145 GiB available.
