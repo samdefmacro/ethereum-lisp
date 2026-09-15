@@ -1,0 +1,119 @@
+Section 5 storage closure epoch
+
+Revision
+
+5c8a39c07489133248c7c2817c01288af4192485
+fix(snap): trust closed storage subtrees during healing
+
+Change
+
+Closure epoch advanced from five to six. Epoch five is recognised but never
+trusted, so an existing store keeps its content and its conservative walk. In a
+store born under epoch six the healer now skips a present, unmarked, locally
+read STORAGE node without descending, which is geth's AddSubTrie contract at
+38271784c2b31926563806da9a2e023b88f5e7a8, trie/sync.go lines 289-297 and
+630-640.
+
+Why that is sound, and only for storage
+
+Three properties, each verified in code rather than assumed:
+
+1. Every persisted record is either marked incomplete or named in the range's
+   complete references. SNAP-SYNC-INCOMPLETE-RECORD-HASHES takes the exact
+   complement, and the account prebuffer at client.lisp 2426-2436 marks every
+   record it writes without exception.
+2. Complete references can only name subtrees rebuilt whole in the same batch.
+   MPT-PROVED-RANGE-SUBTREES (foundation/trie/persistence.lisp 87-124) returns
+   a node only when DIRTY-SUBTREE-P holds recursively for every descendant, and
+   its docstring states that clean or unresolved proof-edge nodes are never
+   returned.
+3. A node cannot be separated from its marker. KV-APPLY-BATCH-BUFFERED is
+   documented to "apply BATCH atomically without independently establishing a
+   durable seam"; a crash drops whole trailing batches rather than splitting
+   one.
+
+Accounts are excluded deliberately. SNAP-SYNC-CLASSIFY-ACCOUNT-RANGE-SUBTREES
+places a dependency-carrying account subtree into the same complete references,
+so an unmarked account node may still own code or storage that is not durable.
+That is the 03263d2f seam and it still requires the dependency proof.
+
+Tests
+
+New:
+  snap-sync-never-persists-a-trie-node-apart-from-its-marker
+    Runs a real import and inspects every batch applied to the importing store.
+    Each persisted trie node must carry its own marker put or that marker's
+    deletion in the same batch. 38 nodes inspected, 0 orphans.
+    RED control: suppress SNAP-SYNC-POPULATE-INCOMPLETE-RECORDS-BATCH, and the
+    orphan assertion fails. This is the crash-safety half of the argument and
+    no healer-level test would catch its loss.
+  snap-state-healer-skips-closed-storage-subtrees
+    Same complete storage trie healed twice, differing only in whether its
+    records carry markers. Unmarked must decode strictly fewer nodes and skip
+    strictly more subtrees; marked must still walk, because a marker is what an
+    open subtree looks like.
+    RED control: on the parent revision both arms are identical and the
+    strict-inequality assertion fails.
+
+Re-expressed, not weakened:
+  snap-state-healer-does-not-trust-storage-marker-absence keeps its subject,
+    legacy stores, by seeding a trie node so the store cannot enter the epoch.
+  snap-state-healer-rejects-marker-only-storage-difference-frontier and
+  snap-healed-subtree-publication-waits-for-missing-descendants now mark their
+    persisted storage records, which is what a real writer does; previously
+    they modelled a store this epoch cannot produce.
+  snap-complete-node-scheme-never-trusts-a-legacy-trie-store gains epoch five
+    in its recognised-untrusted set and uses #(7) as its unknown value.
+
+Exact-revision gates
+
+cl-workbench validation run cold-all
+  1402 tests passed, 3 skipped.   (unit)
+  571 tests passed, 9 skipped.    (integration)
+  34 tests passed.                (e2e)
+  31 tests passed.                (e2e)
+Exit 0, no compile warning under /workspace/src.
+
+runtime-smoke on ethereum-lisp-runtime:sec5-5c8a39c0-amd64: seven of seven.
+Artifact /private/tmp/ethereum-lisp-runtime-sec5-5c8a39c0-20260915T034500Z.tar
+sha256 c9996541d4ec0e11672aab5700e4ab76721b2332e565bc6b8d37dd97ccd2cac7.
+
+Live result: the skip works, healing still does not converge
+
+Container hoodi-el-sec5-5c8a39c0, fresh datadir, started 2026-09-15T03:43:26Z,
+12 GiB bound. Range download completed in about 2 hours 35 minutes with 4,286
+account-progress events, faster than the 2 hours 39 minutes of its predecessor,
+peaking at 570% CPU. Healing began at 06:07:49Z.
+
+The storage skip is clearly firing. At the final sample, 2026-09-15T09:5x:
+
+    processedNodes   1,058,816      skippedSubtrees   6,822,712
+    reusedNodes      2,422,452      frontierWorks     1,165,089
+    fetchedNodes           525      knownIncompleteNodes 1,058,419
+    processedRate        246/s      discoveredRate         491/s
+    netDrainRate          -245      etaStatus  dynamic-expansion
+
+Skipped subtrees now outnumber processed nodes more than six to one, where the
+epoch-five run reached 25.6 million skips only after visiting 15.0 million
+nodes. But the frontier still grows and there were 12 pivot rebases, so the
+healer still cannot finish a generation inside a pivot window.
+
+The remaining blocker is the account trie, and the numbers name it precisely:
+knownIncompleteNodes (1,058,419) tracks processedNodes (1,058,816) almost
+exactly. Every node the healer walks is marked, which means the account side is
+entirely conservative and nothing there can be skipped. The account prebuffer
+marks every record it writes, and the later page buffer only removes markers
+for proved complete references; on this workload that removal evidently covers
+very little. Why so few account markers are cleared is the next question, and
+it is unanswered here.
+
+Disposition
+
+The run was stopped cleanly at 87% data-filesystem utilisation with 90 GiB
+free, exit 0, no OOM, no restarts, datadir preserved. Disk is now the binding
+operational constraint: the preserved datadirs are 0c6b51bf (52 GiB),
+646da589 (51 GiB), 5c8a39c0 (~54 GiB) and the geth control (98 GiB).
+
+Also carried forward: the SBCL memory fault on shutdown reproduced again on the
+646da589 run and remains unexplained, and the 8,192 deferred-storage bound that
+forces a state-root walk instead of a storage-root frontier is still unraised.
