@@ -8444,6 +8444,116 @@
             ;; healed-subtree proof is available.
             (is (plusp exact-processed))))))))
 
+(deftest snap-heal-storage-plan-is-healed-in-consecutive-segments
+  (:layer :integration :module :p2p)
+  ;; A deferred-storage plan wider than one checkpointable segment used to be
+  ;; abandoned: SNAP-SYNC-DEFERRED-STORAGE-WORKS reported overflow and healing
+  ;; fell back to a walk from the state root, which also zeroed range-plan
+  ;; promotion. Raising the bound cannot fix it. One storage heal work encodes
+  ;; to 72 bytes so the four-megabyte checkpoint admits about 58,000, while the
+  ;; live Hoodi plan names millions of storage roots; the fallback was
+  ;; therefore always taken, and the account walk it forced is what kept the
+  ;; healer from converging.
+  ;;
+  ;; Heal the same plan whole and in segments of two, and require the same
+  ;; completion and the same durable storage. Completion must arrive only
+  ;; after the final segment, and the cursor must be gone afterwards.
+  (let* ((state (make-state-db))
+         (addresses
+           (loop for index from 1 to 6
+                 collect (snap-test-address-from-integer index))))
+    (dolist (address addresses)
+      (loop for slot from 1 to 4
+            do (state-db-set-storage
+                state address
+                (make-hash32 (snap-test-index-hash
+                              (+ (* 50 (position address addresses)) slot)))
+                (+ 300000 slot))))
+    (let* ((root (state-db-root state))
+           (source-database (make-memory-key-value-database))
+           (source
+             (snap-test-source
+              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+               source-database state))))
+      (labels
+          ((imported (segment-bound)
+             (let ((database (make-memory-key-value-database))
+                   (ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+                     segment-bound))
+               (values
+                (ethereum-lisp.snap-sync:snap-sync-import-state
+                 database source
+                 :pivot-hash (make-hash32 (snap-test-hash 61))
+                 :pivot-number 9 :state-root root
+                 :target-hash (make-hash32 (snap-test-hash 62))
+                 :chain-id 560048
+                 :genesis-hash (make-hash32 (snap-test-hash 63))
+                 :authority-id (make-hash32 (snap-test-hash 64)))
+                database)))
+           (cursor (database)
+             (ethereum-lisp.snap-sync::snap-sync-read-deferred-storage-cursor
+              database root))
+           (node-hashes (database)
+             (sort (mapcar #'car
+                           (ethereum-lisp.database:kv-chain-records
+                            database :trie-node))
+                   #'ethereum-lisp.database::kv-key<)))
+        (multiple-value-bind (whole-progress whole) (imported 8192)
+          ;; A bound of two forces the same plan through consecutive segments.
+          (multiple-value-bind (segmented-progress segmented) (imported 2)
+            (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                 whole-progress))
+            (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                 segmented-progress))
+            ;; Segmenting must change nothing durable.
+            (is (equalp (node-hashes whole) (node-hashes segmented)))
+            (is (plusp (length (node-hashes whole))))
+            ;; An exhausted plan leaves no cursor behind in either arm.
+            (is (null (cursor whole)))
+            (is (null (cursor segmented)))))))))
+
+(deftest snap-heal-storage-plan-segment-resumes-past-its-cursor
+  (:layer :unit :module :p2p)
+  ;; The segment loader itself, without a heal around it: a bound smaller than
+  ;; the plan yields a first segment and reports more work, and restarting
+  ;; past the returned identifier yields the remainder exactly once.
+  (let* ((database (make-memory-key-value-database))
+         (state-root (make-hash32 (snap-test-hash 71)))
+         (roots
+           (loop for index from 1 to 5
+                 collect (cons (snap-test-index-hash index)
+                               (make-hash32 (snap-test-index-hash
+                                             (+ 100 index)))))))
+    (let ((batch (make-kv-write-batch)))
+      (dolist (commitment roots)
+        (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+         batch state-root commitment))
+      (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+       batch state-root)
+      (kv-apply-batch database batch))
+    (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works* 2)
+          (seen 0)
+          (cursor nil))
+      (loop
+        (multiple-value-bind (works present-p last more-p)
+            (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+             database state-root cursor)
+          (is present-p)
+          (incf seen (length works))
+          (is (<= (length works) 2))
+          (unless more-p (return))
+          (is last)
+          (setf cursor last)))
+      ;; Every root is delivered exactly once across the segments.
+      (is (= (length roots) seen)))
+    ;; An absent plan marker still refuses to produce a frontier.
+    (let ((empty (make-memory-key-value-database)))
+      (multiple-value-bind (works present-p)
+          (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+           empty state-root)
+        (is (null works))
+        (is (null present-p))))))
+
 (deftest snap-sync-never-persists-a-trie-node-apart-from-its-marker
   (:layer :integration :module :p2p)
   ;; The crash-safety half of the closure epoch. Skipping an unmarked storage

@@ -267,8 +267,13 @@ cursor to one state root, needlessly replaying large contracts after a rebase.")
 (defparameter +snap-sync-rebased-range-witness-domain+
   (ascii-to-bytes "snap-rebased-range-witness-v1:")
   "Domain for a non-root witness that permanently disables range-set plans.")
-(defconstant +snap-sync-deferred-storage-max-works+ 8192
-  "Maximum direct storage frontier loaded into one resumable heal checkpoint.")
+(defparameter *snap-sync-deferred-storage-max-works* 8192
+  "Maximum direct storage frontier loaded into one resumable heal segment.
+
+A storage heal work encodes to 72 bytes, so the four-megabyte checkpoint admits
+roughly 58,000 of them. This stays well inside that, and a wider plan is healed
+as consecutive segments rather than abandoned. It is a parameter so a test can
+reach the multi-segment path without materialising 8,192 storage roots.")
 (defconstant +snap-sync-heal-checkpoint-frontier-target+ 4096)
 (defconstant +snap-sync-heal-checkpoint-max-works+ 8192)
 (defconstant +snap-sync-heal-live-frontier-max-works+ (* 128 1024)
@@ -1965,6 +1970,107 @@ uniform persistence interface."
        "Persisted snap deferred-storage plan has an unknown version"))
     present-p))
 
+(defparameter +snap-sync-deferred-storage-cursor-prefix+
+  (ascii-to-bytes "snap-heal-storage-plan-cursor-v1:")
+  "Durable position inside an oversized deferred-storage plan.")
+
+(defun snap-sync-byte-successor (bytes)
+  "Return the least key strictly after BYTES in bytewise order.
+
+Every deferred-storage identifier has the same length, so extending one by a
+zero byte sorts after it and before any distinct sibling: the first differing
+position decides both comparisons."
+  (concatenate 'vector (ensure-byte-vector bytes) #(0)))
+
+(defun snap-sync-deferred-storage-cursor-identifier (state-root)
+  (concatenate
+   'vector +snap-sync-deferred-storage-cursor-prefix+
+   (hash32-bytes state-root)))
+
+(defun snap-sync-read-deferred-storage-cursor (database state-root)
+  "Return the exclusive start identifier of this plan's unhealed remainder."
+  (multiple-value-bind (value present-p)
+      (kv-get-chain-record
+       database :metadata
+       (snap-sync-deferred-storage-cursor-identifier state-root))
+    (when present-p
+      (unless (and (byte-vector-p value) (plusp (length value)))
+        (ethereum-lisp.validation:storage-fail
+         "Persisted snap deferred-storage cursor is malformed"))
+      value)))
+
+(defun snap-sync-populate-deferred-storage-cursor-batch
+    (batch state-root identifier)
+  (kv-batch-put-chain-record
+   batch :metadata
+   (snap-sync-deferred-storage-cursor-identifier state-root)
+   identifier)
+  batch)
+
+(defun snap-sync-delete-deferred-storage-cursor-batch (batch state-root)
+  (kv-batch-delete-chain-record
+   batch :metadata
+   (snap-sync-deferred-storage-cursor-identifier state-root))
+  batch)
+
+(defun snap-sync-deferred-storage-segment (database state-root &optional after)
+  "Return one bounded plan segment, its last identifier, and whether more wait.
+
+AFTER is the exclusive identifier this segment starts past, so a plan wider
+than +SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS+ is healed as consecutive
+checkpointable segments instead of being abandoned for a state-root walk. A
+storage heal work encodes to 72 bytes, so the 4 MiB checkpoint admits about
+58,000; the live Hoodi plan names millions, which is why no single bound can
+carry it."
+  (unless (snap-sync-deferred-storage-plan-present-p database state-root)
+    (return-from snap-sync-deferred-storage-segment (values nil nil nil nil)))
+  (let* ((identifier-prefix
+           (snap-sync-deferred-storage-root-prefix state-root))
+         (start
+           (kv-chain-record-key
+            :metadata
+            (if after
+                (snap-sync-byte-successor after)
+                identifier-prefix)))
+         (end
+           (kv-chain-record-key
+            :metadata (snap-sync-byte-prefix-end identifier-prefix)))
+         (expected-length (+ (length identifier-prefix) 32 32))
+         (works '())
+         (last-identifier nil)
+         (more-p nil))
+    (multiple-value-bind (iterator close-iterator)
+        (kv-iterator database :start start :end end)
+      (unwind-protect
+           (loop
+             (multiple-value-bind (key value present-p)
+                 (funcall iterator)
+               (unless present-p (return))
+               (unless (bytes= value +snap-sync-deferred-storage-value+)
+                 (ethereum-lisp.validation:storage-fail
+                  "Persisted snap deferred-storage work has an unknown version"))
+               (let ((identifier
+                       (kv-chain-record-key-identifier :metadata key)))
+                 (unless (= expected-length (length identifier))
+                   (ethereum-lisp.validation:storage-fail
+                    "Persisted snap deferred-storage work is malformed"))
+                 (when (>= (length works)
+                           *snap-sync-deferred-storage-max-works*)
+                   (setf more-p t)
+                   (return))
+                 (push
+                  (snap-sync-make-heal-work
+                   :storage
+                   (subseq identifier (length identifier-prefix)
+                           (+ (length identifier-prefix) 32))
+                   (make-byte-vector 0)
+                   (subseq identifier (+ (length identifier-prefix) 32)))
+                  works)
+                 (setf last-identifier identifier))))
+        (when close-iterator
+          (funcall close-iterator))))
+    (values (nreverse works) t last-identifier more-p)))
+
 (defun snap-sync-deferred-storage-works (database state-root)
   "Load a bounded, trusted final-healing frontier for STATE-ROOT.
 
@@ -2007,7 +2113,7 @@ frontier also falls back safely instead of creating an uncheckpointable run."
                    (subseq identifier (+ (length identifier-prefix) 32)))
                   works)
                  (when (> (length works)
-                          +snap-sync-deferred-storage-max-works+)
+                          *snap-sync-deferred-storage-max-works*)
                    (setf overflow-p t)
                    (return)))))
         (when close-iterator
@@ -5572,11 +5678,14 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
     (multiple-value-bind (checkpoint checkpoint-present-p)
       (snap-sync-read-heal-checkpoint database progress)
     (multiple-value-bind
-          (planned-storage planned-storage-present-p planned-storage-overflow-p)
+          (planned-storage planned-storage-present-p planned-storage-cursor
+           planned-storage-more-p)
         (if checkpoint-present-p
-            (values nil nil nil)
-            (snap-sync-deferred-storage-works
-             database (snap-sync-progress-state-root progress)))
+            (values nil nil nil nil)
+            (snap-sync-deferred-storage-segment
+             database (snap-sync-progress-state-root progress)
+             (snap-sync-read-deferred-storage-cursor
+              database (snap-sync-progress-state-root progress))))
       (let* ((state-root (snap-sync-progress-state-root progress))
            (root-bytes (hash32-bytes state-root))
            (complete-node-scheme-p
@@ -5597,8 +5706,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (cond
                (checkpoint-present-p
                 (copy-list (snap-sync-heal-checkpoint-stack checkpoint)))
-               ((and planned-storage-present-p
-                     (not planned-storage-overflow-p))
+               ((and planned-storage-present-p planned-storage)
                 planned-storage)
                ((hash32= state-root +empty-trie-hash+) nil)
                (t
@@ -6792,10 +6900,31 @@ for more missing hashes."
                   (snap-sync-heal-checkpoint-frontier-p stack))
              (persist-checkpoint stack)))
           (when (and (null stack) (null missing))
-            (return)))))
+            ;; An oversized plan is healed as consecutive segments. Publish
+            ;; this segment's durable cursor first, then seed the next one;
+            ;; completion waits until the plan is exhausted. A crash between
+            ;; the two merely reheals already closed storage.
+            (if (and planned-storage-present-p planned-storage-more-p
+                     planned-storage-cursor)
+                (let ((batch (make-kv-write-batch)))
+                  (flush-healed-subtrees)
+                  (snap-sync-populate-deferred-storage-cursor-batch
+                   batch state-root planned-storage-cursor)
+                  (kv-apply-batch database batch)
+                  (multiple-value-bind (works present-p cursor more-p)
+                      (snap-sync-deferred-storage-segment
+                       database state-root planned-storage-cursor)
+                    (setf planned-storage-present-p present-p
+                          planned-storage-cursor cursor
+                          planned-storage-more-p more-p)
+                    (if works
+                        (dolist (work works) (stack-push work))
+                        (return))))
+                (return))))))
     (let* ((completed (snap-sync-completed-progress progress))
            (batch (make-kv-write-batch)))
       (snap-sync-complete-batch batch completed)
+      (snap-sync-delete-deferred-storage-cursor-batch batch state-root)
       (kv-apply-batch database batch)
       (snap-sync-report-heal-progress
        on-heal-progress processed-nodes reused-nodes fetched-nodes
