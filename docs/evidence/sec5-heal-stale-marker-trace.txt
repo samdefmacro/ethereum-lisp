@@ -1,0 +1,107 @@
+Section 5 stale-marker trace and the storage-plan segmentation requirement
+
+Status
+
+Diagnosis only. No source change is retained. This records where the healer's
+remaining work comes from, which four hypotheses were measured and rejected on
+the way, and why the obvious next fix is larger than it looks.
+
+Question
+
+After docs/evidence/sec5-5c8a39c0-storage-closure-epoch.txt, the storage skip
+worked (6,822,712 skipped subtrees against 1,058,816 processed nodes) but
+healing still did not converge, and knownIncompleteNodes tracked processedNodes
+almost exactly. So the healer was walking marked nodes. Where do those markers
+come from?
+
+Measured answer
+
+A completed flat import leaves markers behind, proportional to page count and
+not to any bound being exceeded. A 1,200-account fixture at one-nibble proof
+depth retained 98 markers over 2,798 trie nodes; the live Hoodi pages retained
+roughly 45 over 14,566 records each. Multiplying the live rate by its 4,286
+pages gives about 193,000, the same order as the 271,722 marker keys counted by
+prefix in the preserved datadir.
+
+Every surviving marker has one creator. Instrumenting
+SNAP-SYNC-POPULATE-INCOMPLETE-NODE-BATCH and
+SNAP-SYNC-DELETE-INCOMPLETE-NODE-BATCH across a completed import:
+
+    created 1,598   deleted 2,700   survivors 98
+    survivors by creating site:
+      98  SNAP-SYNC-BUFFER-ACCOUNT-PAGE-CONTENT
+
+All of them are account-page records that no proved subtree covered, so they
+are never named in any complete-reference set and their markers are never
+cleared. Every marked node still had its trie node present, so these are stale
+markers on complete content, not records of genuinely missing state. Because
+such nodes sit above the proof depth, clearing one requires proving everything
+beneath it, which is precisely the whole-trie walk.
+
+Prefix counts in the preserved live store, datadir-5c8a39c0 (lower bounds:
+levels zero and one are uncompressed, levels two and above are LZ4):
+
+    snap-healed-storage-subtree-v3:        1,791,708
+    snap-incomplete-trie-node-v1:            271,722
+    snap-healed-storage-root-v3:              46,263
+    snap-healed-subtree-v3:                   12,151
+    snap-account-subtree-dependencies-v2:        537
+
+Hypotheses measured and rejected
+
+1. Account dependency width. The 64-dependency bound was never reached in any
+   reproduction; dependency proofs were zero because the buckets had no
+   deferred storage at all.
+2. Byte-capped storage partitioning. Retained markers were zero at 512 KiB,
+   2 KiB and 1 KiB request limits.
+3. Abandoned imports. Stopping after one, two or three pages retained zero.
+4. Proof-edge boundary nodes. Removing their persistence entirely, matching
+   geth's hashTrie.commit(false), produced an exact no-op in the fixture:
+   2,798 nodes and 98 markers before and after. The fixture's account range is
+   covered by a single page, so it has no proof edge. The change was reverted
+   rather than shipped on no evidence.
+
+Why the storage-root frontier matters, and why raising a constant will not
+reach it
+
+Healing can start from the deferred storage roots instead of the state root,
+which skips the account walk that the markers above make expensive. That path
+is disabled whenever the plan exceeds +snap-sync-deferred-storage-max-works+
+(8,192), at client.lisp 5574-5585, and the same condition zeroes
+SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN. The live geth control reported
+4,851,411 bytecodes on this chain, so the plan is far above that bound and the
+fallback is always taken.
+
+Raising the bound cannot close this. One storage heal work encodes to 72 bytes
+in a checkpoint record, measured directly:
+
+    8,192 works    590,051 bytes
+    32,768 works 2,359,523 bytes
+    49,152 works 3,539,171 bytes
+    limit        4,194,304 bytes
+
+So the checkpoint admits about 58,000 works, three orders of magnitude below
+the live plan. The bound is doing its job; the fallback is the defect.
+
+What the fix has to be
+
+Segment the deferred storage plan rather than fail closed. SNAP-SYNC-DEFERRED-
+STORAGE-WORKS should return a bounded first segment plus a durable cursor, and
+the healer should advance that cursor and load the next segment instead of
+treating an oversized plan as unusable.
+
+That changes when healing is considered complete, which is the same semantics
+that produced the 03263d2f and b23c7d57 false completions, so it needs its own
+RED regression proving a segmented run reports completion only after the final
+segment, alongside the existing closure regressions.
+
+Carried forward
+
+The account-side closure problem is unsolved. Storage nodes may now be skipped
+on presence under closure epoch six, but account nodes cannot, because an
+unmarked account subtree may still name code or storage that is not durable.
+Only 537 account dependency proofs and 12,151 account subtree proofs exist in
+the live store, so almost no account subtree can be skipped by proof either.
+
+Also open: the reproducible SBCL memory fault on shutdown, seen on both
+0c6b51bf and 646da589.
