@@ -1,0 +1,292 @@
+Section 5 Hive Engine/auth gate record for revision 3305307d -- NOT RUN
+
+Recorded: 2026-09-18T08:55:00Z
+Implementation revision: 3305307d02918d797ad0037a93092451f0ab2b61
+Branch: sec5-public-bootstrap-sync (evidence branch hive-engine-evidence-3305307d)
+The checkout was detached at 3305307d and clean (no staged, unstaged, or
+untracked files) before, during, and after every step below.
+
+Result
+
+The pinned 403-item Hive Engine/auth suite was NOT executed at this revision.
+It cannot be executed from this control plane: `scripts/hive-run.sh` refuses
+macOS by design, and the reviewed Linux runner that holds every prior Engine
+evidence root is the same remote host that is currently carrying the protected
+Section 5 live Hoodi sync, which must not be slowed or disturbed. Everything
+that can be prepared locally was prepared and verified; the exact remote
+command is recorded below for the coordinator to schedule.
+
+This record therefore does not close the gate. The gate remains closed only at
+ancestor revision 694667f9 (r29, 403/403), archived in
+docs/evidence/sec5-694667f9-hive-engine-r25-r26.txt.
+
+Pinned identities
+
+- Hive: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+- Hive binary SHA-256 (reviewed Go-less Linux runner):
+  cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+- amd64 Hive-runner archive SHA-256:
+  07bdd861f2b9a715072e03396c888b07d9195d41e5fe1c3fec8554a5b0e34421
+- Runtime platform: linux/amd64
+- Runtime user: ethereum:ethereum
+- Runtime OCI revision label: 3305307d02918d797ad0037a93092451f0ab2b61
+- Runtime image: ethereum-lisp-runtime:sec5-3305307d-amd64
+- Local image ID:
+  sha256:4ff7befe77a8738cdf88bfe302f04a8195ba08f5623514e473c5926286f1503e
+- Exported runtime archive:
+  /private/tmp/ethereum-lisp-runtime-sec5-3305307d-amd64.tar
+  72,032,256 bytes; SHA-256
+  73a88be3d217045e2298805c4eb604c90eca062a1bfb47d3a7b06ed0753126f4
+- Tracked files at 3305307d: 943
+
+The image was not rebuilt for this record. It was built and exported by the
+reviewed broker at 2026-09-18T08:11:14Z and is archived in
+docs/evidence/sec5-3305307d-amd64-runtime.txt; the archive SHA-256 above is an
+independent readback of that same file and agrees with the broker's own output.
+`ethereum/engine` takes no simulator build argument, so the execution-apis pin
+e5d1bb60e6c064e4b15080da07b4370d0baadf92 applies to rpc-compat only and is not
+part of this gate.
+
+Client definition at this revision (tools/hive, SHA-256)
+
+  717cbf3b132129bc30bf9ec8f459d98f19337ab5e5eee675d3e4805d423b7adf  Dockerfile
+  f2a6a9a8bd0b12e87d14d195fbb2f7cf0e2811958107f5eb0bb6ba91b2d25741  enode.sh
+  6e2f9e837657d4dd85f27b7a613bec1c158c9281b3933decb747f10ca601eb3a  ethereum-lisp.sh
+  744c8c0f80dbd291fe76672b9832ec80d51e92d081ed586c6617505f74240f8c  genesis.json
+  47aea2c73e6013fb151060bebcc04014f81721adec8ef5a6c85cc63004e16945  hive.yaml
+  4330ef9400c96a42a864a378be0a8f1f511ef7098cadc10b586db3ed323a90be  mapper.jq
+  4a8b87ab9ec57115f04f549bdd4144a99448106b66c0c58d8721d81091ba0f0c  README.md
+
+Broker scripts at this revision (SHA-256)
+
+  1899c4944277703a908ab4727df5d3b0ee883849720cb8a753631da13df5c050  scripts/hive-run.sh
+  736ec67579ddf762655183b9e94cdfed537bc7a57e6458c87e1b2d7bc55cf3c9  scripts/hive-runtime-smoke.sh
+  0e54df7de91e6de064ff42c24eb87e83e173d97a304677703152994f84020589  scripts/hive-adapter-smoke.sh
+
+The reproducible procedure
+
+Simulator and arguments. The full Engine/auth gate is the unlimited
+`ethereum/engine` simulator. `scripts/hive-run.sh --prepare-only` at this
+revision emitted the exact argument vector, with no `--sim.limit` and no
+`--sim.buildarg` (the engine simulator takes neither):
+
+  ./hive --client-file <HIVE_WORKDIR>/clients.yaml \
+         --sim ethereum/engine \
+         --results-root <HIVE_RESULTS>
+
+Inventory. 403 unique cases across five suites, which the broker enforces
+itself: with `--sim ethereum/engine` and no `--sim.limit`, `hive-run.sh`
+defaults `HIVE_EXPECTED_TESTS` to 403 and exits 3 if the executed count
+differs. The pinned per-suite split, unchanged since 92982442 and confirmed by
+r25, r27, r28 and r29, is:
+
+  engine-api                     129
+  engine-auth                      8
+  engine-exchange-capabilities     5
+  engine-withdrawals              35
+  engine-cancun                  226
+  total                          403
+
+The loader. A full unlimited run counts exactly the 403 test cases; Hive's
+per-suite `... test loader` entries are additional result entries that appear
+only when `--sim.limit` selects a subset. A focused rerun of named failures
+must therefore include each selected suite's loader in `HIVE_EXPECTED_TESTS`.
+This is the r26 trap: that focused run passed 6/6 (four named tests plus two
+suite loaders) but the broker returned 3 because `HIVE_EXPECTED_TESTS` was set
+to 4. That is a runner count mismatch, not a test failure -- and a focused run
+can never substitute for one complete 403-item execution.
+
+Memory limits. The outer runner is a fresh isolated container per run: 2 CPUs,
+1,024 PIDs, read-only root filesystem, no published host port, and mounts
+limited to its own new evidence root, the nested-Docker boundary, and a bounded
+tmpfs. The memory bound is the one variable that decided this gate. 3 GiB was
+OOM-killed at 346 of 403 cases. Three complete runs at 4 GiB memory / 5 GiB
+memory-plus-swap finished without outer-runner OOM but produced moving,
+mutually disjoint connection-reset failures at the initial Engine request
+boundary (399/403, 400/403, 401/403). r29 changed only that bound, to 8 GiB
+memory / 10 GiB memory-plus-swap, and passed 403/403. 8/10 GiB is the pinned
+limit for any successor run.
+
+Accepted result. All of the following, together:
+
+  - inventory-selected = inventory-expected = 403, zero unexpected skips;
+  - passed = 403, failed = 0, across all five suites at their pinned counts;
+  - Hive process exit status 0;
+  - outer runner exit 0, OOMKilled=false, RestartCount=0, no interruption;
+  - every result/simulator/details/client-log reference resolves to an existing
+    file with in-bounds byte offsets (r29: 496 references over 492 unique
+    files);
+  - the complete evidence manifest recomputes on an independent readback
+    (r29: 512 entries);
+  - the sorted name inventory matches the retained 403-name set with no
+    passed-to-failed regression;
+  - the protected Hoodi EL and consensus client retain their container
+    identities and start times and are neither restarted nor OOM-killed.
+
+Local preparation executed at 3305307d
+
+All of this ran on this macOS control plane against local Docker only. No
+container, image, or volume belonging to another agent was created, inspected
+destructively, or removed. Logs were redirected to files and the exit code
+echoed; nothing was piped through tail or grep.
+
+1. cl-workbench doctor --strict
+   exit 0; "doctor: all required Workbench checks passed".
+
+2. SMOKE_SLUG=sec5-3305307d-engauth \
+     scripts/hive-runtime-smoke.sh ethereum-lisp-runtime:sec5-3305307d-amd64
+   exit 0; 08:44:19Z to 08:44:27Z (8 s); 7 of 7 checks passed, container
+   sec5-3305307d-engauth-smoke-65472, ephemeral 127.0.0.1 ports only:
+
+     ok - --hoodi built its genesis from the packaged allocation
+     ok - eth_chainId = 0x539
+     ok - web3_clientVersion = {"jsonrpc":"2.0","id":1,"result":"ethereum-lisp/0.1.0/CL/0x3305307d"}
+     ok - unauthenticated engine_exchangeCapabilities rejected with 401
+     ok - authenticated engine_exchangeCapabilities answered
+     ok - engine_getClientVersionV1 identifies 3305307d02918d797ad0037a93092451f0ab2b61 as 0x3305307d
+     ok - eth_syncing on the Engine port answered
+     PASS: runtime image ethereum-lisp-runtime:sec5-3305307d-amd64 serves public RPC and an authenticated Engine API
+
+   The 401 and the authenticated call are the local surface of the
+   engine-auth suite: the image rejects an unsigned Engine request and answers
+   a signed one.
+
+3. SMOKE_SLUG=sec5-3305307d-engauth RUNTIME_IMAGE=ethereum-lisp-runtime \
+     RUNTIME_TAG=sec5-3305307d-amd64 scripts/hive-adapter-smoke.sh
+   exit 0; 08:49:25Z to 08:49:35Z (10 s); 12 of 12 checks passed. It built the
+   Hive wrapper image ethereum-lisp-hive:sec5-3305307d-amd64 (config
+   sha256:60b1bf405fa6a1985ddf6e005d7f38e51c5dc3f78e74af4562909ce65500d749,
+   manifest list
+   sha256:f502b69f19c45b7a920effcd57e6fb7d74983702c27a0d9b0198782b8afc63f3)
+   from tools/hive over the pinned base, and drove it the way Hive does:
+
+     ok - HIVE_CLIQUE_PERIOD=1 refused: HIVE_CLIQUE_*
+     ok - HIVE_MINER=... refused: HIVE_MINER
+     ok - HIVE_GRAPHQL_ENABLED=1 refused: HIVE_GRAPHQL_ENABLED
+     ok - HIVE_NODETYPE=snap refused: HIVE_NODETYPE=snap
+     ok - HIVE_AMSTERDAM_TIMESTAMP=100 refused: HIVE_AMSTERDAM_TIMESTAMP
+     ok - HIVE_DISCV5=1 refused: HIVE_DISCV5
+     ok - bundled discovery genesis starts under HIVE chain configuration
+     ok - Hive uses the production RocksDB backend
+     ok - uploaded supported fork config survives an absent HIVE override
+     ok - HIVE_CHAIN_ID=7337 reached the client as 0x1ca9
+     ok - enode.sh returned routable admin_nodeInfo address
+     ok - engine_exchangeCapabilities under hive's JWT secret
+     PASS: the hive adapter maps HIVE_* onto flags this client implements
+
+   That wrapper image is this session's own; it is a thin layer over the
+   already-present base and was left in place.
+
+4. RUNTIME_PREBUILT=1 RUNTIME_IMAGE=ethereum-lisp-runtime \
+     RUNTIME_TAG=sec5-3305307d-amd64 \
+     scripts/hive-run.sh --sim ethereum/engine --prepare-only
+   exit 0; 08:49:51Z to 08:49:57Z (6 s). It used the prebuilt image without
+   rebuilding it, cloned Hive, and verified the pin: the checkout's
+   .git/HEAD is dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c. It installed
+   clients/ethereum-lisp from tools/hive (all seven files above), wrote the
+   client file, confirmed simulators/ethereum/engine is present in the pinned
+   tree, and printed the exact argument vector quoted earlier. The generated
+   client file was:
+
+     - client: ethereum-lisp
+       nametag: ethereum-lisp
+       build_args:
+         baseimage: ethereum-lisp-runtime
+         tag: sec5-3305307d-amd64
+
+   The prepared work directory is the git-ignored, per-checkout
+   .dev-runtime/hive-gate (20 MB), so it cannot collide with the rpc-compat or
+   devp2p preparations running concurrently in other worktrees.
+
+Why it was not run here
+
+5. The same broker invocation without --prepare-only was run once to record the
+   boundary verbatim. It exited 1 before starting anything:
+
+     RUNTIME_PREBUILT=1 RUNTIME_IMAGE=ethereum-lisp-runtime \
+       RUNTIME_TAG=sec5-3305307d-amd64 scripts/hive-run.sh --sim ethereum/engine
+     exit 1
+
+     Refusing to run hive on macOS.
+
+     Hive must share a host with dockerd: it checks client liveness by dialling
+     the container's bridge address on port 8545, which is not routable from a
+     macOS host talking to a Docker Desktop VM. It also wants a Go toolchain on
+     the host, which this machine deliberately does not have.
+
+     Everything up to the run is done. Use --prepare-only to silence this, and
+     run the suite on Linux (.github/workflows/hive.yml does exactly that).
+
+   The second reason is scheduling, not capability. Every retained Engine
+   evidence root -- r25, r26, r27, r28, r29 -- lives under
+   /data/hoodi-sec5-hive/runs/ on the reviewed remote Linux host. That path
+   does not exist on this control plane, and that host is the one carrying the
+   protected Section 5 live Hoodi sync. An Engine run there occupies 2 CPUs and
+   8 GiB for roughly two hours (r29 ran 19:08:19Z to 21:14:09Z, 2 h 6 min), so
+   it is a scheduling decision for the coordinator, not one to take unilaterally
+   while the live sync is in progress.
+
+Prepared remote command -- NOT RUN
+
+To be scheduled by the coordinator on the reviewed Linux runner, at a time when
+it will not contend with the protected live sync. Substitute a fresh UTC
+timestamp for <TS> and the next run ordinal for <N>; HIVE_RESULTS must not
+exist or must be empty, because the broker fails closed on a dirty results
+directory.
+
+  # 1. stage the exact runtime image on the runner (once)
+  #    source: /private/tmp/ethereum-lisp-runtime-sec5-3305307d-amd64.tar
+  #    sha256 73a88be3d217045e2298805c4eb604c90eca062a1bfb47d3a7b06ed0753126f4
+  docker load -i <staged>/ethereum-lisp-runtime-sec5-3305307d-amd64.tar
+  docker image inspect ethereum-lisp-runtime:sec5-3305307d-amd64 \
+    --format '{{.Id}} {{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}}'
+  # must print sha256:4ff7befe77a8738cdf88bfe302f04a8195ba08f5623514e473c5926286f1503e
+  #            linux/amd64 3305307d02918d797ad0037a93092451f0ab2b61
+
+  # 2. inside a fresh isolated outer runner container:
+  #      --cpus 2 --memory 8g --memory-swap 10g --pids-limit 1024
+  #      --read-only, no published host port, mounts limited to the new
+  #      evidence root, the nested-Docker boundary, and a bounded tmpfs
+  RUN_ROOT=/data/hoodi-sec5-hive/runs/3305307d-engine-full-r<N>-<TS>
+  export RUNTIME_PREBUILT=1
+  export RUNTIME_IMAGE=ethereum-lisp-runtime
+  export RUNTIME_TAG=sec5-3305307d-amd64
+  export HIVE_WORKDIR="$RUN_ROOT/hive-gate"
+  export HIVE_RESULTS="$RUN_ROOT/results"
+  export HIVE_PREBUILT_BINARY_SHA256=cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+  # HIVE_EXPECTED_TESTS is deliberately unset: the broker defaults it to 403
+  # for an unlimited ethereum/engine run and fails closed on any other count.
+  scripts/hive-run.sh --sim ethereum/engine \
+    > "$RUN_ROOT/hive-engine-full.log" 2>&1
+  echo "EXIT=$?"
+
+  # 3. readback, after the runner has stopped
+  grep -E "^hive dde4f59d|FATAL|passed" "$RUN_ROOT/hive-engine-full.log"
+  docker inspect <runner> --format \
+    'exit={{.State.ExitCode}} oom={{.State.OOMKilled}} restarts={{.RestartCount}}'
+
+Staging HIVE_PREBUILT_BINARY_SHA256 requires the checksummed Hive binary at
+$HIVE_WORKDIR/hive/hive; on a runner that has Go 1.24 instead, leave that
+variable unset and the broker builds Hive from the verified pinned checkout.
+The bounded outer-runner container itself is created by the authorization
+supervisor's reviewed runner script, which is not present on this control plane
+-- the limits above are transcribed from the accepted r29 run and must be
+re-reviewed, not assumed, before the run is approved.
+
+An alternative Linux path exists but is not evidence-grade as configured:
+.github/workflows/hive.yml runs `scripts/hive-run.sh --sim ethereum/engine` on
+ubuntu-latest with a 180-minute timeout, but that job is
+`continue-on-error: true`, builds its own `:ci` image rather than consuming the
+pinned amd64 artifact, and retains no bounded evidence root. It can refute a
+revision quickly; it cannot close this gate.
+
+Remaining boundary
+
+The pinned Engine/auth zero-failure gate is not closed at 3305307d. Nothing in
+the local preparation above contradicts the r29 result at ancestor 694667f9,
+and the three commits between a5039c3a and 3305307d (6125a096 live-gate fault
+reporting, 02a69dd1 documentation, fdaa2a77 iterator closes) touch no Engine
+API path; but a successor revision does not inherit an ancestor's Hive result,
+so the complete 403-item run above is still required. The live Hoodi
+completion, seven-day shadow comparison, and fourteen-day validator soak remain
+open independently.
