@@ -1,0 +1,233 @@
+Section 5 range-plan promotion stream
+
+Revision
+
+519e4c9b69aaea643ce9bb06701226f5381a9c7a
+fix(snap): stream the range plan instead of bounding its consumers
+
+Parent 911a56ef, branch sec5-public-bootstrap-sync. Subject file
+src/networking/snap-sync/client.lisp; tests tests/snap-tests.lisp.
+
+Change
+
+Three consumers of the deferred-storage plan no longer depend on the plan's
+width. SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN, SNAP-SYNC-RANGE-PLAN-FULLY-
+DURABLE-P and SNAP-SYNC-FILL-DEFERRED-STORAGE all loaded the plan through
+SNAP-SYNC-DEFERRED-STORAGE-WORKS and fail-closed above
+*SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS* (8,192). They now walk the whole plan
+through the new SNAP-SYNC-MAP-DEFERRED-STORAGE-PLAN, which loads consecutive
+segments from SNAP-SYNC-DEFERRED-STORAGE-SEGMENT and its exclusive cursor.
+
+  - promotion retains only the set of unsafe account prefix buckets, bounded by
+    the bucket space (65,536 at depth four, 1,048,576 at depth five) rather than
+    by the plan width, then promotes exactly as before;
+  - durability is a short-circuiting stream: NIL at the first non-durable root,
+    T only after the plan is exhausted;
+  - the StorageRanges second pass streams sequentially, stopping at the first
+    root it cannot finish, which is what its previous DOLIST did.
+
+SNAP-SYNC-DEFERRED-STORAGE-WORKS is retired. No caller remained, and it
+disagreed with SNAP-SYNC-DEFERRED-STORAGE-SEGMENT on the boundary: it pushed
+first and flagged overflow at 8,193 works, while the segment loader caps at
+exactly 8,192 and reports the remainder. The segment loader is now the only
+place the bound is applied, which is where the boundary inconsistency is
+reconciled.
+
+SNAP-SYNC-RETIRE-LEGACY-STORAGE-ROOT-PROOF becomes
+SNAP-SYNC-POPULATE-LEGACY-STORAGE-ROOT-RETIREMENT-BATCH: it populates a caller
+batch instead of applying one per work, and promotion flushes at
++SNAP-SYNC-HEALED-SUBTREES-PER-BATCH+ and again before the first promoted proof.
+
+Why
+
+The bound was never a safety property of these consumers; it was a property of
+the checkpoint record, which at 72 bytes per storage heal work admits about
+58,000. The live Hoodi plan names millions of storage roots, so every
+overflow-gated consumer was not made safe, it was permanently switched off:
+promotedSubtrees was 0 in both live runs, SNAP-SYNC-FILL-STORAGE-THEN-HEAL's
+zero-TrieNodes completion could never fire, and the pre-heal StorageRanges pass
+was skipped whole.
+
+Promotion is the load-bearing one. It is the only producer of shallow
+whole-bucket :ACCOUNT subtree proofs, and a present depth-four :ACCOUNT proof is
+the only thing that turns an account bucket from "descend" into a skip in
+INTEGRATE-PRESENT-WORK. With promotion zeroed the only account proofs in
+existence were the per-page ones from
+SNAP-SYNC-CLASSIFY-ACCOUNT-RANGE-SUBTREES, which need a fully dirty subtree
+inside one page's proved span: the preserved datadir-5c8a39c0 store holds 12,151
+of them against a depth-four space of 65,536 buckets, beside 1,791,708 storage
+subtree proofs. That asymmetry, not the 271,722 stale account markers, is what
+made the account walk visit a million nodes. It is also the only one of the
+account-side options that helps the post-rebase walk, where all twelve of the
+observed live generations actually run: promotion runs from
+SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLANS at heal entry over every plan root,
+including the pre-rebase root whose plan is still durable.
+
+No new trust is introduced. The invariant promotion already asserted is
+unchanged: a trusted plan proves every account range and its code, and a bucket
+containing a storage dependency that lacks both a completed task set and a
+published whole-root closure is excluded. Only a width bound is removed. A
+partial promotion is still never frozen as final, so incomplete buckets are
+retried after their StorageRanges cursors finish.
+
+Two properties of the streaming driver are load-bearing and were checked in
+code rather than assumed:
+
+1. No database iterator is open while a consumer body runs. Each segment's
+   KV-ITERATOR is closed by SNAP-SYNC-DEFERRED-STORAGE-SEGMENT's
+   UNWIND-PROTECT before the works are returned, and these consumers both read
+   and write the same database. This follows the cursor-and-chunk style
+   NODE-STORE-DATABASE-COPY-CHUNK already uses for the same reason.
+2. The cursor walk cannot skip a plan entry, because nothing in the tree ever
+   deletes one. SNAP-SYNC-POPULATE-DEFERRED-STORAGE-BATCH is the only writer of
+   the snap-deferred-storage-v2: namespace and there is no corresponding delete;
+   only the plan cursor is deleted, by SNAP-SYNC-DELETE-DEFERRED-STORAGE-CURSOR-
+   BATCH.
+
+The driver also fails closed on the one inconsistent read in this shape: a
+segment that reports more work without a last identifier is a STORAGE-FAIL, not
+a completion. Treating it as completion is how a plan silently loses its tail,
+which is the 03263d2f and b23c7d57 signature. A zero or non-integer bound is a
+caller error and signals before any read.
+
+Batching the legacy retirement delete is conservative. The delete only removes
+trust, so a crash before the batch applies leaves the pre-change state, which
+the next heal entry retires again; and KV-APPLY-BATCH is a synchronous write
+(rocksdb.lisp sets writeoptions_set_sync 1), so one apply per work would have
+been millions of fsyncs at every heal entry once the width bound was gone.
+
+Tests
+
+New, both in tests/snap-tests.lisp, both :layer :unit :module :p2p:
+
+  snap-range-plan-promotion-streams-a-plan-wider-than-its-bound
+    Sixteen first-nibble account buckets, each with a hash-addressed child, and
+    a four-root deferred-storage plan whose accounts sit in four distinct
+    buckets and name storage roots with no published closure. Promote the same
+    construction twice, once under the default bound of 8,192 and once under a
+    bound of two, which is narrower than the plan and is what made the old
+    loader report overflow. Both arms must promote the same count and the same
+    bucket set, and both must exclude exactly the four open buckets. The
+    promotion marker must stay unpublished under both bounds.
+    RED control, on the parent revision 911a56ef:
+
+      not ok SNAP-RANGE-PLAN-PROMOTION-STREAMS-A-PLAN-WIDER-THAN-ITS-BOUND - Assertion failed: (=
+                                                                                          ETHEREUM-LISP.TEST::DEFAULT-COUNT
+                                                                                          ETHEREUM-LISP.TEST::SMALL-COUNT)
+
+    The default-bound arm's assertions all pass ahead of that one, which pins
+    the parent's behaviour exactly: 16 references, 12 promoted, 4 excluded under
+    the default bound, and 0 promoted under the narrow bound.
+    The exclusion half is its own positive control: it fails if streaming ever
+    promotes a bucket that names an open storage root, which is the 03263d2f
+    surface this change sits on.
+
+  snap-range-plan-durability-streams-a-plan-wider-than-its-bound
+    A four-root plan in which every root has a completed large-storage cursor
+    set and a published :STORAGE-ROOT closure proof. Under a bound of two the
+    streamed predicate must answer yes. Then, for each of the four positions in
+    turn and for each of the two kinds of evidence, remove that one root's
+    closure proof or its completed cursor set and require a no under the same
+    narrow bound. Running every position also proves the stream reaches past its
+    first segment rather than answering from segment one.
+    RED control, on the parent revision 911a56ef:
+
+      not ok SNAP-RANGE-PLAN-DURABILITY-STREAMS-A-PLAN-WIDER-THAN-ITS-BOUND - Assertion failed: (ETHEREUM-LISP.TEST::DURABLE-P
+                                                                                           ETHEREUM-LISP.TEST::DURABLE
+                                                                                           2)
+
+    The eight per-position negative arms are the positive control that a
+    streamed yes is not vacuous.
+
+Both RED controls come from one run of the two new tests against unmodified
+src/, which reported:
+
+    0 tests passed, 2 failed.
+    Test run failed: 2 tests failed
+
+and exit 1. The same two tests on this revision:
+
+    ok SNAP-RANGE-PLAN-PROMOTION-STREAMS-A-PLAN-WIDER-THAN-ITS-BOUND
+    ok SNAP-RANGE-PLAN-DURABILITY-STREAMS-A-PLAN-WIDER-THAN-ITS-BOUND
+
+Constraining tests, cold before the change and cold after it, all green in both
+states:
+
+  cl-workbench validation run cold-unit, three selectors
+    ok SNAP-RANGE-PLAN-PROMOTION-EXCLUDES-INCOMPLETE-STORAGE-BUCKET
+    ok SNAP-LEGACY-STORAGE-CURSORS-NEVER-PROMOTE-ROOT-CLOSURE
+    ok SNAP-HEAL-STORAGE-PLAN-SEGMENT-RESUMES-PAST-ITS-CURSOR
+    3 tests passed.                          (exit 0, baseline and after)
+
+  cl-workbench validation run cold-integration, four selectors
+    ok SNAP-STATE-HEALER-INVALIDATES-PRE-CLOSURE-SAFE-FAST-PATHS
+    ok SNAP-STATE-HEALER-REUSES-PROVED-SUBTREES-ACROSS-PIVOTS
+    ok SNAP-HEAL-STORAGE-PLAN-IS-HEALED-IN-CONSECUTIVE-SEGMENTS
+    ok SNAP-HEALED-SUBTREE-PUBLICATION-FAILS-CLOSED
+    4 tests passed.                          (exit 0, baseline and after)
+
+No RED control for the SNAP-SYNC-FILL-DEFERRED-STORAGE leg, and this is
+deliberate rather than an oversight. Its coverage is
+snap-heal-storage-plan-is-healed-in-consecutive-segments, which runs a real
+import at a bound of two against a six-account plan. That test was green before
+this change and is green after it, so it is coverage and not a RED control; what
+changed underneath it is that its segmented arm previously skipped the fill pass
+entirely on overflow and now performs it, which makes its existing assertion —
+the same durable trie-node set as the whole arm — a strictly stronger statement
+than it was. A dedicated unit RED would have had to drive
+SNAP-SYNC-FILL-STORAGE-ROOT, which is the threaded worker pool, and would have
+duplicated that integration test at materially higher flake risk.
+
+Exact-revision gates
+
+cl-workbench validation run cold-unit --match SNAP
+  147 tests passed.
+Exit 0, no "not ok" line, no compile warning under /workspace/src.
+
+cl-workbench validation run cold-integration --match SNAP
+  101 tests passed.
+Exit 0, no "not ok" line, no compile warning under /workspace/src.
+
+cl-workbench validation run cold-unit --match PROJECT-PACKAGE
+  ok PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC
+  ok PROJECT-PACKAGE-DEPENDENCY-GRAPH-INCLUDES-SOURCE-REFERENCES
+  2 tests passed.
+Exit 0. Run because this change retires and renames functions, and these two
+tests parse the source tree from disk.
+
+cl-workbench doctor --strict passed at session start: dev image
+ethereum-lisp-dev:go1.24-bookworm-b8aaea74d911 present and ownership verified,
+checkout identity 23196f5b9773.
+
+Not run for this revision
+
+cold-all, a linux/amd64 runtime image, runtime-smoke, and any live run. This
+revision therefore does not carry the full evidence set the 2026-09-18 handoff
+still owes 05c13ad5; it carries the focused surface for the promotion change
+only. The live claim this change predicts — that promotedSubtrees stops being 0
+and that the post-rebase account walk collapses to changed and boundary regions
+— is unmeasured, and it is the whole point of the change, so it should be the
+first thing a live run looks at.
+
+Carried forward
+
+Segmentation still does not apply after the first pivot rebase. The plan marker
+is published only by SNAP-SYNC-COMMIT-ACCOUNT-PAGES when partial-root equals
+state-root, and SNAP-SYNC-HEAL-REBASED-PROGRESS installs a sticky synthetic
+witness, so a rebased root never gets a plan and the healer takes a state-root
+walk for the rest of the session. Promotion is the part of this that does reach
+those generations, because it runs over every durable plan root including the
+pre-rebase one, but the frontier seeding does not.
+
+The account-side closure problem itself is unsolved. Account marker absence
+grants no skip and must not: an unmarked account subtree may still name code or
+storage that is not durable. This change widens the supply of depth-four
+:ACCOUNT proofs; it does not change what an account proof means. Options B
+(stop writing account markers a page's own proof already covers, a frontier-size
+win worth roughly 271,000 sentinel works and marker deletes per generation but
+zero node visits) and C (advance the closure epoch to trust present unmarked
+account nodes, high risk, blocked on the boundary-proof-node leg) remain open
+and should be judged only after this change is measured live.
+
+Still open from earlier revisions: the reproducible SBCL memory fault on
+shutdown, and remote disk as the binding operational constraint.
