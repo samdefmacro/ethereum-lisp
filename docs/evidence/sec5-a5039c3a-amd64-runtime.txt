@@ -1,0 +1,102 @@
+Section 5 exact linux/amd64 runtime artifact evidence
+
+Recorded at: 2026-09-18T06:53:25Z
+Branch: sec5-public-bootstrap-sync
+Revision: a5039c3a8fff7ab224b107f3261729328df24e2a
+Image: ethereum-lisp-runtime:sec5-a5039c3a-amd64
+Local multi-platform image ID:
+  sha256:8a6a3a3c5dbbea512ebbfd85145993adb9d508f3a47dbde6c9b0f3057231df2f
+Portable linux/amd64 config/image digest:
+  sha256:eed05f81776e7cf0cada5312d5a31b307e62837e6a1f6e4f82ecf35e1a92d83d
+linux/amd64 manifest digest:
+  sha256:6c9c91fd86cd6d2bd5b2735fab9302d02e74278e4a1825dc73d474a0a53c8181
+Platform: linux/amd64
+Runtime user: ethereum:ethereum
+OCI revision label: a5039c3a8fff7ab224b107f3261729328df24e2a
+Local image size: 72005609 bytes
+
+Revision under test
+
+a5039c3a is the merge commit that brings both in-flight SNAP plan fixes onto
+911a56ef together with the shutdown-fault trace and the worktree ignore rule.
+Its two parents are d1abc1e9 (itself the merge of 485e7b50 and a85ed1dd) and
+89bcb681. Three independent lines branch from 911a56ef: ea865333 -> 485e7b50,
+c4e9ec34 -> a85ed1dd, and 519e4c9b -> 89bcb681. So the functional content is
+c4e9ec34 and 519e4c9b merged onto 911a56ef, plus ea865333 and 485e7b50.
+
+git log --oneline 911a56ef..a5039c3a
+
+  a5039c3a Merge range-plan promotion streaming and evidence
+  89bcb681 docs(sec5): archive the range-plan promotion stream
+  519e4c9b fix(snap): stream the range plan instead of bounding its consumers
+  d1abc1e9 Merge storage-plan segmentation checkpoint fix and evidence
+  a85ed1dd docs(sec5): archive the storage-plan segmentation record
+  c4e9ec34 fix(snap): keep segmenting a storage plan across a heal checkpoint
+  485e7b50 chore: ignore agent worktrees under .claude
+  ea865333 docs(sec5): trace the shutdown memory fault to an unclosed store
+
+Build and revision fence
+
+The checkout was detached at the named revision and clean before the build, and
+remained clean after build, export, and runtime smoke. The reviewed project
+runtime-build broker ran with RUNTIME_PLATFORM=linux/amd64 on an arm64 control
+plane, so the amd64 Lisp stage was emulated:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-a5039c3a-amd64
+
+The build's own final stage check printed the expected identity:
+
+  ethereum-lisp/0.1.0/0xa5039c3a
+
+Docker inspection then confirmed linux/amd64, non-root ethereum:ethereum, and
+an OCI revision label equal to repository HEAD.
+
+Runtime smoke
+
+The Workbench-managed runtime-smoke profile passed against the exact image,
+seven of seven checks, exit 0:
+
+  ok - --hoodi built its genesis from the packaged allocation
+  ok - eth_chainId = 0x539
+  ok - web3_clientVersion = {"jsonrpc":"2.0","id":1,"result":"ethereum-lisp/0.1.0/CL/0xa5039c3a"}
+  ok - unauthenticated engine_exchangeCapabilities rejected with 401
+  ok - authenticated engine_exchangeCapabilities answered
+  ok - engine_getClientVersionV1 identifies a5039c3a8fff7ab224b107f3261729328df24e2a as 0xa5039c3a
+  ok - eth_syncing on the Engine port answered
+  PASS: runtime image ethereum-lisp-runtime:sec5-a5039c3a-amd64 serves public RPC and an authenticated Engine API
+
+The runner published both endpoints ephemerally on 127.0.0.1 and read the
+mapping back; the emulated-platform warning from the arm64 daemon is expected
+and does not affect the result.
+
+Export
+
+Artifact:
+  /private/tmp/ethereum-lisp-runtime-sec5-a5039c3a-amd64.tar
+Size:
+  72030720 bytes
+Mode:
+  -rw-------
+SHA-256:
+  d9f859c3ba7622b272c8c8efd6e8a15a14079e245eaa19f30a899f9930c720d9
+
+The project runtime-export broker independently required the image revision
+label to equal repository HEAD and the image platform to equal linux/amd64
+before writing the fresh artifact; it refuses an artifact path that already
+exists. Final SHA-256 readback matched the value above. The archive's
+manifest.json names config digest `eed05f81...2d83d`, so loading it into a plain
+linux/amd64 daemon produces that digest as the Docker image ID. The local
+`8a6a3a3c...1df2f` ID identifies this daemon's multi-platform image index and is
+not portable across `docker save` / `docker load`.
+
+Scope boundary
+
+This record proves an exact-revision linux/amd64 runtime artifact and a local
+runtime smoke pass only. No live run was performed: the artifact was not
+uploaded, loaded, or deployed anywhere, no Hoodi container or datadir was
+created, started, stopped, or mutated, and no existing container was inspected
+for progress. No cold test layer, cold-docs, cold-scale, Hive run, or shadow
+comparison was executed for this record. Hoodi target completion, empty healer
+frontier, canonical execution, real eth_syncing=false, external Hive
+interoperability, shadow comparison, and validator soak all remain open.
