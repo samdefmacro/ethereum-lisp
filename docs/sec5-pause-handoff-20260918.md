@@ -23,7 +23,8 @@ the user's request, to hand the work to a different agent.
 
 ## What changed since 2026-09-13
 
-Fourteen commits, all pushed. The five behavioral ones, oldest first:
+Twelve commits after the handoff itself, all pushed. Six are evidence
+archives. The five behavioral ones, oldest first:
 
 - `c0cce53d` — defer proved subtrees regardless of frontier
   (evidence `docs/evidence/sec5-c0cce53d-heal-deferral-frontier.txt`);
@@ -43,10 +44,11 @@ The arc these describe is one investigation. Closure epoch six made the
 storage skip fire on the live chain — 6,822,712 skipped subtrees against
 1,058,816 processed nodes — and healing still did not converge, because
 `knownIncompleteNodes` (1,058,419) tracked `processedNodes` almost exactly:
-the healer was walking marked account nodes. `docs/evidence/
-sec5-heal-stale-marker-trace.txt` is the diagnosis that followed. It measured
-where those markers come from (a completed flat import leaves stale markers on
-complete content, proportional to page count), rejected four hypotheses with
+the healer was walking marked account nodes.
+`docs/evidence/sec5-heal-stale-marker-trace.txt` is the diagnosis that
+followed. It measured where those markers come from (a completed flat import
+leaves stale markers on complete content, proportional to page count and not
+to any bound being exceeded), rejected four hypotheses with
 measurements, and showed that the 8,192 deferred-storage bound cannot simply
 be raised: one storage heal work encodes to 72 bytes, so the four-megabyte
 checkpoint admits about 58,000, three orders of magnitude below a live plan
