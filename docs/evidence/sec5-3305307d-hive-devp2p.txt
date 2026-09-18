@@ -1,0 +1,303 @@
+Section 5 pinned Hive devp2p record for 3305307d -- NOT RUN
+
+Recorded: 2026-09-18T09:05:29Z
+Revision: 3305307d02918d797ad0037a93092451f0ab2b61
+Branch: hive-devp2p-evidence-3305307d, cut from sec5-public-bootstrap-sync
+        at 3305307d
+Hive: dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+devp2p protocol specification: 51dc101fddd52b5d90e59a2d695a92e4d600cfaf
+Pinned geth devp2p tool: 101035a1049c7dc468bfe973478b579d9883d7b6
+
+Scope
+
+This record archives the complete local preparation of the pinned 48-entry
+Hive devp2p inventory at exact client revision
+3305307d02918d797ad0037a93092451f0ab2b61, and states plainly that the
+simulator itself was not executed at this revision.
+
+It is not a conformance result. The required discv4/eth/snap surface is still
+evidenced only by the r54 run at revision
+0395792914fdcda41cf76c43ae292f261315f0d5, archived in
+docs/evidence/sec5-03957929-hive-devp2p-r54.txt. Nothing below may be read as
+transferring that 47/47 to 3305307d.
+
+Result
+
+- required discv4/eth/snap surface at 3305307d: NOT RUN
+- discv4: not executed
+- discv5: not executed (and would remain an explicit fail-closed refusal)
+- eth: not executed
+- snap: not executed
+- executed entries: 0 of the pinned 48
+- Hive exit status at this revision: none
+
+Why the suite was not executed here
+
+scripts/hive-run.sh is the reviewed entry point, and it refuses a real run on
+this control plane. The refusal was exercised at this revision rather than
+quoted:
+
+  RUNTIME_PREBUILT=1 RUNTIME_IMAGE=ethereum-lisp-runtime \
+  RUNTIME_TAG=sec5-3305307d-amd64 \
+  scripts/hive-run.sh --sim devp2p
+
+  ==> using prebuilt ethereum-lisp-runtime:sec5-3305307d-amd64
+  ==> installing clients/ethereum-lisp from tools/hive
+  ==> pinning devp2p go-ethereum 101035a1049c7dc468bfe973478b579d9883d7b6
+  Refusing to run hive on macOS.
+  [...]
+  exit 1
+
+Hive must share a host with dockerd because it dials each client container's
+bridge address for its liveness check, which a macOS host cannot route into
+the Docker Desktop VM. docs/hive-gate.md records the same boundary: "Real Hive
+runs execute on the reviewed Linux runner test-ethereum-server, not on macOS."
+
+Every retained devp2p run -- r30 (b7bdb6da), r39 (f79f5b2e), r47 (7daf9130),
+r49 and r54 (03957929) -- was executed on that remote Linux host, under
+/data/hoodi-sec5-hive/runs/..., as a sec5-hive-<revision>-devp2p-full-r<N>
+outer runner, and only after an independent authorization request was approved
+through the Section 5 supervisor. That host is currently carrying the live
+Section 5 Hoodi sync for this same revision (container hoodi-el-sec5-3305307d,
+recorded in docs/evidence/sec5-3305307d-amd64-runtime.txt). This session was
+explicitly scoped not to schedule or start work there, so the run below is
+prepared and handed to the coordinator instead of executed.
+
+Local preparation that was executed at 3305307d
+
+All commands ran from the 3305307d checkout with a clean worktree, output
+redirected to a file, and the exit code read back separately.
+
+1. Container boundary preflight
+
+  cl-workbench doctor --strict
+  exit 0; "doctor: all required Workbench checks passed"; no host Python or
+  SBCL fallback enabled.
+
+2. Exact linux/amd64 runtime image (pre-existing; deliberately not rebuilt)
+
+  ethereum-lisp-runtime:sec5-3305307d-amd64
+  image ID
+    sha256:4ff7befe77a8738cdf88bfe302f04a8195ba08f5623514e473c5926286f1503e
+  platform linux/amd64
+  configured user ethereum:ethereum
+  OCI revision label 3305307d02918d797ad0037a93092451f0ab2b61
+
+  Exported runtime archive, verified by independent readback:
+    /private/tmp/ethereum-lisp-runtime-sec5-3305307d-amd64.tar
+    72032256 bytes
+    sha256 73a88be3d217045e2298805c4eb604c90eca062a1bfb47d3a7b06ed0753126f4
+
+  This matches the archive identity recorded in
+  docs/evidence/sec5-3305307d-amd64-runtime.txt, so the artifact the remote
+  runner would load is the one already reviewed for this revision.
+
+3. Exact source archive
+
+    /private/tmp/ethereum-lisp-source-3305307d.tar
+    29829120 bytes
+    sha256 a8e78a552417c9932aaaae1f4877b8c8d068274065efebdcd0dce2397cb6a82b
+
+  Inventory readback against git ls-tree -r 3305307d: 943/943 tracked files or
+  symlinks present, 0 missing, 0 extra. The remaining 116 archive members are
+  directory entries.
+
+4. Pinned Hive preparation and source pin
+
+  RUNTIME_PREBUILT=1 RUNTIME_IMAGE=ethereum-lisp-runtime \
+  RUNTIME_TAG=sec5-3305307d-amd64 \
+  scripts/hive-run.sh --sim devp2p --prepare-only
+
+  exit 0. Readback assertions, all pass:
+
+  - the Hive checkout HEAD is exactly
+    dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c;
+  - the staged simulators/devp2p/Dockerfile is byte-identical to the tracked
+    scripts/hive-devp2p.Dockerfile (cmp, no difference);
+  - that template's sha256 is
+    73cba04a71d46be86379c83f9d7b3254d58d74296856d75f9529d9a8ce268d45, the
+    value reviewed in docs/evidence/sec5-f19ee8d5-hive-devp2p-geth-pin.txt;
+  - pinned Hive's moving "git clone --depth 1 .../go-ethereum.git" line is
+    absent from the staged file (0 matches);
+  - the printed command carries
+    --sim.buildarg GETH_COMMIT=101035a1049c7dc468bfe973478b579d9883d7b6;
+  - the generated clients.yaml selects baseimage ethereum-lisp-runtime and
+    tag sec5-3305307d-amd64.
+
+5. Hive adapter smoke at this revision
+
+  RUNTIME_IMAGE=ethereum-lisp-runtime \
+  RUNTIME_TAG=sec5-3305307d-amd64 \
+  SMOKE_SLUG=sec5-3305307d-devp2p \
+  scripts/hive-adapter-smoke.sh ethereum-lisp-hive:sec5-3305307d-devp2p
+
+  exit 0, 12/12 checks, 8.7 s wall on a warm build cache:
+
+    ok - HIVE_CLIQUE_PERIOD=1 refused: HIVE_CLIQUE_*
+    ok - HIVE_MINER=... refused: HIVE_MINER
+    ok - HIVE_GRAPHQL_ENABLED=1 refused: HIVE_GRAPHQL_ENABLED
+    ok - HIVE_NODETYPE=snap refused: HIVE_NODETYPE=snap
+    ok - HIVE_AMSTERDAM_TIMESTAMP=100 refused: HIVE_AMSTERDAM_TIMESTAMP
+    ok - HIVE_DISCV5=1 refused: HIVE_DISCV5
+    ok - bundled discovery genesis starts under HIVE chain configuration
+    ok - Hive uses the production RocksDB backend
+    ok - uploaded supported fork config survives an absent HIVE override
+    ok - HIVE_CHAIN_ID=7337 reached the client as 0x1ca9
+    ok - enode.sh returned routable admin_nodeInfo address
+    ok - engine_exchangeCapabilities under hive's JWT secret
+    PASS: the hive adapter maps HIVE_* onto flags this client implements
+
+  The HIVE_DISCV5 refusal is the same fail-closed behaviour that r54 reports
+  as the single non-passing inventory entry. It is a refusal, not a skip.
+
+6. Runtime smoke at this revision
+
+  SMOKE_SLUG=sec5-3305307d-devp2p \
+  cl-workbench validation run runtime-smoke \
+    ethereum-lisp-runtime:sec5-3305307d-amd64
+
+  exit 0, 7/7 checks, 8.4 s wall:
+
+    ok - --hoodi built its genesis from the packaged allocation
+    ok - eth_chainId = 0x539
+    ok - web3_clientVersion = ethereum-lisp/0.1.0/CL/0x3305307d
+    ok - unauthenticated engine_exchangeCapabilities rejected with 401
+    ok - authenticated engine_exchangeCapabilities answered
+    ok - engine_getClientVersionV1 identifies
+         3305307d02918d797ad0037a93092451f0ab2b61 as 0x3305307d
+    ok - eth_syncing on the Engine port answered
+
+Reviewed harness input identities
+
+  scripts/hive-run.sh
+    1899c4944277703a908ab4727df5d3b0ee883849720cb8a753631da13df5c050
+  scripts/hive-devp2p.Dockerfile
+    73cba04a71d46be86379c83f9d7b3254d58d74296856d75f9529d9a8ce268d45
+  scripts/hive-adapter-smoke.sh
+    0e54df7de91e6de064ff42c24eb87e83e173d97a304677703152994f84020589
+  scripts/hive-runtime-smoke.sh
+    736ec67579ddf762655183b9e94cdfed537bc7a57e6458c87e1b2d7bc55cf3c9
+  tools/hive/Dockerfile
+    717cbf3b132129bc30bf9ec8f459d98f19337ab5e5eee675d3e4805d423b7adf
+  tools/hive/ethereum-lisp.sh
+    6e2f9e837657d4dd85f27b7a613bec1c158c9281b3933decb747f10ca601eb3a
+  tools/hive/mapper.jq
+    4330ef9400c96a42a864a378be0a8f1f511ef7098cadc10b586db3ed323a90be
+  tools/hive/genesis.json
+    744c8c0f80dbd291fe76672b9832ec80d51e92d081ed586c6617505f74240f8c
+  tools/hive/enode.sh
+    f2a6a9a8bd0b12e87d14d195fbb2f7cf0e2811958107f5eb0bb6ba91b2d25741
+  tools/hive/hive.yaml
+    47aea2c73e6013fb151060bebcc04014f81721adec8ef5a6c85cc63004e16945
+
+Prepared remote command -- NOT RUN
+
+This is the work item for the coordinator to schedule on the reviewed Linux
+runner, through the ordinary Section 5 authorization request, at a time that
+does not compete with the live Hoodi sync already running on that host. It was
+not executed by this session and no part of it was sent to the remote host.
+
+Preconditions the request must assert before any mutation:
+
+  - the approved run identity is
+      sec5-hive-3305307d-devp2p-full-r<N>-<UTC timestamp>
+    with a fresh, previously absent evidence root
+      /data/hoodi-sec5-hive/runs/3305307d-devp2p-full-r<N>-<UTC timestamp>
+    and a previously absent runner container of the same name;
+  - /data has at least 12,884,901,888 available bytes. The r40 request was
+    rejected on exactly this precondition at 8,232,374,272 bytes, and the live
+    Section 5 sync on this host is consuming /data continuously, so the figure
+    must be re-read at scheduling time and not carried over from
+    docs/evidence/sec5-3305307d-amd64-runtime.txt;
+  - the running hoodi-el-sec5-3305307d execution client, the Lighthouse
+    container, their ports, mounts, start times and datadirs are untouched, and
+    a final readback proves it;
+  - the uploaded runtime archive matches
+    73a88be3d217045e2298805c4eb604c90eca062a1bfb47d3a7b06ed0753126f4 and the
+    source archive matches
+    a8e78a552417c9932aaaae1f4877b8c8d068274065efebdcd0dce2397cb6a82b;
+  - the loaded image's OCI revision label is exactly
+    3305307d02918d797ad0037a93092451f0ab2b61, its platform linux/amd64 and its
+    user ethereum:ethereum.
+
+Outer runner bounds, unchanged from the r54 runner that produced the accepted
+result: 2 CPUs, 8 GiB memory, 10 GiB memory-plus-swap, 1,024 PIDs, read-only
+root filesystem, no published host ports, and binds limited to the fresh
+evidence root and this run's nested-Docker path.
+
+Inside that runner, from the 3305307d source checkout:
+
+  RUNTIME_PREBUILT=1 \
+  RUNTIME_IMAGE=ethereum-lisp-runtime \
+  RUNTIME_TAG=sec5-3305307d-amd64 \
+  HIVE_WORKDIR=/evidence/hive-gate \
+  HIVE_RESULTS=/evidence/results \
+  HIVE_EXPECTED_TESTS=48 \
+  HIVE_PREBUILT_BINARY_SHA256=cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308 \
+  scripts/hive-run.sh --sim devp2p \
+    > /evidence/hive-devp2p-full.log 2>&1
+  echo "EXIT=$?" > /evidence/hive-status.txt
+
+Notes on that invocation, each of which is a real constraint rather than
+decoration:
+
+  - HIVE_EXPECTED_TESTS=48 must be passed explicitly. scripts/hive-run.sh
+    auto-selects a pinned inventory only for ethereum/engine (403) and
+    ethereum/rpc-compat (234); the devp2p case is absent from that switch, so
+    without this variable a short inventory would not fail closed. r39 is the
+    precedent: it enumerated 36 entries instead of 48 and had to be caught by
+    reading the suite JSON afterwards.
+  - HIVE_PREBUILT_BINARY_SHA256 is the reviewed Go-less Linux runner path and
+    requires an executable $HIVE_WORKDIR/hive/hive with exactly that checksum,
+    which is the pinned Hive binary identity retained by r30, r39 and r54. Drop
+    the variable only if that runner has a Go toolchain, in which case
+    hive-run.sh builds Hive itself from the verified pinned checkout.
+  - HIVE_RESULTS must be an empty directory; hive-run.sh refuses a reused
+    results root.
+  - no HIVE_EXTRA_ARGS. The runner rejects any token that could replace client
+    selection, simulator, results root, limit semantics, GETH_COMMIT, branch or
+    fixtures, and a stray `--` would otherwise hide the protected pins from
+    Go's flag parser.
+  - the run must not publish a host port and must not join the Hoodi networks.
+
+Expected inventory for a closing result, from retained r49/r54:
+
+  discv4 16, discv5 1, eth 25, snap 6 = 48 unique boolean results, zero skips.
+  A closing result at 3305307d is discv4 16/16, eth 25/25, snap 6/6, that is
+  47/47 on the required surface, with the complete inventory reported honestly
+  as 47/48 because the unsupported discv5 launch is refused. Any passed-to-
+  failed entry relative to r54 is a regression at this revision and must be
+  reported as such, not averaged away.
+
+Archiving requirement: retain all four suite JSON files, the simulator,
+details, client-log, source, artifact, status and runner references, and
+recompute an independent SHA-256-plus-relative-path manifest over the evidence
+root. r54's reviewer manifest covered 3/3 artifacts and 945/945 evidence
+files; a successor run at this revision must produce and recheck its own
+manifest rather than reuse those counts.
+
+Isolation of this session's local work
+
+The only Docker objects created here were the adapter-smoke wrapper image
+ethereum-lisp-hive:sec5-3305307d-devp2p and the short-lived containers labelled
+agent=sec5-3305307d-devp2p, all of which the smoke scripts removed on exit; a
+readback for that label found none remaining. Every published port was
+ephemeral on 127.0.0.1. No image, container or volume created by another
+checkout was inspected for reuse, stopped or removed, and nothing was pruned.
+ethereum-lisp-runtime:sec5-3305307d-amd64 was used as-is and not rebuilt.
+
+Boundary
+
+The Section 5 required Hive devp2p surface is NOT closed at
+3305307d02918d797ad0037a93092451f0ab2b61. It is closed only at 03957929, and
+3305307d is 48 commits ahead of it, 21 of which touch src, tools, scripts or
+Dockerfile.runtime. What this record
+establishes is that the exact artifacts, the pinned Hive checkout, the pinned
+geth simulator source, the adapter contract and the runtime contract are all
+verified and ready at this revision, so the remaining work is one scheduled,
+independently authorized Linux run and its archived result.
+
+Independently of devp2p, the live Hoodi gates for this revision remain open:
+SNAP target completion, healer completion with an empty frontier, canonical
+execution through the CL-authorized target, eth_syncing=false, the seven-day
+shadow comparison, and the fourteen-day validator soak.
