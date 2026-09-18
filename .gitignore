@@ -3,6 +3,7 @@
 /.dev-runtime/
 /.cl-workbench/state/
 /.worktrees/
+/.claude/worktrees/
 /references/go-ethereum/
 /references/nethermind/
 *.fasl
@@ -14,4 +15,3 @@
 *.dylib
 *.dll
 /.eest-fixtures*/
-/.worktrees/
