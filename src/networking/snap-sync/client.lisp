@@ -5680,12 +5680,18 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
     (multiple-value-bind
           (planned-storage planned-storage-present-p planned-storage-cursor
            planned-storage-more-p)
-        (if checkpoint-present-p
-            (values nil nil nil nil)
-            (snap-sync-deferred-storage-segment
-             database (snap-sync-progress-state-root progress)
-             (snap-sync-read-deferred-storage-cursor
-              database (snap-sync-progress-state-root progress))))
+        ;; A checkpoint resumes one segment's frontier; it records nothing
+        ;; about how far the plan itself has been closed. Read the durable
+        ;; cursor on every entry, so a restart inside segment N continues
+        ;; segmenting once that frontier drains instead of publishing
+        ;; completion over the plan's unhealed remainder and deleting the
+        ;; cursor that recorded where it stopped. The frontier below still
+        ;; prefers the checkpoint, so PLANNED-STORAGE is computed and then
+        ;; ignored on a resume.
+        (snap-sync-deferred-storage-segment
+         database (snap-sync-progress-state-root progress)
+         (snap-sync-read-deferred-storage-cursor
+          database (snap-sync-progress-state-root progress)))
       (let* ((state-root (snap-sync-progress-state-root progress))
            (root-bytes (hash32-bytes state-root))
            (complete-node-scheme-p
@@ -6910,6 +6916,11 @@ for more missing hashes."
                   (flush-healed-subtrees)
                   (snap-sync-populate-deferred-storage-cursor-batch
                    batch state-root planned-storage-cursor)
+                  ;; A checkpoint belongs to the segment it was taken inside.
+                  ;; Retire it in the same batch as the cursor that closes
+                  ;; that segment, so no restart can restore a frontier the
+                  ;; cursor has already passed.
+                  (snap-sync-delete-heal-checkpoint-batch batch)
                   (kv-apply-batch database batch)
                   (multiple-value-bind (works present-p cursor more-p)
                       (snap-sync-deferred-storage-segment
