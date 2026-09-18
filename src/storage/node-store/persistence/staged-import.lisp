@@ -1550,13 +1550,20 @@ When STAGE is NIL, the persisted control state selects the next legal stage."
       (values new-state (or stage :finished)))))
 
 (defun node-store-copy-key-value-database (source target)
-  (let ((iterator (kv-iterator source)))
-    (loop
-      (multiple-value-bind (key value present-p)
-          (funcall iterator)
-        (unless present-p
-          (return target))
-        (kv-put target key value)))))
+  ;; KV-PUT on TARGET can signal for real -- a write error, or a refused handle
+  ;; after a torn append -- and that unwinds out of the loop with SOURCE's
+  ;; iterator still open. The closer is documented idempotent, so the
+  ;; exhaustion path is unaffected.
+  (multiple-value-bind (iterator close-iterator)
+      (kv-iterator source)
+    (unwind-protect
+         (loop
+           (multiple-value-bind (key value present-p)
+               (funcall iterator)
+             (unless present-p
+               (return target))
+             (kv-put target key value)))
+      (when close-iterator (funcall close-iterator)))))
 
 (defun node-store-populate-staged-hydration-batch
     (database staging-database state horizon batch)

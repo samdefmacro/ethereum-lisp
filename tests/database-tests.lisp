@@ -1946,3 +1946,93 @@ for what that bounds about the result.")
   ;; docs/evidence/sec5-shutdown-memory-fault-trace.txt.
   (rocksdb-exit-fault-probe-assert-clean "live-no-close" ":MODE")
   (rocksdb-exit-fault-probe-assert-clean "quiet-close" ":CLOSED T"))
+
+;;; ---------------------------------------------------------------------------
+;;; Iterator closer contract at the call sites.
+;;;
+;;; KV-ITERATOR (src/foundation/database/types.lisp) returns a puller and an
+;;; idempotent closer, and documents that a caller which stops before
+;;; exhaustion must call the closer. A RocksDB iterator that is never destroyed
+;;; pins its superversion, its memtables and its SST readers until the process
+;;; exits, so a leak here inflates exactly the foreign working set that
+;;; docs/evidence/sec5-shutdown-memory-fault-trace.txt correlates with the
+;;; shutdown fault.
+;;;
+;;; These three tests each drive a real call site to a stop-before-exhaustion
+;;; and require the closer to have been invoked. They are RED on the revision
+;;; before the UNWIND-PROTECTs were added, because the closer count stays zero.
+;;; ---------------------------------------------------------------------------
+
+(defclass closer-counting-key-value-database (memory-key-value-database)
+  ((closer-calls
+    :initform 0
+    :accessor closer-counting-database-closer-calls
+    :documentation "Number of times a caller invoked a returned closer.")
+   (pull-limit
+    :initarg :pull-limit
+    :initform nil
+    :accessor closer-counting-database-pull-limit
+    :documentation "When set, the puller signals after this many pulls, which
+models an iteration abandoned by a real error rather than by end of range."))
+  (:documentation
+   "Memory backend that records closer invocations and can fail a scan partway.
+
+Counting the CLOSER rather than the native release is deliberate: the contract
+under test is that the CALLER invokes it. The memory backend's own iterator
+self-releases either way, so a test that only inspected backend state could not
+distinguish a fixed call site from a leaking one."))
+
+(defmethod kv-iterator ((database closer-counting-key-value-database)
+                        &key start end reverse-p)
+  (declare (ignore start end reverse-p))
+  (multiple-value-bind (iterator close-iterator)
+      (call-next-method)
+    (let ((pulls 0))
+      (values
+       (lambda ()
+         (let ((limit (closer-counting-database-pull-limit database)))
+           (when (and limit (>= pulls limit))
+             (error "Counting iterator failed deliberately after ~D pulls"
+                    pulls))
+           (incf pulls)
+           (funcall iterator)))
+       (lambda ()
+         (incf (closer-counting-database-closer-calls database))
+         (when close-iterator (funcall close-iterator)))))))
+
+(deftest kv-chain-records-closes-its-iterator-on-a-non-local-exit
+  (:layer :unit :module :database)
+  (let ((database (make-instance 'closer-counting-key-value-database)))
+    (dolist (identifier '(#(1) #(2) #(3)))
+      (kv-put-chain-record database :block identifier #(10)))
+    ;; The exhaustion path cannot show the defect: it ends the scan normally
+    ;; and a self-closing iterator releases itself. Only an abandoned scan can.
+    (setf (closer-counting-database-pull-limit database) 2)
+    (signals error (kv-chain-records database :block))
+    (is (= 1 (closer-counting-database-closer-calls database)))))
+
+(deftest devnet-cli-kv-records-present-p-closes-its-iterator
+  (:layer :unit :module :database)
+  (let ((database (make-instance 'closer-counting-key-value-database)))
+    (kv-put database #(1) #(10))
+    (kv-put database #(2) #(20))
+    ;; One pull answers the question, so this stops before exhaustion on every
+    ;; non-empty store. No induced failure is needed: the early stop IS the
+    ;; leak, and it happened on every node start against a populated datadir.
+    (is (ethereum-lisp.cli::devnet-cli-kv-records-present-p database))
+    (is (= 1 (closer-counting-database-closer-calls database)))))
+
+(deftest node-store-copy-key-value-database-closes-its-source-iterator
+  (:layer :unit :module :database)
+  (let ((source (make-instance 'closer-counting-key-value-database))
+        (target (make-memory-key-value-database)))
+    (kv-put source #(1) #(10))
+    (kv-put source #(2) #(20))
+    (kv-put source #(3) #(30))
+    ;; Stands in for the real hazard, a KV-PUT on TARGET that signals partway
+    ;; through the copy and unwinds out of the loop with SOURCE still open.
+    (setf (closer-counting-database-pull-limit source) 2)
+    (signals error
+      (ethereum-lisp.node-store.persistence::node-store-copy-key-value-database
+       source target))
+    (is (= 1 (closer-counting-database-closer-calls source)))))

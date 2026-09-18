@@ -318,3 +318,196 @@ Carried forward
   the two do not share a lock: the export takes the node store guard
   (CALL-WITH-DEVNET-NODE-STORE-GUARD at src/app/cli/devnet/runtime.lisp
   480-481) and snap's committer does not.
+
+===========================================================================
+Addendum: pc resolution from the live layout
+===========================================================================
+
+A /proc/1/maps capture of the live 05c13ad5 container settles the question the
+body above left open, and moves the answer from "a shared library" to "the
+glibc free path". The arithmetic below is checked; the final instruction
+identification is derived from glibc's source structure and is NOT measured,
+because no reviewed container can disassemble the relevant binary (see "Why
+objdump did not run" below).
+
+What the map settles outright
+
+The body inferred that pc at 0x7f cannot be Lisp or SBCL runtime code. The map
+confirms it and shows why: every Lisp space is elsewhere. The executable maps
+at 0x50000000-0x53cf8000 (three ranges, the text and immobile spaces), at
+0xfff4a8000-0x10025b0000 with 0x10025b0000-0x1180000000 anon behind it -- that
+pair is the 6 GiB dynamic space at DYNAMIC_SPACE_START -- and the ELF image
+itself at 0x563f2bd2e000-0x563f2bd95000. Nothing SBCL owns is in the 0x7f
+band, which holds only the dlopened libraries and thread stacks.
+
+The arithmetic
+
+pc - sp is ASLR-invariant here because both operands sit in mappings the same
+loader and runtime place in the same order every start. For the three faults:
+
+    5c8a39c0   pc 0x7f426043bf55  sp 0x7f425f79faa0   pc-sp 0xC9C4B5
+    646da589   pc 0x7f6cb1f1df55  sp 0x7f6cb127faa0   pc-sp 0xC9E4B5
+    0c6b51bf   pc 0x7fb658b5bf55  sp 0x7fb657ebfaa0   pc-sp 0xC9C4B5
+
+Two identical and one 0x2000 higher, i.e. the same call site at two stack
+depths eight kilobytes apart.
+
+One further constraint pins the target more tightly than the difference does.
+Every pc ends in 0xf55, and a shared library's load base is page aligned, so
+
+    offset-into-library  ==  0xf55  (mod 0x1000)
+
+That is exact, not an estimate, and it holds whichever library pc is in.
+
+Placing it in the live map. The 4.35 MiB anon at 0x7fd8d04b7000-0x7fd8d0911000
+(0x45A000 bytes) is the main thread's SBCL thread struct: one 2 MiB control
+stack plus the binding, alien and dynamic-values areas and their guard pages.
+It sits below every CFFI-loaded library and above libc, which is where
+CREATE_MAIN_LISP_THREAD must put it -- allocated before any dlopen. SBCL
+switches the initial thread onto that allocated control stack, which is why the
+recorded sp values are in the 0x7f band and not in [stack] at 0x7ffd78cd1000.
+
+Taking sp near the top of that 2 MiB control stack, sp ~ 0x7fd8d06b6aa0:
+
+    pc  ~ 0x7fd8d06b6aa0 + 0xC9C4B5 = 0x7fd8d1352f55
+    libc.so.6 spans     0x7fd8d12c8000 - 0x7fd8d149d000
+    offset ~ 0x7fd8d1352f55 - 0x7fd8d12c8000 = 0x8AF55
+
+which ends in 0xf55, satisfying the exact constraint above as a self-check.
+Letting sp range over the whole control stack puts pc in
+0x7fd8d1153f55-0x7fd8d1353f55. The lower part of that span falls in the 9.6 MiB
+anon at 0x7fd8d0912000-0x7fd8d12c8000, which contains no code at all, so the
+only executable object in the span is libc, at an offset of at most 0x8BF55.
+Offsets in the 0x8xxxx region of Debian bookworm's glibc are the malloc.c
+region. (Widening the span to the full 4.35 MiB struct, as the first reading
+did, also admits libm and libzstd; neither contains arena logic and neither is
+reachable from a free, so this does not change the conclusion.)
+
+Why the fault address is the whole fingerprint
+
+glibc resolves a chunk's arena with
+
+    heap_for_ptr(p)   ==  p & ~(HEAP_MAX_SIZE - 1)
+    arena_for_chunk(p) == chunk_main_arena(p) ? &main_arena
+                                              : heap_for_ptr(p)->ar_ptr
+
+HEAP_MAX_SIZE is 64 MiB on 64-bit, and chunk_main_arena tests the NON_MAIN_ARENA
+bit (bit 2) of the chunk's size word. All three fault addresses are 64 MiB
+aligned:
+
+    0x5599c8000000   0x562478000000   0x557f18000000
+
+and heap_info's first member, ar_ptr, is at offset 0 -- so the faulting access
+is at the computed base with nothing added, which is what reading the very
+first field looks like.
+
+The live map shows the matching hole. The ELF image ends at 0x563f2bd95000 and
+[heap] begins at 0x563f2c0fe000, so the 64 MiB boundary 0x563f2c000000 lies in
+an unmapped gap just below the brk heap. A main-arena chunk in the first 64 MiB
+of that heap -- i.e. one allocated early in process life -- whose size word has
+acquired a spurious NON_MAIN_ARENA bit therefore yields heap_for_ptr(p) in the
+gap, and the ar_ptr load faults at exactly that 64 MiB-aligned address.
+
+Independent corroboration that the arena machinery is live: the map holds twelve
+64 MiB-aligned anon regions in the 0x7fd7xx band (0x7fd734000000-0x7fd73c000000
+and eleven more). Those are glibc's non-main, per-thread arenas, each mmapped
+at HEAP_MAX_SIZE alignment. Their presence is what makes the NON_MAIN_ARENA bit
+meaningful in this process at all.
+
+Best candidate for the faulting instruction
+
+The load of heap_for_ptr(p)->ar_ptr, with arena_for_chunk inlined into
+__libc_free (free). In glibc 2.36 __libc_free is
+
+    p = mem2chunk (mem);
+    if (chunk_is_mmapped (p)) { munmap_chunk (p); return; }
+    MAYBE_INIT_TCACHE ();
+    ar_ptr = arena_for_chunk (p);
+    _int_free (ar_ptr, p, 0);
+
+so the instruction is the `mov (%reg),%reg` reading offset 0 of the masked
+pointer, in __libc_free, before _int_free is entered. The same expression is
+inlined into __libc_realloc and into _int_free's consolidation, but free is the
+one a static destructor reaches. This is an identification from source
+structure plus the offset-0 fault, not a disassembly; the exact instruction
+address is unmeasured.
+
+Why objdump did not run, and what it needs
+
+The proposed dev-container objdump would have answered the wrong question. The
+dev and test images are linux/arm64 -- they are built FROM
+golang:1.24-bookworm on this machine -- while the faulting artifact is
+linux/amd64. Measured from the images themselves, without executing either:
+
+    ethereum-lisp-runtime:sec5-5c8a39c0-amd64   libc6 amd64  2.36-9+deb12u14
+    ethereum-lisp-sbcl-test:go1.24-bookworm-*   libc6 arm64  2.36-9+deb12u13
+
+So the dev image is unrepresentative on two independent counts: a different
+architecture, which makes x86-64 offsets meaningless against AArch64 code, and
+a different glibc patch level. binutils is installed there but
+binutils-multiarch is not, so its objdump has no x86-64 target. Two further
+blockers: scripts/dev.sh shell is `docker exec --interactive --tty ... bash`
+with no command argument (scripts/dev.sh 1048-1051), so it cannot run a
+scripted command; and the runtime image has no binutils by construction
+(Dockerfile.runtime stage 3 installs only the runtime shared-library closure).
+
+The exact binary a future disassembly must target was extracted from the
+faulting image by `docker create` plus `docker cp`, with nothing executed:
+/usr/lib/x86_64-linux-gnu/libc.so.6, 1,926,232 bytes, SHA-256
+6b4a45352fd0c540a9c7c718f35ce8c8e46a4e482f9d3885a910c32d1a0e1421.
+
+The minimal reviewed addition is one of: add binutils to Dockerfile.runtime's
+`lisp` stage, which is already amd64 and already carries build-essential, plus
+a dev.sh subcommand that runs objdump against a named library in a one-shot
+--rm container from that stage; or add binutils-multiarch to the test image so
+its native objdump gains the x86-64 target. Either way the command to run is
+
+    objdump -d libc.so.6 --start-address=0x78000 --stop-address=0x9c000
+
+and the instructions of interest are exactly those whose address ends in 0xf55.
+
+S1 and S2 restated
+
+Both now route through the same libc free path, so the split is no longer
+"RocksDB teardown versus libc malloc". It is narrower and better posed:
+
+S1  A destructor-order defect frees a chunk that is not a valid malloc chunk
+    start -- an interior pointer, a second free of an already-freed chunk whose
+    header has been reused, or a pointer from a different allocator. The bogus
+    NON_MAIN_ARENA bit is then whatever happens to sit in the size word.
+    CONFIRM: the offending free site is identifiable by provenance alone,
+    statically, without a long run.
+
+S2  The chunk is a genuine long-lived main-arena allocation whose size word was
+    overwritten during the run by an adjacent overflow. The duration
+    correlation is then the corrupting write being rare per operation but
+    certain over nine hours.
+    CONFIRM: a run of comparable length under MALLOC_CHECK_=3 and
+    MALLOC_PERTURB_ aborts at the corrupting operation rather than at exit.
+    REFUTE: such a run stays silent until the same exit-time fault.
+
+The duration correlation is weaker evidence for S2 than it first appears, and
+this is the part of the earlier reading that the map corrects. The chunk faults
+at a 64 MiB-aligned address in the FIRST 64 MiB of the brk heap, so it was
+allocated early in process life; and it is freed only at exit. A destructor
+that is reached only when a large working set exists, or only after enough
+statics have been registered, would produce the same correlation with no
+corrupting write anywhere.
+
+Next experiment, no long run required
+
+Enumerate the early-startup foreign allocations that are freed only at exit and
+check each free site's pointer provenance. Candidates, in startup order: the
+RocksDB Env, options and statics; the KZG trusted setup loaded from
+/usr/local/share/eth-kzg/trusted_setup.txt and whatever the ckzg shim frees;
+the BLS shim's state; and gflags' statics. For each, ask whether the pointer
+handed to free is the one malloc returned (not an interior pointer), whether it
+can be freed twice, and whether it was allocated by the same allocator that
+frees it -- a buffer allocated inside librocksdb by operator new and freed by a
+shim's free, or vice versa, is the classic shape. That is a static audit of a
+short list and it discriminates S1 from S2 without reproducing anything.
+
+Note also that item 1 of "What the fix has to be" is unaffected by this
+addendum. Closing the store still removes the teardown entirely, and it remains
+the right change; this addendum only says that what faults during that teardown
+is a free of a bad chunk rather than a race with a live background thread.

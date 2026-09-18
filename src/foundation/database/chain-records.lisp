@@ -26,16 +26,25 @@
   (kv-batch-delete batch (kv-chain-record-key kind identifier)))
 
 (defun kv-chain-records (database kind)
-  (let ((iterator
-          (kv-iterator database
-                       :start (kv-chain-record-kind-start-key kind)
-                       :end (kv-chain-record-kind-end-key kind))))
-    (loop with records = nil
-          do (multiple-value-bind (key value present-p)
-                 (funcall iterator)
-               (unless present-p
-                 (return (nreverse records)))
-               (push (cons key value) records)))))
+  ;; The closer is required even though the loop below runs to exhaustion and a
+  ;; self-closing iterator would release itself: any non-local exit from the
+  ;; loop -- a heap exhaustion inside the copy-out, or a caller unwinding
+  ;; through this frame -- would otherwise leave a native RocksDB iterator
+  ;; pinning its superversion, memtables and SST readers for the life of the
+  ;; process. The closer is documented idempotent (KV-ITERATOR in types.lisp),
+  ;; so calling it after exhaustion is a no-op.
+  (multiple-value-bind (iterator close-iterator)
+      (kv-iterator database
+                   :start (kv-chain-record-kind-start-key kind)
+                   :end (kv-chain-record-kind-end-key kind))
+    (unwind-protect
+         (loop with records = nil
+               do (multiple-value-bind (key value present-p)
+                      (funcall iterator)
+                    (unless present-p
+                      (return (nreverse records)))
+                    (push (cons key value) records)))
+      (when close-iterator (funcall close-iterator)))))
 
 (defun kv-chain-record-entries (database kind)
   (mapcar
