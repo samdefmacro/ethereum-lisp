@@ -213,10 +213,15 @@ world-readable file WITH-OPEN-FILE would have produced."
      :state-diff :transaction-location)))
 
 (defun devnet-cli-kv-records-present-p (database)
-  (multiple-value-bind (key value present-p)
-      (funcall (ethereum-lisp.database:kv-iterator database))
-    (declare (ignore key value))
-    present-p))
+  ;; One pull answers the question, so this stops before exhaustion on every
+  ;; non-empty store -- exactly the case KV-ITERATOR documents as requiring the
+  ;; closer. Discarding it leaked a native RocksDB iterator per call, which
+  ;; pins a superversion and its SST readers until the process exits.
+  (multiple-value-bind (iterator close-iterator)
+      (ethereum-lisp.database:kv-iterator database)
+    (unwind-protect
+         (nth-value 2 (funcall iterator))
+      (when close-iterator (funcall close-iterator)))))
 
 (defun devnet-cli-kv-txpool-records-present-p (database)
   (not (null
