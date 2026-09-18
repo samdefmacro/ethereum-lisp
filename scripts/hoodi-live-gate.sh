@@ -1212,8 +1212,22 @@ if [ -n "$source_refresh" ]; then
     done
 fi
 # Profiler rows are deliberately schema-bounded and contain no peer or network
-# identity. Never print any other raw EL/CL line from this evidence broker.
+# identity. Never print any other raw EL/CL line from this evidence broker,
+# except the runtime-fault lines immediately below.
 grep -E '^allocation-profile-row([[:space:]]|$)' "$el_log" || true
+# Runtime integrity faults. SBCL prints "CORRUPTION WARNING" and then CONTINUES
+# ("Continuing with fingers crossed"), so the process keeps the exit status it
+# had already determined and a faulted shutdown looks like a clean one. This is
+# the single sanctioned exception to the raw-line rule above: these lines carry
+# SBCL pids, tids and fault addresses only -- no peer identity, no hashes, no
+# chain content -- and the address plus pc are the whole diagnostic value.
+# `complete` fails on the same pattern; see
+# docs/evidence/sec5-shutdown-memory-fault-trace.txt.
+runtime_fault_pattern='CORRUPTION WARNING|Memory fault at|fatal error encountered'
+printf 'el-runtime-fault-count=%s\n' \
+    "$(grep -E -c "$runtime_fault_pattern" "$el_log" || true)"
+grep -E -m 8 "$runtime_fault_pattern" "$el_log" |
+    sed 's/^/el-runtime-fault=/' || true
 printf 'cl-lines=%s\n' "$(wc -l <"$cl_log" | tr -d ' ')"
 printf 'cl-error-count=%s\n' "$(grep -F -i -c 'error' "$cl_log" || true)"
 printf 'cl-execution-offline-count=%s\n' \
@@ -1230,6 +1244,24 @@ container="$1"
 el_log="$(mktemp)"
 trap 'rm -f "$el_log"' EXIT HUP INT TERM
 docker logs --tail 10000 "$container" >"$el_log" 2>&1
+
+# Runtime integrity faults fail completion before anything else is considered.
+# SBCL's SIGSEGV handler prints "CORRUPTION WARNING", signals a
+# MEMORY-FAULT-ERROR and then CONTINUES ("Continuing with fingers crossed"), so
+# a faulted process still reports the exit status it had already determined.
+# Three Section 5 runs were therefore recorded as clean stops on exit 0 with
+# OOMKilled=false while their logs carried exactly this, because no action ever
+# read stderr. See docs/evidence/sec5-shutdown-memory-fault-trace.txt.
+runtime_fault_pattern='CORRUPTION WARNING|Memory fault at|fatal error encountered'
+runtime_fault_count="$(grep -E -c "$runtime_fault_pattern" "$el_log" || true)"
+if [ "$runtime_fault_count" -gt 0 ]; then
+    echo "completion-runtime-fault=$runtime_fault_count" >&2
+    # Verbatim, and bounded by grep itself rather than a pipeline, because
+    # pipefail is set here. These lines carry SBCL pids, tids and fault
+    # addresses only; the address and pc are the whole diagnostic value.
+    grep -E -m 8 "$runtime_fault_pattern" "$el_log" >&2 || true
+    exit 1
+fi
 
 target_line="$(grep -F 'peer.snap.target_completed' "$el_log" | tail -1 || true)"
 [ -n "$target_line" ] || { echo "completion-missing=peer.snap.target_completed" >&2; exit 1; }
