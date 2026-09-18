@@ -1,0 +1,136 @@
+Section 5 fresh-datadir Hoodi run started at 3305307d
+
+Status
+
+Run start record only. Not completion. The acceptance criteria in
+docs/gap-analysis/public-testnet-readiness-plan.md (one continuous fresh-datadir
+run recording peer.snap.target_completed, healer completed=true with an empty
+frontier, eth_syncing=false, canonical EL head executed through the
+CL-authorized target) are unmet at the time of writing and are checked later
+with the read-only `complete` action.
+
+Revision
+
+3305307d02918d797ad0037a93092451f0ab2b61 (branch sec5-public-bootstrap-sync).
+Runtime image ethereum-lisp-runtime:sec5-3305307d-amd64, remote image id
+sha256:0a7b9c4128f9057f16a6a739c59c146940bd566dc2fa3153e6174ad95f3a8bcd,
+artifact sha256 73a88be3d217045e2298805c4eb604c90eca062a1bfb47d3a7b06ed0753126f4
+(72,032,256 bytes). Exact-revision gates are in
+sec5-3305307d-amd64-runtime.txt (cold-all, runtime-smoke seven of seven) and
+sec5-3305307d-eest-v20.0.2.txt (current-fork EEST, zero unexpected skips).
+
+What this revision changes relative to the 05c13ad5 run it replaces
+
+- c4e9ec34: the healer reads the deferred-storage plan cursor on every entry,
+  so a restart inside a segmented plan no longer publishes completion over the
+  unhealed remainder (sec5-c4e9ec34-storage-plan-segments.txt).
+- 519e4c9b: range-plan promotion, fully-durable-p and fill-deferred-storage
+  stream the plan instead of returning 0/NIL for any plan wider than 8,192
+  works. On every previous live run promotedSubtrees was 0
+  (sec5-519e4c9b-range-plan-promotion-stream.txt). This is the first metric to
+  watch.
+- fdaa2a77: three leaked native iterators closed.
+- 6125a096: the live gate now fails `complete` and reports in `logs` on a
+  runtime integrity fault (CORRUPTION WARNING / Memory fault).
+
+Authorization
+
+User-authorized in session on 2026-09-18 after a written recommendation. The
+request of record (id 20260918T083000Z-sec5-3305307d-hoodi-start-r1) is a JSON
+file in the session scratchpad; its content is summarised here: operation
+start, actions upload/load/start, replacement of the live gate
+hoodi-el-sec5-05c13ad5 through the broker's own reviewed old-container branch,
+12 GiB memory and memory-swap, script defaults for allocation profiling (0)
+and RocksDB async read I/O (1), datadir-05c13ad5 preserved, no deletion
+authorized by the request. The three disk deletions approved separately by the
+user (datadir-83c5e3ce, datadir-fb4cb6f3, geth-control-20260914 and their
+stopped containers) were executed before the start; /data went from 79% to
+63% used, 250 GiB free.
+
+Broker invocation
+
+All actions ran from a worktree detached at exactly 3305307d
+(.claude/worktrees/gate-3305307d), because the broker refuses any action,
+read-only included, when a runtime-sensitive path differs between the named
+revision and HEAD, and the branch head had moved past the image revision by
+docs and .claude/settings.json commits. Host alias
+HOODI_GATE_HOST=test-ethereum-sophon2-symbiosis (the script default does not
+resolve on this control plane).
+
+  scripts/hoodi-live-gate.sh inspect   exit 0   2026-09-18T08:12:02Z
+  scripts/hoodi-live-gate.sh upload    the scp completed (72,032,256 bytes on
+                                       the remote) but the broker's
+                                       post-transfer ssh was reset by the peer
+                                       (exit 255); the same verify-and-rename
+                                       step was then run by hand with the
+                                       broker's own script body:
+                                       sha256 matched, chmod 0600, mv to the
+                                       final name. An earlier attempt hung for
+                                       25 minutes in the ssh banner exchange
+                                       with nothing on the remote and was
+                                       killed.
+  scripts/hoodi-live-gate.sh load      exit 0   Loaded image ... revision=3305307d...
+  scripts/hoodi-live-gate.sh start     exit 0   with HOODI_GATE_OLD_CONTAINER=
+                                       hoodi-el-sec5-05c13ad5 and
+                                       HOODI_GATE_OLD_REVISION=05c13ad5...
+
+start output (verbatim tail):
+
+  ==> cutting the existing Lighthouse alias over to the exact-revision EL
+  io_uring-ready queue-depth=256 compatibility-retry=true
+  container=/hoodi-el-sec5-3305307d running=true started=2026-09-18T09:17:56.231071508Z image=sha256:0a7b9c41... user=1000:1000 read-only=true memory=12884901888 memory-swap=12884901888 caps=["ALL"] security-options=2 networks=2
+  fresh-datadir=/data/hoodi-sec5-20260814/datadir-3305307d uid=1000 gid=1000
+
+The replaced container
+
+hoodi-el-sec5-05c13ad5 had run since 2026-09-16T03:12:04Z without converging
+(its last read-only sample is in sec5-c4e9ec34-storage-plan-segments.txt). The
+broker stopped it with docker stop --time 30; it exited 137 at
+2026-09-18T09:17:55.408Z, OOMKilled=false, i.e. SIGKILL after the grace period
+while still serving Engine requests. That is a fourth observation that the
+node's graceful shutdown does not complete within 30 s, and it yields no
+shutdown-fault data point (the fault needs the process to reach exit(3)).
+Its datadir is preserved.
+
+First read-only samples
+
+status at 2026-09-18T09:18:18Z (22 s after start):
+
+  runtime=cpu=207.49% memory=1.061GiB / 12GiB blockIo=47.1MB / 446MB pids=123
+  datadir-bytes=292046120
+  eth_blockNumber 0x0
+  eth_syncing {"startingBlock":"0x0","currentBlock":"0x0","highestBlock":"0x37a7bb"}
+  net_peerCount 0x9
+  cl_node_syncing {"is_syncing":false,"is_optimistic":true,"el_offline":false,"head_slot":"3959141","sync_distance":"0"}
+
+logs at 2026-09-18T09:19:17Z (81 s after start), selected lines:
+
+  el-event=peer.snap.progress count=92
+  el-event=peer.snap.storage_profile count=241
+  el-event=peer.snap.heal_progress count=0
+  el-event=peer.snap.pivot_rebased count=0
+  el-event=peer.snap.pivot_unavailable count=0
+  el-event=peer.snap.storage_failed count=0
+  el-event=peer.snap.import_failed count=0
+  el-event=peer.snap.target_completed count=0
+  el-event=peer.dial.connected count=10
+  el-negotiated=eth72-snap1 count=8
+  el-storage-profile=pivot value=3647354
+  el-storage-profile=slotsPerSecond value=37278
+  el-source-refresh=sources value=9
+  el-runtime-fault-count=0
+
+Range download is under way with no failure class recorded. Healing has not
+started.
+
+What is still owed for this revision
+
+- The healer outcome: promotedSubtrees must stop being 0, and the run must
+  reach the acceptance criteria above. Sampled with status/logs/complete.
+- Hive rpc-compat, Engine/auth and devp2p at 3305307d. All three are
+  remote-only (Hive needs a Linux dockerd host); prepared commands are in
+  sec5-3305307d-hive-rpc-compat.txt and sec5-3305307d-hive-engine-auth.txt.
+  They are to run on the same host after the range download phase, one at a
+  time, so they do not starve the live run.
+- The seven-day shadow comparison and the fourteen-day validator soak, which
+  start only after the above.
