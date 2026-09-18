@@ -1,0 +1,320 @@
+Section 5 shutdown memory-fault trace and the store-close requirement
+
+Status
+
+Diagnosis only. No behavioural source change is retained. What lands with this
+document is a probe and one e2e control, scripts/rocksdb-exit-fault-probe.lisp
+and ROCKSDB-UNWINDING-EXIT-DOES-NOT-FAULT-WITH-AN-OPEN-STORE in
+tests/database-tests.lisp, which reproduce the shutdown SHAPE but not the fault.
+Three named hypotheses are eliminated outright by reading the tree, one is
+established as the enclosing mechanism, and two remain to be discriminated by a
+measurement that needs the preserved remote containers.
+
+Question
+
+docs/evidence/sec5-healing-completeness-audit.txt lines 155-159 and
+docs/evidence/sec5-5c8a39c0-storage-closure-epoch.txt lines 117-118 record an
+SBCL memory fault on clean operator stop of the Hoodi runs 0c6b51bf, 646da589
+and 5c8a39c0, with exit 0 reported anyway, and call it unexplained. What faults,
+on which thread, and why does the process still exit 0?
+
+Measured answer: the verbatim record
+
+Read read-only from the preserved containers on the Hoodi host. The 5c8a39c0
+run, last four log lines, 0.38 s before FinishedAt 2026-09-15T10:08:47.645Z with
+OOMKilled false and zero restarts:
+
+    2026-09-15T10:08:47.267465785Z CORRUPTION WARNING in SBCL pid 1 tid 1:
+    2026-09-15T10:08:47.267584949Z Memory fault at 0x5599c8000000 (pc=0x7f426043bf55, fp=0x16, sp=0x7f425f79faa0) tid 1
+    2026-09-15T10:08:47.267588249Z The integrity of this image is possibly compromised.
+    2026-09-15T10:08:47.267590739Z Continuing with fingers crossed.
+
+The same fingerprint on the other two long runs:
+
+    646da589     2026-09-15T02:55:47.131731894Z Memory fault at 0x562478000000 (pc=0x7f6cb1f1df55, fp=0x16, sp=0x7f6cb127faa0) tid 1
+    0c6b51bf-r1  2026-09-13T15:20:46.932454257Z Memory fault at 0x557f18000000 (pc=0x7fb658b5bf55, fp=0x16, sp=0x7fb657ebfaa0) tid 1
+
+Invariants across all three:
+
+1. pid 1 tid 1. The faulting thread is the MAIN thread, not a worker. Every
+   hypothesis about a snap worker or a peer session being unwound mid-call is
+   about the wrong thread.
+2. The fault address is 128 MiB aligned every time: all three end in 0x8000000,
+   differing only above that boundary. That is the base of a large aligned
+   mapping, not an interior pointer.
+3. pc low bits are f55 in all three at three different ASLR bases, so it is one
+   instruction at a fixed offset inside one mapped object, reached three times.
+   The runtime artifact is a single executable with the SBCL runtime linked into
+   it (Dockerfile.runtime lines 167-170, SAVE-LISP-AND-DIE :EXECUTABLE T), so
+   SBCL's own runtime code and the Lisp spaces are NOT at 0x7f. The inference,
+   which is an inference and not a measurement, is that pc is in one of the
+   dlopened libraries -- librocksdb.so, libc, libstdc++, libsecp256k1,
+   libethckzg, libethbls or liburing. Resolving which is the measurement named
+   below; the 0x55/0x56 placement of the PIE and the 0x7f placement of the
+   libraries is the usual Linux layout but has not been read from /proc/1/maps
+   for these containers.
+4. fp=0x16 is a tagged word, not a frame pointer, which is what optimised
+   library code compiled without a frame pointer leaves in rbp.
+5. Absent from the short runs: 83c5e3ce (57 min) and fb4cb6f3 (23 min) have no
+   such line. It correlates with duration and working-set size -- the faulting
+   runs carried 14 TB consed, gcRunMs 8.6e6, and a 50-54 GiB datadir.
+
+Why exit 0 is not a contradiction
+
+"Continuing with fingers crossed" is SBCL's own text. SBCL's SIGSEGV handler,
+finding an address outside every Lisp space, prints the corruption warning and
+then CONTINUES, signalling a MEMORY-FAULT-ERROR in the faulting thread. The
+process is already in its exit path with the status determined, so the fault
+changes nothing the supervisor can see. The gate only ever checked exit status
+and OOMKilled, which is why this survived three runs as "unexplained": there was
+no assertion on stderr at all. That is the reporting defect underneath the
+memory defect.
+
+Measured answer: what the main thread was doing
+
+From the same 5c8a39c0 log, the shutdown timeline (scripts/hoodi-live-gate.sh
+stops with `docker stop --time 30`, i.e. SIGTERM then SIGKILL at 30 s):
+
+    10:07:55.4919  Devnet shutdown requested; closing RPC listeners.
+    10:07:55.5574  engine.rpc.http.listener.connections 0   endpoint 127.0.0.1:8545
+    10:07:55.5574  engine.rpc.http.listener.finish          endpoint 127.0.0.1:8545
+    10:07:58 .. 10:08:41   engine_newPayloadV4 / engine_forkchoiceUpdatedV3 /
+                           eth_syncing keep being served on 0.0.0.0:8551
+    10:08:47.226957  engine.rpc.http.streams 1        0.0.0.0:8551
+    10:08:47.226993  engine.rpc.http.stream.finish    0.0.0.0:8551
+    10:08:47.226996  engine.rpc.http.streams 1        0.0.0.0:8551
+    10:08:47.226999  engine.rpc.http.stream.finish    0.0.0.0:8551
+    10:08:47.227001  engine.rpc.http.streams 1        0.0.0.0:8551
+    10:08:47.227003  engine.rpc.http.stream.finish    0.0.0.0:8551
+    10:08:47.267465  CORRUPTION WARNING ... tid 1
+
+Three facts follow, each checked against the tree.
+
+First, the SIGTERM handler is on the main thread and it completed normally
+52 seconds before the fault. src/app/cli/devnet/types.lisp lines 745-748 install
+REQUEST-SHUTDOWN, which formats that line and calls DEVNET-SHUTDOWN-REQUEST
+(types.lisp 693-718). The handler is not implicated.
+
+Second, the 8545 listener is the one that runs ON the main thread
+(src/app/cli/devnet/service.lisp lines 174-182 call
+ENGINE-RPC-HTTP-SERVICE-SERVE-LISTENER on the calling thread, while only the
+8551 Engine listener gets its own thread at line 157), and it
+finished at 10:07:55.5574. Everything the main thread does after that is the
+UNWIND-PROTECT cleanup at service.lisp 238-336, then
+DEVNET-CLI-EXPORT-NODE-DATABASE (src/app/cli/cli.lisp line 207), then the return
+through CALL-WITH-DEVNET-CLI-KV-DATABASE-CACHE, then SB-EXT:EXIT.
+
+Third, the three stream.finish pairs inside 40 microseconds are the signature of
+every remaining connection worker unwinding AT ONCE. Those pairs are the
+UNWIND-PROTECT cleanup of the persistent-stream loop at
+src/transport/http/server.lisp lines 53-62. The workers are the
+"ethereum-lisp-rpc-http-connection" threads created at server.lisp line 188, and
+they are NEVER joined -- server.lisp line 214 only drains a semaphore with the
+budget from ENGINE-RPC-HTTP-WORKER-DRAIN-TIMEOUT-SECONDS (server.lisp 86-90) and
+proceeds on timeout (lines 110-114). Nothing in the application terminates them
+together. The one thing that does is SB-EXT:EXIT's own
+SB-THREAD::%EXIT-OTHER-THREADS, which TERMINATE-THREADs every surviving thread
+and then joins them under SB-EXT:*EXIT-TIMEOUT*.
+
+So the main thread had already reached SB-EXT:EXIT, SBCL had just killed the
+last three Engine workers, and 40 microseconds later the main thread faulted in
+a shared library. The fault is in the final phase of process exit.
+
+Measured answer: the store is never closed
+
+CLOSE-ROCKSDB-KEY-VALUE-DATABASE is defined at
+src/foundation/database/rocksdb.lisp lines 376-384 and has exactly ONE caller in
+src/: DEVNET-CLI-CLOSE-DB-OPERATOR-DATABASE, src/app/cli/db.lisp lines 106-108,
+reached only from the offline `db` subcommand wrappers at db.lisp 110-114 and
+116-131.
+
+The serving node never closes anything. Handles are opened at
+src/app/cli/devnet/files.lisp line 276 and lines 393-396 and at
+src/app/cli/devnet/persistence.lisp lines 193-197, and cached in
+*DEVNET-CLI-KV-DATABASE-CACHE*. Its scope macro is the innermost wrapper around
+the whole node (src/app/cli/cli.lisp line 286) and its cleanup drops the table:
+
+    src/app/cli/devnet/files.lisp 406-411
+      (let ((previous *devnet-cli-kv-database-cache*))
+        (setf *devnet-cli-kv-database-cache* (make-hash-table :test 'equal))
+        (unwind-protect
+             (funcall thunk)
+          (setf *devnet-cli-kv-database-cache* previous)))
+
+No iteration, no %ROCKS-CLOSE, no options destroy. There are also no finalizers
+anywhere in the repository -- `sb-ext:finalize`, `cancel-finalization` and
+`trivial-garbage` have zero hits in src/, tests/ and scripts/, and the .asd
+depends only on ironclad and cffi.
+
+So the process reaches exit(3) with the database fully open and configured for
+heavy background work: OPTIMIZE-LEVEL-STYLE-COMPACTION on a 384 MiB budget
+(rocksdb.lisp line 311, +ROCKSDB-LEVEL-COMPACTION-MEMORY-BUDGET+ at line 156),
+INCREASE-PARALLELISM 8 (line 313, +ROCKSDB-BACKGROUND-JOB-COUNT+ line 162),
+MAX-SUBCOMPACTIONS 4 (line 321, +ROCKSDB-MAX-SUBCOMPACTIONS+ line 164), and a
+256 MiB LRU block cache (+ROCKSDB-BLOCK-CACHE-BYTES+ line 176) with
+CACHE-INDEX-AND-FILTER-BLOCKS and PIN-L0-FILTER-AND-INDEX set
+(ROCKSDB-CONFIGURE-BLOCK-TABLE lines 240-276, specifically 267 and 270). Eight
+background jobs and four subcompaction workers are native pthreads that SBCL
+does not know about, never terminates and never joins.
+
+Hypotheses eliminated by reading the tree
+
+E1. An iterator or write batch freed AFTER the database or its column-family
+    handles are closed. Eliminated: the node never closes the database at all,
+    so there is no close to order anything against. Additionally there are no
+    column-family bindings in the repo (no rocksdb_column_family_* defcfun) and
+    no snapshot bindings, so neither can be misordered. Write batches are
+    correctly paired inside one UNWIND-PROTECT at rocksdb.lisp 511-530.
+
+E2. A GC finalizer on a foreign pointer double-freeing. Eliminated: there are no
+    finalizers in the repository at all (see above). Nothing frees a RocksDB
+    handle except an explicit call, and the only explicit call is unreachable
+    from the node.
+
+E3. SB-EXT:EXIT unwinding a WORKER thread that is mid-foreign-call, corrupting
+    foreign state. Eliminated as the cause of THIS fault by the record: the
+    faulting thread is tid 1, the main thread, three times out of three. Worker
+    unwinding is real and is visibly happening 40 microseconds earlier, but it
+    is not what faults. This remains a separate latent hazard (see Carried
+    forward) and not the explanation.
+
+E4. Not a hypothesis from the brief, but worth closing: the SIGTERM handler
+    doing real work in the signal context. It does -- types.lisp 745-748 formats
+    to a stream and calls DEVNET-SHUTDOWN-REQUEST, which takes a mutex
+    (types.lisp 710-715) and runs arbitrary closeable thunks (line 717) inside
+    an async handler. That is a genuine deadlock and double-close hazard, and it
+    should be reduced to a flag set plus a notify. But it completed cleanly
+    52 seconds before the fault on the run we have logs for, so it is not this
+    defect.
+
+Hypotheses that survive, and what discriminates them
+
+S1. exit(3) teardown races RocksDB's own live background threads.
+    The main thread calls exit(3) after SBCL has terminated the Lisp threads.
+    exit(3) runs atexit handlers and C++ static destructors on the calling
+    thread -- tid 1, in shared-library code, which matches invariant 3 exactly
+    -- while RocksDB's eight background jobs and four subcompaction workers are
+    still running against a 50 GiB store with thousands of pinned index and
+    filter blocks. A destructor releasing what a live compaction is reading, or
+    a compaction touching a static already destroyed, faults at the base of a
+    large aligned arena.
+    Fits: tid 1; pc in a .so; a 128 MiB-aligned address; absence on the 23- and
+    57-minute runs, whose working set and SST count are trivially small.
+    Would CONFIRM: resolve pc to a library and symbol, and find it inside
+    librocksdb.so / libstdc++ teardown. Also: the fault disappears when
+    %ROCKS-CLOSE is called before exit on an equally long run.
+    Would REFUTE: pc resolves into libc's malloc, or the fault still occurs
+    after a clean %ROCKS-CLOSE.
+
+S2. Accumulated glibc heap corruption, detected only when the arena is walked
+    at exit.
+    One instruction, three ASLR bases, fp not a frame pointer and a large
+    aligned address are equally the signature of glibc's free/malloc walking a
+    corrupted chunk. The duration correlation then means the corrupting write is
+    rare per operation but certain over nine hours. If so the ordering fix is
+    cosmetic and there is a real out-of-bounds foreign write to find.
+    Fits: the same invariants, and the duration correlation, equally well.
+    Would CONFIRM: pc resolves into libc _int_free / unlink / malloc
+    consolidation; or the same artifact run with MALLOC_CHECK_=3 and
+    MALLOC_PERTURB_ set aborts earlier and louder, at the actual corrupting
+    operation rather than at exit.
+    Would REFUTE: pc resolves into RocksDB, or a MALLOC_CHECK_=3 run of
+    comparable length stays silent until the same exit-time fault.
+
+The two are discriminated by ONE measurement, and it is cheap: resolve pc to a
+library plus offset. The addresses are recorded above and the images are
+preserved. Start the same revision's artifact, read /proc/1/maps, subtract the
+matching mapping base from pc, and run addr2line or nm against that library.
+The three sp values are also all in the 0x7f mmap region with an identical low
+offset, so the same arithmetic applies to the stack and confirms which mapping
+the main thread was on.
+
+What was tried locally, and why it did not settle it
+
+scripts/rocksdb-exit-fault-probe.lisp holds the shutdown shape constant and
+varies exactly two things: whether reader threads are still scanning at the
+exit, and whether CLOSE-ROCKSDB-KEY-VALUE-DATABASE runs first. It terminates
+byte-for-byte the way the shipped runtime does -- Dockerfile.runtime lines
+161-166, RUNTIME-TOPLEVEL finishes both streams and calls
+(SB-EXT:EXIT :CODE code :ABORT NIL). ROCKSDB-UNWINDING-EXIT-DOES-NOT-FAULT-
+WITH-AN-OPEN-STORE runs the live arm and the closed arm sequentially and greps
+the child's stderr for CORRUPTION WARNING, Memory fault and fatal error.
+
+Result: cold-e2e green, no fault in either arm.
+
+That is a NEGATIVE result with a known and disqualifying bound, not evidence of
+health. The probe writes about 200 MiB and lives about a minute. The live faults
+appear only above roughly an hour, at 14 TB consed and a 50 GiB datadir, and are
+absent from a 57-minute run. The probe does not reach one L0 compaction, let
+alone the thousands of table readers a real store accumulates. It is retained as
+the harness a verified fix extends and as the assertion nobody had -- the gate
+checked exit status and OOMKilled and never looked at stderr -- and not as a
+control that has ever been red.
+
+A first run of the probe with two parallel e2e workers, each holding a 256 MiB
+block cache and writing 480 MiB to the same tmpfs, starved one worker past the
+900-second budget. Both arms are now in one test so they run sequentially; that
+is a property of the harness, not a finding.
+
+What the fix has to be
+
+1. Close the store on the node shutdown path. This is the one step that removes
+   S1 entirely rather than narrowing it: rocksdb_close runs DBImpl's destructor,
+   which cancels background work, waits for it and releases the cache and table
+   readers in a defined order, on a live process. exit(3) then has nothing of
+   RocksDB's left to tear down. Today that call is unreachable from the node.
+
+2. It cannot simply be added at cli.lisp 207. The close must come after every
+   Lisp user of the handle has stopped, and today several are ABANDONED rather
+   than stopped: the connection workers are never joined (server.lisp 188, 214),
+   peer, dial and WS sessions give up after two bounded joins
+   (src/app/cli/devnet/peer-manager.lisp 1136-1142), the sync coordinator gives
+   up after 15 s plus 5 s (service.lisp 250-259) while its own snap worker fleet
+   is joined only by ITS unwind, and the allocation profiler thread
+   (src/app/cli/devnet/allocation-profile.lisp line 104) is never signalled or
+   joined at all. Closing under any of those is the use-after-free that E1
+   describes -- and unlike today it would be reachable, because
+   close-then-read has no guard: every read and write path dereferences
+   (ROCKSDB-HANDLE DATABASE) with no closed check (rocksdb.lisp 398, 457, 496,
+   506, 527, 576), and the close nulls only the handle slot (line 383) while
+   leaving the freed read/write options readable through their accessors.
+
+   So the ordering prerequisite is its own change: a closed-p guard on the
+   backend, and a shutdown barrier that either joins the abandoned threads or
+   refuses to close while any remain.
+
+3. Fix the reporting defect independently and first, because it is free and it
+   is what let three runs pass. The live gate must fail, or at least report, on
+   CORRUPTION WARNING in the container log; exit 0 plus OOMKilled false is not a
+   clean shutdown. scripts/hoodi-live-gate.sh already parses the log for other
+   classes.
+
+4. Two leaked native iterators should be closed regardless of which hypothesis
+   wins, since a leaked iterator pins a superversion, its memtables and its SST
+   readers for the life of the process and so feeds the working set that
+   correlates with the fault: DEVNET-CLI-KV-RECORDS-PRESENT-P
+   (src/app/cli/devnet/files.lisp 215-219) funcalls the puller once and discards
+   the closer, which leaks whenever the store is non-empty, and KV-CHAIN-RECORDS
+   (src/foundation/database/chain-records.lisp 28-38) relies on exhaustion and
+   leaks on any non-local exit. NODE-STORE-COPY-KEY-VALUE-DATABASE
+   (src/storage/node-store/persistence/staged-import.lisp 1552-1559) has the
+   same shape.
+
+Do not reorder or relax anything on the basis of this document alone. The
+enclosing mechanism is established; which of S1 and S2 is the proximate cause is
+not, and S2 would mean there is an out-of-bounds foreign write still to find.
+
+Carried forward
+
+- The pc-to-symbol resolution above is unrun. It needs the preserved remote
+  containers and it decides between S1 and S2 in one step.
+- E3's worker-unwinding hazard is real even though it is not this fault:
+  TERMINATE-THREAD is applied at nine sites (service.lisp 200, 256, 271, 284,
+  295, 307, 321, 332 and peer-manager.lisp 1140) to threads that call into
+  RocksDB through CFFI, and SB-EXT:EXIT applies it to whatever is left.
+- E4's signal-context work should be reduced to a flag plus a notify.
+- DEVNET-CLI-EXPORT-NODE-DATABASE (cli.lisp 207) writes through the shared
+  handle on the way out while a surviving snap writer may also be writing, and
+  the two do not share a lock: the export takes the node store guard
+  (CALL-WITH-DEVNET-NODE-STORE-GUARD at src/app/cli/devnet/runtime.lisp
+  480-481) and snap's committer does not.

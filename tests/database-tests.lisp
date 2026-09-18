@@ -1823,3 +1823,126 @@ again (a RocksDB iterator frees its native cursor on exhaustion)."
              (close-rocksdb-key-value-database database)))
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
+
+;;; ---------------------------------------------------------------------------
+;;; Shutdown-time foreign-memory fault probe.
+;;;
+;;; docs/evidence/sec5-shutdown-memory-fault-trace.txt records an SBCL memory
+;;; fault emitted when a live Hoodi node container was stopped cleanly on
+;;; revisions 0c6b51bf, 646da589 and 5c8a39c0. The node always exited 0, so the
+;;; only symptom is a "CORRUPTION WARNING" / "Memory fault at 0x..." pair on
+;;; stderr: SBCL's SIGSEGV handler prints that, signals a MEMORY-FAULT-ERROR in
+;;; the faulting thread, and continues, and the thread's own HANDLER-CASE then
+;;; swallows it without changing the exit code.
+;;;
+;;; The probe below terminates the same way the shipped runtime does and lets
+;;; the suite read stderr. See scripts/rocksdb-exit-fault-probe.lisp.
+;;; ---------------------------------------------------------------------------
+
+#+sbcl
+(defparameter *rocksdb-exit-fault-probe-megabytes* 160
+  "Payload megabytes for the second fill of a probe run.
+
+OPTIMIZE-LEVEL-STYLE-COMPACTION at +ROCKSDB-LEVEL-COMPACTION-MEMORY-BUDGET+
+gives 96-MiB memtables, so a seed fill of a quarter of this plus this second
+fill crosses one memtable and leaves a background flush in flight at the exit.
+It does NOT reach the two-file L0 compaction trigger; see the trace document
+for what that bounds about the result.")
+
+#+sbcl
+(defparameter *rocksdb-exit-fault-probe-readers* 2
+  "Concurrent scanning threads, modelling the snap heal local-read pool.")
+
+#+sbcl
+(defun rocksdb-exit-fault-probe-fault-p (stderr)
+  "Return the first fault line in STDERR, or NIL when it carries none."
+  (let ((lines (uiop:split-string stderr :separator '(#\Newline))))
+    (find-if (lambda (line)
+               (or (search "CORRUPTION WARNING" line)
+                   (search "Memory fault" line)
+                   (search "fatal error encountered" line)))
+             lines)))
+
+#+sbcl
+(defun rocksdb-exit-fault-probe-run (mode)
+  "Run one probe MODE to completion and return (VALUES STATUS STDOUT STDERR)."
+  (let ((script
+          (namestring (truename "scripts/rocksdb-exit-fault-probe.lisp")))
+        (directory
+          (merge-pathnames
+           (make-pathname
+            :directory
+            `(:relative ,(format nil "ethereum-lisp-rocks-exit-~A-~A"
+                                 mode (gensym))))
+           #P"/private/tmp/")))
+    (unwind-protect
+         (multiple-value-bind (stdout stderr status)
+             (uiop:run-program
+              (list "sbcl" "--script" script
+                    mode (namestring directory)
+                    (write-to-string *rocksdb-exit-fault-probe-megabytes*)
+                    (write-to-string *rocksdb-exit-fault-probe-readers*))
+              :output :string
+              :error-output :string
+              :ignore-error-status t)
+           (values status stdout stderr))
+      (when (probe-file directory)
+        (ignore-errors
+         (uiop:delete-directory-tree directory :validate t))))))
+
+#+sbcl
+(defun rocksdb-exit-fault-probe-assert-clean (mode expected-substring)
+  "Run one probe MODE and require a fault-free stderr and a zero exit."
+  (multiple-value-bind (status stdout stderr)
+      (rocksdb-exit-fault-probe-run mode)
+    (let ((fault (rocksdb-exit-fault-probe-fault-p stderr)))
+      ;; Report before asserting: the fault line carries the address and the
+      ;; faulting pc, which is the whole diagnostic value of a red run.
+      (when fault
+        (format *error-output* "~&probe ~A fault: ~A~%" mode fault)
+        (finish-output *error-output*))
+      (is (null fault))
+      ;; Checked separately and on purpose. A memory fault does NOT change the
+      ;; exit status: SBCL prints the corruption warning, signals
+      ;; MEMORY-FAULT-ERROR in the faulting thread and continues, so a run can
+      ;; be simultaneously faulted and exit 0. That combination is exactly what
+      ;; every recorded Hoodi shutdown reported.
+      (is (eql 0 status))
+      (is (search expected-substring stdout)))))
+
+#+sbcl
+(deftest rocksdb-unwinding-exit-does-not-fault-with-an-open-store
+  (:layer :e2e :module :database :launches-processes t
+   :estimated-seconds 600)
+  ;; Both arms run in one test, sequentially and in one worker, on purpose:
+  ;; each arm holds a 256-MiB RocksDB block cache plus up to four 96-MiB
+  ;; memtables and writes its payload to the same tmpfs, so running them as two
+  ;; parallel e2e workers starved one of them past the worker budget instead of
+  ;; measuring anything.
+  ;;
+  ;; Arm 1 is the live shape: RocksDB open with a background flush in flight,
+  ;; reader threads still scanning, no ROCKSDB_CLOSE, and the shipped
+  ;; (SB-EXT:EXIT :CODE 0 :ABORT NIL) termination. :ABORT NIL unwinds the main
+  ;; thread, then TERMINATE-THREADs and joins every surviving thread under
+  ;; SB-EXT:*EXIT-TIMEOUT* (60 s; this tree never sets it), then calls exit(3)
+  ;; -- which runs C++ static destructors while RocksDB's own eight background
+  ;; jobs and four subcompaction workers are still running, because the serving
+  ;; node never closes the database. CLOSE-ROCKSDB-KEY-VALUE-DATABASE has one
+  ;; caller, src/app/cli/db.lisp:106-108, on the offline operator path only.
+  ;;
+  ;; Arm 2 is the control the node does not currently have: readers joined,
+  ;; then an explicit close, then the same exit. If arm 1 ever faults while
+  ;; arm 2 stays clean, the missing close is the cause and this test becomes
+  ;; the RED control for adding it.
+  ;;
+  ;; HONEST BOUND: neither arm has ever been red, and that is NOT evidence the
+  ;; shutdown is sound. The live faults appear only above roughly an hour, at
+  ;; 14 TB consed and a 50-GiB datadir, and are absent from a 57-minute run.
+  ;; This probe writes about 200 MiB, lives about a minute and does not reach a
+  ;; single L0 compaction. It is retained as the assertion the live gate never
+  ;; had -- the gate checked exit status and OOMKilled and never read stderr,
+  ;; which is how three faulted runs were recorded as clean stops -- and as the
+  ;; harness a verified fix extends. See
+  ;; docs/evidence/sec5-shutdown-memory-fault-trace.txt.
+  (rocksdb-exit-fault-probe-assert-clean "live-no-close" ":MODE")
+  (rocksdb-exit-fault-probe-assert-clean "quiet-close" ":CLOSED T"))
