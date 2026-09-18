@@ -273,7 +273,12 @@ cursor to one state root, needlessly replaying large contracts after a rebase.")
 A storage heal work encodes to 72 bytes, so the four-megabyte checkpoint admits
 roughly 58,000 of them. This stays well inside that, and a wider plan is healed
 as consecutive segments rather than abandoned. It is a parameter so a test can
-reach the multi-segment path without materialising 8,192 storage roots.")
+reach the multi-segment path without materialising 8,192 storage roots.
+
+It bounds one resident segment only. It must never gate whether a consumer runs
+at all: the live plan names millions of roots, so a consumer refusing an
+oversized plan is a consumer that never runs. SNAP-SYNC-MAP-DEFERRED-STORAGE-PLAN
+streams past it for the promotion, durability, and StorageRanges consumers.")
 (defconstant +snap-sync-heal-checkpoint-frontier-target+ 4096)
 (defconstant +snap-sync-heal-checkpoint-max-works+ 8192)
 (defconstant +snap-sync-heal-live-frontier-max-works+ (* 128 1024)
@@ -2017,11 +2022,16 @@ position decides both comparisons."
   "Return one bounded plan segment, its last identifier, and whether more wait.
 
 AFTER is the exclusive identifier this segment starts past, so a plan wider
-than +SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS+ is healed as consecutive
+than *SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS* is healed as consecutive
 checkpointable segments instead of being abandoned for a state-root walk. A
 storage heal work encodes to 72 bytes, so the 4 MiB checkpoint admits about
 58,000; the live Hoodi plan names millions, which is why no single bound can
-carry it."
+carry it.
+
+This is now the only place the bound is applied: it caps a segment at exactly
+*SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS* works and reports the remainder. The
+retired SNAP-SYNC-DEFERRED-STORAGE-WORKS disagreed here, flagging overflow only
+at one work beyond the same bound."
   (unless (snap-sync-deferred-storage-plan-present-p database state-root)
     (return-from snap-sync-deferred-storage-segment (values nil nil nil nil)))
   (let* ((identifier-prefix
@@ -2071,54 +2081,52 @@ carry it."
           (funcall close-iterator))))
     (values (nreverse works) t last-identifier more-p)))
 
-(defun snap-sync-deferred-storage-works (database state-root)
-  "Load a bounded, trusted final-healing frontier for STATE-ROOT.
+(defun snap-sync-map-deferred-storage-plan (database state-root function)
+  "Stream a whole deferred-storage plan through FUNCTION, segment by segment.
 
 The plan marker is published only with the final verified account-range page.
-Without it, callers must use the legacy full-root traversal.  An oversized
-frontier also falls back safely instead of creating an uncheckpointable run."
-  (unless (snap-sync-deferred-storage-plan-present-p database state-root)
-    (return-from snap-sync-deferred-storage-works (values nil nil nil)))
-  (let* ((identifier-prefix
-           (snap-sync-deferred-storage-root-prefix state-root))
-         (start (kv-chain-record-key :metadata identifier-prefix))
-         (end
-           (kv-chain-record-key
-            :metadata (snap-sync-byte-prefix-end identifier-prefix)))
-         (expected-length
-           (+ (length identifier-prefix) 32 32))
-         (works '())
-         (overflow-p nil))
-    (multiple-value-bind (iterator close-iterator)
-        (kv-iterator database :start start :end end)
-      (unwind-protect
-           (loop
-             (multiple-value-bind (key value present-p)
-                 (funcall iterator)
-               (unless present-p (return))
-               (unless (bytes= value +snap-sync-deferred-storage-value+)
-                 (ethereum-lisp.validation:storage-fail
-                  "Persisted snap deferred-storage work has an unknown version"))
-               (let ((identifier
-                       (kv-chain-record-key-identifier :metadata key)))
-                 (unless (= expected-length (length identifier))
-                   (ethereum-lisp.validation:storage-fail
-                    "Persisted snap deferred-storage work is malformed"))
-                 (push
-                  (snap-sync-make-heal-work
-                   :storage
-                   (subseq identifier (length identifier-prefix)
-                           (+ (length identifier-prefix) 32))
-                   (make-byte-vector 0)
-                   (subseq identifier (+ (length identifier-prefix) 32)))
-                  works)
-                 (when (> (length works)
-                          *snap-sync-deferred-storage-max-works*)
-                   (setf overflow-p t)
-                   (return)))))
-        (when close-iterator
-          (funcall close-iterator))))
-    (values (and (not overflow-p) (nreverse works)) t overflow-p)))
+Without it no work is visited and the first value is NIL, so callers still
+fall back to the legacy full-root traversal.
+
+This replaces the former bounded loader, which materialised the plan and
+reported overflow above *SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS*. That bound is
+a property of a checkpoint record, not of a consumer that needs one bounded
+derived answer: the live Hoodi plan names millions of storage roots against the
+roughly 58,000 a four-megabyte checkpoint can carry, so every overflow-gated
+consumer was permanently disabled on any real chain rather than made safe.
+Consumers that need the unsafe account-bucket set, a short-circuiting
+durability predicate, or one sequential StorageRanges pass must use this.
+
+Segments come from SNAP-SYNC-DEFERRED-STORAGE-SEGMENT and its exclusive
+cursor, so at most *SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS* works are resident
+and no database iterator is open while FUNCTION runs. That matters: FUNCTION
+reads and writes the same database. No writer ever deletes a plan entry, so
+the cursor walk cannot skip one.
+
+FUNCTION receives one :STORAGE heal work and returns NIL to stop the walk.
+Returns whether the plan marker was present, and as a second value whether the
+walk reached the end of the plan."
+  (unless (and (integerp *snap-sync-deferred-storage-max-works*)
+               (plusp *snap-sync-deferred-storage-max-works*))
+    (error "Snap deferred-storage segment bound must be a positive integer"))
+  (let ((cursor nil))
+    (loop
+      (multiple-value-bind (works present-p last-identifier more-p)
+          (snap-sync-deferred-storage-segment database state-root cursor)
+        (unless present-p
+          (return-from snap-sync-map-deferred-storage-plan (values nil nil)))
+        (dolist (work works)
+          (unless (funcall function work)
+            (return-from snap-sync-map-deferred-storage-plan (values t nil))))
+        (unless more-p
+          (return-from snap-sync-map-deferred-storage-plan (values t t)))
+        ;; A positive bound fills a segment before reporting more work, so a
+        ;; cursorless MORE-P is an inconsistent read rather than completion.
+        ;; Treating it as completion is how a plan silently loses its tail.
+        (unless last-identifier
+          (ethereum-lisp.validation:storage-fail
+           "Persisted snap deferred-storage plan reported more work without a cursor"))
+        (setf cursor last-identifier)))))
 
 (defun snap-sync-storage-task-identifier
     (state-root account-hash storage-root task-index)
@@ -4915,24 +4923,29 @@ values are decoded only after one ordered, bounded metadata MultiGet."
                     (snap-sync-storage-task-from-record record)))))))
 
 (defun snap-sync-range-plan-fully-durable-p (database state-root)
-  "Prove that a range plan's complete account/code/storage set is durable."
-  (multiple-value-bind (works trusted-plan-p overflow-p)
-      (snap-sync-deferred-storage-works database state-root)
-    (and trusted-plan-p
-         (not overflow-p)
-         (every
-          (lambda (work)
-            (and
-             (snap-sync-storage-range-tasks-completed-p
-              database state-root
-              (snap-sync-heal-work-account-hash work)
-              (make-hash32 (snap-sync-heal-work-reference work)))
-             ;; Cursor records restored from an older release are range
-             ;; coverage evidence. Only a complete response or the final
-             ;; closure walk publishes the whole-root proof needed here.
-             (snap-sync-healed-subtree-present-p
-              database (snap-sync-heal-work-reference work) :storage-root)))
-          works))))
+  "Prove that a range plan's complete account/code/storage set is durable.
+
+The plan is streamed, so a plan wider than one checkpointable segment is
+answered rather than refused: the previous width bound made this predicate,
+and therefore SNAP-SYNC-FILL-STORAGE-THEN-HEAL's zero-TrieNodes completion,
+answer NIL on every real chain regardless of what was durable. The first
+non-durable root still short-circuits, so a yes is never cheaper than proving
+every root."
+  (multiple-value-bind (trusted-plan-p exhausted-p)
+      (snap-sync-map-deferred-storage-plan
+       database state-root
+       (lambda (work)
+         (and
+          (snap-sync-storage-range-tasks-completed-p
+           database state-root
+           (snap-sync-heal-work-account-hash work)
+           (make-hash32 (snap-sync-heal-work-reference work)))
+          ;; Cursor records restored from an older release are range
+          ;; coverage evidence. Only a complete response or the final
+          ;; closure walk publishes the whole-root proof needed here.
+          (snap-sync-healed-subtree-present-p
+           database (snap-sync-heal-work-reference work) :storage-root))))
+    (and trusted-plan-p exhausted-p t)))
 
 (defun snap-sync-persist-promoted-subtrees
     (database references kind &optional promotion-identifier)
@@ -4957,29 +4970,35 @@ values are decoded only after one ordered, bounded metadata MultiGet."
       (kv-apply-batch database batch)))
   (length references))
 
-(defun snap-sync-retire-legacy-storage-root-proof (database work)
+(defun snap-sync-populate-legacy-storage-root-retirement-batch
+    (batch database work)
   "Retire unsafe legacy root-shaped proofs without trusting range cursors.
 
 Completed partition cursors prove authenticated key-space coverage, but the
 compact edge proofs can still reference nodes that were never materialized.
 Only a separately published whole-root closure proof may classify this work as
 complete; otherwise the ordinary healer consumes the safe per-page subtree
-proofs and repairs the few open boundaries."
+proofs and repairs the few open boundaries.
+
+Populate BATCH instead of applying one batch per work. KV-APPLY-BATCH is a
+synchronous write, and the streamed plan can name millions of roots, so a
+per-work apply would be millions of fsyncs at every heal entry. Deferring the
+delete only defers the removal of trust: a crash before BATCH applies leaves
+the pre-change state, which the next heal entry retires again. Return true when
+BATCH gained a delete."
   (let ((storage-root
           (make-hash32 (snap-sync-heal-work-reference work))))
-    (when (snap-sync-storage-plan-promoted-p database storage-root)
-      (return-from snap-sync-retire-legacy-storage-root-proof 0))
-    ;; v4 briefly treated completed partition cursors as a full closure proof.
-    ;; They only prove authenticated range coverage; the final local healer is
-    ;; still the trust boundary. Conservatively retire that root-shaped v1
-    ;; subtree proof before publishing the safe shallow references below.
-    (let ((batch (make-kv-write-batch)))
+    (unless (snap-sync-storage-plan-promoted-p database storage-root)
+      ;; v4 briefly treated completed partition cursors as a full closure
+      ;; proof. They only prove authenticated range coverage; the final local
+      ;; healer is still the trust boundary. Conservatively retire that
+      ;; root-shaped v1 subtree proof before publishing the safe shallow
+      ;; references below.
       (kv-batch-delete-chain-record
        batch :metadata
        (snap-sync-healed-subtree-identifier
         (hash32-bytes storage-root) :storage))
-      (kv-apply-batch database batch))
-    0))
+      t)))
 
 (defun snap-sync-account-prefix-bucket
     (account-hash &optional
@@ -4998,60 +5017,95 @@ The plan already proves every account range and code. A large-storage task set
 is complete only when its separately published whole-root closure exists;
 cursor-only legacy work remains an exact dependency. Account buckets containing
 such an incomplete dependency are excluded, while all other buckets can be
-promoted immediately. Descendants are never read or revalidated."
-  (multiple-value-bind (works trusted-plan-p overflow-p)
-      (snap-sync-deferred-storage-works database state-root)
-    (unless (and trusted-plan-p (not overflow-p))
-      (return-from snap-sync-promote-complete-range-plan 0))
-    (let ((incomplete-works '())
-          (promoted 0))
-      (dolist (work works)
-        ;; Retire the short-lived cursor-derived root-shaped namespace even
-        ;; when this work correctly remains incomplete.
-        (incf promoted
-              (snap-sync-retire-legacy-storage-root-proof database work))
-        (unless
-            (and
-             (snap-sync-storage-range-tasks-completed-p
-              database state-root
-              (snap-sync-heal-work-account-hash work)
-              (make-hash32 (snap-sync-heal-work-reference work)))
-             (snap-sync-healed-subtree-present-p
-              database (snap-sync-heal-work-reference work) :storage-root))
-          (push work incomplete-works)))
-      (unless (snap-sync-range-plan-promoted-p database state-root)
-        (let ((safe-references '()))
-          (unless (hash32= state-root +empty-trie-hash+)
-            (let ((trie
-                    (make-persisted-mpt
-                     state-root
-                     (lambda (hash)
-                       (trie-node-store-get database hash)))))
-              (dolist (depth (snap-sync-range-subtree-depths))
-                (let ((unsafe-buckets (make-hash-table :test #'equalp)))
-                  (dolist (work incomplete-works)
-                    (setf
-                     (gethash
-                      (snap-sync-account-prefix-bucket
-                       (snap-sync-heal-work-account-hash work) depth)
-                      unsafe-buckets)
-                     t))
-                  (dolist
-                      (entry
-                       (mpt-hashed-subtrees-with-prefix-at-depth trie depth))
-                    (unless (gethash (car entry) unsafe-buckets)
-                      (push (cdr entry) safe-references)))))))
-          (setf safe-references
-                (remove-duplicates safe-references :test #'equalp))
-          (incf
-           promoted
-           (snap-sync-persist-promoted-subtrees
-            database safe-references :account
-            ;; Incomplete buckets are retried after their StorageRanges
-            ;; cursors finish; do not freeze a partial promotion as final.
-            (and (null incomplete-works)
-                 (snap-sync-range-plan-promotion-identifier state-root))))))
-      promoted)))
+promoted immediately. Descendants are never read or revalidated.
+
+The plan is streamed and only the unsafe account prefix buckets are retained,
+so the work is bounded by the bucket space -- 65,536 at depth four -- instead
+of by the plan width. The previous width bound made this function return zero
+for any plan above 8,192 roots, which on the live chain, whose plan names
+millions, meant promotion never ran at all: 12,151 account subtree proofs
+against 65,536 depth-four buckets. Since promotion is the only producer of
+shallow whole-bucket :ACCOUNT proofs, and such a proof is the only thing that
+lets the healer skip an account subtree after a pivot rebase, that zero is
+where the live healing time went. Only the bound is removed; the exclusion
+predicate below is unchanged, so a bucket naming any deferred storage root
+without a published whole-root closure still stays unpromoted."
+  (unless (snap-sync-deferred-storage-plan-present-p database state-root)
+    (return-from snap-sync-promote-complete-range-plan 0))
+  (let* ((depths (snap-sync-range-subtree-depths))
+         (unsafe-buckets
+           (mapcar (lambda (depth)
+                     (declare (ignore depth))
+                     (make-hash-table :test #'equalp))
+                   depths))
+         (incomplete-p nil)
+         (promoted 0)
+         (retirement-batch (make-kv-write-batch))
+         (retirement-count 0))
+    (flet ((flush-retirements ()
+             (when (plusp retirement-count)
+               (kv-apply-batch database retirement-batch)
+               (setf retirement-batch (make-kv-write-batch)
+                     retirement-count 0))))
+      (unless
+          (snap-sync-map-deferred-storage-plan
+           database state-root
+           (lambda (work)
+             ;; Retire the short-lived cursor-derived root-shaped namespace
+             ;; even when this work correctly remains incomplete.
+             (when (snap-sync-populate-legacy-storage-root-retirement-batch
+                    retirement-batch database work)
+               (incf retirement-count)
+               (when (>= retirement-count +snap-sync-healed-subtrees-per-batch+)
+                 (flush-retirements)))
+             (unless
+                 (and
+                  (snap-sync-storage-range-tasks-completed-p
+                   database state-root
+                   (snap-sync-heal-work-account-hash work)
+                   (make-hash32 (snap-sync-heal-work-reference work)))
+                  (snap-sync-healed-subtree-present-p
+                   database (snap-sync-heal-work-reference work) :storage-root))
+               (setf incomplete-p t)
+               (loop for depth in depths
+                     for buckets in unsafe-buckets
+                     do (setf
+                         (gethash
+                          (snap-sync-account-prefix-bucket
+                           (snap-sync-heal-work-account-hash work) depth)
+                          buckets)
+                         t)))
+             t))
+        (return-from snap-sync-promote-complete-range-plan 0))
+      ;; Every retirement is durable before the first promoted proof.
+      (flush-retirements))
+    (unless (snap-sync-range-plan-promoted-p database state-root)
+      (let ((safe-references '()))
+        (unless (hash32= state-root +empty-trie-hash+)
+          (let ((trie
+                  (make-persisted-mpt
+                   state-root
+                   (lambda (hash)
+                     (trie-node-store-get database hash)))))
+            (loop for depth in depths
+                  for buckets in unsafe-buckets
+                  do (dolist
+                         (entry
+                          (mpt-hashed-subtrees-with-prefix-at-depth
+                           trie depth))
+                       (unless (gethash (car entry) buckets)
+                         (push (cdr entry) safe-references))))))
+        (setf safe-references
+              (remove-duplicates safe-references :test #'equalp))
+        (incf
+         promoted
+         (snap-sync-persist-promoted-subtrees
+          database safe-references :account
+          ;; Incomplete buckets are retried after their StorageRanges
+          ;; cursors finish; do not freeze a partial promotion as final.
+          (and (not incomplete-p)
+               (snap-sync-range-plan-promotion-identifier state-root))))))
+    promoted))
 
 (defun snap-sync-promote-complete-range-plans (database)
   "Backfill shallow subtree proofs for trusted pre-optimization range plans."
@@ -5551,22 +5605,26 @@ rather than replay."
 (defun snap-sync-fill-deferred-storage
     (database sources progress byte-limit
      &key source-provider on-source-error heal-yield-p)
-  "Best-effort Geth-style StorageRanges stage before final TrieNodes healing."
-  (multiple-value-bind (works trusted-plan-p overflow-p)
-      (snap-sync-deferred-storage-works
-       database (snap-sync-progress-state-root progress))
-    (unless (and trusted-plan-p (not overflow-p))
-      (return-from snap-sync-fill-deferred-storage nil))
-    (dolist (work works t)
-      (unless
-          (snap-sync-fill-storage-root
-           database sources (snap-sync-progress-state-root progress)
-           (snap-sync-heal-work-account-hash work)
-           (make-hash32 (snap-sync-heal-work-reference work)) byte-limit
-           :source-provider source-provider
-           :on-source-error on-source-error
-           :heal-yield-p heal-yield-p)
-        (return nil)))))
+  "Best-effort Geth-style StorageRanges stage before final TrieNodes healing.
+
+The plan is streamed segment by segment rather than materialised, so this pass
+is no longer skipped whole for a plan above one segment's width -- which on the
+live chain, whose plan names millions of storage roots, meant it never ran.
+Each segment's database iterator is closed before any root is filled, and the
+first root this stage cannot finish stops the walk and reports NIL, exactly as
+the previous sequential loop did."
+  (multiple-value-bind (trusted-plan-p exhausted-p)
+      (snap-sync-map-deferred-storage-plan
+       database (snap-sync-progress-state-root progress)
+       (lambda (work)
+         (snap-sync-fill-storage-root
+          database sources (snap-sync-progress-state-root progress)
+          (snap-sync-heal-work-account-hash work)
+          (make-hash32 (snap-sync-heal-work-reference work)) byte-limit
+          :source-provider source-provider
+          :on-source-error on-source-error
+          :heal-yield-p heal-yield-p)))
+    (and trusted-plan-p exhausted-p t)))
 
 (defun snap-sync-healed-subtree-candidate-p (work)
   "Select trie paths eligible to consume a reusable completion proof."

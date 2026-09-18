@@ -1060,6 +1060,185 @@
           (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
            database state-root)))))))
 
+(deftest snap-range-plan-promotion-streams-a-plan-wider-than-its-bound
+  (:layer :unit :module :p2p)
+  ;; Promotion is the only producer of shallow whole-bucket :ACCOUNT subtree
+  ;; proofs, and such a proof is the only thing that lets the healer skip an
+  ;; account subtree after a pivot rebase. It used to materialise the plan
+  ;; through SNAP-SYNC-DEFERRED-STORAGE-WORKS and return zero for any plan
+  ;; wider than *SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS*, so on the live chain,
+  ;; whose plan names millions of storage roots, promotion was always zero:
+  ;; 12,151 account subtree proofs against 65,536 depth-four buckets.
+  ;;
+  ;; Promote the same plan twice, once under the default bound and once under a
+  ;; bound narrower than the plan. Both arms must promote exactly the same
+  ;; buckets, and both must still exclude every bucket naming a storage root
+  ;; without a published whole-root closure. Only the width bound is removed;
+  ;; the exclusion predicate is untouched.
+  ;;
+  ;; RED control: the narrow-bound arm on the parent revision promotes zero
+  ;; buckets, so the same-promotion assertions fail. The exclusion half is its
+  ;; own positive control: it fails if streaming ever promotes a bucket that
+  ;; names an open storage root.
+  (let ((unsafe-nibbles '(3 7 11 15)))
+    (labels
+        ((bucket-key (nibble)
+           (let ((key (make-byte-vector 32 :initial-element nibble)))
+             (setf (aref key 0) (logior (ash nibble 4) nibble))
+             key))
+         (promote (bound)
+           (let ((database (make-memory-key-value-database))
+                 (trie (make-mpt))
+                 (ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+                   bound)
+                 (ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                   1)
+                 (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                   1)
+                 (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                   1))
+             ;; Give every first-nibble bucket a hash-addressed child so an
+             ;; excluded bucket is observable next to promoted siblings.
+             (dotimes (nibble 16)
+               (mpt-put trie (bucket-key nibble)
+                        (make-byte-vector 64 :initial-element (1+ nibble))))
+             (let ((state-root (mpt-persist database trie))
+                   (batch (make-kv-write-batch)))
+               (dolist (nibble unsafe-nibbles)
+                 (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+                  batch state-root
+                  (cons (bucket-key nibble)
+                        (make-hash32
+                         (snap-test-index-hash (+ 400 nibble))))))
+               (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+                batch state-root)
+               (kv-apply-batch database batch)
+               (let* ((references
+                        (mpt-hashed-subtrees-with-prefix-at-depth
+                         (make-persisted-mpt
+                          state-root
+                          (lambda (hash) (trie-node-store-get database hash)))
+                         1))
+                      (count
+                        (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+                         database state-root))
+                      (promoted
+                        (loop for entry in references
+                              when (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+                                    database (cdr entry) :account)
+                                collect (car entry)))
+                      (excluded
+                        (loop for entry in references
+                              unless (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+                                      database (cdr entry) :account)
+                                collect (car entry))))
+                 (values count promoted excluded
+                         (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
+                          database state-root)
+                         (length references)))))))
+      ;; A bound of two is narrower than this four-root plan, which is what
+      ;; made the old loader report overflow.
+      (is (> (length unsafe-nibbles) 2))
+      (multiple-value-bind
+            (default-count default-promoted default-excluded default-frozen
+             default-references)
+          (promote 8192)
+        (multiple-value-bind
+              (small-count small-promoted small-excluded small-frozen
+               small-references)
+            (promote 2)
+          (is (= 16 default-references))
+          (is (= default-references small-references))
+          ;; Every bucket without an open storage root is promoted.
+          (is (= (- default-references (length unsafe-nibbles)) default-count))
+          (is (= default-count (length default-promoted)))
+          (is (= (length unsafe-nibbles) (length default-excluded)))
+          ;; The narrow bound must change nothing about which buckets promote.
+          (is (= default-count small-count))
+          (is (= (length default-promoted) (length small-promoted)))
+          (is (every (lambda (bucket)
+                       (find bucket small-promoted :test #'equalp))
+                     default-promoted))
+          ;; ... and must still exclude every open bucket.
+          (is (= (length default-excluded) (length small-excluded)))
+          (is (every (lambda (bucket)
+                       (find bucket small-excluded :test #'equalp))
+                     default-excluded))
+          (dolist (nibble unsafe-nibbles)
+            (let ((bucket
+                    (ethereum-lisp.snap-sync::snap-sync-account-prefix-bucket
+                     (bucket-key nibble) 1)))
+              (is (find bucket small-excluded :test #'equalp))
+              (is (not (find bucket small-promoted :test #'equalp)))))
+          ;; A partial promotion is never frozen as final under either bound.
+          (is (not default-frozen))
+          (is (not small-frozen)))))))
+
+(deftest snap-range-plan-durability-streams-a-plan-wider-than-its-bound
+  (:layer :unit :module :p2p)
+  ;; SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P gates the zero-TrieNodes completion
+  ;; in SNAP-SYNC-FILL-STORAGE-THEN-HEAL. It used to materialise the whole plan
+  ;; and answer NIL for any plan wider than
+  ;; *SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS*, so on a real chain the answer was
+  ;; NIL regardless of what was actually durable.
+  ;;
+  ;; Four durable storage roots under a bound of two: the streamed predicate
+  ;; must say yes. Removing any one root's whole-root closure proof, or its
+  ;; completed cursor set, must make it say no under the same narrow bound --
+  ;; at every position, which also proves the stream reaches past its first
+  ;; segment.
+  ;;
+  ;; RED control: the durable arm answers NIL on the parent revision under the
+  ;; narrow bound. The per-position negative arms are the positive control that
+  ;; a streamed yes is not vacuous.
+  (let* ((state-root (make-hash32 (snap-test-hash 81)))
+         (commitments
+           (loop for index from 1 to 4
+                 collect (cons (snap-test-index-hash (+ 200 index))
+                               (make-hash32
+                                (snap-test-index-hash (+ 300 index)))))))
+    (labels
+        ((seed (omit-index omit-kind)
+           (let ((database (make-memory-key-value-database))
+                 (batch (make-kv-write-batch)))
+             (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+              batch state-root)
+             (loop for commitment in commitments
+                   for index from 0
+                   do (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+                       batch state-root commitment)
+                      (let ((omitted-p (eql index omit-index)))
+                        (unless (and omitted-p (eq omit-kind :cursors))
+                          (loop for task
+                                  in (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                                      :count ethereum-lisp.snap-sync::+snap-sync-storage-task-count+
+                                      :completed-p t)
+                                for task-index from 0
+                                do (ethereum-lisp.snap-sync::snap-sync-populate-storage-task-batch
+                                    batch state-root (car commitment)
+                                    (cdr commitment) task-index task)))
+                        (unless (and omitted-p (eq omit-kind :closure))
+                          (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+                           batch (hash32-bytes (cdr commitment))
+                           :storage-root))))
+             (kv-apply-batch database batch)
+             database))
+         (durable-p (database bound)
+           (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+                   bound))
+             (ethereum-lisp.snap-sync::snap-sync-range-plan-fully-durable-p
+              database state-root))))
+      ;; A bound of two is narrower than this four-root plan.
+      (is (> (length commitments) 2))
+      (let ((durable (seed nil nil)))
+        (is (durable-p durable 8192))
+        (is (durable-p durable 2)))
+      (dotimes (position (length commitments))
+        (dolist (kind '(:closure :cursors))
+          (let ((database (seed position kind)))
+            (is (not (durable-p database 8192)))
+            (is (not (durable-p database 2)))))))))
+
 (deftest snap-account-range-subtree-proofs-carry-bounded-storage-gaps
   (:layer :unit :module :p2p)
   (let* ((account-hash (make-byte-vector 32))
