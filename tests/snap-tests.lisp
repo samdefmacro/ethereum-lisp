@@ -8455,9 +8455,19 @@
   ;; therefore always taken, and the account walk it forced is what kept the
   ;; healer from converging.
   ;;
-  ;; Heal the same plan whole and in segments of two, and require the same
-  ;; completion and the same durable storage. Completion must arrive only
-  ;; after the final segment, and the cursor must be gone afterwards.
+  ;; Heal the same import whole and under a segment bound of two, and require
+  ;; the same completion and the same durable trie nodes.
+  ;;
+  ;; Read what this does and does not establish. A storage trie is deferred
+  ;; only when its StorageRanges response was byte-capped
+  ;; (SNAP-SYNC-FETCH-STORAGE-COMMITMENTS-SERIAL), and four slots never cap,
+  ;; so this fixture's plan is EMPTY and the bound of two is never reached.
+  ;; Restoring the pre-05c13ad5 `(return)` at the continuation site leaves
+  ;; every assertion below green, measured. This is an equivalence check that
+  ;; binding the parameter changes nothing on the ordinary import path; the
+  ;; segmentation property itself is stated by
+  ;; SNAP-HEAL-STORAGE-PLAN-PUBLISHES-COMPLETION-ONLY-AFTER-THE-FINAL-SEGMENT
+  ;; and SNAP-HEAL-STORAGE-PLAN-RESUMES-SEGMENTS-AFTER-A-CHECKPOINT.
   (let* ((state (make-state-db))
          (addresses
            (loop for index from 1 to 6
@@ -8512,6 +8522,227 @@
             (is (null (cursor whole)))
             (is (null (cursor segmented)))))))))
 
+(defun snap-test-storage-plan-fixture (database seed-index)
+  "Seed DATABASE with six marked storage tries and their deferred plan.
+
+Returns the state root, the source backing the six tries, and the plan's
+commitments in store order. Six roots against a segment bound of two is three
+consecutive segments; a real import cannot produce them here because a storage
+trie is deferred only when its StorageRanges response was byte-capped."
+  (let* ((state (make-state-db))
+         (addresses
+           (loop for index from 1 to 6
+                 collect (snap-test-address-from-integer index))))
+    (loop for address in addresses
+          for base from 0 by 64
+          do (loop for slot from 1 to 8
+                   do (state-db-set-storage
+                       state address
+                       (make-hash32 (snap-test-index-hash (+ base slot)))
+                       (+ 800000 slot))))
+    (let* ((root (state-db-root state))
+           (commitments
+             (loop for address in addresses
+                   collect
+                   (cons (ethereum-lisp.crypto:keccak-256
+                          (address-bytes address))
+                         (state-db-get-storage-root state address))))
+           (records
+             (loop for trie in (state-db-persistence-tries state)
+                   append (mpt-dirty-node-records trie)))
+           (source-database (make-memory-key-value-database))
+           (source
+             (snap-test-source
+              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+               source-database state))))
+      (is (plusp (length records)))
+      (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+           database))
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+         database batch records)
+        ;; A real writer marks every record it persists, so the healer walks
+        ;; each root instead of trusting closure on presence alone.
+        (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+         batch (mapcar #'car records))
+        (dolist (commitment commitments)
+          (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+           batch root commitment))
+        (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+         batch root)
+        (kv-apply-batch database batch))
+      (values
+       root source
+       (ethereum-lisp.snap-sync::snap-sync-make-progress
+        :pivot-hash (make-hash32 (snap-test-hash seed-index))
+        :pivot-number 6180 :state-root root
+        :partial-root +empty-trie-hash+
+        :target-hash (make-hash32 (snap-test-hash (+ seed-index 1)))
+        :chain-id 560048
+        :genesis-hash (make-hash32 (snap-test-hash (+ seed-index 2)))
+        :authority-id (make-hash32 (snap-test-hash (+ seed-index 3)))
+        :completed-p nil :complete-node-scheme-p t
+        :tasks
+        (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+         :count 1 :completed-p t))))))
+
+(defun snap-test-storage-plan-works (database state-root &optional after)
+  "Return every deferred-storage work past AFTER, ignoring the segment bound."
+  (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works* 8192))
+    (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+     database state-root after)))
+
+(defun snap-test-closed-storage-roots (database state-root)
+  "Count plan roots carrying a whole-root closure proof.
+
+A snap-healed-storage-root-v3: record is published only by the healer's
+post-order sentinel, after an entire storage trie has been traversed and every
+node is durable, so this count is how many plan roots are actually healed."
+  (count-if
+   (lambda (work)
+     (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+      database
+      (ethereum-lisp.snap-sync::snap-sync-heal-work-reference work)
+      :storage-root))
+   (snap-test-storage-plan-works database state-root)))
+
+(deftest snap-heal-storage-plan-publishes-completion-only-after-the-final-segment
+  (:layer :integration :module :p2p)
+  ;; The RED control docs/evidence/sec5-heal-stale-marker-trace.txt asked for,
+  ;; and the one SNAP-HEAL-STORAGE-PLAN-IS-HEALED-IN-CONSECUTIVE-SEGMENTS
+  ;; cannot supply: that test's plan is empty, so it stays green when the
+  ;; continuation site is reverted to its pre-05c13ad5 `(return)`.
+  ;;
+  ;; Segmentation changes when healing is considered complete, which is the
+  ;; semantics that produced the 03263d2f and b23c7d57 false completions, so
+  ;; the property has to be stated over the completion instant rather than
+  ;; over the end of the process. Counting whole-root closure proofs inside
+  ;; the completed report does exactly that: the completion batch is the last
+  ;; write before the report, so a root not closed there was never healed.
+  (let ((database (make-memory-key-value-database))
+        (completion-reports 0)
+        (closed-at-completion -1))
+    (multiple-value-bind (root source progress)
+        (snap-test-storage-plan-fixture database 81)
+      ;; Non-vacuity: the plan is wider than the segment bound used below, so
+      ;; consecutive segments are the only way to close it.
+      (is (= 6 (length (snap-test-storage-plan-works database root))))
+      (is (zerop (snap-test-closed-storage-roots database root)))
+      (let ((completed
+              (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+                      2))
+                (ethereum-lisp.snap-sync::snap-sync-heal-state
+                 database (list source) progress 350
+                 :on-heal-progress
+                 (lambda (snapshot)
+                   (when
+                       (ethereum-lisp.snap-sync::snap-sync-heal-progress-completed-p
+                        snapshot)
+                     (incf completion-reports)
+                     (setf closed-at-completion
+                           (snap-test-closed-storage-roots
+                            database root))))))))
+        (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
+        (is (= 1 completion-reports))
+        ;; Completion only after the final segment: every root named by the
+        ;; plan is already closed when the completed cursor is published.
+        (is (= 6 closed-at-completion))
+        ;; An exhausted plan leaves no cursor behind.
+        (is (null
+             (ethereum-lisp.snap-sync::snap-sync-read-deferred-storage-cursor
+              database root)))))))
+
+(deftest snap-heal-storage-plan-resumes-segments-after-a-checkpoint
+  (:layer :integration :module :p2p)
+  ;; The restart half of segmentation, and a false completion of the
+  ;; 03263d2f/b23c7d57 class as 05c13ad5 shipped it.
+  ;;
+  ;; PERSIST-CHECKPOINT fires every +snap-sync-heal-checkpoint-node-interval+
+  ;; processed nodes and at every remote pipeline pause, and the segment
+  ;; continuation left that record alone, so an ordinary restart inside
+  ;; segment N found a checkpoint. The heal entry then zeroed all four plan
+  ;; values -- it did not even call SNAP-SYNC-READ-DEFERRED-STORAGE-CURSOR,
+  ;; which sat in the discarded branch -- drained the checkpointed frontier,
+  ;; published SNAP-SYNC-COMPLETE-BATCH and deleted the cursor in the same
+  ;; batch. Every segment after N was abandoned, the evidence of where the
+  ;; healer had stopped was destroyed, and the node reported snap complete.
+  ;; Downstream that is b23c7d57's signature: completed=true, an empty
+  ;; frontier, and a missing persisted trie node during execution.
+  ;;
+  ;; The store below is that restart exactly: segment one healed and its
+  ;; cursor durable, a checkpoint holding segment two's frontier, and
+  ;; segments two and three not yet closed.
+  (let ((database (make-memory-key-value-database))
+        (completion-reports 0)
+        (closed-at-completion -1))
+    (multiple-value-bind (root source progress)
+        (snap-test-storage-plan-fixture database 91)
+      (is (= 6 (length (snap-test-storage-plan-works database root))))
+      (multiple-value-bind (first-works first-present-p first-cursor
+                            first-more-p)
+          (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+                  2))
+            (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+             database root))
+        (is first-present-p)
+        (is first-more-p)
+        (is (= 2 (length first-works)))
+        (multiple-value-bind (second-works second-present-p second-cursor
+                              second-more-p)
+            (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+                    2))
+              (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+               database root first-cursor))
+          (declare (ignore second-cursor))
+          (is second-present-p)
+          ;; A third segment must remain, or the resume case is not the one
+          ;; that breaks.
+          (is second-more-p)
+          (is (= 2 (length second-works)))
+          (let ((batch (make-kv-write-batch)))
+            ;; Segment one published exactly what its own closure publishes.
+            (dolist (work first-works)
+              (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+               batch
+               (ethereum-lisp.snap-sync::snap-sync-heal-work-reference work)
+               :storage-root))
+            (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-cursor-batch
+             batch root first-cursor)
+            ;; The frontier a checkpoint taken inside segment two holds.
+            (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+             batch progress second-works 0 0 0 0 0)
+            (kv-apply-batch database batch))
+          (is (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-present-p
+               database progress))
+          (is (= 2 (snap-test-closed-storage-roots database root)))
+          (let ((completed
+                  (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+                          2))
+                    (ethereum-lisp.snap-sync::snap-sync-heal-state
+                     database (list source) progress 350
+                     :on-heal-progress
+                     (lambda (snapshot)
+                       (when
+                           (ethereum-lisp.snap-sync::snap-sync-heal-progress-completed-p
+                            snapshot)
+                         (incf completion-reports)
+                         (setf closed-at-completion
+                               (snap-test-closed-storage-roots
+                                database root))))))))
+            (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                 completed))
+            (is (= 1 completion-reports))
+            ;; A resumed segmented run must close the plan's whole remainder
+            ;; before it publishes completion.
+            (is (= 6 closed-at-completion))
+            ;; Neither position record may outlive the exhausted plan.
+            (is (null
+                 (ethereum-lisp.snap-sync::snap-sync-read-deferred-storage-cursor
+                  database root)))
+            (is (not
+                 (ethereum-lisp.snap-sync::snap-sync-heal-checkpoint-present-p
+                  database progress)))))))))
+
 (deftest snap-heal-storage-plan-segment-resumes-past-its-cursor
   (:layer :unit :module :p2p)
   ;; The segment loader itself, without a heal around it: a bound smaller than
@@ -8534,16 +8765,22 @@
     (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works* 2)
           (seen 0)
           (cursor nil))
-      (loop
-        (multiple-value-bind (works present-p last more-p)
-            (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
-             database state-root cursor)
-          (is present-p)
-          (incf seen (length works))
-          (is (<= (length works) 2))
-          (unless more-p (return))
-          (is last)
-          (setf cursor last)))
+      ;; The segment count is an assertion, not a convenience. A loader that
+      ;; ignored AFTER would return the same first segment for ever, and an
+      ;; unbounded loop would hang the whole `sbcl --script` run with no
+      ;; result instead of reporting a failure. Five roots at a bound of two
+      ;; is exactly three segments.
+      (loop for segments from 1
+            do (multiple-value-bind (works present-p last more-p)
+                   (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+                    database state-root cursor)
+                 (is present-p)
+                 (is (<= segments 3))
+                 (incf seen (length works))
+                 (is (<= (length works) 2))
+                 (unless more-p (return))
+                 (is last)
+                 (setf cursor last)))
       ;; Every root is delivered exactly once across the segments.
       (is (= (length roots) seen)))
     ;; An absent plan marker still refuses to produce a frontier.

@@ -1,0 +1,241 @@
+Section 5 segmented deferred-storage plan
+
+Revision
+
+c4e9ec348b20a65769e9df84676181b10000570b
+fix(snap): keep segmenting a storage plan across a heal checkpoint
+
+This file is also 05c13ad55dd573ea075d0237b6478f4690ebcb0d's missing evidence.
+That revision shipped two tests and no recorded RED control, which
+docs/evidence/sec5-heal-stale-marker-trace.txt had explicitly demanded, because
+segmentation changes when healing is considered complete -- the same semantics
+that produced the 03263d2f and b23c7d57 false completions. Supplying the
+control found that neither shipped test could fail, and that the resume path
+published a false completion of exactly that class. Both are addressed here.
+
+Change
+
+05c13ad5 turned +snap-sync-deferred-storage-max-works+ into the parameter
+*snap-sync-deferred-storage-max-works*, added SNAP-SYNC-DEFERRED-STORAGE-SEGMENT
+and a durable snap-heal-storage-plan-cursor-v1: record, and made the healer
+advance that cursor across consecutive segments instead of abandoning an
+oversized plan for a state-root walk. The trace's measurement is why: one
+storage heal work encodes to 72 bytes, so the four-megabyte checkpoint admits
+about 58,000 while a live Hoodi plan names millions, and the fallback was
+therefore always taken.
+
+This revision changes two sites of that in src/networking/snap-sync/client.lisp
+and nothing else in src/:
+
+1. The heal entry (5680-5694) no longer discards the plan when a checkpoint is
+   present. SNAP-SYNC-READ-DEFERRED-STORAGE-CURSOR is now called on every
+   entry, so PLANNED-STORAGE-CURSOR and PLANNED-STORAGE-MORE-P describe the
+   plan's real durable position on a resume.
+2. The segment continuation (6916-6921) retires the heal checkpoint in the
+   same batch as the cursor that closes the segment.
+
+Why
+
+A heal checkpoint records one segment's DFS frontier. It records nothing about
+how far the plan itself has been closed -- only the cursor does that. As
+05c13ad5 shipped, the entry returned (values nil nil nil nil) whenever a
+checkpoint was present, so the cursor read sat in the discarded branch and was
+never executed. When the checkpointed stack drained, the continuation guard
+failed on its first conjunct, control reached the bare (return), and
+SNAP-SYNC-COMPLETE-BATCH published completion while the same batch deleted the
+cursor. Every segment past the cursor was abandoned and the record of where the
+healer had stopped was destroyed.
+
+This needs no crash to reach. PERSIST-CHECKPOINT (6094) fires from the local
+path at 6904-6907 whenever CHECKPOINT-DUE-P holds with a bounded frontier, and
+from the remote pipeline pause at 6694; +snap-sync-heal-checkpoint-node-interval+
+is 128 x 2048 = 262,144 processed nodes. The live runs processed 0.85M and
+14.97M nodes, so a checkpoint is written many times per generation, and
+05c13ad5's continuation neither deleted nor refreshed it. Any operator stop,
+OOM, the known SBCL shutdown fault, or a heal-yield the coordinator does not
+follow with a rebase lands in it. Downstream the signature is b23c7d57's:
+completed=true, an empty frontier, and a missing persisted trie node during
+execution.
+
+The fix is sound because the frontier cond at 5711-5721 already gives
+CHECKPOINT-PRESENT-P priority, so PLANNED-STORAGE is computed and then ignored
+on a resume; only the cursor and the more-p flag are taken from the plan. Three
+consequences, each read in code rather than assumed:
+
+1. Draining a checkpointed frontier completes the segment the checkpoint was
+   taken inside, because the checkpoint is the whole frontier:
+   RESTORE-BLOCKED-COMPLETIONS runs before PERSIST-CHECKPOINT on the pipeline
+   path, DRAIN-DEFERRED-STORAGE runs before it on the local path, and
+   CHECKPOINT-BLOCKS-TRAVERSAL-P keeps popped-but-unprocessed work out. So
+   publishing that segment's cursor next is correct, and the final segment
+   still yields more-p NIL and completes.
+2. A checkpoint taken inside segment one leaves no cursor, and AFTER = NIL
+   reloads segment one, whose own last identifier satisfies the guard.
+3. The cursor can never become durable ahead of the content it certifies.
+   FLUSH-HEALED-SUBTREES runs before the cursor batch, and per
+   src/foundation/database/types.lisp 90-99 a later KV-APPLY-BATCH makes all
+   preceding buffered writes durable before it returns. A crash before the
+   cursor apply reheals already closed storage; a crash after it loads the
+   next segment cleanly.
+
+Retiring the checkpoint with the cursor is the smaller half. With the entry
+fixed it is only tidiness -- a stale frontier would be re-walked cheaply --
+but it keeps the two durable position records from ever disagreeing.
+
+Carrying the cursor inside the checkpoint record instead would be strictly
+larger: +snap-sync-heal-checkpoint-version+ is 4 at client.lisp 160, so it
+needs a version bump and round-trip coverage, and it buys only the avoidance of
+re-walking one already-closed segment.
+
+Tests
+
+New:
+  snap-heal-storage-plan-publishes-completion-only-after-the-final-segment
+    (integration) The control the stale-marker trace asked for. Six marked
+    storage tries and their deferred plan, healed under a segment bound of two,
+    with the number of whole-root closure proofs counted inside the completed
+    heal report. A snap-healed-storage-root-v3: record is published only by the
+    healer's post-order sentinel, after an entire storage trie is traversed and
+    every node is durable, and the completion batch is the last write before
+    that report, so a root not closed there was never healed. Requires 6 of 6.
+  snap-heal-storage-plan-resumes-segments-after-a-checkpoint
+    (integration) The same fixture seeded as a mid-plan restart: segment one
+    healed with its cursor durable, a checkpoint holding segment two's
+    frontier, segments two and three still open. Requires 6 of 6 closed at the
+    completion report, and neither the cursor nor the checkpoint surviving it.
+
+Re-expressed, not weakened:
+  snap-heal-storage-plan-segment-resumes-past-its-cursor now asserts its
+    segment count -- five roots at a bound of two is exactly three segments.
+    A loader that ignored AFTER used to make its unbounded loop hang the whole
+    `sbcl --script` run with no result rather than report a failure.
+  snap-heal-storage-plan-is-healed-in-consecutive-segments keeps its subject,
+    but its comment no longer claims to prove segmentation. Measured: its plan
+    is EMPTY. A storage trie is deferred only when its StorageRanges response
+    was byte-capped (SNAP-SYNC-FETCH-STORAGE-COMMITMENTS-SERIAL, client.lisp
+    1191-1217), and four slots never cap, so the bound of two is never reached
+    and the segmentation code never runs. It remains a useful equivalence check
+    that binding the parameter changes nothing on the ordinary import path.
+
+RED controls, verbatim from cold runs on this tree.
+
+1. Healer continuation reverted to its pre-05c13ad5 (return).
+   cl-workbench validation run cold-integration --match SNAP-HEAL-STORAGE-PLAN
+
+    ok SNAP-HEAL-STORAGE-PLAN-IS-HEALED-IN-CONSECUTIVE-SEGMENTS
+    not ok SNAP-HEAL-STORAGE-PLAN-PUBLISHES-COMPLETION-ONLY-AFTER-THE-FINAL-SEGMENT - Assertion failed: (=
+                                                                                                         6
+                                                                                                         ETHEREUM-LISP.TEST::CLOSED-AT-COMPLETION)
+    not ok SNAP-HEAL-STORAGE-PLAN-RESUMES-SEGMENTS-AFTER-A-CHECKPOINT - Assertion failed: (=
+                                                                                           6
+                                                                                           ETHEREUM-LISP.TEST::CLOSED-AT-COMPLETION)
+    1 test passed, 2 failed.
+
+   Run first against 05c13ad5's own test set, the same mutation produced:
+
+    ok SNAP-HEAL-STORAGE-PLAN-IS-HEALED-IN-CONSECUTIVE-SEGMENTS
+    1 test passed.
+
+   That green line is why this file exists. The only integration test 05c13ad5
+   shipped cannot fail when the whole segmentation mechanism is removed.
+
+2. SNAP-SYNC-DEFERRED-STORAGE-SEGMENT made to ignore AFTER and restart from the
+   prefix every time.
+   cl-workbench validation run cold-unit --match SNAP-HEAL-STORAGE-PLAN
+
+    not ok SNAP-HEAL-STORAGE-PLAN-SEGMENT-RESUMES-PAST-ITS-CURSOR - Assertion failed: (<=
+                                                                                        ETHEREUM-LISP.TEST::SEGMENTS
+                                                                                        3)
+    0 tests passed, 1 failed.
+
+   Before the segment count was made an assertion, this same mutation did not
+   fail the test: it hung the run past its 600-second wall clock with no result.
+
+3. Heal entry reverted to 05c13ad5's (if checkpoint-present-p (values nil nil
+   nil nil) ...) -- the checkpoint-resume defect itself.
+   cl-workbench validation run cold-integration --match SNAP-HEAL-STORAGE-PLAN
+
+    ok SNAP-HEAL-STORAGE-PLAN-IS-HEALED-IN-CONSECUTIVE-SEGMENTS
+    ok SNAP-HEAL-STORAGE-PLAN-PUBLISHES-COMPLETION-ONLY-AFTER-THE-FINAL-SEGMENT
+    not ok SNAP-HEAL-STORAGE-PLAN-RESUMES-SEGMENTS-AFTER-A-CHECKPOINT - Assertion failed: (=
+                                                                                           6
+                                                                                           ETHEREUM-LISP.TEST::CLOSED-AT-COMPLETION)
+    2 tests passed, 1 failed.
+
+   The clean multi-segment run stays green under this mutation, which is the
+   point: the false completion is reachable only through a resume, and no test
+   that does not construct one can see it.
+
+Exact-revision gates
+
+cl-workbench validation run cold-all
+  1403 tests passed, 3 skipped.   (unit)
+  574 tests passed, 9 skipped.    (integration)
+  34 tests passed.                (e2e)
+  31 tests passed.                (e2e)
+Exit 0, no `not ok` line, no compile warning under /workspace/src. Against the
+05c13ad5 record in docs/sec5-pause-handoff-20260918.md that is two more
+integration tests, which is exactly what this revision adds.
+
+runtime-smoke: not run for this revision. No linux/amd64 runtime image has been
+built for it; the image that will be smoked is the one built for this revision,
+not the 05c13ad5 artifact described below.
+
+Live result for 05c13ad5: segmentation did not change the outcome
+
+Read-only remote inspection at 2026-09-18T04:05Z, against a run this session
+neither started nor mutated. Container hoodi-el-sec5-05c13ad5, fresh datadir,
+started 2026-09-16T03:12:04Z, 12 GiB bound, still running and still healing
+after two days, 40 peers, eth_blockNumber 0x0, datadir 53.71 GiB, no OOM and
+zero restarts. The staged artifact is
+ethereum-lisp-runtime-sec5-05c13ad5-20260916T031000Z.tar, sha256
+924cf4496e92fd5f0deaf965bc37230f28156af44b7e48d192e82bf7fa9d47de, image
+revision 05c13ad5 linux/amd64; no runtime-smoke record exists for it.
+
+    completed              false     skippedSubtrees     5,243,380
+    processedNodes       847,872     frontierWorks         915,501
+    knownIncompleteNodes 802,352     deferredStorageWorks    1,148
+    promotedSubtrees           0     processedRate           242/s
+    discoveredRate         484/s     netDrainRate             -242
+    etaStatus  dynamic-expansion     peer.snap.target_completed  0
+
+Against the final sample in
+docs/evidence/sec5-5c8a39c0-storage-closure-epoch.txt this is the same picture.
+knownIncompleteNodes / processedNodes is 0.946 here against 0.9996 there, the
+frontier still grows at roughly twice the drain rate, and the healer has not
+finished a generation in two days, against under four hours for its
+predecessor. promotedSubtrees is 0, which names the reason precisely: the plan
+on this chain is far wider than 8,192, and
+SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN still returns 0 on
+SNAP-SYNC-DEFERRED-STORAGE-WORKS overflow, so the only producer of shallow
+whole-bucket account subtree proofs is switched off and the account walk cannot
+be skipped. Segmenting the storage plan was necessary and is not sufficient.
+
+Carried forward
+
+1. Three SNAP-SYNC-DEFERRED-STORAGE-WORKS call sites still fail closed on an
+   oversized plan and were deliberately left untouched here, because another
+   agent owns them: SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN (client.lisp
+   4994-5005), SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P (4917-4922) and
+   SNAP-SYNC-FILL-DEFERRED-STORAGE (5551-5559). The first is the account-side
+   closure lever the live promotedSubtrees=0 identifies.
+2. The two loaders disagree on their boundary. SNAP-SYNC-DEFERRED-STORAGE-WORKS
+   flags overflow with `>` after pushing, i.e. at 8,193 works, while
+   SNAP-SYNC-DEFERRED-STORAGE-SEGMENT caps with `>=` at exactly 8,192.
+   Harmless today; not intended.
+3. The deferred-storage plan marker is keyed by state root
+   (SNAP-SYNC-DEFERRED-STORAGE-PLAN-IDENTIFIER, client.lisp 1941-1944, written
+   for SNAP-SYNC-PROGRESS-STATE-ROOT at 2774). A pivot rebase therefore leaves
+   the new root with no plan, SNAP-SYNC-DEFERRED-STORAGE-SEGMENT returns
+   nothing, and the healer takes the state-root walk from then on. The
+   5c8a39c0 run recorded twelve rebases; this one recorded none in its sampled
+   window, so the interaction is read from code and unmeasured on a rebasing
+   run.
+4. The account side of closure is still unsolved, unchanged from
+   docs/evidence/sec5-heal-stale-marker-trace.txt: an unmarked account subtree
+   may still name code or storage that is not durable, and almost no account
+   subtree can be skipped by proof either.
+5. The reproducible SBCL memory fault on shutdown, seen on 0c6b51bf and
+   646da589, remains unexplained.
+6. Remote disk remains the binding operational constraint, and the live
+   05c13ad5 datadir holds 53.71 GiB of it.
