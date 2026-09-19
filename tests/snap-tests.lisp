@@ -1289,19 +1289,21 @@
         (is
          (find nested-reference dependency-subtrees
                :key #'car :test #'bytes=))
-        ;; Bounded dependency metadata replaces an account-tree walk but not
-        ;; the exact storage work it names.  Its reconstructed account nodes
-        ;; are therefore complete. The over-limit coarse group remains
-        ;; fail-closed while its independently bounded nested child closes.
-        (is (= 6 (length complete-references)))
+        ;; Only a dependency-FREE subtree contributes complete references.
+        ;; A dependency-carrying subtree publishes its proof at its own root
+        ;; and its interior nodes stay marked: recording them as complete made
+        ;; account-side marker absence mean trie closure for one group and
+        ;; nothing at all for another, which is the 03263d2f seam. The
+        ;; over-limit coarse group was already fail-closed.
+        (is (= 2 (length complete-references)))
         (is (every
              (lambda (reference)
                (find reference complete-references :test #'bytes=))
-             (append dependent-records safe-records nested-records)))
+             safe-records))
         (is (notany
              (lambda (reference)
                (find reference complete-references :test #'bytes=))
-             wide-records))
+             (append dependent-records nested-records wide-records)))
         (let* ((all-records
                  (mapcar
                   (lambda (reference) (cons reference #(1)))
@@ -1309,11 +1311,11 @@
                (incomplete
                  (ethereum-lisp.snap-sync::snap-sync-incomplete-record-hashes
                   all-records complete-references)))
-          (is (= 2 (length incomplete)))
+          (is (= 4 (length incomplete)))
           (is (every
                (lambda (reference)
                  (find reference incomplete :test #'bytes=))
-               wide-records)))
+               (append dependent-records wide-records))))
         (let* ((dependent-entry
                  (find dependent-reference dependency-subtrees
                        :key #'car :test #'bytes=))
