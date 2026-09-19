@@ -28,6 +28,30 @@ NIL disables the deadline. This matches go-ethereum's distinct 120-second
 IdleTimeout so a consensus client's pooled Engine connection is not closed by
 the shorter per-request deadline.")
 
+(defparameter *engine-rpc-http-shutdown-drain-seconds* 5
+  "Wall-clock seconds an in-flight connection worker gets after a stop request.
+
+Once a stop has been requested the per-connection loop returns between
+requests, so the only thing a drain still waits for is a single request already
+in progress. Waiting the keep-alive idle timeout on top of that is what let a
+consensus client's pooled Engine connection be served straight through a
+supervisor's grace period: a node stopped with `docker stop --time 30` was
+SIGKILLed at exit 137 while still answering engine_newPayloadV4.")
+
+(defparameter *engine-rpc-http-stop-check-interval-seconds* 1
+  "How long a connection may block between requests before rechecking the stop.
+
+NIL disables the recheck and restores one uninterruptible wait for the whole
+idle budget. A keep-alive connection spends nearly all of its life parked in
+the read that waits for the next request, and a worker parked there cannot
+notice that its listener was asked to stop; the wait is therefore split into
+intervals of this length. The idle budget itself is unchanged -- the intervals
+are measured against the same *ENGINE-RPC-HTTP-IDLE-TIMEOUT-SECONDS* deadline
+and it still expires exactly when it always did.
+
+One second matches the WebSocket pump's own poll gate, and is the upper bound
+on how long an idle HTTP connection delays a graceful stop.")
+
 (defconstant +engine-rpc-http-default-guarded-connections+ 32
   "Default socket-worker budget for a service with a request guard.")
 
