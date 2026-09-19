@@ -54,13 +54,27 @@ for comparing application writes with backend and device write amplification."
       (:delete
        (kv-delete-memory-entry shadow (second operation))))))
 
-(defmethod kv-apply-batch ((database memory-key-value-database)
-                           (batch kv-write-batch))
+(defun kv-apply-memory-batch-unlocked (database batch)
   (let ((shadow (make-memory-key-value-database)))
     (kv-apply-batch-to-memory-shadow database shadow batch)
     (setf (memory-key-value-database-entries database)
           (memory-key-value-database-entries shadow))
     database))
+
+(defmethod kv-apply-batch ((database memory-key-value-database)
+                           (batch kv-write-batch))
+  ;; Copy-modify-publish is a read-modify-write over the whole table, so it has
+  ;; to be one critical section: without it a concurrent batch is silently lost
+  ;; rather than merely reordered, which no production backend does and which
+  ;; would make this backend an unsound crash oracle.
+  #+sbcl
+  (let ((lock (memory-key-value-database-write-lock database)))
+    (if lock
+        (sb-thread:with-mutex (lock)
+          (kv-apply-memory-batch-unlocked database batch))
+        (kv-apply-memory-batch-unlocked database batch)))
+  #-sbcl
+  (kv-apply-memory-batch-unlocked database batch))
 
 (defmethod kv-apply-batch ((database file-key-value-database)
                            (batch kv-write-batch))

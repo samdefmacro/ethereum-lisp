@@ -1,0 +1,339 @@
+Section 5 account-side closure: the writer, measured
+
+Status
+
+Steps one and five of the account-closure plan, plus the corrections the
+adversarial review required. The closure epoch is NOT advanced: the writer
+that makes invariant I1 true by construction is in the tree behind one named
+seam, and the healer rule that consumes it is not. Production behaviour on
+this revision is byte-identical to its parent. No live run.
+
+Revision
+
+Branch account-closure-epoch7, on f4ac108b.
+  b785afeb  snap: persist an account node only when its closure is durable
+  ef70708c  snap: switch the closed account writer with the healer rule it needs
+  619acead  snap: a dependency-carrying account subtree keeps its interior marked
+  6e5c7a73  snap: refuse the walk-free completion and bound every healed
+            storage leaf
+  619acead  snap: a dependency-carrying account subtree keeps its interior marked
+
+Design record: docs/snap-account-closure.md.
+
+Exact-revision gates
+
+cl-workbench validation run cold-unit
+  1418 tests passed, 3 skipped.   Exit 0.
+cl-workbench validation run cold-integration
+  581 tests passed, 9 skipped.    Exit 0.
+No compile warning under /workspace/src in either run. Each of the ten new
+tests plus the two it retargets was grepped by name in the logs and is present
+as "ok", so neither run passed by selecting fewer tests than were registered.
+No PAX transcript names the closure epoch, the healer rule or the proved-range
+functions, so cold-docs is unaffected by this change.
+
+One pre-existing test was retargeted rather than relaxed:
+SNAP-ACCOUNT-RANGE-SUBTREE-PROOFS-CARRY-BOUNDED-STORAGE-GAPS pinned the counts
+that the dependency branch produced while it still recorded complete
+references. Its complete-reference count falls from six to two, its incomplete
+count rises from two to four, and it now also asserts that the dependent and
+nested groups are absent from the complete references.
+
+The mid-range-rebase reproduction (SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-
+PROMOTION) and its DEFECT ASSERTION are untouched and green. They are red only
+while the writer is switched on without the healer rule -- the control arm
+loses its 218 promoted subtrees -- which is precisely why the writer now sits
+behind a seam. Retargeting them to the post-closure numbers belongs to the
+epoch change, not to this one.
+
+The invariant
+
+I1: an account-path :TRIE-NODE record implies that every descendant trie node
+is durable AND that every non-empty code hash and non-empty storage root named
+by every leaf below it is durable.
+
+I1 mentions no state root. That is the whole point: the account trie on disk is
+a patchwork of ranges proved against different pivots, exactly as geth's is
+(eth/protocols/snap/sync.go:603-606 at 38271784c2b31926563806da9a2e023b88f5e7a8,
+v1.17.6-unstable), so any closure claim that mentions a root is void the moment
+the pivot moves. A per-node-hash claim is not.
+
+What the writer does
+
+SNAP-SYNC-PREPARE-ACCOUNT-PAGE-RANGE persists nothing at proof time for a store
+under the contract. It retains the verified trie and its records on the page
+work. SNAP-SYNC-COMPLETE-ACCOUNT-PAGE, after the page's storage and code have
+been resolved, persists only the maximal reconstructed subtrees whose whole key
+range lies inside the delivered page and all of whose leaves passed a real
+durability check. The spine, the boundary proof nodes, the range-straddling
+regions and the paths to open accounts are never written at all, which is
+geth's rule at sync.go:2453-2476 plus the stack trie's refusal to flush an
+unfinished boundary at gentrie.go:316-321.
+
+Two corrections the review forced, both adopted:
+
+  Granularity is per maximal closed subtree at ANY depth, not per depth-four
+  bucket. MPT-PROVED-RANGE-CLOSED-SUBTREES keeps descending when a node fails
+  and publishes the clean children of a poisoned parent, so one account with
+  undelivered storage withholds its own path rather than its bucket's other
+  accounts. +SNAP-SYNC-ACCOUNT-SUBTREE-DEPENDENCIES-MAX+ no longer influences
+  the write decision at all.
+
+  The qualification predicate is a real durability check, never an inference
+  from absence in the page's deferred-storage list. A non-empty code hash must
+  name a durable :CODE record; a non-empty storage root must carry this
+  client's own whole-root closure proof. That is the standard
+  SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P and SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN
+  already demand, and this file already says twice that completed partition
+  cursors are key-space coverage and not closure. A chunked contract therefore
+  stays open until the healer publishes its root, which is geth clearing
+  needHeal only when the reassembled root both matches and is present
+  (sync.go:2272-2282).
+
+Also adopted from the review: the dependency branch of
+SNAP-SYNC-CLASSIFY-ACCOUNT-RANGE-SUBTREES no longer records complete
+references, so marker absence on the account side stops meaning two different
+things.
+
+Why the epoch is not advanced here
+
+The writer and the presence skip are two halves of one contract. A store whose
+account spine is withheld cannot run the compensating machinery that exists to
+reconstruct closure after the fact: the deferred-storage plan marker,
+range-plan promotion and the walk-free completion all open a persisted MPT on
+the state root and walk a spine that is deliberately absent. Switching the
+writer alone therefore removes the no-rebase acceleration without supplying the
+presence skip that replaces it, and it showed up immediately as the newly
+merged mid-range-rebase reproduction losing its control arm's 218 promoted
+subtrees.
+
+So the writer sits behind *SNAP-SYNC-ACCOUNT-CLOSURE-WRITES*, which the epoch
+bump will flip together with the healer rule and the disabling of the three
+compensating paths. Its tests set that flag process-globally rather than
+binding it, because the production import prepares and completes pages on
+worker threads where a LET binding is invisible and the run would silently
+exercise the legacy writer.
+
+Measurement (the review's R1 gate)
+
+Fixture: sixteen accounts spread over the high-nibble partitions, four accounts
+carrying bytecode, one contract with 96 slots that a small StorageRanges byte
+cap chunks, three one-slot contracts a single response answers whole. Its
+account trie holds 32 nodes.
+
+  One page covering the whole range, dependencies capped at 400 bytes:
+    persisted 29 of 32 account trie nodes, withheld 3.  (91%)
+    The withheld three are the chunked contract's leaf and the two nodes above
+    it, which is the intended exclusion.
+
+  Sixty-four-task import of the same fixture, multi-source path:
+    account-trie-nodes=32 pages=65 reconstructed=216 range-persisted=24
+    open-code-accounts=10 open-storage-accounts=7
+
+  The 64-task number is 75%, and the gap is a fixture artifact rather than a
+  property of the design: 24 accounts across 64 tasks is about one account per
+  page, so every interior node straddles a task boundary and is correctly
+  withheld. A live page carries roughly 470 accounts, where the interior nodes
+  below the page boundary are wholly inside it. The 91% single-page figure is
+  the one that corresponds to production page density.
+
+  Not measured: a fixture with live contract density and several hundred
+  accounts per page. That is the number that actually sizes the withheld
+  fraction on Hoodi and it is still owed.
+
+A defect found while measuring
+
+MPT-PROVED-RANGE-CLOSED-SUBTREES first published nothing at all for any page
+narrower than a depth-one bucket. A leaf's stored path carries the hex-prefix
+terminator, so its coverage read as 65 nibbles and was rejected by the 64-nibble
+bound; only interior nodes could ever be published, and at production task width
+the maximal closed subtree IS a leaf. The existing MPT-PROVED-RANGE-SUBTREES is
+insensitive to this because it only ever takes the first four or five nibbles of
+the coverage. Coverage is now truncated to 64 nibbles. Before the fix a 64-task
+import of the fixture published 0 of 24 account leaves; after it, 24 of 24.
+
+The test oracle was unsound (the review's R6)
+
+The memory backend applied a batch by copying the whole table, mutating the copy
+and publishing it. That is a read-modify-write over shared state, so two
+concurrent writers lost one batch outright rather than reordering it, and three
+SNAP buffered applies run without the database write lock. Every batch-inspection
+and crash-injection test in this change drives exactly those concurrent writers,
+so the oracle could have hidden the defect it was built to find.
+
+KV-APPLY-BATCH on a memory database is now one critical section.
+
+  RED control: with the mutex removed, eight threads writing 64 batches each
+  lose keys and MEMORY-DATABASE-BATCHES-ARE-NOT-LOST-UNDER-CONCURRENT-WRITERS
+  fails on (ZEROP MISSING). With it, the same test passes.
+
+  A first attempt at a scripted interleaving (intercepting the table copy to
+  hold one writer until the other finished) did NOT go red, so it was replaced
+  by the real race above. Recorded because it looks like a stronger control and
+  is not one.
+
+Other writers of account-path trie nodes (the review's R3)
+
+Enumerated from the tree rather than from the design: exactly two functions put
+:TRIE-NODE records.
+
+  src/foundation/trie/persistence.lisp MPT-POPULATE-DIRTY-BATCH
+    One atomic batch of MPT-DIRTY-NODES, documented children before parents,
+    for a trie fully materialized in memory first. Its callers are the block and
+    genesis state export (which puts code into the same batch), the schema-v4
+    migration, and the snap/1 SERVER, which persists the trie it is about to
+    serve and is live while we are ourselves syncing. Each commits a complete
+    state, so the subtree half of I1 holds; the external half holds because a
+    validly executed or genesis state already has its code and storage. A crash
+    loses the whole batch.
+
+  src/networking/snap-sync/client.lisp
+  SNAP-SYNC-POPULATE-VERIFIED-TRIE-RECORDS-BATCH
+    The snap client, whose account-side contract is this change's subject.
+
+SNAP-ACCOUNT-TRIE-NODE-WRITERS-ARE-ALL-CLASSIFIED pins that list and carries the
+classification as its comment, with a positive control that the scanner flags a
+synthetic writer and ignores a :METADATA put. A new writer appearing without
+being classified now breaks a test rather than a live sync.
+
+Not closed: the review is right that the epoch marker is stamped before the
+genesis export writes its first trie node
+(src/app/cli/devnet/persistence.lisp:539-552), so the marker certifies "the
+store was empty at datadir creation", not "every account node came from the
+closed writer". The classification above is the argument that this is safe; it
+is prose plus a structural ratchet, not an executable proof, and the
+epoch-seven change must not ship without
+SNAP-EPOCH-SEVEN-DOES-NOT-TRUST-ACCOUNT-NODES-WRITTEN-BY-BLOCK-IMPORT, which
+does not exist yet.
+
+The compensating machinery is disabled, not merely unreachable
+
+The plan-marker write and SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN are gated on
+the writer seam. SNAP-SYNC-FILL-STORAGE-THEN-HEAL's walk-free completion had no
+guard of its own: it was unreachable only because its predicate reads a plan
+marker that is never written for such a store, so dropping either of the other
+two gates would have re-opened a path that publishes a state root without
+traversing the trie. It now refuses explicitly.
+
+SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P is deliberately NOT gated. It answers a
+question about the plan; the guard belongs at the site that acts on the answer.
+
+  SNAP-CLOSED-ACCOUNT-STORE-NEVER-PROMOTES-A-RANGE-PLAN pins it. Control: with
+  the legacy writer, promotion gets past the marker check and goes on to open a
+  persisted MPT on the state root, which the synthetic store does not hold, so
+  it signals -- reaching that walk is the proof that nothing but the guard keeps
+  the closed-writer arm out of it. Subject: under the closed writer it returns
+  zero without touching the store.
+
+Every storage ingestion path meets the uint256 ceiling
+
+The 33-byte ceiling is what keeps account and storage nodes disjoint in the
+kind-blind trie-node table, and contract storage is attacker-controlled on a
+public network, so it has to be enforced at ingestion rather than assumed from
+the protocol. SNAP-SYNC-STORAGE-ENTRIES applies SNAP-SYNC-STORAGE-TRIE-VALUE to
+every StorageRanges response, which covers the complete-group, byte-capped and
+partitioned large-storage paths on both the single-source and multi-source
+importers, and the snap/1 server uses the same function.
+
+A storage leaf reached by HASH during healing did not pass through it. That
+path now applies the same bound where the node is decoded, fail-closed in both
+directions: a peer supplying an over-wide storage leaf is a protocol fault, a
+stored one is storage corruption.
+
+  SNAP-HEALED-STORAGE-LEAF-VALUE-MEETS-THE-UINT256-CEILING pins the bound and
+  its rejections, including that an account leaf value can never pass it, which
+  is the disjointness argument stated as an executable check.
+
+Kind-blindness
+
+The flat :TRIE-NODE table holds account and storage nodes in one
+content-addressed space, so a kind-blind presence rule needs the two node sets
+to be disjoint. Pinned by
+SNAP-ACCOUNT-AND-STORAGE-TRIE-NODES-CANNOT-COLLIDE:
+
+  The shortest account leaf value is 70 bytes, derived from the encoder rather
+  than assumed: RLP([0, 0, emptyRoot(32), emptyCodeHash(32)]).
+  The longest storage leaf value is 33 bytes, and that ceiling is ENFORCED on
+  peer input by SNAP-SYNC-STORAGE-TRIE-VALUE, which the test exercises in both
+  directions. A leaf node is RLP([path, value]), so equal leaf encodings have
+  equal values, and the ranges do not overlap.
+  No account-trie node is ever inlined: every record of a real account trie
+  encodes to at least 32 bytes, so account nodes are always hash-addressed.
+  Without this the branch/extension induction does not close, because a storage
+  branch may carry an embedded child where an account branch carries a hash.
+  Over real tries the two hash sets are disjoint, with a positive control that
+  the disjointness check can report a collision.
+
+Crash injection (step five)
+
+SNAP-ACCOUNT-CLOSURE-SURVIVES-A-CRASH-BEFORE-THE-ACCOUNT-BATCH drops the first
+account-node batch that follows a storage batch; SNAP-ACCOUNT-CLOSURE-SURVIVES-
+A-CRASH-BEFORE-THE-CURSOR-BATCH drops the synchronous progress batch after an
+account-node batch. Both assert the crash actually fired, that the store then
+holds no account node whose closure it lacks, and that the resumed import
+converges and installs the authorized root.
+
+Not covered: the two cross-thread seams the review names, chunked storage
+(client.lisp:7613 to the account batch) and code (client.lisp:8060-8062 to the
+account batch). The single-source path's inline storage seam and the cursor
+seam are covered; those two are owed.
+
+Tests added (tests/snap-closure-tests.lisp)
+
+  snap-account-range-page-persists-only-closed-subtrees            unit
+  snap-chunked-storage-account-is-excluded-from-the-closed-account-trie unit
+  snap-closed-account-subtree-granularity-descends-past-an-open-account unit
+  snap-account-and-storage-trie-nodes-cannot-collide               unit
+  snap-account-trie-node-writers-are-all-classified                unit
+  memory-database-batches-are-not-lost-under-concurrent-writers    unit
+  snap-account-closed-subtree-follows-its-dependencies             integration
+  snap-closed-account-writer-persists-most-of-the-account-trie     integration
+  snap-account-closure-survives-a-crash-before-the-account-batch   integration
+  snap-account-closure-survives-a-crash-before-the-cursor-batch    integration
+  snap-closed-account-store-never-promotes-a-range-plan            unit
+  snap-healed-storage-leaf-value-meets-the-uint256-ceiling         unit
+
+SNAP-ACCOUNT-CLOSED-SUBTREE-FOLLOWS-ITS-DEPENDENCIES is the batch inspector the
+plan asked for, and it runs over BOTH the single-source path and
+SNAP-SYNC-IMPORT-STATE-MULTI with two sources, so the cross-thread code and
+storage writers are exercised. For every account trie-node put in every applied
+batch it requires every descendant node, every non-empty code hash and every
+non-empty storage root named by a leaf beneath it to be durable in that batch or
+an earlier one. Its positive control writes the account root alone into a fresh
+store and requires the inspector to report violations; its counters
+(inspected, account leaves, code checks, storage checks) all have to be
+non-zero, so a run that inspected nothing cannot pass.
+
+The open questions the plan asked to settle
+
+Q1, is the storage batch always applied before the account batch on the multi
+path: yes, but not for the design's stated reason, and the guarantee is weaker
+than the design assumed. Inline storage is applied on the page's own thread
+before the account batch. Chunked storage is applied by the committer thread and
+the runtime mutex supplies the happens-before edge. Codes are NOT in the account
+batch on the production path at all: SNAP-SYNC-MULTI-FETCH-PAGE-CODES returns
+the empty list on every exit and code is written by the code worker's own batch;
+the page learns of it only by re-reading the store. The design's "codes ride in
+the same batch" is false, and the ordering rests on read-observes-write plus a
+single WAL. This change stops depending on the claim either way: the writer
+re-reads the code table at classification time and an account whose code is not
+durable is simply open.
+
+Q2, is buffered-batch order a total order that survives a crash: yes on RocksDB
+-- one handle, no column families, one WAL, atomic batches, suffix-only loss,
+and the range cursor is published with the synchronous apply that fsyncs the
+preceding prefix -- and it was NOT true of the in-memory backend the tests use
+as the crash oracle until this change fixed it.
+
+Not verified
+
+  No live run, and none is useful until the epoch and healer rule land.
+  No fixture with live contract density; the withheld fraction on Hoodi is
+    still an extrapolation from 91% at one-page width.
+  The cross-thread crash seams for chunked storage and for code.
+  The epoch bump itself, the healer's account presence skip, the re-expression
+    of the three live-defect regressions against a legacy store, and the
+    epoch-seven test that a block-import-written account node is not trusted.
+  Every existing datadir will have to resync when the epoch does advance; the
+    revocation path keeps their content and drops the skip. That is free, since
+    none has ever converged.

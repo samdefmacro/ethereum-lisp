@@ -903,6 +903,24 @@ observational and not consensus-visible."
        (kv-apply-batch database batch))
      t)))
 
+(defparameter *snap-sync-account-closure-writes* nil
+  "Enable the closed-subtree account writer for a current-contract store.
+
+The writer and the healer rule it exists for are two halves of one contract and
+must be switched together.  While the healer still expands a present unmarked
+account node, withholding the account spine would only remove the compensating
+machinery -- the deferred-storage plan marker, range-plan promotion and the
+walk-free completion all walk a durable spine -- without supplying the presence
+skip that replaces it.  The closure epoch bump flips this default and takes the
+healer rule with it; until then production keeps the prebuffer-plus-marker
+writer and the tests that cover the new writer bind this to true.")
+
+(defun snap-sync-closed-account-writes-p (database)
+  "True when DATABASE's closure contract covers account-path trie nodes."
+  (and *snap-sync-account-closure-writes*
+       (snap-sync-complete-node-scheme-present-p database)
+       t))
+
 (defun snap-sync-disable-complete-node-scheme (database)
   "Revoke the store contract when resuming progress written by older code."
   (when (snap-sync-complete-node-scheme-present-p database)
@@ -1723,6 +1741,8 @@ publishes the account cursor."
                 (&key account-count storage-account-count code-count
                       trie-record-count incomplete-node-count
                       healed-subtree-count dependency-subtree-count
+                      closed-node-count open-code-account-count
+                      open-storage-account-count
                       account-request-ms proof-ms storage-ms code-ms metadata-ms
                       buffer-ms total-ms)))
   "Observational wall-clock breakdown for one verified SNAP account page."
@@ -1733,6 +1753,14 @@ publishes the account cursor."
   (incomplete-node-count 0)
   (healed-subtree-count 0)
   (dependency-subtree-count 0)
+  ;; Closed-subtree writer only: how much of the page's reconstructed trie was
+  ;; persisted, and how many accounts withheld their path and why. A low
+  ;; persisted fraction means the healer has to download what the range phase
+  ;; refused to write, which is the one way this design can be worse than the
+  ;; stall it replaces.
+  (closed-node-count 0)
+  (open-code-account-count 0)
+  (open-storage-account-count 0)
   (account-request-ms 0)
   (proof-ms 0)
   (storage-ms 0)
@@ -1746,7 +1774,7 @@ publishes the account cursor."
                 (&key task-index origin account-records codes deferred-storage
                       healed-subtrees dependency-subtrees complete-node-hashes
                       incomplete-node-hashes next-origin
-                      completed-p profile)))
+                      completed-p closed-writes-p profile)))
   task-index
   origin
   account-records
@@ -1758,17 +1786,30 @@ publishes the account cursor."
   incomplete-node-hashes
   next-origin
   completed-p
+  ;; True when this page was produced by the closed-subtree writer, whose
+  ;; account records are written without negative markers because every one of
+  ;; them belongs to a subtree that is already closed over its dependencies.
+  closed-writes-p
   profile)
 
 (defstruct (snap-sync-account-page-work
             (:constructor make-snap-sync-account-page-work
-                (&key task-index origin account-record-hashes storage-commitments
+                (&key task-index origin account-trie proved-end
+                      account-records account-record-hashes
+                      storage-commitments
                       code-hashes candidates account-count next-origin
-                      completed-p started-at account-response-at
+                      completed-p closed-writes-p started-at
+                      account-response-at
                       proof-finished-at prebuffer-ms)))
   "Verified account range waiting for globally scheduled dependencies."
   task-index
   origin
+  ;; Retained only by the closed-subtree writer, which cannot decide what to
+  ;; persist until this page's storage and code dependencies are durable. The
+  ;; legacy writer has already written every record and leaves these empty.
+  account-trie
+  proved-end
+  account-records
   account-record-hashes
   storage-commitments
   code-hashes
@@ -1776,6 +1817,7 @@ publishes the account cursor."
   account-count
   next-origin
   completed-p
+  closed-writes-p
   started-at
   account-response-at
   proof-finished-at
@@ -2430,15 +2472,158 @@ remains conservative and contributes no complete references."
              (record-complete-references references))
             ((<= (length dependencies)
                  +snap-sync-account-subtree-dependencies-max+)
-             (push (cons reference dependencies) dependency-subtrees)
-             ;; The dependency proof is published in the same buffered batch
-             ;; as these records. SNAP-SYNC-HEAL-STATE checks that proof before
-             ;; the complete-node fast path and schedules every listed storage
-             ;; root, preserving external closure without walking this account
-             ;; trie.
-             (record-complete-references references))))))
+             ;; The dependency proof is published in the same buffered batch as
+             ;; these records. SNAP-SYNC-HEAL-STATE checks that proof before the
+             ;; complete-node fast path and schedules every listed storage root,
+             ;; preserving external closure without walking this account trie.
+             ;;
+             ;; Its interior nodes deliberately stay marked. Recording them as
+             ;; complete references made marker absence mean two different
+             ;; things on the account side -- trie closure for a safe subtree,
+             ;; nothing at all for an interior node of a dependency subtree --
+             ;; which is the 03263d2f seam.
+             (push (cons reference dependencies) dependency-subtrees))))))
     (values (nreverse safe-subtrees) (nreverse dependency-subtrees)
             (nreverse complete-references))))
+
+(defun snap-sync-account-closure-predicate (database leaf-values codes)
+  "Return a predicate deciding whether one account leaf is externally closed.
+
+An account is closed only when a real durability check passes for both of its
+external edges: a non-empty code hash must name a durable :CODE record, and a
+non-empty storage root must carry this client's own whole-root closure proof.
+Absence from a page's deferred-storage list is deliberately NOT accepted as
+evidence.  Completed partition cursors prove authenticated key-space coverage,
+not that every node was materialized -- this file says so at the two sites that
+already demand the root proof, SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P and
+SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN.  The same standard applies here, so a
+chunked contract stays open until the healer publishes its root, which is
+geth's rule that clears needHeal only when the reassembled root both matches
+and is present (eth/protocols/snap/sync.go:2272-2282).
+
+CODES are the bytecodes this page will write in the same batch as its account
+nodes, so they count as durable.  Everything else is read back from the store."
+  (let ((accounts (make-hash-table :test #'equalp))
+        (code-hashes '())
+        (storage-roots '())
+        (code-seen (make-hash-table :test #'equalp))
+        (storage-seen (make-hash-table :test #'equalp))
+        (durable-codes (make-hash-table :test #'equalp))
+        (durable-roots (make-hash-table :test #'equalp))
+        (closed (make-hash-table :test #'equalp)))
+    (dolist (value leaf-values)
+      (unless (nth-value 1 (gethash value accounts))
+        (let ((account
+                (handler-case (decode-state-account-rlp value)
+                  (error () nil))))
+          (setf (gethash value accounts) account)
+          (when account
+            (let ((code-hash (hash32-bytes (state-account-code-hash account)))
+                  (storage-root
+                    (hash32-bytes (state-account-storage-root account))))
+              (unless (hash32= (state-account-code-hash account)
+                               +empty-code-hash+)
+                (unless (nth-value 1 (gethash code-hash code-seen))
+                  (setf (gethash code-hash code-seen) t)
+                  (push code-hash code-hashes)))
+              (unless (hash32= (state-account-storage-root account)
+                               +empty-trie-hash+)
+                (unless (nth-value 1 (gethash storage-root storage-seen))
+                  (setf (gethash storage-root storage-seen) t)
+                  (push storage-root storage-roots))))))))
+    (setf code-hashes (nreverse code-hashes)
+          storage-roots (nreverse storage-roots))
+    (dolist (entry codes)
+      (setf (gethash (car entry) durable-codes) t))
+    (when code-hashes
+      (let ((missing (make-hash-table :test #'equalp)))
+        (dolist (hash (snap-sync-heal-missing-code-hashes
+                       database code-hashes))
+          (setf (gethash hash missing) t))
+        (dolist (hash code-hashes)
+          (unless (nth-value 1 (gethash hash missing))
+            (setf (gethash hash durable-codes) t)))))
+    (when storage-roots
+      (let* ((references (coerce storage-roots 'vector))
+             (kinds
+               (make-array (length references)
+                           :initial-element :storage-root))
+             (present
+               (snap-sync-healed-subtrees-present
+                database references kinds)))
+        (dotimes (index (length references))
+          (when (= 1 (aref present index))
+            (setf (gethash (aref references index) durable-roots) t)))))
+    (maphash
+     (lambda (value account)
+       (setf
+        (gethash value closed)
+        (and account
+             (or (hash32= (state-account-code-hash account) +empty-code-hash+)
+                 (nth-value
+                  1 (gethash (hash32-bytes (state-account-code-hash account))
+                             durable-codes)))
+             (or (hash32= (state-account-storage-root account)
+                          +empty-trie-hash+)
+                 (nth-value
+                  1 (gethash (hash32-bytes
+                              (state-account-storage-root account))
+                             durable-roots)))
+             t)))
+     accounts)
+    (lambda (value) (gethash value closed))))
+
+(defun snap-sync-closed-account-page-content (database work codes)
+  "Return the maximal closed account subtrees this page may persist.
+
+Values: the closure-proof roots at or below the published proof depth, every
+trie-node hash inside the closed subtrees, the records to write, and the two
+per-account counters that say why anything was withheld."
+  (let* ((trie (snap-sync-account-page-work-account-trie work))
+         (origin (snap-sync-account-page-work-origin work))
+         (proved-end (snap-sync-account-page-work-proved-end work))
+         (records (snap-sync-account-page-work-account-records work))
+         (leaf-values (and trie (mpt-dirty-leaf-values trie)))
+         (predicate
+           (snap-sync-account-closure-predicate database leaf-values codes))
+         (open-code 0)
+         (open-storage 0))
+    (dolist (value leaf-values)
+      (unless (funcall predicate value)
+        (let ((account
+                (handler-case (decode-state-account-rlp value)
+                  (error () nil))))
+          (cond
+            ((null account) (incf open-code))
+            ((not (hash32= (state-account-storage-root account)
+                           +empty-trie-hash+))
+             (incf open-storage))
+            (t (incf open-code))))))
+    (if (or (null trie) (null proved-end))
+        (values '() '() '() open-code open-storage)
+        (let ((groups
+                (mpt-proved-range-closed-subtrees
+                 trie origin proved-end predicate))
+              (proof-depth *snap-sync-range-subtree-prefix-nibbles*)
+              (roots '())
+              (references '())
+              (seen (make-hash-table :test #'equalp)))
+          (dolist (group groups)
+            (destructuring-bind (depth reference group-references) group
+              ;; The healer only consults a closure proof at or below its
+              ;; publication depth, so a shallower root would cost a metadata
+              ;; key that nothing can read. Its nodes are still persisted.
+              (when (>= depth proof-depth)
+                (push reference roots))
+              (dolist (hash group-references)
+                (unless (nth-value 1 (gethash hash seen))
+                  (setf (gethash hash seen) t)
+                  (push hash references)))))
+          (values (nreverse roots) (nreverse references)
+                  (loop for record in records
+                        when (nth-value 1 (gethash (car record) seen))
+                          collect record)
+                  open-code open-storage)))))
 
 (defun snap-sync-buffer-account-page-content
     (database state-root result &optional write-lock)
@@ -2451,15 +2636,21 @@ flushes this earlier WAL prefix before the cursor becomes durable.  A crash
 before that seam can expose no cursor and merely causes the page to be fetched
 again."
   (declare (ignorable write-lock))
-  (let ((batch (make-kv-write-batch)))
+  (let ((batch (make-kv-write-batch))
+        (closed-writes-p (snap-sync-page-result-closed-writes-p result)))
     (snap-sync-populate-verified-trie-records-batch
      database batch (snap-sync-page-result-account-records result))
     ;; Range pages overlap at proof boundaries.  A later authenticated page can
     ;; close a node that an earlier page conservatively marked incomplete.
     (snap-sync-delete-incomplete-records-batch
      batch (snap-sync-page-result-complete-node-hashes result))
-    (snap-sync-populate-incomplete-records-batch
-     batch (snap-sync-page-result-incomplete-node-hashes result))
+    ;; A closed-subtree page persists only nodes whose whole subtree, code and
+    ;; storage are durable in this batch or an earlier one, so it writes no
+    ;; negative markers at all and publishes no dependency proof: a subtree
+    ;; owing storage is withheld rather than marked.
+    (unless closed-writes-p
+      (snap-sync-populate-incomplete-records-batch
+       batch (snap-sync-page-result-incomplete-node-hashes result)))
     (snap-sync-populate-code-batch
      database batch (snap-sync-page-result-codes result))
     (dolist (commitment (snap-sync-page-result-deferred-storage result))
@@ -2467,9 +2658,10 @@ again."
        batch state-root commitment))
     (dolist (reference (snap-sync-page-result-healed-subtrees result))
       (snap-sync-populate-healed-subtree-batch batch reference :account))
-    (dolist (entry (snap-sync-page-result-dependency-subtrees result))
-      (snap-sync-populate-account-subtree-dependencies-batch
-       batch (car entry) (cdr entry)))
+    (unless closed-writes-p
+      (dolist (entry (snap-sync-page-result-dependency-subtrees result))
+        (snap-sync-populate-account-subtree-dependencies-batch
+         batch (car entry) (cdr entry))))
     #+sbcl
     (if write-lock
         (sb-thread:with-mutex (write-lock)
@@ -2552,34 +2744,44 @@ again."
                     (snap-sync-proved-range-subtrees
                      account-trie origin proved-end))
                    '())))
-        ;; The proof has authenticated these content-addressed records already.
-        ;; Buffer them before StorageRanges/ByteCodes work so slow dependencies
-        ;; retain only 32-byte references, not the reconstructed trie graph.
-        ;; A later synchronous cursor batch flushes this WAL prefix; a crash
-        ;; before that seam merely leaves harmless idempotent content behind.
+        ;; A store born under the current closure contract persists an account
+        ;; node only once that node's whole subtree, code and storage are
+        ;; durable, so nothing is written here at all: the spine, the boundary
+        ;; proof nodes and every range-straddling bucket are deliberately never
+        ;; written, exactly as geth's stack trie never flushes an unfinished
+        ;; boundary (eth/protocols/snap/gentrie.go:316-321). A legacy store
+        ;; keeps the prebuffer-plus-marker writer, because its healer still
+        ;; reads markers and its promotion path still walks a durable spine.
         (let* ((prebuffer-started-at (get-internal-real-time))
-               (batch (make-kv-write-batch))
+               (closed-writes-p
+                 (snap-sync-closed-account-writes-p database))
                (account-record-hashes (mapcar #'car account-records)))
-          (snap-sync-populate-verified-trie-records-batch
-           database batch account-records)
-          ;; Prebuffered account nodes are not yet closed over the code and
-          ;; storage roots named by their leaves.  Publish their negative
-          ;; markers in this same batch so a crash, stale-pivot yield, or later
-          ;; WAL flush can never expose bare node presence as a completion
-          ;; oracle.  Dependency completion below atomically removes exactly
-          ;; the references proved closed and retains the rest as incomplete.
-          (snap-sync-populate-incomplete-records-batch
-           batch account-record-hashes)
-          #+sbcl
-          (if write-lock
-              (sb-thread:with-mutex (write-lock)
-                (kv-apply-batch-buffered database batch))
-              (kv-apply-batch-buffered database batch))
-          #-sbcl
-          (kv-apply-batch-buffered database batch)
+          (unless closed-writes-p
+            (let ((batch (make-kv-write-batch)))
+              (snap-sync-populate-verified-trie-records-batch
+               database batch account-records)
+              ;; Prebuffered account nodes are not yet closed over the code and
+              ;; storage roots named by their leaves.  Publish their negative
+              ;; markers in this same batch so a crash, stale-pivot yield, or
+              ;; later WAL flush can never expose bare node presence as a
+              ;; completion oracle.  Dependency completion below atomically
+              ;; removes exactly the references proved closed and retains the
+              ;; rest as incomplete.
+              (snap-sync-populate-incomplete-records-batch
+               batch account-record-hashes)
+              #+sbcl
+              (if write-lock
+                  (sb-thread:with-mutex (write-lock)
+                    (kv-apply-batch-buffered database batch))
+                  (kv-apply-batch-buffered database batch))
+              #-sbcl
+              (kv-apply-batch-buffered database batch)))
           (make-snap-sync-account-page-work
            :task-index task-index
            :origin (copy-seq origin)
+           :account-trie (and closed-writes-p account-trie)
+           :proved-end (and closed-writes-p proved-end (copy-seq proved-end))
+           :account-records (and closed-writes-p account-records)
            :account-record-hashes account-record-hashes
            :storage-commitments storage-commitments
            :code-hashes code-hashes
@@ -2587,6 +2789,7 @@ again."
            :account-count (length entries)
            :next-origin next-origin
            :completed-p complete-p
+           :closed-writes-p closed-writes-p
            :started-at started-at
            :account-response-at account-response-at
            :proof-finished-at proof-finished-at
@@ -2615,18 +2818,36 @@ again."
         (incf storage-ms
               (snap-sync-elapsed-milliseconds
                started-at (get-internal-real-time)))))
-    (let ((dependencies-finished-at (get-internal-real-time)))
-      (multiple-value-bind
-            (safe-subtrees dependency-subtrees complete-references)
-          (snap-sync-classify-account-range-subtrees
-           (snap-sync-account-page-work-candidates work) deferred-storage)
-        (let* ((metadata-finished-at (get-internal-real-time))
-               (started-at (snap-sync-account-page-work-started-at work))
-               (account-record-hashes
-                 (snap-sync-account-page-work-account-record-hashes work))
-               (incomplete-node-hashes
-                 (snap-sync-incomplete-reference-hashes
-                  account-record-hashes complete-references))
+    (let ((dependencies-finished-at (get-internal-real-time))
+          (closed-writes-p
+            (snap-sync-account-page-work-closed-writes-p work))
+          (safe-subtrees '())
+          (dependency-subtrees '())
+          (complete-references '())
+          (closed-records '())
+          (open-code-accounts 0)
+          (open-storage-accounts 0))
+      ;; The closed-subtree writer asks the store, not the page's bookkeeping,
+      ;; whether each account's code and storage are really durable, and then
+      ;; persists the maximal subtrees all of whose leaves passed. An account
+      ;; that failed withholds only its own path; its siblings still publish.
+      (if closed-writes-p
+          (multiple-value-setq (safe-subtrees complete-references closed-records
+                                open-code-accounts open-storage-accounts)
+            (snap-sync-closed-account-page-content database work codes))
+          (multiple-value-setq
+              (safe-subtrees dependency-subtrees complete-references)
+            (snap-sync-classify-account-range-subtrees
+             (snap-sync-account-page-work-candidates work) deferred-storage)))
+      (let* ((metadata-finished-at (get-internal-real-time))
+             (started-at (snap-sync-account-page-work-started-at work))
+             (account-record-hashes
+               (snap-sync-account-page-work-account-record-hashes work))
+             (incomplete-node-hashes
+               (if closed-writes-p
+                   '()
+                   (snap-sync-incomplete-reference-hashes
+                    account-record-hashes complete-references)))
                (profile
                  (make-snap-sync-page-profile
                   :account-count
@@ -2640,6 +2861,9 @@ again."
                   :incomplete-node-count (length incomplete-node-hashes)
                   :healed-subtree-count (length safe-subtrees)
                   :dependency-subtree-count (length dependency-subtrees)
+                  :closed-node-count (length closed-records)
+                  :open-code-account-count open-code-accounts
+                  :open-storage-account-count open-storage-accounts
                   :account-request-ms
                   (snap-sync-elapsed-milliseconds
                    started-at
@@ -2657,9 +2881,11 @@ again."
                  (make-snap-sync-page-result
                   :task-index (snap-sync-account-page-work-task-index work)
                   :origin (snap-sync-account-page-work-origin work)
-                  ;; Account trie records were buffered immediately after
-                  ;; proof verification; only closure metadata remains here.
-                  :account-records '()
+                  ;; The legacy writer buffered every account trie record
+                  ;; immediately after proof verification, so only closure
+                  ;; metadata remains here. The closed-subtree writer withheld
+                  ;; them all and hands over exactly the closed ones now.
+                  :account-records closed-records
                   :codes codes
                   :deferred-storage deferred-storage
                   :healed-subtrees safe-subtrees
@@ -2672,18 +2898,23 @@ again."
                   :next-origin (snap-sync-account-page-work-next-origin work)
                   :completed-p
                   (snap-sync-account-page-work-completed-p work)
+                  :closed-writes-p closed-writes-p
                   :profile profile)))
-          (snap-sync-buffer-account-page-content
-           database state-root result write-lock)
-          (let ((finished-at (get-internal-real-time)))
-            (setf
-             (snap-sync-page-profile-buffer-ms profile)
-             (+ (snap-sync-account-page-work-prebuffer-ms work)
-                (snap-sync-elapsed-milliseconds
-                 metadata-finished-at finished-at))
-             (snap-sync-page-profile-total-ms profile)
-             (snap-sync-elapsed-milliseconds started-at finished-at)))
-          result)))))
+        (snap-sync-buffer-account-page-content
+         database state-root result write-lock)
+        ;; The retained page graph is large; release it once its closed subset
+        ;; has reached the write batch.
+        (setf (snap-sync-account-page-work-account-records work) '()
+              (snap-sync-account-page-work-account-trie work) nil)
+        (let ((finished-at (get-internal-real-time)))
+          (setf
+           (snap-sync-page-profile-buffer-ms profile)
+           (+ (snap-sync-account-page-work-prebuffer-ms work)
+              (snap-sync-elapsed-milliseconds
+               metadata-finished-at finished-at))
+           (snap-sync-page-profile-total-ms profile)
+           (snap-sync-elapsed-milliseconds started-at finished-at)))
+        result))))
 
 (defun snap-sync-prepare-account-page
     (database source state-root task-index task byte-limit)
@@ -2772,6 +3003,13 @@ record flushes all of those worker prefixes and removes per-page fsync stalls."
       (push next snapshots))
     (let ((batch (make-kv-write-batch)))
       (when (and
+             ;; The plan marker exists only to let range-plan promotion and the
+             ;; walk-free completion reconstruct closure after the fact, and
+             ;; both of those walk a durable account spine. A closed-subtree
+             ;; store never writes that spine, so the marker would authorize a
+             ;; walk over nodes that are deliberately absent. Legacy stores
+             ;; keep the whole mechanism.
+             (not (snap-sync-closed-account-writes-p database))
              (snap-sync-tasks-completed-p (snap-sync-progress-tasks next))
              (hash32= (snap-sync-progress-partial-root next)
                       (snap-sync-progress-state-root next)))
@@ -5030,6 +5268,12 @@ lets the healer skip an account subtree after a pivot rebase, that zero is
 where the live healing time went. Only the bound is removed; the exclusion
 predicate below is unchanged, so a bucket naming any deferred storage root
 without a published whole-root closure still stays unpromoted."
+  ;; Promotion opens a persisted MPT on the state root and walks its shallow
+  ;; spine. A closed-subtree store never persists that spine, and promotion's
+  ;; shallow :ACCOUNT proofs exist only to compensate for an account presence
+  ;; rule that such a store already has. Both reasons point the same way.
+  (when (snap-sync-closed-account-writes-p database)
+    (return-from snap-sync-promote-complete-range-plan 0))
   (unless (snap-sync-deferred-storage-plan-present-p database state-root)
     (return-from snap-sync-promote-complete-range-plan 0))
   (let* ((depths (snap-sync-range-subtree-depths))
@@ -6194,8 +6438,23 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
          (process-value (work path value)
            (unless (byte-vector-p value)
              (error "Snap healed trie leaf value is not bytes"))
-           (when (eq :account (snap-sync-heal-work-kind work))
-             (queue-account-value path value)))
+           (if (eq :account (snap-sync-heal-work-kind work))
+               (queue-account-value path value)
+               ;; A storage leaf reached by hash rather than through a
+               ;; StorageRanges response has never met the uint256 ceiling that
+               ;; SNAP-SYNC-STORAGE-ENTRIES applies on the range path. That
+               ;; ceiling is what keeps account and storage nodes disjoint in
+               ;; the kind-blind trie-node table, and contract storage is
+               ;; attacker-controlled on a public network, so enforce it at
+               ;; every ingestion point rather than assuming the protocol.
+               (handler-case (snap-sync-storage-trie-value value)
+                 (error (condition)
+                   (if (snap-sync-heal-work-fetched-p work)
+                       (error "Snap peer returned an invalid storage leaf: ~A"
+                              condition)
+                       (ethereum-lisp.validation:storage-fail
+                        "Persisted snap storage leaf is invalid: ~A"
+                        condition))))))
          (process-object (work object)
            (when (snap-sync-heal-work-fetched-p work)
              (when (plusp healer-pending)
@@ -7066,6 +7325,14 @@ plans retain the content-addressed healer as the fail-closed path."
            :on-source-error on-source-error
            :heal-yield-p heal-yield-p)))
     (when (and storage-completed-p
+               ;; A closed-writer store has no durable account spine, so the
+               ;; range-plan walk this completion rests on cannot resolve. It
+               ;; is already unreachable second-hand, because the plan marker
+               ;; its predicate reads is never written for such a store; say so
+               ;; here as well, so removing one guard cannot silently re-open a
+               ;; completion that would publish a state root over a trie the
+               ;; healer has not yet filled in.
+               (not (snap-sync-closed-account-writes-p database))
                (snap-sync-range-plan-fully-durable-p
                 database (snap-sync-progress-state-root progress))
                (hash32=
@@ -8170,6 +8437,11 @@ Waiters recheck RocksDB after each wake and take over hashes whose owner failed.
             (owner (list :snap-code-flight-owner)))
         (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
           (when (snap-sync-multi-runtime-stopped-p runtime)
+            ;; A stopped generation can return here with codes still missing.
+            ;; That is safe for the closed-subtree writer only because its
+            ;; qualification predicate re-reads the code table rather than
+            ;; trusting this result; an account whose code did not arrive is
+            ;; simply open and its path is withheld.
             (return-from snap-sync-multi-fetch-page-codes '()))
           (dolist (hash missing)
             (unless (gethash hash

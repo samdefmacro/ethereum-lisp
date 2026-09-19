@@ -198,6 +198,168 @@ that closed subtree without duplicating its encoded node values."
         (visit (mpt-root-node trie) (make-byte-vector 0)))
       (values (nreverse results) (nreverse reference-groups)))))
 
+(defun mpt-dirty-leaf-values (trie)
+  "Return the value of every newly reconstructed leaf in TRIE.
+
+A caller that must decide whether a reconstructed range is closed over external
+references needs the leaf values before it can ask anything about them.  Clean
+and unresolved subtrees are skipped, exactly as MPT-DIRTY-NODES skips them."
+  (let ((values '())
+        (seen (make-hash-table :test #'eq)))
+    (labels ((visit (node)
+               (when (and node (not (hash-node-p node))
+                          (trie-concrete-node-dirty-p node)
+                          (not (nth-value 1 (gethash node seen))))
+                 (setf (gethash node seen) t)
+                 (etypecase node
+                   (leaf-node (push (leaf-node-value node) values))
+                   (extension-node (visit (extension-node-child node)))
+                   (branch-node
+                    (let ((value (branch-node-value node)))
+                      (when (and value (plusp (length value)))
+                        (push value values)))
+                    (loop for child across (branch-node-children node)
+                          do (visit child)))))))
+      (visit (mpt-root-node trie)))
+    (nreverse values)))
+
+(defun mpt-proved-range-closed-subtrees (trie start end leaf-closed-p)
+  "Return the maximal reconstructed subtrees of TRIE that are closed.
+
+START and END are inclusive secure keys.  A subtree qualifies when its whole
+key range lies inside them, every one of its nodes was newly reconstructed by
+this range, it is hash-addressed, and LEAF-CLOSED-P answers true for the value
+of every leaf beneath it.  Each result is `(DEPTH REFERENCE REFERENCES)`, where
+DEPTH is the nibble depth of the subtree's own key prefix and REFERENCES holds
+every concrete hash inside it.
+
+Unlike MPT-PROVED-RANGE-SUBTREES this has no minimum depth and does not stop at
+a node that fails: it keeps descending and publishes the clean children of a
+poisoned parent.  That is what geth's stack trie emits between two exclusions
+\(eth/protocols/snap/sync.go:2453-2476 with gentrie.go:88-153 and :247-291 at
+38271784c2b31926563806da9a2e023b88f5e7a8), and it is what keeps one account
+with undelivered storage from withholding its whole bucket."
+  (let ((start (ensure-byte-vector start))
+        (end (ensure-byte-vector end)))
+    (unless (and (= 32 (length start)) (= 32 (length end)))
+      (error "MPT proved range bounds must contain 32 bytes"))
+    (unless (functionp leaf-closed-p)
+      (error "MPT proved range closure predicate must be a function"))
+    (let ((first (keybytes-to-nibbles start :terminator nil))
+          (last (keybytes-to-nibbles end :terminator nil))
+          (analysis (make-hash-table :test #'eq))
+          (results '()))
+      (when (plusp (mpt-nibbles-compare first last))
+        (error "MPT proved range bounds are reversed"))
+      (labels
+          ((analyze (node)
+             "Return whether NODE's subtree is wholly dirty and wholly closed."
+             (if (or (null node) (hash-node-p node)
+                     (not (trie-concrete-node-dirty-p node)))
+                 (values nil nil)
+                 (multiple-value-bind (cached present-p) (gethash node analysis)
+                   (if present-p
+                       (values (car cached) (cdr cached))
+                       (let ((dirty-p t)
+                             (closed-p t))
+                         (etypecase node
+                           (leaf-node
+                            (setf closed-p
+                                  (and (funcall leaf-closed-p
+                                                (leaf-node-value node))
+                                       t)))
+                           (extension-node
+                            (multiple-value-bind (child-dirty-p child-closed-p)
+                                (analyze (extension-node-child node))
+                              (setf dirty-p child-dirty-p
+                                    closed-p child-closed-p)))
+                           (branch-node
+                            (let ((value (branch-node-value node)))
+                              (when (and value (plusp (length value)))
+                                (setf closed-p
+                                      (and (funcall leaf-closed-p value) t))))
+                            (loop for child across (branch-node-children node)
+                                  do (when child
+                                       (multiple-value-bind
+                                             (child-dirty-p child-closed-p)
+                                           (analyze child)
+                                         (unless child-dirty-p
+                                           (setf dirty-p nil))
+                                         (unless child-closed-p
+                                           (setf closed-p nil)))))))
+                         (setf (gethash node analysis) (cons dirty-p closed-p))
+                         (values dirty-p closed-p))))))
+           (coverage-prefix (node pointer-path)
+             ;; A leaf's stored path can carry the hex-prefix terminator, so
+             ;; its coverage would read as 65 nibbles and be rejected by the
+             ;; bound below. A secure key is exactly 64 nibbles; anything past
+             ;; that is the terminator and names no key space.
+             (let ((full
+                     (etypecase node
+                       (leaf-node
+                        (concatenate
+                         'vector pointer-path (leaf-node-path node)))
+                       (extension-node
+                        (concatenate
+                         'vector pointer-path (extension-node-path node)))
+                       (branch-node pointer-path))))
+               (if (> (length full) 64)
+                   (subseq full 0 64)
+                   full)))
+           (coverage-inside-range-p (coverage)
+             (let ((depth (length coverage)))
+               (and
+                (<= depth 64)
+                (let ((low
+                        (concatenate
+                         'vector coverage (make-byte-vector (- 64 depth))))
+                      (high
+                        (concatenate
+                         'vector coverage
+                         (make-byte-vector (- 64 depth) :initial-element 15))))
+                  (and (not (minusp (mpt-nibbles-compare low first)))
+                       (not (plusp (mpt-nibbles-compare high last))))))))
+           (subtree-references (node)
+             (let ((references '()))
+               (labels ((collect (current)
+                          (when (and current
+                                     (not (hash-node-p current))
+                                     (trie-concrete-node-dirty-p current))
+                            (dolist (child (trie-node-children current))
+                              (collect child))
+                            (push (node-hash current) references))))
+                 (collect node))
+               (nreverse references)))
+           (visit (node pointer-path)
+             (when (and node (not (hash-node-p node)))
+               (multiple-value-bind (dirty-p closed-p) (analyze node)
+                 (let ((coverage (coverage-prefix node pointer-path)))
+                   (if (and dirty-p closed-p
+                            (node-reference-hashed-p node)
+                            (coverage-inside-range-p coverage))
+                       (push (list (length coverage) (node-hash node)
+                                   (subtree-references node))
+                             results)
+                       (etypecase node
+                         (leaf-node nil)
+                         (extension-node
+                          (visit
+                           (extension-node-child node)
+                           (concatenate
+                            'vector pointer-path (extension-node-path node))))
+                         (branch-node
+                          (dotimes (index 16)
+                            (let ((child
+                                    (aref (branch-node-children node) index)))
+                              (when child
+                                (visit
+                                 child
+                                 (concatenate
+                                  'vector pointer-path
+                                  (vector index))))))))))))))
+        (visit (mpt-root-node trie) (make-byte-vector 0)))
+      (nreverse results))))
+
 (defun mpt-hashed-subtrees-with-prefix-at-depth
     (trie minimum-prefix-nibbles)
   "Resolve only the shallow trie spine and return prefixed subtree roots.
