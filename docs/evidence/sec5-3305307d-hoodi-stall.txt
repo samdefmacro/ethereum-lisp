@@ -1,0 +1,100 @@
+Section 5 Hoodi run at 3305307d: healing stalls, promotion streaming is unreachable live
+
+Status
+
+Not completion. The fresh-datadir run recorded in sec5-3305307d-hoodi-start.txt
+reached the healing phase and shows the same non-convergence as every earlier
+run. The container is left running; it is not expected to converge.
+
+Revision
+
+3305307d02918d797ad0037a93092451f0ab2b61, container hoodi-el-sec5-3305307d,
+started 2026-09-18T09:17:56Z, 12 GiB bound, fresh datadir.
+
+Read-only sample, 2026-09-19T01:25Z (16 h 8 min after start)
+
+  docker: running=true exit=0 oom=false restarts=0 cpu=111% mem=7.136GiB / 12GiB
+  datadir 54 GiB; /data 71% used, 196 GiB free
+
+scripts/hoodi-live-gate.sh logs, exit 0:
+
+  el-event=peer.snap.heal_progress count=33
+  el-event=peer.snap.pivot_unavailable count=0
+  el-event=peer.snap.storage_failed count=0
+  el-event=peer.snap.import_failed count=0
+  el-event=peer.snap.target_completed count=0
+  el-heal-progress=pivot value=3651553
+  el-heal-progress=processedNodes value=804864
+  el-heal-progress=reusedNodes value=1851380
+  el-heal-progress=fetchedNodes value=1291
+  el-heal-progress=promotedSubtrees value=0
+  el-heal-progress=skippedSubtrees value=4514481
+  el-heal-progress=frontierWorks value=909342
+  el-heal-progress=deferredStorageWorks value=718
+  el-heal-progress=knownIncompleteNodes value=796382
+  el-heal-progress=processedRate value=260
+  el-heal-progress=discoveredRate value=520
+  el-heal-progress=netDrainRate value=-260
+  el-heal-progress=etaStatus value=dynamic-expansion
+  el-heal-progress=completed value=false
+  el-runtime-fault-count=0
+
+Compared with the run it replaced (05c13ad5, sample of 2026-09-18T04:05Z:
+frontierWorks 915,501, processedNodes 847,872, knownIncompleteNodes 802,352,
+skippedSubtrees 5,243,380, promotedSubtrees 0, netDrainRate -242) nothing that
+matters moved. knownIncompleteNodes / processedNodes is 0.99: every node the
+healer walks is a marked account-side node, and the frontier grows twice as
+fast as it drains.
+
+Why promotedSubtrees is still 0
+
+519e4c9b removed the 8,192 width bound from range-plan promotion. That bound
+was a real defect but it is not what zeroes promotion on the live chain.
+SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN returns 0 before it looks at the plan at
+all unless SNAP-SYNC-DEFERRED-STORAGE-PLAN-PRESENT-P holds for the state root.
+The plan marker has one writer, SNAP-SYNC-COMMIT-ACCOUNT-PAGES, gated on the
+range tasks being complete AND the progress partial-root being equal to the
+state root. SNAP-SYNC-HEAL-REBASED-PROGRESS replaces partial-root with a
+synthetic witness (domain snap-rebased-range-witness-v1:) whenever the state
+root changes, and SNAP-SYNC-ACCOUNT-PAGE-NEXT-PROGRESS keeps it.
+
+On this run the first pivot rebase happened 21 minutes into the range download
+(monitor sample 09:39Z, rebased=1). A live range download takes about two and a
+half hours and a pivot expires roughly every half hour, so a rebase during the
+range phase is certain, the plan marker is never written, and therefore:
+
+- the segmented deferred-storage plan path (05c13ad5, c4e9ec34) is never taken;
+- range-plan promotion (519e4c9b) never runs;
+- the healer seeds from the state root and walks the account trie.
+
+Those three commits are correct for the case they test, an import without a
+rebase, and that case does not occur on a public network. Their tests could not
+see this because none of them rebases during the range phase.
+
+What the fix has to be
+
+The account side of closure. Under closure epoch six a present, unmarked
+STORAGE node is skipped without descending; an ACCOUNT node is not, because an
+unmarked account subtree may still name code or storage that is not durable.
+After a pivot rebase the healer therefore re-walks account nodes that are
+already present and complete. geth does not: its range phase leaves an account
+with incomplete code or storage out of the generated trie, so the ancestors of
+such an account are absent, presence of a node implies its whole subtree
+including dependencies, and healing descends only into changed and deliberately
+absent paths.
+
+The existing per-bucket dependency proofs cannot carry this at live scale: the
+preserved 5c8a39c0 store held 537 account dependency proofs and 12,151 account
+subtree proofs against 65,536 depth-four buckets.
+
+A design for account-side closure, a local reproduction of import with a
+mid-range rebase, and the measurements that size the problem are in progress.
+No further live run is useful until a revision exists whose healer can skip
+present account subtrees after a rebase, and the Hive gates owed for the final
+revision are not worth running on 3305307d.
+
+Carried forward
+
+- Graceful shutdown exceeds 30 s (the replaced container exited 137); a fix
+  with a RED regression is in progress.
+- The shutdown memory fault (glibc free path at exit) is unresolved.
