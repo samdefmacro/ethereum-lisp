@@ -1,0 +1,680 @@
+Section 5 shutdown provenance audit: foreign frees at exit, and the
+graceful-stop time budget
+
+Status
+
+Two questions, two different outcomes.
+
+Part A, the static provenance audit that
+docs/evidence/sec5-shutdown-memory-fault-trace.txt asks for in "Next
+experiment, no long run required", is COMPLETE and NEGATIVE. Every foreign
+allocation this tree makes and every explicit foreign free it performs is
+enumerated below with its allocator, owner, releaser and timing. None of them
+can double-free, free an interior pointer, or free with the wrong deallocator.
+The three ownership-transfer rules the brief named as the classic shape were
+checked line by line against the c.cc of the pinned RocksDB and are CORRECT.
+That is a real result, not an absence of one: the addendum states that S1 would
+be CONFIRMED by finding the offending free site statically, and it is not
+there. More sharply, this tree frees NOTHING foreign at exit, so every free
+reached during exit(3) belongs to third-party teardown.
+
+Part B, the shutdown time budget, is COMPLETE, POSITIVE, and the HTTP term of
+it is now FIXED AND VERIFIED. The reason a graceful stop outlasts a 30-second
+grace period is identified, the whole budget is tabulated, and the dominant
+term for the live Hoodi shape -- a consensus client's pooled Engine connection
+being served straight through the shutdown -- is fixed and covered by tests
+that were RED before the change and are GREEN after.
+
+Measured after the fix, on the e2e tests that launch a real node process,
+signal it, and time the exit against a 20-second budget:
+
+    busy pooled keep-alive connection      0.81 s   (was: over 20 s, RED)
+    idle pooled keep-alive connection      1.01 s
+    open eth_subscribe WebSocket session   under 1.4 s wall for the whole test
+
+Verification of record for the change, all cold:
+
+    cl-workbench validation run cold-unit         exit 0, 1411 passed, 3 skipped
+    cl-workbench validation run cold-integration  exit 0,  576 passed, 9 skipped
+    cl-workbench validation run cold-e2e          recorded in the commit message
+
+Revision audited: 685bb67c (branch sec5-public-bootstrap-sync). Fix and
+verification: this branch, rebased onto fb944d33.
+
+Question
+
+A. Is the exit-time memory fault a destructor-order / double / interior free
+   (S1) or a chunk header overwritten during the run (S2)? Discriminate by
+   auditing pointer provenance at every foreign free site, without a long run.
+
+B. Why does a SIGTERM stop take far longer than 30 s -- 52 s on the 5c8a39c0
+   run, and long enough on 05c13ad5 that `docker stop --time 30` SIGKILLed it
+   at exit 137 while it was still serving Engine requests -- and what is the
+   smallest change that bounds it?
+
+===========================================================================
+Part A. Provenance audit
+===========================================================================
+
+Scope, and how it was established as complete
+
+The CFFI surface of src/ is exactly five files. `grep -rl "cffi:" src/` returns:
+
+    src/foundation/snappy.lisp
+    src/foundation/database/rocksdb.lisp
+    src/foundation/crypto/secp256k1-ffi.lisp
+    src/protocol/bls12381/cffi-backend.lisp
+    src/protocol/kzg/cffi-verifier.lisp
+
+plus the two C shims, tools/bls-ffi/shim.c and tools/ckzg-ffi/shim.c.
+
+Two facts bound the audit before any table is read.
+
+1. `cffi:foreign-alloc`, `cffi:foreign-free`, `cffi:foreign-string-alloc` and
+   `cffi:foreign-string-free` have ZERO occurrences in src/ and in tools/.
+   Nothing is foreign-alloc'd at load time into a global, because nothing is
+   foreign-alloc'd at all. Every foreign buffer is either a pinned Lisp vector
+   (`cffi:with-pointer-to-vector-data`), a stack/`with-foreign-object`
+   temporary, or a handle returned by a library's own constructor.
+
+2. The only globals that hold a foreign pointer for the life of the process are
+   `*kzg-cffi-settings*` (cffi-verifier.lisp:49), `*secp256k1-context*`
+   (secp256k1-ffi.lisp:95), and the RocksDB adapters cached in
+   `*DEVNET-CLI-KV-DATABASE-CACHE*`. NONE of the three has a releaser that the
+   serving node can reach. So the set of "early-startup foreign allocations
+   freed at exit" that the brief asked to enumerate is EMPTY.
+
+Pinned RocksDB, and how its contract was read
+
+Dockerfile.runtime:55-63 builds tools/rocksdb/rocksdb-11.1.2.tar.gz, SHA-256
+d5e78b69e0fb2960576fd5f21c9f3d1a02f635da61159b01942ff285e891c9c0, with
+tools/rocksdb/io-uring-kernel-compat.patch applied. The archive is in the tree,
+so the C API contract below is read from the ACTUAL pinned source rather than
+from documentation: archive root facebook-rocksdb-9d94571,
+include/rocksdb/version.h giving ROCKSDB_MAJOR 11 / MINOR 1 / PATCH 2. The
+files were extracted read-only into a scratch directory and grepped; nothing
+was built or executed.
+
+Audit table
+
+Every site is (allocator -> owner -> releaser -> when), with the verdict.
+
+--- tools/bls-ffi/shim.c -----------------------------------------------------
+
+  shim.c:27-31  BLS12_381_P            static const, .rodata      no free
+  everything else                      stack (blst_fp, blst_p1,
+                                       blst_p2, blst_fp12)        no free
+  VERDICT: the BLS shim performs NO heap allocation and NO free on any path.
+  It cannot participate in a bad free. Eliminated outright.
+
+--- tools/ckzg-ffi/shim.c ----------------------------------------------------
+
+  shim.c:17   malloc(sizeof(KZGSettings))
+              -> owner: the Lisp global *kzg-cffi-settings*
+              -> releaser: eth_ckzg_free_setup (shim.c:35-40)
+              -> when: NEVER. See finding A2.
+  shim.c:23   free(settings) on fopen failure
+              provenance: the exact malloc return; not interior; the function
+              returns NULL so no caller can hold it. Single free. OK.
+  shim.c:29   free(settings) on load_trusted_setup_file failure
+              same. c-kzg releases the struct's INTERIOR on its own error path;
+              this frees only the struct the shim allocated. Not a double free
+              of either. OK.
+  shim.c:35-40 eth_ckzg_free_setup: free_trusted_setup(handle) then free(handle)
+              correct pairing -- interior buffers by c-kzg's releaser, the
+              struct by free, in that order. Dead code in this build (A2).
+  shim.c:84-86 / 107-109  malloc/free of cells, commitments, indices
+              freed exactly once on every path including the partial-allocation
+              path at 90-95, where free(NULL) is well defined. Buffer sizes are
+              CELLS_PER_EXT_BLOB * sizeof(T) and the callee writes exactly that
+              many. OK.
+  shim.c:119 / 128  malloc/free of cells; the NULL path at 122-124 frees
+              nothing because nothing was allocated. OK.
+  VERDICT: no double, interior or mismatched free. Allocator and deallocator
+  are plain malloc/free throughout.
+
+--- src/foundation/crypto/secp256k1-ffi.lisp ---------------------------------
+
+  :97-108  secp256k1_context_create
+           -> owner: *secp256k1-context* (:95)
+           -> releaser: NONE. `secp256k1_context_destroy` has no
+              cffi:defcfun anywhere in the tree.
+           -> when: never freed.
+  everything else: `cffi:with-foreign-object` stack temporaries, as the file
+  header at :12-15 claims. Verified: no allocation in the file outlives a call.
+  VERDICT: a deliberate permanent allocation with no releaser. Cannot be the
+  bad free.
+
+--- src/protocol/kzg/cffi-verifier.lisp --------------------------------------
+
+  :59-62   %eth-ckzg-load-setup -> *kzg-cffi-settings*; no destroy binding.
+  :75-78, :86-88, :104-106, :118-120, :132-133, :152-154
+           all `with-pointer-to-vector-data` over vectors normalised by
+           kzg-cffi-octets (:64-68), which coerces to
+           (simple-array (unsigned-byte 8) (*)). No foreign allocation.
+  Output buffer sizes: :129 is (* +cell-proofs-per-blob+ +kzg-proof-size+) =
+  128 * 48 = 6144, matching CELLS_PER_EXT_BLOB Bytes48 written by the shim;
+  :148-151 are 128 * 2048 cells and 128 * 48 proofs, matching. No overflow.
+  VERDICT: clean.
+
+--- src/foundation/snappy.lisp -----------------------------------------------
+
+  No foreign allocation and no free. Both directions write into a Lisp vector
+  sized from snappy's own length API (:215-221, :237-241) and pinned for the
+  call. VERDICT: clean.
+
+--- src/foundation/database/rocksdb.lisp -------------------------------------
+
+This is the only file with explicit foreign deallocation. Each site:
+
+  :227-232  rocksdb-check-error -> %rocks-free(error string)
+            allocator: RocksDB's SaveError, which uses strdup (malloc).
+            deallocator: rocksdb_free, which is `free(ptr)` (c.cc:8485).
+            MATCHED. The pointer is the one the C API returned, freed once,
+            inside an unwind-protect so the Lisp `error` cannot leak it. OK.
+
+  :356/:370 %rocks-options-destroy
+            :356 destroys OPTIONS after a successful open and immediately
+            nulls the variable at :357, so the :369-370 error-path destroy
+            cannot repeat it. Single free on every path. OK.
+
+  :368      %rocks-close on the error path, guarded by a null check, and
+            `handle` is nulled at :365 only after MAKE-INSTANCE succeeds, so
+            the adapter and the error path can never both close. OK.
+
+  :371-373  read/write/buffered-write options destroyed on the error path only.
+            The success path transfers them to the adapter (:359-363). No
+            overlap. OK.
+
+  :376-384  close-rocksdb-key-value-database. Guarded by a null-handle check
+            and nulls the slot at :383, so a second call is a no-op.
+            UNREACHABLE FROM THE SERVING NODE -- its only src/ caller is
+            src/app/cli/db.lisp:106-108, on the offline `db` subcommand.
+
+  :408, :467, :476, :487, :488  %rocks-free of rocksdb_get / rocksdb_multi_get
+            values and per-key error strings. All are CopyString/strdup
+            (malloc) freed by rocksdb_free (free). MATCHED.
+            The multi-get cleanup at :483-489 is correct BECAUSE the body nulls
+            each slot immediately after freeing it (:468-469, :477-478): the
+            unwind-protect tail re-reads the slots and so can only free what
+            the body did not reach. Checked against a signal from
+            rocksdb-copy-foreign-bytes at :472 -- that leaves the slot
+            un-nulled and the tail frees it exactly once. OK.
+
+  :529      %rocks-batch-destroy, paired with :512 inside one unwind-protect.
+  :560      %rocks-free of the iterator error string. MATCHED.
+  :566      %rocks-iterator-destroy, and kv-iterator's FINISH (:601-607) nulls
+            the iterator BEFORE calling it, so the closer at :634-636 and an
+            exhausted puller cannot both destroy it. OK.
+
+  :240-276  rocksdb-configure-block-table. THE case the brief named. Verified
+            against the pinned c.cc; see finding A1.
+
+--- what the audit did NOT find -------------------------------------------
+
+  No free of a pointer this tree did not receive from the matching allocator.
+  No free of an interior pointer.
+  No free reachable twice on any path, including every error path.
+  No allocation of ours released by a C++ static destructor or an atexit
+  handler, because none of ours is released at all.
+
+Findings
+
+A1. PROVEN CORRECT: the block-table ownership sequence, rocksdb.lisp:240-276.
+
+    The brief flagged this as the classic double-free shape, because
+    rocksdb_options_set_block_based_table_factory and
+    rocksdb_block_based_options_set_block_cache / _set_filter_policy take or
+    share ownership. Read against facebook-rocksdb-9d94571:
+
+      c.cc:3720-3724  set_filter_policy:
+                        options->rep.filter_policy.reset(filter_policy);
+                      -> TRANSFERS the raw pointer into a
+                         shared_ptr<const FilterPolicy>. A later
+                         rocksdb_filterpolicy_destroy (c.cc:5926-5928,
+                         `delete filter`) would be a second delete.
+
+      c.cc:3732-3738  set_block_cache:
+                        options->rep.block_cache = block_cache->rep;
+                      -> COPIES the wrapper's shared_ptr. The
+                         rocksdb_cache_t wrapper stays the caller's, and
+                         rocksdb_cache_destroy (c.cc:6507, `delete cache`)
+                         deletes only the wrapper.
+
+      c.cc:3797-3805  set_block_based_table_factory:
+                        opt->rep.table_factory.reset(
+                          NewBlockBasedTableFactory(table_options->rep));
+                      -> COPIES the BlockBasedTableOptions VALUE, bumping the
+                         refcount of both shared_ptrs. The
+                         rocksdb_block_based_table_options_t wrapper stays the
+                         caller's (c.cc:3665-3668, `delete options`).
+
+    rocksdb.lisp does exactly this. It sets the filter policy at :263-264 and
+    then nulls the Lisp variable at :265, so the unwind-protect tail at
+    :272-273 will NOT destroy it -- which is required, because the block
+    options now own it. It destroys the cache wrapper at :274 and the block
+    options wrapper at :275 -- which is required, because neither owns what it
+    shares. The comment at :259-262 states the rule correctly.
+
+    The pre-set failure path at :247-256 destroys each of the three exactly
+    once and only when non-null, before any transfer has happened.
+
+    VERDICT: correct. This is not the defect, and the hypothesis is closed.
+
+A2. PROVEN: the KZG trusted setup is allocated once and never freed, so it
+    cannot be the exit-time bad free.
+
+    tools/ckzg-ffi/shim.c:35-40 defines eth_ckzg_free_setup, but NO
+    cffi:defcfun binds it -- cffi-verifier.lisp:21-39 binds load_setup and the
+    six verify/compute entry points and nothing else. *kzg-cffi-settings*
+    (cffi-verifier.lisp:49) therefore holds a malloc'd KZGSettings, loaded with
+    precompute=8 (:60), for the life of the process.
+
+    The addendum names "the KZG trusted setup loaded from
+    /usr/local/share/eth-kzg/trusted_setup.txt and whatever the ckzg shim
+    frees" as a candidate. It frees nothing. Closed.
+
+    Not a memory-safety defect, but recorded: this is a permanent
+    multi-hundred-megabyte resident allocation made early in process life,
+    which is precisely the kind of chunk that sits in the first 64 MiB of the
+    brk heap.
+
+A3. PROVEN SAFE: the lazy global initialisers are not raced in the node.
+
+    kzg-cffi-settings (cffi-verifier.lisp:52-62) and secp256k1-context
+    (secp256k1-ffi.lisp:97-108) are both unsynchronised check-then-set. Two
+    threads arriving together would each allocate and one allocation would be
+    overwritten and leaked.
+
+    In the node this cannot happen for KZG: call-with-devnet-cli-kzg-verifier
+    (src/app/cli/kzg.lisp:18) forces the load through
+    make-kzg-cffi-verifier -> kzg-cffi-verifier-available-p ->
+    kzg-cffi-settings on the MAIN thread at cli.lisp:276, outside and before
+    the node and every thread it starts. Same shape for BLS at
+    src/app/cli/bls12381.lisp:18, though the BLS backend holds no state at all.
+
+    secp256k1-context has no such forcing call and is reached lazily from
+    signature recovery on many threads. The window is one allocation wide and
+    the loser's context is leaked, never freed -- so still not a bad free.
+
+A4. PROVEN SAFE: no pinned-vector pointer can be taken on a non-simple vector.
+
+    `cffi:with-pointer-to-vector-data` on SBCL is `sb-sys:vector-sap` under a
+    pin. Handing it a displaced, adjustable or fill-pointered vector yields a
+    pointer that is not the data, which would be an out-of-bounds foreign write
+    -- an S2 mechanism. Every one of the 27 call sites is fed through
+    `ensure-byte-vector` (bytes.lisp:14-24), `kzg-cffi-octets`
+    (cffi-verifier.lisp:64-68), `bls12381-cffi-octets`
+    (cffi-backend.lisp:48-52), `make-byte-vector` (bytes.lisp:6-9) or
+    `kv-copy-bytes` (database/types.lisp:133-134).
+
+    ensure-byte-vector is an `etypecase` whose first clause is the type
+    `byte-vector` = `(simple-array (unsigned-byte 8) (*))` and whose other
+    clauses build a fresh `make-array` with no fill pointer, no adjustability
+    and no displacement. It therefore always returns a simple specialized
+    vector, and a non-sequence input signals rather than producing garbage.
+    This S2 class is eliminated.
+
+A5. PROVEN, and this is what the audit substitutes for a finding of ours:
+    the one RocksDB destructor that is DESIGNED to run at exit(3), on the
+    calling thread.
+
+    env_posix.cc:500-520, Env::Default():
+
+        ThreadLocalPtr::InitSingletons();
+        CompressionContextCache::InitSingleton();
+        INIT_SYNC_POINT_SINGLETONS();
+        // Avoid problems with accessing most members of Env::Default()
+        // during static destruction.
+        STATIC_AVOID_DESTRUCTION(PosixEnv, default_env);
+        // This destructor must be called on exit
+        static PosixEnv::JoinThreadsOnExit thread_joiner(default_env);
+
+    PosixEnv itself is deliberately leaked. A single companion static,
+    JoinThreadsOnExit, is registered with __cxa_atexit, and its destructor
+    (env_posix.cc:220-236) runs
+
+        for (const auto tid : deflt.threads_to_join_) pthread_join(tid, ...);
+        for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id)
+          deflt.thread_pools_[pool_id].JoinAllThreads();
+
+    and JoinAllThreads -> JoinThreads(false) (threadpool_imp.cc:179-203) sets
+    exit_all_threads_, notifies, joins every background thread and then does
+    `bgthreads_.clear()` at :199 -- destroying each std::thread's control
+    block, allocated when the pool grew at DB open, i.e. EARLY in process life.
+
+    That is a main-thread, shared-library, exit-time free path over chunks
+    allocated at startup. It matches every invariant in the trace: tid 1, a pc
+    inside a dlopened library at a fixed offset, fp not a frame pointer, and
+    a chunk in the first 64 MiB of the brk heap freed only at exit. The pool
+    size is ours: INCREASE-PARALLELISM 8 (rocksdb.lisp:313) and
+    MAX-SUBCOMPACTIONS 4 (rocksdb.lisp:321).
+
+    This is NOT proof of the fault. It is the identification of the only
+    exit-time teardown the process performs that touches early heap, and it is
+    reached BECAUSE the node never closes the database -- so the pools are
+    still populated and still running when the static destructor fires. It is
+    the mechanism item 1 of the original "What the fix has to be" removes.
+
+A6. SUSPECTED, NOT PROVEN: the vendored io_uring retry.
+
+    tools/rocksdb/io-uring-kernel-compat.patch is the only place this tree
+    modifies third-party memory-management code. It inserts, into
+    env/io_posix.h:341 (upstream CreateIOUring at :336-347):
+
+        if (ret == -EINVAL) {
+          ret = io_uring_queue_init(kIoUringDepth, new_io_uring, 0);
+        }
+
+    Re-initialising the SAME `struct io_uring` after a failure is the shape
+    that would matter. Reasoning from liburing's documented contract:
+    io_uring_queue_init_params leaves the ring untouched when the
+    io_uring_setup syscall itself fails (the -EINVAL-on-unsupported-flags case
+    the patch targets) and io_uring_queue_mmap memsets the ring to zero before
+    mapping, unmapping what it mapped on its own error path. On both routes the
+    retry overwrites the struct rather than compounding state, and nothing is
+    freed twice. I therefore do NOT record a bad free here -- but this is
+    reasoning from contract, not from the liburing source actually linked into
+    the image, which I could not read in a reviewed container.
+
+    What IS visible and is worth recording: DeleteIOUring (io_posix.h:331-334)
+    is `delete iu` with NO io_uring_queue_exit, so every thread that ever
+    performs a MultiRead leaks that ring's mmaps and its ring fd for the life
+    of the process. That is upstream behaviour, not ours, but it is a leak that
+    grows with thread churn and therefore with duration -- the same correlation
+    the fault has.
+
+A7. RECORDED: with-rocks-error leaks an error string on a non-local exit.
+
+    rocksdb.lisp:234-238 uses `multiple-value-prog1`, so if BODY performs a
+    non-local exit, rocksdb-check-error never runs and the strdup'd message
+    leaks. A leak, never a bad free. Low value; listed for completeness.
+
+What Part A means for S1 and S2
+
+The addendum sets the test explicitly: "S1 ... CONFIRM: the offending free site
+is identifiable by provenance alone, statically, without a long run." The audit
+is complete over every site this tree owns and the site is not there. S1 is
+therefore NOT confirmed, and the S1-in-our-code branch is closed.
+
+S1 is not refuted, because a destructor-order defect entirely inside
+librocksdb, libstdc++ or liburing remains possible, and A5 names the exact
+destructor that would host one. S2 is not refuted either; A4 removes one
+mechanism for it but a corrupting write inside third-party code is untouched by
+a Lisp-side audit.
+
+The single measurement that still discriminates them is unchanged and still
+unrun: resolve pc to a library and symbol, per the addendum's "Why objdump did
+not run, and what it needs". The audit narrows what that disassembly has to
+explain: the freed chunk cannot be one of ours, so it is one of RocksDB's, and
+A5 says which teardown is walking it.
+
+What the fix has to be (Part A)
+
+Unchanged from the original trace, and now better motivated. Closing the store
+before exit removes the A5 teardown from a process that still has an open
+database, which is the only exit-time free path this tree provokes. The
+prerequisites in the original document stand: a closed-p guard on the backend
+and a shutdown barrier, because the node today abandons threads that hold the
+handle. Part B is the first instalment of that barrier.
+
+===========================================================================
+Part B. The graceful-stop time budget
+===========================================================================
+
+Why the 8551 Engine listener kept serving for ~50 s after 8545 closed
+
+Three mechanisms compose, and none of them is a bug in isolation.
+
+1. A shutdown request closes LISTENING sockets only.
+   devnet-shutdown-request (src/app/cli/devnet/types.lisp:693-718) closes the
+   engine and public listeners (:701-706) and then runs every registered
+   closeable (:716-717). An accepted Engine HTTP connection is registered
+   NOWHERE -- src/transport/http/server.lisp:175-211 accepts a connection and
+   either hands it to a worker thread or serves it inline, and never registers
+   it with the controller. So an established keep-alive connection is untouched
+   by the stop.
+
+2. The per-connection loop has no stop predicate.
+   engine-rpc-http-service-handle-stream (server.lisp:3-62) loops until EOF or
+   a `close-p` response. The `stop-p` predicate is consulted ONLY by the accept
+   loop, at server.lisp:173-174. A consensus client that keeps using its pooled
+   connection is therefore served indefinitely after the stop.
+
+3. The listener's own unwind WAITS for that connection.
+   server.lisp:214 calls engine-rpc-http-drain-connection-workers, whose budget
+   is engine-rpc-http-worker-drain-timeout-seconds (server.lisp:86-90):
+
+       5 + *engine-rpc-http-request-timeout-seconds*    (30, parser.lisp:18)
+         + *engine-rpc-http-idle-timeout-seconds*       (120, parser.lisp:24)
+       = 155 seconds.
+
+This accounts for the recorded log exactly. The 8545 public listener reported
+`listener.connections 0` and finished 66 ms after the shutdown request -- with
+no connections there were no permits to reclaim, so its drain returned at once.
+The 8551 Engine listener had three live Lighthouse connections; its workers
+kept answering engine_newPayloadV4 and engine_forkchoiceUpdatedV3 from
+10:07:58 to 10:08:41, and the three `streams`/`stream.finish` pairs inside
+40 microseconds at 10:08:47.227 are those three workers being terminated at
+once by SB-EXT:EXIT's %EXIT-OTHER-THREADS -- not by anything the application
+did. The absence of any `listener.connections` / `listener.finish` line for
+0.0.0.0:8551 in the log confirms that listener's unwind never completed.
+
+The main thread's budget, tabulated
+
+The 8545 listener runs ON the main thread (service.lisp:174-179); only 8551
+gets its own thread (:156-171). Everything after that return is sequential:
+
+  step                                    site                       bound
+  --------------------------------------  -------------------------  --------
+  public listener drain + close           server.lisp:214-225        155 s
+  join engine accept thread               service.lisp:187-189         1 s
+  re-request, join again                  service.lisp:191-195         5 s
+  terminate, join again                   service.lisp:199-205         5 s
+  join rejournal thread                   service.lisp:238-240     UNBOUNDED
+  join txpool maintenance thread          service.lisp:241-243     UNBOUNDED
+  join payload improvement thread         service.lisp:244-246     UNBOUNDED
+  join dev-period thread                  service.lisp:247-249     UNBOUNDED
+  sync coordinator: join 15, terminate,
+    join 5                                service.lisp:250-259        20 s
+  dialer: join 5, terminate, join 5       service.lisp:260-274        10 s
+  dialer peer sessions, PER THREAD        peer-manager.lisp:1126-1142 10 s x N
+  discovery                               service.lisp:277-287        10 s
+  discovery server                        service.lisp:288-298        10 s
+  p2p listener                            service.lisp:299-310        10 s
+  p2p peer sessions, PER THREAD           peer-manager.lisp:1126-1142 10 s x N
+  metrics                                 service.lisp:313-324        10 s
+  ws listener                             service.lisp:325-334        10 s
+  ws sessions, PER THREAD                 peer-manager.lisp:1126-1142 10 s x N
+  export the node database                cli.lisp:207             UNBOUNDED
+  SB-EXT:EXIT %EXIT-OTHER-THREADS         Dockerfile.runtime:166   *exit-timeout*
+
+Two properties matter more than any single number.
+
+First, every bound is SEQUENTIAL and INDEPENDENT. The shutdown request that
+wakes all of them is issued once, at the top, but each join then spends its own
+fresh budget. The bounded steps alone sum to 91 s before peer sessions, and
+devnet-join-peer-sessions is a per-thread `dolist` with 5 s + 5 s EACH
+(peer-manager.lisp:1136-1142) -- with the nine peers the 3305307d run reported
+at startup that term alone can reach 90 s.
+
+Second, four joins have no bound at all, and the database export has none.
+
+So the observed 52 s was a fast case, not a typical one, and no configuration
+of this code can promise 30 s. That is why 05c13ad5 was SIGKILLed at exit 137.
+
+The fix that landed
+
+Four parts, all inside src/transport/http/, all of them go-ethereum's
+http.Server.Shutdown semantics rather than an invention of ours: stop
+accepting, stop reusing established connections, let what is in flight finish
+under a deadline, then close whatever the deadline did not reclaim.
+
+1. The per-connection loop honours the listener's stop predicate.
+   engine-rpc-http-service-handle-stream takes `:stop-p` and returns BETWEEN
+   requests once a stop has been requested; engine-rpc-http-serve-connection
+   and both dispatch sites in serve-listener thread it through. The check sits
+   at exactly one place in that loop, so a request already in flight is
+   answered in full -- dropping a response mid-write would make a graceful stop
+   worse than a SIGKILL -- and only the wait for the NEXT request is cut short.
+
+2. The wait between requests polls instead of parking.
+   A stop predicate is useless to a worker blocked in one 120-second read, and
+   a pooled connection spends nearly all of its life exactly there. The new
+   engine-rpc-http-await-next-request splits that wait into
+   *engine-rpc-http-stop-check-interval-seconds* (new, default 1) slices under
+   SB-SYS:WITH-DEADLINE, rechecking the stop between them. The idle budget is
+   NOT changed: the slices are measured against the same
+   *engine-rpc-http-idle-timeout-seconds* deadline and it still expires at the
+   same moment and with the same error. This is what covers the idle case that
+   the original draft of this document listed as unfixed; the round trip
+   through the devnet shutdown controller a connection closeable would have
+   needed is not required, and the transport keeps its independence from the
+   CLI layer.
+
+3. The drain budget collapses once a stop has been requested.
+   engine-rpc-http-worker-drain-timeout-seconds takes an optional STOPPING-P
+   and then returns *engine-rpc-http-shutdown-drain-seconds* (new, default 5)
+   instead of 5 + 30 + 120. With (1) and (2) in place the only thing left to
+   wait for is a single request already in progress, so the idle timeout no
+   longer belongs in the budget.
+
+4. The listener closes what the drain abandoned.
+   serve-listener now keeps a lock-guarded registry of accepted connections and
+   closes whatever is still in it after the drain gives up, logging
+   engine.rpc.http.listener.abandoned with the count when that happens. Closing
+   a LISTENING socket never touched an established one, so before this the only
+   thing that ever released such a connection was the process exiting -- which
+   under a grace period means SIGKILL. A connection that finishes normally is
+   deregistered by the same unwind that releases its worker permit, so the
+   registry is empty on every ordinary stop and nothing is closed twice.
+
+Bound on the HTTP contribution of a stop: one
+*engine-rpc-http-stop-check-interval-seconds* for an idle connection to notice,
+plus at most *engine-rpc-http-shutdown-drain-seconds* per listener for a
+request in flight, plus the 11 s of engine accept-thread joins. Measured 0.81 s
+busy and 1.01 s idle end to end. It does NOT bound the whole stop; see below.
+
+Every HTTP surface that shares this code was checked, not just the one the
+regression drove:
+
+  public JSON-RPC (8545)  same serve-listener, same service struct. Covered.
+  Engine API (8551)       same, plus JWT. The stop check is in the connection
+                          loop, above authentication, so a peer that cannot
+                          authenticate cannot hold a stop either. Covered.
+  WebSocket / eth_subscribe
+                          does NOT share this code. It already had a `:stop-p`
+                          on its pump with a one-second poll gate, and every
+                          accepted socket is already a registered closeable
+                          (ws-server.lisp:282-286). Verified rather than
+                          changed: the new test
+                          WEBSOCKET-SUBSCRIBER-DOES-NOT-HOLD-A-SHUTDOWN leaves
+                          a subscribed socket OPEN across the shutdown request
+                          and joins the session thread, which the pre-existing
+                          end-to-end test could not show because it closes its
+                          socket first.
+  metrics                 does NOT share this code either. Its reads are
+                          bounded by +devnet-metrics-read-timeout-seconds+ and
+                          its accept is readiness-gated, so a silent scraper
+                          cannot hold it. No hazard found, nothing changed.
+
+What it does not fix, and the plan for the rest
+
+The join summation needs one shared deadline, not fifteen independent ones.
+The shape: put a deadline on the shutdown controller, set on the first
+devnet-shutdown-request; derive every join timeout in service.lisp:238-336 and
+in devnet-join-peer-sessions from the REMAINING budget rather than from a fixed
+5 or 15 s. The total then becomes the budget plus one terminate, instead of the
+sum of every step. This was deliberately NOT bundled here: bounding the four
+currently-unbounded joins changes which threads can be abandoned, and the
+per-thread peer-session loop needs a budget shared across all sessions rather
+than per session. Both are behaviour changes that deserve their own review and
+their own tests, and the regression test added here is the harness they extend.
+
+RED and GREEN
+
+Six tests, in three layers. The two e2e ones launch a real node process, open
+one HTTP connection to the public RPC endpoint, send SIGTERM via the pid file,
+and measure the wall-clock time to process exit against a 20 s budget. That
+budget is the point of them: a supervisor stops the node with a fixed grace
+period -- the Hoodi gate uses `docker stop --time 30` -- and a stop that
+outlasts it loses the unwind, the database export and the exit status.
+
+e2e, tests/cli-runner-edge-tests.lisp:
+
+  DEVNET-CLI-SIGTERM-STOPS-A-NODE-SERVING-A-KEEP-ALIVE-CONNECTION
+    A driver thread keeps issuing keep-alive eth_chainId requests on the pooled
+    connection straight through the shutdown. CONFIRMED RED on the unmodified
+    tree twice, on 2026-09-18 and again on 2026-09-19 before this change: the
+    process did not exit within the 20 s budget. GREEN after, at 0.81 s.
+
+  DEVNET-CLI-SIGTERM-STOPS-A-NODE-HOLDING-AN-IDLE-KEEP-ALIVE-CONNECTION
+    New. The half a busy client cannot reach: the connection is opened, proved
+    reusable, then left silent so the worker serving it is parked in the wait
+    for the next request when the signal arrives. It reuses the connection once
+    more AFTER a silent interval, so a stop cannot look fast merely because the
+    server had already closed a connection the test believes it holds. GREEN at
+    1.01 s.
+
+integration, tests/websocket-tests.lisp and tests/core-http-service-tests.lisp:
+
+  WEBSOCKET-SUBSCRIBER-DOES-NOT-HOLD-A-SHUTDOWN
+    New. An open eth_subscribe session across the shutdown request, with the
+    live session thread asserted alive first so the measurement cannot be of a
+    connection that had already ended.
+
+  ENGINE-RPC-HTTP-LISTENER-CLOSES-A-CONNECTION-THE-DRAIN-ABANDONED
+    New. A worker held inside its read past the drain budget; the assertion is
+    that the LISTENER closed that connection, before the worker's own unwind
+    could.
+
+unit, tests/core-http-service-tests.lisp:
+
+  ENGINE-RPC-HTTP-STOP-ANSWERS-THE-REQUEST-IN-FLIGHT-AND-STARTS-NO-MORE
+    New, and it pins both edges from one stream carrying two requests: with a
+    stop, exactly one 200 is written and its body is complete; with no stop,
+    the control leg answers both. A stop consulted too early fails the first
+    assertion, a stop never consulted fails the second, and the control proves
+    the fixture was answerable either way.
+
+  ENGINE-RPC-HTTP-IDLE-WAIT-RETURNS-ONCE-A-STOP-IS-REQUESTED
+    New. The stop arrives while the connection is blocked in a read that would
+    otherwise take 20 s. Its positive control is the same blocked read with no
+    stop at all, which must still expire on the idle deadline -- so the poll
+    cannot have turned the wait into an early return.
+
+  ENGINE-RPC-HTTP-WORKER-DRAIN-COLLAPSES-ONCE-A-STOP-IS-REQUESTED
+    New. 155 s without a stop, the parameter's value with one, and a second
+    binding proves it is the parameter rather than a constant that happens to
+    match the other branch's floor.
+    ENGINE-RPC-HTTP-WORKER-DRAIN-OUTLASTS-BOTH-DEADLINES is left untouched as
+    the no-stop control.
+
+Carried forward
+
+- The pc-to-symbol resolution remains unrun and remains the one measurement
+  that separates S1 from S2. Part A narrows what it must explain: the chunk is
+  not one this tree allocated or frees.
+- Closing the store on the node shutdown path is still the right change, and
+  A5 names the teardown it removes.
+- NEW, and it belongs to whoever owns the exit-time memory fault: this fix
+  makes that fault MORE reachable, not less. Until now a live `docker stop
+  --time 30` SIGKILLed the node while it was still serving, so the process
+  never reached exit(3) and never ran the A5 teardown at all. A stop that now
+  completes in about a second runs the whole unwind and then exit(3) with the
+  RocksDB thread pools still populated, which is exactly the path A5 describes.
+  Expect the fault's observed frequency on the Hoodi gate to go UP; that is the
+  fix working, not a regression it introduced.
+- The WebSocket accept loop registers every accepted socket as a shutdown
+  closeable and never removes it (ws-server.lisp:282-286), so the closeable
+  list grows for the life of the node with one entry per WebSocket connection
+  ever accepted. Each is an IGNORE-ERRORS close of an already-closed socket at
+  shutdown, so it is a slow leak and not a correctness fault. Not touched here;
+  the matching remove-closeable call is the fix.
+- The cleanup joins still sum rather than share a deadline; four of them and
+  the database export are still unbounded.
+- secp256k1-context (secp256k1-ffi.lisp:97-108) is still an unsynchronised lazy
+  initialiser reached from many threads. It leaks at most one context and
+  cannot double-free, so it is a tidiness item, not a shutdown item.
+- E4 from the original trace is untouched: the SIGTERM handler still takes a
+  mutex and runs closeable thunks in the signal context (types.lisp:745-748).

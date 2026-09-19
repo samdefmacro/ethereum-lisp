@@ -229,6 +229,231 @@
    "engine-only-sigterm"
    :engine-only-p t))
 
+(defconstant +devnet-cli-sigterm-stop-budget-seconds+ 20
+  "Wall-clock seconds a SIGTERM stop may take while a client is still served.
+
+A container supervisor stops the node with a fixed grace period -- the Hoodi
+gate uses `docker stop --time 30` -- and SIGKILLs it when the period expires.
+A stop that outlasts the grace period is not a graceful stop at all: it loses
+the unwind, the database export and the clean exit status. This budget is the
+assertion that a live keep-alive client cannot extend shutdown past it.")
+
+#+sbcl
+(defun devnet-cli-keep-alive-rpc-exchange (stream host port)
+  "Send one keep-alive eth_chainId request on STREAM and read its response.
+
+Signals on any I/O or framing failure, which is exactly how the driver thread
+below learns that the node finally closed the connection."
+  (let ((body "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}")
+        (crlf (format nil "~C~C" #\Return #\Newline)))
+    (write-string
+     (with-output-to-string (request)
+       (format request "POST / HTTP/1.1~A" crlf)
+       (format request "Host: ~A:~D~A" host port crlf)
+       (format request "Connection: keep-alive~A" crlf)
+       (format request "Content-Type: application/json~A" crlf)
+       (format request "Content-Length: ~D~A~A~A"
+               (length body) crlf crlf body))
+     stream)
+    (finish-output stream)
+    (let ((content-length nil))
+      (loop for line = (read-line stream nil :eof)
+            do (when (eq line :eof)
+                 (error "Keep-alive response ended before its headers"))
+               (let ((trimmed (string-right-trim '(#\Return) line)))
+                 (when (string= "" trimmed)
+                   (return))
+                 (let ((colon (position #\: trimmed)))
+                   (when (and colon
+                              (string-equal "Content-Length"
+                                            (subseq trimmed 0 colon)))
+                     (setf content-length
+                           (parse-integer trimmed
+                                          :start (1+ colon)
+                                          :junk-allowed t))))))
+      (unless content-length
+        (error "Keep-alive response carried no Content-Length"))
+      (let ((buffer (make-string content-length)))
+        (unless (= content-length (read-sequence buffer stream))
+          (error "Keep-alive response body was truncated"))
+        buffer))))
+
+#+sbcl
+(defconstant +devnet-cli-keep-alive-idle-probe-seconds+ 3
+  "How long the idle variant leaves its keep-alive connection unused.
+
+Longer than the connection loop's stop-check interval, so the worker serving it
+is genuinely parked in the wait for the next request when the signal arrives --
+which is the case the busy variant cannot reach -- and far shorter than the
+120-second keep-alive idle budget, so the connection is still open.")
+
+(defparameter *devnet-cli-last-sigterm-stop-seconds* nil
+  "Wall-clock seconds the last timed SIGTERM stop took, or NIL.
+
+The budget assertion only says the stop fitted; the number says by how much,
+which is what a later reviewer needs when the supervisor's grace period is
+argued about. Reset per run, so a run that aborts before measuring cannot
+leave the previous run's value looking like its own.")
+
+#+sbcl
+(defun devnet-cli-assert-sigterm-stop-is-bounded (&key (mode :busy))
+  "Signal a node serving a reused connection, and time the stop.
+
+MODE :BUSY keeps a driver thread issuing requests on the pooled connection
+through the whole shutdown. MODE :IDLE leaves the connection open but silent,
+which parks the worker serving it in the wait for the next request instead.
+
+RED before the shutdown fix, in both shapes: nothing tells a per-connection
+worker to stop. DEVNET-SHUTDOWN-REQUEST closes only the LISTENING sockets, the
+per-connection loop consults no stop predicate, and the listener's own unwind
+then waits for that worker for `5 + request-timeout + idle-timeout` seconds. A
+consensus client that keeps its pooled connection is therefore served straight
+through the supervisor's grace period, which is what SIGKILLed the live Hoodi
+container at exit 137 while it was still answering Engine requests."
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+        (ready-path
+          (devnet-cli-temp-path
+           (format nil "ethereum-lisp-script-sigterm-bound-~(~A~)-ready" mode)
+           "json"))
+        (pid-path
+          (devnet-cli-temp-path
+           (format nil "ethereum-lisp-script-sigterm-bound-~(~A~)" mode)
+           "pid"))
+        (process nil)
+        (stream nil)
+        (driver nil)
+        (driving t)
+        (exchanges 0))
+    (setf *devnet-cli-last-sigterm-stop-seconds* nil)
+    (unwind-protect
+         (progn
+           (setf process
+                 (test-launch-program
+                  (list "sbcl" "--script" script "--" "devnet"
+                        "--genesis" genesis
+                        "--engine-port" "0"
+                        "--public-port" "0"
+                        "--ready-file" (namestring ready-path)
+                        "--pid-file" (namestring pid-path)
+                        "--json")
+                  :directory #P"/private/tmp/"
+                  :output :stream
+                  :error-output :stream))
+           (unless (devnet-cli-wait-for-file ready-path 10)
+             (when (uiop:process-alive-p process)
+               (uiop:terminate-process process)
+               (devnet-cli-wait-process-exit process 5))
+             (let ((stderr
+                     (devnet-cli-read-stream-string
+                      (uiop:process-info-error-output process))))
+               (when (search "Operation not permitted" stderr)
+                 (skip-test
+                  "Local socket bind is not permitted in this sandbox"))
+               (is (probe-file ready-path))))
+           (let* ((summary (parse-json (devnet-cli-file-string ready-path)))
+                  (endpoint (fixture-object-field summary "rpcEndpoint"))
+                  (pid (devnet-cli-pid-file-process-id pid-path)))
+             (multiple-value-bind (host port)
+                 (devnet-cli-http-endpoint-host-port endpoint)
+               (setf stream
+                     (handler-case (devnet-cli-connect-stream host port)
+                       (sb-bsd-sockets:operation-not-permitted-error ()
+                         (skip-test
+                          "Local socket connect is not permitted in this sandbox"))))
+               ;; Prove the connection really is reusable before signalling, so
+               ;; a failure below is about shutdown and not about the endpoint.
+               (is (stringp (devnet-cli-keep-alive-rpc-exchange
+                             stream host port)))
+               (is (stringp (devnet-cli-keep-alive-rpc-exchange
+                             stream host port)))
+               (ecase mode
+                 (:busy
+                  (setf driver
+                        (sb-thread:make-thread
+                         (lambda ()
+                           ;; The whole body is contained: the suite runs as
+                           ;; `sbcl --script`, so an escaping condition in ANY
+                           ;; thread exits the run with code 1 and no test
+                           ;; result at all, rather than failing this test. The
+                           ;; server closing the connection is the EXPECTED end
+                           ;; of this loop once shutdown is honoured, so it is
+                           ;; caught rather than reported.
+                           (handler-case
+                               (loop while driving
+                                     do (devnet-cli-keep-alive-rpc-exchange
+                                         stream host port)
+                                        (incf exchanges)
+                                        (sleep 0.1))
+                             (serious-condition () nil)))
+                         :name "ethereum-lisp-test-keep-alive-driver")))
+                 (:idle
+                  ;; Go quiet, then prove the connection SURVIVED the silence
+                  ;; by reusing it once more. Without that the stop could be
+                  ;; fast merely because the server had already closed a
+                  ;; connection this test believes it is still holding.
+                  (sleep +devnet-cli-keep-alive-idle-probe-seconds+)
+                  (is (stringp (devnet-cli-keep-alive-rpc-exchange
+                                stream host port)))
+                  (incf exchanges 3)
+                  ;; And park the worker in the idle wait again before the
+                  ;; signal, which is the state this variant exists to cover.
+                  (sleep +devnet-cli-keep-alive-idle-probe-seconds+)))
+               (wait-for-test-condition
+                "keep-alive traffic on the reused connection"
+                10
+                (lambda () (<= 2 exchanges))
+                :diagnostics
+                (lambda () (format nil "mode=~A exchanges=~D" mode exchanges))))
+             (let ((started (monotonic-seconds)))
+               (multiple-value-bind (kill-stdout kill-stderr kill-status)
+                   (uiop:run-program
+                    (list "kill" "-TERM" (write-to-string pid))
+                    :output :string
+                    :error-output :string
+                    :ignore-error-status t)
+                 (declare (ignore kill-stdout kill-stderr))
+                 (is (= 0 kill-status)))
+               (let* ((status
+                        (devnet-cli-wait-process-exit
+                         process +devnet-cli-sigterm-stop-budget-seconds+))
+                      (elapsed (- (monotonic-seconds) started)))
+                 (setf driving nil)
+                 (setf *devnet-cli-last-sigterm-stop-seconds* elapsed)
+                 (when (eq status :timeout)
+                   (uiop:terminate-process process)
+                   (devnet-cli-wait-process-exit process 10))
+                 (is (not (eq status :timeout)))
+                 (is (< elapsed +devnet-cli-sigterm-stop-budget-seconds+))
+                 (is (eql 0 status))))))
+      (setf driving nil)
+      (when driver
+        (ignore-errors
+         (sb-thread:join-thread driver :timeout 10 :default :timeout)))
+      (when stream (ignore-errors (close stream)))
+      (when (and process (uiop:process-alive-p process))
+        (uiop:terminate-process process))
+      (when (probe-file ready-path) (delete-file ready-path))
+      (when (probe-file pid-path) (delete-file pid-path)))))
+
+(deftest devnet-cli-sigterm-stops-a-node-serving-a-keep-alive-connection
+  (:estimated-seconds 45d0)
+  #-sbcl
+  (skip-test "Bounded SIGTERM shutdown requires SBCL threads and sockets")
+  #+sbcl
+  (devnet-cli-assert-sigterm-stop-is-bounded :mode :busy))
+
+(deftest devnet-cli-sigterm-stops-a-node-holding-an-idle-keep-alive-connection
+  (:estimated-seconds 55d0)
+  ;; The other half of the same hazard, and the half a busy client cannot
+  ;; reach: a pooled connection that is open but silent leaves its worker
+  ;; parked in the wait for the next request, where a stop request the listener
+  ;; already knows about was invisible for the whole 120-second idle budget.
+  #-sbcl
+  (skip-test "Bounded SIGTERM shutdown requires SBCL threads and sockets")
+  #+sbcl
+  (devnet-cli-assert-sigterm-stop-is-bounded :mode :idle))
+
 (defun devnet-cli-assert-script-error-telemetry
     (args error-substring &key
           (event-name "devnet.error")

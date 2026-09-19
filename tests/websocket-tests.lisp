@@ -410,3 +410,113 @@ therefore reads exactly one byte of any response and then times out."
       (when thread
         (ignore-errors (sb-thread:join-thread thread :timeout 5
                                                      :default :timeout))))))
+
+#+sbcl
+(deftest websocket-subscriber-does-not-hold-a-shutdown
+  (:layer :integration :module :devnet :requires-local-sockets t
+   :estimated-seconds 20d0)
+  ;; A subscriber never goes idle the way an HTTP connection does: it is
+  ;; waiting for the next notification, not for the next request. If the pump
+  ;; only noticed a stop between client messages, one open eth_subscribe
+  ;; connection would hold a stopping node for as long as its client stayed
+  ;; quiet -- which is precisely what an HTTP keep-alive connection did.
+  ;;
+  ;; The socket is left OPEN across the shutdown here. The end-to-end test
+  ;; above closes it first and therefore cannot see this at all.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0
+                :ws-enabled-p t :ws-host "127.0.0.1" :ws-port 0))
+         (controller (ethereum-lisp.cli::make-devnet-shutdown-controller))
+         (thread-error nil)
+         (thread nil)
+         (socket nil))
+    (unwind-protect
+         (multiple-value-bind (server-thread sessions)
+             (ethereum-lisp.cli:devnet-start-ws-server-thread
+              node controller (lambda (c) (setf thread-error c)))
+           (setf thread server-thread)
+           (is (not (null thread)))
+           (let ((port (ethereum-lisp.cli:devnet-node-ws-port node)))
+             (is (plusp port))
+             (setf socket (make-instance 'sb-bsd-sockets:inet-socket
+                                         :type :stream :protocol :tcp))
+             (handler-case
+                 (sb-bsd-sockets:socket-connect
+                  socket (sb-bsd-sockets:make-inet-address "127.0.0.1") port)
+               (sb-bsd-sockets:operation-not-permitted-error ()
+                 (skip-test
+                  "Local socket connect is not permitted in this sandbox")))
+             (let ((stream (sb-bsd-sockets:socket-make-stream
+                            socket :input t :output t
+                                   :element-type '(unsigned-byte 8)
+                                   :buffering :full)))
+               (write-sequence
+                (coerce (ascii-to-bytes
+                         (format nil "GET / HTTP/1.1~C~CHost: localhost~C~C~
+                                      Upgrade: websocket~C~C~
+                                      Connection: Upgrade~C~C~
+                                      Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==~C~C~
+                                      Sec-WebSocket-Version: 13~C~C~C~C"
+                                 #\Return #\Newline #\Return #\Newline
+                                 #\Return #\Newline #\Return #\Newline
+                                 #\Return #\Newline #\Return #\Newline
+                                 #\Return #\Newline))
+                        '(vector (unsigned-byte 8)))
+                stream)
+               (finish-output stream)
+               (let ((response
+                       (ws-read-until
+                        stream
+                        (lambda (bytes)
+                          (let ((text (bytes-to-ascii bytes)))
+                            (when (search
+                                   (format nil "~C~C~C~C" #\Return #\Newline
+                                           #\Return #\Newline)
+                                   text)
+                              text))))))
+                 (is (not (null response)))
+                 (is (search "101 Switching Protocols" response)))
+               (write-sequence
+                (coerce (ws-client-frame
+                         1 (ascii-to-bytes
+                            "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"eth_subscribe\",\"params\":[\"newHeads\"]}"))
+                        '(vector (unsigned-byte 8)))
+                stream)
+               (finish-output stream)
+               (let ((reply (ws-read-until
+                             stream
+                             (lambda (bytes)
+                               (let ((frame (funcall (ws "WEBSOCKET-DECODE-FRAME")
+                                                     bytes)))
+                                 (when frame
+                                   (bytes-to-ascii
+                                    (funcall (ws "WEBSOCKET-FRAME-PAYLOAD")
+                                             frame))))))))
+                 (is (not (null reply)))
+                 (is (search "\"result\":\"0x" reply))))
+             ;; Positive control for the measurement below: there really is a
+             ;; live session thread holding an open subscription right now, so
+             ;; a fast stop cannot be a connection that had already ended.
+             (let ((live (funcall sessions)))
+               (is (= 1 (length live)))
+               (is (sb-thread:thread-alive-p (first live)))
+               (let ((started (monotonic-seconds)))
+                 (ethereum-lisp.cli:devnet-shutdown-request controller)
+                 (is (not (eq :timeout
+                              (sb-thread:join-thread thread :timeout 15
+                                                            :default :timeout))))
+                 (dolist (session live)
+                   (is (not (eq :timeout
+                                (sb-thread:join-thread session :timeout 15
+                                                               :default :timeout)))))
+                 ;; The pump's poll gate is one second and the session socket
+                 ;; is a registered closeable; a wide margin still separates
+                 ;; that from a connection nothing ever wakes.
+                 (is (< (- (monotonic-seconds) started) 15))))
+             (is (null thread-error))))
+      (ethereum-lisp.cli:devnet-shutdown-request controller)
+      (when socket (ignore-errors (sb-bsd-sockets:socket-close socket)))
+      (when thread
+        (ignore-errors (sb-thread:join-thread thread :timeout 5
+                                                     :default :timeout))))))
