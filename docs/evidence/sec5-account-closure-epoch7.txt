@@ -14,6 +14,9 @@ Branch account-closure-epoch7, on f4ac108b.
   b785afeb  snap: persist an account node only when its closure is durable
   ef70708c  snap: switch the closed account writer with the healer rule it needs
   619acead  snap: a dependency-carrying account subtree keeps its interior marked
+  6e5c7a73  snap: refuse the walk-free completion and bound every healed
+            storage leaf
+  619acead  snap: a dependency-carrying account subtree keeps its interior marked
 
 Design record: docs/snap-account-closure.md.
 
@@ -203,6 +206,44 @@ epoch-seven change must not ship without
 SNAP-EPOCH-SEVEN-DOES-NOT-TRUST-ACCOUNT-NODES-WRITTEN-BY-BLOCK-IMPORT, which
 does not exist yet.
 
+The compensating machinery is disabled, not merely unreachable
+
+The plan-marker write and SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN are gated on
+the writer seam. SNAP-SYNC-FILL-STORAGE-THEN-HEAL's walk-free completion had no
+guard of its own: it was unreachable only because its predicate reads a plan
+marker that is never written for such a store, so dropping either of the other
+two gates would have re-opened a path that publishes a state root without
+traversing the trie. It now refuses explicitly.
+
+SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P is deliberately NOT gated. It answers a
+question about the plan; the guard belongs at the site that acts on the answer.
+
+  SNAP-CLOSED-ACCOUNT-STORE-NEVER-PROMOTES-A-RANGE-PLAN pins it. Control: with
+  the legacy writer, promotion gets past the marker check and goes on to open a
+  persisted MPT on the state root, which the synthetic store does not hold, so
+  it signals -- reaching that walk is the proof that nothing but the guard keeps
+  the closed-writer arm out of it. Subject: under the closed writer it returns
+  zero without touching the store.
+
+Every storage ingestion path meets the uint256 ceiling
+
+The 33-byte ceiling is what keeps account and storage nodes disjoint in the
+kind-blind trie-node table, and contract storage is attacker-controlled on a
+public network, so it has to be enforced at ingestion rather than assumed from
+the protocol. SNAP-SYNC-STORAGE-ENTRIES applies SNAP-SYNC-STORAGE-TRIE-VALUE to
+every StorageRanges response, which covers the complete-group, byte-capped and
+partitioned large-storage paths on both the single-source and multi-source
+importers, and the snap/1 server uses the same function.
+
+A storage leaf reached by HASH during healing did not pass through it. That
+path now applies the same bound where the node is decoded, fail-closed in both
+directions: a peer supplying an over-wide storage leaf is a protocol fault, a
+stored one is storage corruption.
+
+  SNAP-HEALED-STORAGE-LEAF-VALUE-MEETS-THE-UINT256-CEILING pins the bound and
+  its rejections, including that an account leaf value can never pass it, which
+  is the disjointness argument stated as an executable check.
+
 Kind-blindness
 
 The flat :TRIE-NODE table holds account and storage nodes in one
@@ -249,6 +290,8 @@ Tests added (tests/snap-closure-tests.lisp)
   snap-closed-account-writer-persists-most-of-the-account-trie     integration
   snap-account-closure-survives-a-crash-before-the-account-batch   integration
   snap-account-closure-survives-a-crash-before-the-cursor-batch    integration
+  snap-closed-account-store-never-promotes-a-range-plan            unit
+  snap-healed-storage-leaf-value-meets-the-uint256-ceiling         unit
 
 SNAP-ACCOUNT-CLOSED-SUBTREE-FOLLOWS-ITS-DEPENDENCIES is the batch inspector the
 plan asked for, and it runs over BOTH the single-source path and
