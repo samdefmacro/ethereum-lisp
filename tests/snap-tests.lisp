@@ -5760,6 +5760,515 @@
               (is code-present-p)
               (is (bytes= code persisted-code)))))))))
 
+(defun snap-test-mid-range-rebase-states ()
+  "Return the two states a live pivot rebase moves between, and their roots.
+
+403 accounts.  The last three own a forty-slot storage trie, which the
+fixture's byte limit caps into the deferred-storage plan, so the plan is not
+empty.  Six accounts -- 1.5% -- then change balance, gain code, and gain a
+storage slot.  That is the shape of a rebase on a public network: nearly the
+whole account trie is untouched, and only a handful of paths differ."
+  (let ((base (make-state-db)))
+    (loop for index from 1 to 400
+          do (state-db-set-account
+              base (snap-test-address-from-integer index)
+              (make-state-account :nonce index :balance (+ 1000 index))))
+    (loop for index from 1 to 400 by 17
+          do (state-db-set-storage
+              base (snap-test-address-from-integer index)
+              (make-hash32 (snap-test-index-hash index)) (+ 5000 index)))
+    (loop for index from 401 to 403
+          do (let ((address (snap-test-address-from-integer index)))
+               (state-db-set-account
+                base address
+                (make-state-account :nonce index :balance (+ 1000 index)))
+               (loop for slot from 1 to 40
+                     do (state-db-set-storage
+                         base address
+                         (make-hash32
+                          (snap-test-index-hash (+ (* index 1000) slot)))
+                         (+ 60000 slot)))))
+    (let* ((before (state-db-copy base))
+           (before-root (state-db-root before)))
+      (dolist (index '(37 113 199 251 313 389))
+        (let ((address (snap-test-address-from-integer index)))
+          (state-db-set-account
+           base address
+           (make-state-account :nonce 999 :balance (+ 424242 index)))
+          (state-db-set-code base address (vector 96 1 96 (mod index 251)))
+          (state-db-set-storage
+           base address
+           (make-hash32 (snap-test-index-hash (+ 900 index)))
+           (+ 7000 index))))
+      (values before before-root base (state-db-root base)))))
+
+(defun snap-test-account-trie-node-hashes (state)
+  "Return STATE's exact account-trie node hash set, and its root.
+
+A freshly built trie is wholly dirty, so MPT-DIRTY-NODE-RECORDS enumerates
+every node of that root and nothing else.  The returned root is the oracle that
+the enumeration belongs to the intended trie."
+  (let* ((trie (ethereum-lisp.state:state-db-state-trie state))
+         (table (make-hash-table :test #'equalp)))
+    (dolist (record (mpt-dirty-node-records trie))
+      (setf (gethash (car record) table) t))
+    (values table (make-hash32 (mpt-root-hash trie)))))
+
+(defun snap-test-durable-deferred-storage-count (database state-root)
+  "Count deferred-storage works under STATE-ROOT, ignoring the plan marker.
+
+SNAP-SYNC-DEFERRED-STORAGE-SEGMENT answers nothing at all when the plan marker
+is absent, so only a direct scan can tell work that was never recorded from
+work that is durable but unreadable."
+  (let* ((prefix
+           (ethereum-lisp.snap-sync::snap-sync-deferred-storage-root-prefix
+            state-root))
+         (start (kv-chain-record-key :metadata prefix))
+         (end
+           (kv-chain-record-key
+            :metadata
+            (ethereum-lisp.snap-sync::snap-sync-byte-prefix-end prefix)))
+         (count 0))
+    (multiple-value-bind (iterator close-iterator)
+        (kv-iterator database :start start :end end)
+      (unwind-protect
+           (loop
+             (multiple-value-bind (key value present-p) (funcall iterator)
+               (declare (ignore key value))
+               (unless present-p (return))
+               (incf count)))
+        (when close-iterator (funcall close-iterator))))
+    count))
+
+(defun snap-test-mid-range-rebase-arm
+    (before before-root after after-root
+     &key rebase-after-pages (byte-limit 350) (deferred-bound 8192))
+  "Import BEFORE-ROOT's ranges, rebase to AFTER-ROOT, heal, and measure.
+
+REBASE-AFTER-PAGES NIL downloads the whole range under BEFORE-ROOT before the
+rebase; an integer stops the range phase after exactly that many pages, which
+is the live case -- a Hoodi range download takes about two and a half hours and
+a pivot expires roughly every half hour.  Both arms end by healing the same
+AFTER-ROOT from the same two sources, so their walks are directly comparable.
+
+One-nibble publication depths keep this fixture small while exercising the same
+content-addressed proof path as the four-nibble public-network setting.  Every
+range phase is bounded by MAX-PAGES so a cursor that stops advancing fails the
+count assertion instead of hanging the run."
+  (let* ((before-source-database (make-memory-key-value-database))
+         (after-source-database (make-memory-key-value-database))
+         (target (make-memory-key-value-database))
+         (before-source
+           (snap-test-source
+            (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+             before-source-database before)))
+         (after-source
+           (snap-test-source
+            (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+             after-source-database after)))
+         (before-pivot (make-hash32 (snap-test-hash 11)))
+         (after-pivot (make-hash32 (snap-test-hash 12)))
+         (genesis (make-hash32 (snap-test-hash 13)))
+         (authority (make-hash32 (snap-test-hash 14)))
+         (heal-events '())
+         (before-pages 0)
+         (after-pages 0)
+         (range-account-proofs 0)
+         (range-dependency-proofs 0)
+         (real-proof
+           (fdefinition
+            'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch))
+         (real-dependency
+           (fdefinition
+            'ethereum-lisp.snap-sync::snap-sync-populate-account-subtree-dependencies-batch))
+         (ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+           deferred-bound)
+         (ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles* 1)
+         (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles* 1)
+         (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+           2))
+    (unwind-protect
+         (progn
+           (setf
+            (fdefinition
+             'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+            (lambda (batch reference &optional (kind :account))
+              (when (eq kind :account) (incf range-account-proofs))
+              (funcall real-proof batch reference kind)))
+           (setf
+            (fdefinition
+             'ethereum-lisp.snap-sync::snap-sync-populate-account-subtree-dependencies-batch)
+            (lambda (batch reference dependencies)
+              (incf range-dependency-proofs)
+              (funcall real-dependency batch reference dependencies)))
+           (let* ((initial
+                    (ethereum-lisp.snap-sync:snap-sync-import-state
+                     target before-source
+                     :pivot-hash before-pivot :pivot-number 100
+                     :state-root before-root :target-hash before-pivot
+                     :chain-id 560048 :genesis-hash genesis
+                     :authority-id authority :byte-limit byte-limit
+                     :max-pages (or rebase-after-pages 4000)
+                     :on-progress
+                     (lambda (ignored)
+                       (declare (ignore ignored))
+                       (incf before-pages))))
+                  (marker-before
+                    (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+                     target before-root))
+                  (raw-plan-before
+                    (snap-test-durable-deferred-storage-count
+                     target before-root))
+                  (segment-before
+                    (length
+                     (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+                      target before-root)))
+                  (proofs-at-rebase range-account-proofs))
+             (ethereum-lisp.snap-sync:snap-sync-rebase-progress
+              target :pivot-hash after-pivot :pivot-number 110
+              :state-root after-root :target-hash after-pivot
+              :chain-id 560048 :genesis-hash genesis :authority-id authority)
+             (let* ((final
+                      (ethereum-lisp.snap-sync:snap-sync-import-state
+                       target after-source
+                       :pivot-hash after-pivot :pivot-number 110
+                       :state-root after-root :target-hash after-pivot
+                       :chain-id 560048 :genesis-hash genesis
+                       :authority-id authority :byte-limit byte-limit
+                       :max-pages 4000
+                       :on-progress
+                       (lambda (ignored)
+                         (declare (ignore ignored))
+                         (incf after-pages))
+                       :on-heal-progress
+                       (lambda (event) (push event heal-events))))
+                    (last-event (first heal-events)))
+               (list
+                :before-pages before-pages
+                :after-pages after-pages
+                :initial-completed-p
+                (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                 initial)
+                :marker-before marker-before
+                :raw-plan-before raw-plan-before
+                :segment-before segment-before
+                :marker-after
+                (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+                 target after-root)
+                :range-account-proofs-at-rebase proofs-at-rebase
+                :range-account-proofs range-account-proofs
+                :range-dependency-proofs range-dependency-proofs
+                :completed-p
+                (ethereum-lisp.snap-sync:snap-sync-progress-completed-p final)
+                :promoted
+                (and last-event
+                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
+                      last-event))
+                :processed
+                (and last-event
+                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                      last-event))
+                :reused
+                (and last-event
+                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+                      last-event))
+                :fetched
+                (and last-event
+                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                      last-event))
+                :skipped
+                (and last-event
+                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+                      last-event))
+                :installed-root
+                (nth-value
+                 0
+                 (kv-get-chain-record
+                  target :state-history (hash32-bytes after-pivot)))))))
+      (setf
+       (fdefinition
+        'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+       real-proof
+       (fdefinition
+        'ethereum-lisp.snap-sync::snap-sync-populate-account-subtree-dependencies-batch)
+       real-dependency))))
+
+(deftest snap-mid-range-rebase-zeroes-range-plan-promotion
+  (:layer :integration :module :p2p)
+  ;; The Hoodi stall at 3305307d, made deterministic and local.  A live range
+  ;; download takes about two and a half hours and a pivot expires roughly every
+  ;; half hour, so a rebase DURING the range phase is certain; no earlier test
+  ;; rebased there, which is why 05c13ad5, c4e9ec34 and 519e4c9b looked complete.
+  ;;
+  ;; Both arms heal the same AFTER-ROOT from the same two sources.  They differ
+  ;; only in when the pivot moves: the control arm finishes the range phase
+  ;; first, the reproduction arm rebases after twenty of its forty-eight pages.
+  ;;
+  ;; SNAP-SYNC-COMMIT-ACCOUNT-PAGES writes the deferred-storage plan marker only
+  ;; when the tasks are complete AND the progress partial-root equals the state
+  ;; root, and SNAP-SYNC-HEAL-REBASED-PROGRESS replaces partial-root with a
+  ;; sticky synthetic witness that SNAP-SYNC-ACCOUNT-PAGE-NEXT-PROGRESS retains.
+  ;; A mid-range rebase therefore loses the marker for both roots, and with it
+  ;; every reader of the plan.
+  (multiple-value-bind (before before-root after after-root)
+      (snap-test-mid-range-rebase-states)
+    (is (not (hash32= before-root after-root)))
+    (multiple-value-bind (before-nodes enumerated-before-root)
+        (snap-test-account-trie-node-hashes before)
+      (multiple-value-bind (after-nodes enumerated-after-root)
+          (snap-test-account-trie-node-hashes after)
+        ;; The node enumerations belong to the roots the arms actually heal.
+        (is (hash32= before-root enumerated-before-root))
+        (is (hash32= after-root enumerated-after-root))
+        (let ((changed-account-nodes
+                (loop for hash being the hash-keys of after-nodes
+                      count (not (nth-value 1 (gethash hash before-nodes))))))
+          ;; The denominator: six of 403 accounts changed, which moves fifteen
+          ;; of the 553 account-trie nodes.  Everything else is already durable.
+          (is (= 553 (hash-table-count after-nodes)))
+          (is (= 15 changed-account-nodes))
+          (let ((control
+                  (snap-test-mid-range-rebase-arm
+                   before before-root after after-root
+                   :rebase-after-pages nil))
+                (reproduction
+                  (snap-test-mid-range-rebase-arm
+                   before before-root after after-root
+                   :rebase-after-pages 20)))
+            ;; Both arms install the same authorized root, so neither walk is
+            ;; cheap because it healed less.
+            (is (getf control :completed-p))
+            (is (getf reproduction :completed-p))
+            (is (bytes= (hash32-bytes after-root)
+                        (getf control :installed-root)))
+            (is (bytes= (hash32-bytes after-root)
+                        (getf reproduction :installed-root)))
+            (is (= 48 (getf control :before-pages)))
+            (is (zerop (getf control :after-pages)))
+            (is (getf control :initial-completed-p))
+            (is (= 20 (getf reproduction :before-pages)))
+            (is (= 29 (getf reproduction :after-pages)))
+            (is (not (getf reproduction :initial-completed-p)))
+            ;; Control: the marker is published with the last cursor, the plan
+            ;; is readable, and promotion converts it into the shallow
+            ;; whole-bucket :ACCOUNT proofs the healer can skip on.
+            (is (getf control :marker-before))
+            (is (= 3 (getf control :raw-plan-before)))
+            (is (= 3 (getf control :segment-before)))
+            (is (= 218 (getf control :promoted)))
+            ;; Reproduction: the same three storage works are durable, and
+            ;; unreadable.  SNAP-SYNC-DEFERRED-STORAGE-SEGMENT returns nothing
+            ;; without the marker, so the healer's seed frontier falls back to
+            ;; the state root in %SNAP-SYNC-HEAL-STATE, and
+            ;; SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN returns before it reads
+            ;; the plan at all.
+            (is (not (getf reproduction :marker-before)))
+            (is (not (getf reproduction :marker-after)))
+            (is (= 3 (getf reproduction :raw-plan-before)))
+            (is (zerop (getf reproduction :segment-before)))
+            (is (zerop (getf reproduction :promoted)))
+            ;; DEFECT ASSERTION.  This is the account-side closure failure.
+            ;; The healer decodes 322 nodes to repair fifteen, because a
+            ;; present but unmarked ACCOUNT node is expanded while a present
+            ;; unmarked STORAGE node is skipped (INTEGRATE-PRESENT-WORK in
+            ;; %SNAP-SYNC-HEAL-STATE).  Target once account-side closure lands:
+            ;; the reproduction arm's walk must fall to the control arm's
+            ;; order, so this equality and the ratio below both go red and the
+            ;; fix replaces 322 with a number near 28.
+            (is (= 322 (getf reproduction :processed)))
+            (is (= 28 (getf control :processed)))
+            ;; 21.5 walked per changed node after a mid-range rebase, against
+            ;; 1.9 without one, and 58% of the whole account trie re-walked.
+            (is (> (getf reproduction :processed)
+                   (* 11 changed-account-nodes)))
+            (is (< (getf control :processed) (* 2 changed-account-nodes)))
+            (is (> (getf reproduction :processed)
+                   (* 11 (getf control :processed))))
+            (is (> (getf reproduction :processed)
+                   (floor (hash-table-count after-nodes) 2)))
+            ;; The per-page range proofs are the only account-side skipping
+            ;; that survives a mid-range rebase, and they are published for
+            ;; whole buckets that fall inside one page, so they cannot cover
+            ;; the trie: 169 skips against a 322-node walk.
+            (is (= 169 (getf reproduction :skipped)))
+            (is (= 61 (getf control :skipped)))
+            (is (= 365 (getf control :range-account-proofs-at-rebase)))
+            (is (= 63 (getf reproduction :range-account-proofs-at-rebase)))
+            (is (= 2 (getf reproduction :range-dependency-proofs)))
+            ;; Narrowing the segment bound below the plan width changes none of
+            ;; it: the zero is the missing marker, not the 519e4c9b width.
+            (let ((narrow
+                    (snap-test-mid-range-rebase-arm
+                     before before-root after after-root
+                     :rebase-after-pages 20 :deferred-bound 2)))
+              (is (> (getf narrow :raw-plan-before) 2))
+              (is (not (getf narrow :marker-before)))
+              (is (zerop (getf narrow :promoted)))
+              (is (= (getf reproduction :processed)
+                     (getf narrow :processed))))))))))
+
+(deftest snap-mid-range-rebase-witness-blocks-every-plan-marker-reader
+  (:layer :unit :module :p2p)
+  ;; The mechanism behind the integration reproduction above, isolated from any
+  ;; download.  A rebase installs a synthetic partial-root witness
+  ;; (SNAP-SYNC-HEAL-REBASED-PROGRESS, domain snap-rebased-range-witness-v1:)
+  ;; which SNAP-SYNC-ACCOUNT-PAGE-NEXT-PROGRESS retains, so the equality guard
+  ;; in SNAP-SYNC-COMMIT-ACCOUNT-PAGES can never hold again for that session and
+  ;; the plan marker is never written -- even though every task completes.
+  ;;
+  ;; Positive control: the same page commits WITHOUT the rebase publish the
+  ;; marker, and hand-writing the marker over the rebased store restores every
+  ;; reader, which proves the three zeroes below are caused by the marker alone
+  ;; and not by the plan being wider than *SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS*.
+  (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles* 1)
+        (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles* 1)
+        (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+          1))
+    (labels
+        ((bucket-key (nibble)
+           (let ((key (make-byte-vector 32 :initial-element nibble)))
+             (setf (aref key 0) (logior (ash nibble 4) nibble))
+             key))
+         (seed-trie (database)
+           (let ((trie (make-mpt)))
+             (dotimes (nibble 16)
+               (mpt-put trie (bucket-key nibble)
+                        (make-byte-vector 64 :initial-element (1+ nibble))))
+             (mpt-persist database trie)))
+         (progress (state-root tasks)
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 61))
+            :pivot-number 900 :state-root state-root
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 62))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 63))
+            :authority-id (make-hash32 (snap-test-hash 64))
+            :completed-p nil :tasks tasks))
+         (page (tasks index)
+           (ethereum-lisp.snap-sync::make-snap-sync-page-result
+            :task-index index
+            :origin
+            (copy-seq
+             (ethereum-lisp.snap-sync:snap-sync-account-task-next-origin
+              (nth index tasks)))
+            :completed-p t))
+         (commit (database current tasks indices)
+           (dolist (index indices current)
+             (setf current
+                   (ethereum-lisp.snap-sync::snap-sync-commit-account-pages
+                    database current (list (page tasks index)))))))
+      ;; Positive control: sixteen pages, no rebase, marker published.
+      (let* ((database (make-memory-key-value-database))
+             (state-root (seed-trie database))
+             (tasks
+               (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                :count 16))
+             (final
+               (commit database (progress state-root tasks) tasks
+                       (loop for index below 16 collect index))))
+        (is (ethereum-lisp.snap-sync::snap-sync-tasks-completed-p
+             (ethereum-lisp.snap-sync:snap-sync-progress-tasks final)))
+        (is (hash32=
+             state-root
+             (ethereum-lisp.snap-sync::snap-sync-progress-partial-root final)))
+        (is (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+             database state-root)))
+      ;; The reproduction: the rebase lands between page two and page three.
+      ;; AFTER-ROOT is the persisted trie, because the plan, the promotion and
+      ;; the healer are all keyed by the session's CURRENT state root.
+      (let* ((database (make-memory-key-value-database))
+             (after-root (seed-trie database))
+             (before-root
+               (make-hash32
+                (ethereum-lisp.crypto:keccak-256 (snap-test-hash 65))))
+             (tasks
+               (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+                :count 16))
+             (mid
+               (commit database (progress before-root tasks) tasks '(0 1)))
+             (rebased
+               (ethereum-lisp.snap-sync::snap-sync-heal-rebased-progress
+                mid (make-hash32 (snap-test-hash 66)) 910
+                after-root (make-hash32 (snap-test-hash 67))))
+             (final
+               (commit database rebased tasks
+                       (loop for index from 2 below 16 collect index))))
+        ;; The witness is neither root, and it survives the remaining pages.
+        (is (not (hash32=
+                  after-root
+                  (ethereum-lisp.snap-sync::snap-sync-progress-partial-root
+                   rebased))))
+        (is (not (hash32=
+                  before-root
+                  (ethereum-lisp.snap-sync::snap-sync-progress-partial-root
+                   rebased))))
+        (is (hash32=
+             (ethereum-lisp.snap-sync::snap-sync-progress-partial-root rebased)
+             (ethereum-lisp.snap-sync::snap-sync-progress-partial-root final)))
+        (is (ethereum-lisp.snap-sync::snap-sync-tasks-completed-p
+             (ethereum-lisp.snap-sync:snap-sync-progress-tasks final)))
+        ;; Every task is complete and the marker is still absent.
+        (is (not
+             (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+              database before-root)))
+        (is (not
+             (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+              database after-root)))
+        ;; A plan wider than the segment bound, durable under AFTER-ROOT: the
+        ;; range phase recorded the byte-capped storage roots it met after the
+        ;; rebase, exactly as the live run did.
+        (let ((batch (make-kv-write-batch)))
+          (dolist (nibble '(3 7 11))
+            (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-batch
+             batch after-root
+             (cons (bucket-key nibble)
+                   (make-hash32 (snap-test-index-hash (+ 400 nibble))))))
+          (kv-apply-batch database batch))
+        (let ((ethereum-lisp.snap-sync::*snap-sync-deferred-storage-max-works*
+                2))
+          (is (= 3 (snap-test-durable-deferred-storage-count
+                    database after-root)))
+          ;; Three readers, three zeroes, one cause.  The first of them is why
+          ;; the healer seeds from the state root at all: with no readable plan
+          ;; segment, %SNAP-SYNC-HEAL-STATE's stack falls through to a single
+          ;; :ACCOUNT work at the root.
+          (is (zerop
+               (length
+                (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+                 database after-root))))
+          (is (null
+               (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-roots
+                database)))
+          (is (zerop
+               (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+                database after-root)))
+          (is (zerop
+               (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plans
+                database)))
+          ;; Positive control: publish only the marker the rebase suppressed.
+          (let ((batch (make-kv-write-batch)))
+            (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+             batch after-root)
+            (kv-apply-batch database batch))
+          ;; The plan is wider than the bound, so a segment is capped and
+          ;; reports a remainder rather than being abandoned.
+          (multiple-value-bind (works present-p cursor more-p)
+              (ethereum-lisp.snap-sync::snap-sync-deferred-storage-segment
+               database after-root)
+            (is present-p)
+            (is (= 2 (length works)))
+            (is (not (null cursor)))
+            (is more-p))
+          (is (= 1 (length
+                    (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-roots
+                     database))))
+          ;; Thirteen of sixteen buckets promote; the three naming an open
+          ;; storage root stay excluded, which is the unchanged exclusion rule.
+          (is (= 13
+                 (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+                  database after-root))))))))
+
 (deftest snap-skeleton-and-state-rebase-commit-as-one-durable-batch
   (:layer :integration :module :p2p)
   (let* ((database (make-instance 'snap-failing-test-database))
