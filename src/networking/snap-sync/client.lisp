@@ -7310,6 +7310,14 @@ plans retain the content-addressed healer as the fail-closed path."
            :on-source-error on-source-error
            :heal-yield-p heal-yield-p)))
     (when (and storage-completed-p
+               ;; A closed-writer store has no durable account spine, so the
+               ;; range-plan walk this completion rests on cannot resolve. It
+               ;; is already unreachable second-hand, because the plan marker
+               ;; its predicate reads is never written for such a store; say so
+               ;; here as well, so removing one guard cannot silently re-open a
+               ;; completion that would publish a state root over a trie the
+               ;; healer has not yet filled in.
+               (not (snap-sync-closed-account-writes-p database))
                (snap-sync-range-plan-fully-durable-p
                 database (snap-sync-progress-state-root progress))
                (hash32=
