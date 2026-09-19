@@ -903,6 +903,24 @@ observational and not consensus-visible."
        (kv-apply-batch database batch))
      t)))
 
+(defparameter *snap-sync-account-closure-writes* nil
+  "Enable the closed-subtree account writer for a current-contract store.
+
+The writer and the healer rule it exists for are two halves of one contract and
+must be switched together.  While the healer still expands a present unmarked
+account node, withholding the account spine would only remove the compensating
+machinery -- the deferred-storage plan marker, range-plan promotion and the
+walk-free completion all walk a durable spine -- without supplying the presence
+skip that replaces it.  The closure epoch bump flips this default and takes the
+healer rule with it; until then production keeps the prebuffer-plus-marker
+writer and the tests that cover the new writer bind this to true.")
+
+(defun snap-sync-closed-account-writes-p (database)
+  "True when DATABASE's closure contract covers account-path trie nodes."
+  (and *snap-sync-account-closure-writes*
+       (snap-sync-complete-node-scheme-present-p database)
+       t))
+
 (defun snap-sync-disable-complete-node-scheme (database)
   "Revoke the store contract when resuming progress written by older code."
   (when (snap-sync-complete-node-scheme-present-p database)
@@ -2736,7 +2754,7 @@ again."
         ;; reads markers and its promotion path still walks a durable spine.
         (let* ((prebuffer-started-at (get-internal-real-time))
                (closed-writes-p
-                 (snap-sync-complete-node-scheme-present-p database))
+                 (snap-sync-closed-account-writes-p database))
                (account-record-hashes (mapcar #'car account-records)))
           (unless closed-writes-p
             (let ((batch (make-kv-write-batch)))
@@ -2991,7 +3009,7 @@ record flushes all of those worker prefixes and removes per-page fsync stalls."
              ;; store never writes that spine, so the marker would authorize a
              ;; walk over nodes that are deliberately absent. Legacy stores
              ;; keep the whole mechanism.
-             (not (snap-sync-complete-node-scheme-present-p database))
+             (not (snap-sync-closed-account-writes-p database))
              (snap-sync-tasks-completed-p (snap-sync-progress-tasks next))
              (hash32= (snap-sync-progress-partial-root next)
                       (snap-sync-progress-state-root next)))
@@ -5254,7 +5272,7 @@ without a published whole-root closure still stays unpromoted."
   ;; spine. A closed-subtree store never persists that spine, and promotion's
   ;; shallow :ACCOUNT proofs exist only to compensate for an account presence
   ;; rule that such a store already has. Both reasons point the same way.
-  (when (snap-sync-complete-node-scheme-present-p database)
+  (when (snap-sync-closed-account-writes-p database)
     (return-from snap-sync-promote-complete-range-plan 0))
   (unless (snap-sync-deferred-storage-plan-present-p database state-root)
     (return-from snap-sync-promote-complete-range-plan 0))

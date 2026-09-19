@@ -293,15 +293,38 @@ chunks it, and three one-slot contracts that a single response answers whole."
     (values state (nreverse addresses)
             (snap-test-address-from-integer 201))))
 
+(defun call-with-snap-closure-proof-depth (depth thunk)
+  "Run THUNK with the closed-subtree writer on and proofs published at DEPTH.
+
+These are set process-globally rather than bound, because the production import
+prepares and completes pages on worker threads and a LET binding is invisible
+there -- the run would silently exercise the legacy writer instead."
+  (let ((writes ethereum-lisp.snap-sync::*snap-sync-account-closure-writes*)
+        (lookup ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*)
+        (coarse ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*)
+        (nested
+          ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*))
+    (unwind-protect
+         (progn
+           (setf ethereum-lisp.snap-sync::*snap-sync-account-closure-writes* t
+                 ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                 depth
+                 ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                 depth
+                 ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                 depth)
+           (funcall thunk))
+      (setf ethereum-lisp.snap-sync::*snap-sync-account-closure-writes* writes
+            ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+            lookup
+            ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+            coarse
+            ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+            nested))))
+
 (defmacro with-snap-closure-proof-depth ((depth) &body body)
-  "Publish and consume closure proofs at DEPTH, so small fixtures reach them."
-  `(let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
-           ,depth)
-         (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
-           ,depth)
-         (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
-           ,depth))
-     ,@body))
+  "Publish and consume closure proofs at DEPTH with the closed writer on."
+  `(call-with-snap-closure-proof-depth ,depth (lambda () ,@body)))
 
 ;;; ------------------------------------------------------------------
 ;;; Step 1 -- the writer cannot persist an open account node
