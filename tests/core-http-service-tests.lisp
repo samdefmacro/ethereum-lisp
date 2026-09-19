@@ -957,6 +957,107 @@ Content-Type: application/json
        (make-engine-rpc-http-service) input (make-broadcast-stream)))))
 
 #+sbcl
+(deftest engine-rpc-http-idle-wait-returns-once-a-stop-is-requested
+  ;; A keep-alive connection spends nearly all of its life parked in the wait
+  ;; for its next request. Parked there for the whole 120-second idle budget it
+  ;; cannot notice that its listener was asked to stop, which is why a
+  ;; consensus client's pooled connection held a stopping node past the
+  ;; supervisor's grace period and was SIGKILLed with it.
+  (let* ((body
+           "{\"jsonrpc\":\"2.0\",\"id\":33,\"method\":\"eth_chainId\",\"params\":[]}")
+         (request
+           (format nil
+                   "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                   (length body) body))
+         (checks 0))
+    (let* ((input
+             (make-instance 'engine-rpc-http-delayed-eof-input-stream
+                            :delegate (make-string-input-stream request)
+                            ;; Far longer than this test may take: the wait has
+                            ;; to end because of the stop, not because the
+                            ;; stream finally answered.
+                            :delay-seconds 20d0))
+           (*engine-rpc-http-request-timeout-seconds* 20d0)
+           (*engine-rpc-http-idle-timeout-seconds* 60d0)
+           (ethereum-lisp.rpc-http::*engine-rpc-http-stop-check-interval-seconds* 0.1d0)
+           (started (monotonic-seconds))
+           (response
+             (engine-rpc-http-service-handle-stream
+              (make-engine-rpc-http-service)
+              input
+              (make-broadcast-stream)
+              ;; NIL first, so the wait is entered and genuinely blocks before
+              ;; the stop arrives.
+              :stop-p (lambda () (> (incf checks) 1))))
+           (elapsed (- (monotonic-seconds) started)))
+      (is (search "HTTP/1.1 200 OK" response))
+      (is (< 1 checks))
+      ;; Wide margin on purpose: the two outcomes are ~0.1 s and 20 s, and a
+      ;; wall-clock assertion on a shared runner must not sit near its bound.
+      (is (< elapsed 10))))
+  ;; Positive control for the same code path: with no stop to find, the poll
+  ;; must NOT turn the idle wait into an early return. The idle budget still
+  ;; governs, and still expires exactly as it did before.
+  (let* ((input
+           (make-instance 'engine-rpc-http-delayed-eof-input-stream
+                          :delegate (make-string-input-stream "")
+                          :delay-seconds 20d0))
+         (*engine-rpc-http-request-timeout-seconds* 20d0)
+         (*engine-rpc-http-idle-timeout-seconds* 0.3d0)
+         (ethereum-lisp.rpc-http::*engine-rpc-http-stop-check-interval-seconds* 0.1d0))
+    (signals error
+      (ethereum-lisp.rpc-http::engine-rpc-http-await-next-request input nil))))
+
+#+sbcl
+(deftest engine-rpc-http-stop-answers-the-request-in-flight-and-starts-no-more
+  ;; Both edges of the stop check, over one stream holding two requests.
+  ;; Consulted too early it would drop a response a client is already waiting
+  ;; for; never consulted at all is the defect, and then the second request is
+  ;; answered too. The control leg below is that same stream with no stop.
+  (labels ((request (id)
+             (let ((body
+                     (format nil
+                             "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"eth_chainId\",\"params\":[]}"
+                             id)))
+               (format nil
+                       "POST / HTTP/1.1~%Host: localhost~%Content-Type: application/json~%Content-Length: ~D~%~%~A"
+                       (length body) body)))
+           (occurrences (needle text)
+             (loop with start = 0
+                   for found = (search needle text :start2 start)
+                   while found
+                   count 1
+                   do (setf start (1+ found))))
+           (first-body (text)
+             (let ((boundary
+                     (search (format nil "~C~C~C~C"
+                                     #\Return #\Newline #\Return #\Newline)
+                             text)))
+               (subseq text (+ boundary 4)))))
+    (let* ((input
+             (make-string-input-stream
+              (concatenate 'string (request 41) (request 42))))
+           (output (make-string-output-stream)))
+      (engine-rpc-http-service-handle-stream
+       (make-engine-rpc-http-service) input output
+       :stop-p (lambda () t))
+      (let ((written (get-output-stream-string output)))
+        (is (= 1 (occurrences "HTTP/1.1 200 OK" written)))
+        ;; Answered in full, not truncated mid-response.
+        (is (= 41 (cdr (assoc "id" (parse-json (first-body written))
+                              :test #'string=))))))
+    (let* ((input
+             (make-string-input-stream
+              (concatenate 'string (request 41) (request 42))))
+           (output (make-string-output-stream)))
+      (engine-rpc-http-service-handle-stream
+       (make-engine-rpc-http-service) input output)
+      ;; Control: the same stream really does carry two answerable requests, so
+      ;; the single answer above is the stop's doing and not the fixture's.
+      (is (= 2 (occurrences "HTTP/1.1 200 OK"
+                            (get-output-stream-string output)))))))
+
+#+sbcl
 (deftest engine-rpc-http-partial-request-keeps-request-deadline
   (let* ((input
            (make-instance 'engine-rpc-http-delayed-eof-input-stream
@@ -1424,6 +1525,97 @@ Content-Type: application/json
     (is (= 5
            (ethereum-lisp.rpc-http::
             engine-rpc-http-worker-drain-timeout-seconds)))))
+
+(deftest engine-rpc-http-worker-drain-collapses-once-a-stop-is-requested
+  ;; Once a stop has been requested the connection loops return between
+  ;; requests, so a worker still holding a permit is answering a request rather
+  ;; than waiting for one -- and the keep-alive idle budget no longer belongs
+  ;; in the wait. Carrying it was worth 155 s per listener, five times the
+  ;; grace period `docker stop --time 30` allows.
+  (let ((*engine-rpc-http-request-timeout-seconds* 30)
+        (*engine-rpc-http-idle-timeout-seconds* 120)
+        (ethereum-lisp.rpc-http::*engine-rpc-http-shutdown-drain-seconds* 5))
+    (is (= 155
+           (ethereum-lisp.rpc-http::
+            engine-rpc-http-worker-drain-timeout-seconds nil)))
+    (is (= 5
+           (ethereum-lisp.rpc-http::
+            engine-rpc-http-worker-drain-timeout-seconds t))))
+  ;; The collapsed budget is the parameter, not a constant that happens to
+  ;; equal the other branch's floor.
+  (let ((ethereum-lisp.rpc-http::*engine-rpc-http-shutdown-drain-seconds* 2))
+    (is (= 2
+           (ethereum-lisp.rpc-http::
+            engine-rpc-http-worker-drain-timeout-seconds t)))))
+
+#+sbcl
+(defclass engine-rpc-http-held-input-stream
+    (sb-gray:fundamental-character-input-stream)
+  ((released-p :initform nil :accessor engine-rpc-http-held-released-p)
+   (limit-seconds :initarg :limit-seconds :initform 20d0
+                  :reader engine-rpc-http-held-limit-seconds))
+  (:documentation
+   "Blocks the way an accepted socket with nothing left to read blocks.
+
+Released by the test rather than by CLOSE, so the listener closing a connection
+the drain abandoned can be observed before the worker that held it unwinds and
+closes the same connection a second time."))
+
+#+sbcl
+(defmethod sb-gray:stream-read-char
+    ((stream engine-rpc-http-held-input-stream))
+  (let ((deadline (+ (monotonic-seconds)
+                     (engine-rpc-http-held-limit-seconds stream))))
+    (loop until (or (engine-rpc-http-held-released-p stream)
+                    (<= deadline (monotonic-seconds)))
+          do (sleep 0.02))
+    :eof))
+
+#+sbcl
+(deftest engine-rpc-http-listener-closes-a-connection-the-drain-abandoned
+  (:layer :integration :module :rpc-http :estimated-seconds 3d0)
+  ;; Closing a LISTENING socket does not touch an established one, so until now
+  ;; the only thing that ever released a connection the drain gave up on was
+  ;; the process exiting -- which under a supervisor's grace period means
+  ;; SIGKILL. Past its own deadline go-ethereum's http.Server closes whatever
+  ;; Shutdown could not drain.
+  (let* ((held (make-instance 'engine-rpc-http-held-input-stream
+                              :limit-seconds 20d0))
+         (closed 0)
+         (stopped nil)
+         (connection (make-engine-rpc-http-connection
+                      :input-stream held
+                      :output-stream (make-broadcast-stream)
+                      :close-function (lambda () (incf closed))))
+         (pending (list connection))
+         (service (make-engine-rpc-http-service))
+         (listener
+           (make-engine-rpc-http-listener
+            :endpoint "127.0.0.1:0"
+            :accept-function
+            (lambda ()
+              (or (pop pending)
+                  ;; Second call stands for the stop: the listening socket is
+                  ;; closed and accept gives nothing back.
+                  (progn (setf stopped t) nil)))))
+         (ethereum-lisp.rpc-http::*engine-rpc-http-shutdown-drain-seconds* 0.5d0)
+         (*engine-rpc-http-request-timeout-seconds* 20d0))
+    (unwind-protect
+         (let* ((started (monotonic-seconds))
+                (served (engine-rpc-http-service-serve-listener
+                         service listener
+                         :concurrency 1
+                         :stop-p (lambda () stopped)))
+                (elapsed (- (monotonic-seconds) started)))
+           (is (= 1 served))
+           (is stopped)
+           ;; The worker is still inside its read, so this close is the
+           ;; listener's and not that worker's own unwind.
+           (is (= 1 closed))
+           ;; The drain budget is half a second; anything near the 20 s the
+           ;; held stream would cost means it was not honoured.
+           (is (< elapsed 10)))
+      (setf (engine-rpc-http-held-released-p held) t))))
 
 (deftest engine-rpc-http-read-accepts-crlf-framed-requests
   ;; Every standards-compliant client sends CRLF. Reading from a socket keeps
