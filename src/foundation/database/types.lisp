@@ -4,7 +4,17 @@
 
 (defclass memory-key-value-database (key-value-database)
   ((entries :initform (make-hash-table :test 'equalp)
-            :accessor memory-key-value-database-entries)))
+            :accessor memory-key-value-database-entries)
+   ;; A batch is applied by copying the whole table, mutating the copy and
+   ;; publishing it, which gives lock-free readers an all-or-nothing view but
+   ;; makes two concurrent writers a lost update: the later publication drops
+   ;; the earlier one entirely. RocksDB serializes write groups internally, so
+   ;; this backend must too, or it is not a faithful oracle for the concurrent
+   ;; SNAP writers that crash-injection and batch-inspection tests drive.
+   (write-lock
+    :initform #+sbcl (sb-thread:make-mutex :name "kv-memory-write")
+              #-sbcl nil
+    :reader memory-key-value-database-write-lock)))
 
 (defconstant +kv-log-default-compaction-min-bytes+ (* 1024 1024)
   "Do not compact the write log before it reaches this many bytes.")

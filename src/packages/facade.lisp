@@ -166,6 +166,8 @@
    #:mpt-persist
    #:mpt-dirty-node-records
    #:mpt-proved-range-subtrees
+   #:mpt-dirty-leaf-values
+   #:mpt-proved-range-closed-subtrees
    #:mpt-hashed-subtrees-with-prefix-at-depth
    #:mpt-hashed-subtrees-at-prefix-depth
    #:mpt-populate-dirty-batch
