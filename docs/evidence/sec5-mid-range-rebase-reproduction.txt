@@ -1,0 +1,330 @@
+Section 5: a local reproduction of the mid-range pivot rebase, and what it costs
+
+Status
+
+Not a fix. This is the deterministic local reproduction and the measurements
+that docs/evidence/sec5-3305307d-hoodi-stall.txt said were in progress. It
+reproduces, offline and in about three seconds, the exact condition that zeroes
+promotion on Hoodi: a pivot rebase that lands DURING the account range phase.
+No live run was started, sampled, or changed for this work, and no account-side
+closure fix is proposed here.
+
+Revision
+
+Branch diagnose-live-heal-stall, from fb944d33 (head of
+sec5-public-bootstrap-sync). Two commits, tests then this file.
+
+What was already known, and what was wrong about it
+
+sec5-3305307d-hoodi-stall.txt named the chain correctly:
+SNAP-SYNC-COMMIT-ACCOUNT-PAGES (client.lisp 2774-2783) writes the
+deferred-storage plan marker only when the range tasks are complete AND the
+progress partial-root equals the state root; SNAP-SYNC-HEAL-REBASED-PROGRESS
+(3453-3468) replaces partial-root with a synthetic witness over the domain
+snap-rebased-range-witness-v1: whenever the state root moves; and
+SNAP-SYNC-ACCOUNT-PAGE-NEXT-PROGRESS (2724-2729) retains that witness for every
+later page. A rebase during the range phase therefore costs the marker
+permanently for that session.
+
+One consequence was missing from that account, and it is the larger one.
+
+SNAP-SYNC-DEFERRED-STORAGE-SEGMENT returns (values nil nil nil nil) before it
+reads anything, unless the plan marker is present (client.lisp 2035-2036). In
+%SNAP-SYNC-HEAL-STATE the healer's initial stack is chosen at 5769-5779: the
+`planned-storage` branch requires PLANNED-STORAGE-PRESENT-P, so with no marker
+control falls through to
+
+  (t (list (snap-sync-make-heal-work :account nil (make-byte-vector 0)
+                                     root-bytes)))
+
+That single :ACCOUNT work at the root IS the state-root walk. The missing
+marker does not merely switch promotion off; it changes what the healer is
+seeded with, from the plan's storage roots to the whole account trie. The same
+reader gates SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P (4925-4948) through
+SNAP-SYNC-MAP-DEFERRED-STORAGE-PLAN, so the zero-TrieNodes completion in
+SNAP-SYNC-FILL-STORAGE-THEN-HEAL (7068-7073) is unreachable too.
+
+This was predicted from code in sec5-c4e9ec34-storage-plan-segments.txt,
+"Carried forward" item 3, which recorded it as "read from code and unmeasured on
+a rebasing run". It is measured below.
+
+The fixture
+
+tests/snap-tests.lisp, SNAP-TEST-MID-RANGE-REBASE-STATES and
+SNAP-TEST-MID-RANGE-REBASE-ARM.
+
+403 accounts. Accounts 401-403 own a forty-slot storage trie, which the
+fixture's 350-byte limit caps into the deferred-storage plan, so the plan names
+three roots and is not empty. Six accounts -- 1.5% -- then change balance, gain
+code, and gain a storage slot. That moves 15 of the 553 account-trie nodes,
+2.7%.
+
+Both denominators are computed independently of snap sync, by
+SNAP-TEST-ACCOUNT-TRIE-NODE-HASHES: a fresh MPT built over every account is
+wholly dirty, so MPT-DIRTY-NODE-RECORDS enumerates exactly that root's nodes.
+The test asserts the enumerated root equals the root the arm actually heals, so
+the denominator provably belongs to the right trie.
+
+Two arms, identical in everything except when the pivot moves. Both end by
+healing the same after-root from the same two sources, and both install it in
+:state-history, so neither walk is cheap because it healed less.
+
+  control       48 range pages under the old root, THEN the rebase, then heal
+  reproduction  20 of 48 range pages, rebase, 29 more pages under the new
+                root, then heal
+
+The reproduction arm is the live case. A Hoodi range download takes about two
+and a half hours and a pivot expires roughly every half hour.
+
+One-nibble publication depths keep the fixture small while exercising the same
+content-addressed proof path as the four-nibble public-network setting, which is
+the established idiom in this file (SNAP-STATE-HEALER-REUSES-PROVED-SUBTREES-
+ACROSS-PIVOTS). Every range phase is bounded by MAX-PAGES and every page count
+is asserted, so a cursor that stops advancing fails a count instead of hanging
+the run.
+
+Measurements
+
+All numbers are from the committed tests and are reproduced exactly on repeat
+runs.
+
+                                        control    reproduction
+  range pages before the rebase              48              20
+  range pages after the rebase                0              29
+  plan marker, old root                 present          absent
+  plan marker, new root                  absent          absent
+  plan works durable, old root (raw)          3               3
+  plan works readable via SEGMENT             3               0
+  promotedSubtrees                          218               0
+  processedNodes                             28             322
+  reusedNodes                                 7             328
+  fetchedNodes                               21               3
+  skippedSubtrees                            61             169
+  :account proofs published by the range
+  phase, counted at the rebase              365              63
+  account-subtree dependency proofs           2               2
+
+Denominators, same for both arms:
+
+  account-trie nodes at the new root        553
+  account-trie nodes that actually differ    15
+
+  walked per changed node        control 1.9      reproduction 21.5
+  share of the account trie
+  re-walked                      control 5.1%     reproduction 58.2%
+
+The number that sizes the defect is walked per changed node: 21.5 after a
+mid-range rebase, against 1.9 without one. The rebase multiplies the
+account-side walk by 11.5 on a fixture where 2.7% of the account trie moved.
+
+Three durable storage works exist under the old root in BOTH arms
+(SNAP-TEST-DURABLE-DEFERRED-STORAGE-COUNT scans the records directly). In the
+reproduction arm SNAP-SYNC-DEFERRED-STORAGE-SEGMENT reports zero of them. The
+work is durable and unreadable, which is the distinction the marker-gated reader
+erases.
+
+Narrowing *SNAP-SYNC-DEFERRED-STORAGE-MAX-WORKS* to 2, below the three-root plan
+width, changes nothing: same marker absence, same promotion 0, same 322-node
+walk. The zero is the missing marker, not the width bound 519e4c9b removed.
+
+What the existing skipping mechanisms can and cannot cover
+
+Only one thing lets the healer skip an account subtree: an exact :ACCOUNT
+healed-subtree proof for that node hash, or a persisted account-subtree
+dependency proof for it. The rules, with the condition that excludes each class:
+
+Producers.
+
+P1. Per-page range publication. SNAP-SYNC-COMPLETE-ACCOUNT-PAGE ->
+    SNAP-SYNC-CLASSIFY-ACCOUNT-RANGE-SUBTREES -> SNAP-SYNC-BUFFER-ACCOUNT-PAGE-
+    CONTENT (client.lisp 2468-2472). Candidates come from
+    MPT-PROVED-RANGE-SUBTREES (foundation/trie/persistence.lisp 87-199), which
+    excludes a bucket when any of these holds:
+
+    a. bucket-inside-range-p (persistence.lisp 143-160) fails: the whole bucket
+       [prefix||0..0, prefix||f..f] must lie inside THIS page's proved interval.
+       A bucket straddling a page boundary yields nothing, and a bucket wider
+       than a page can never be published by this path at all.
+    b. (>= (length pointer-path) minimum-prefix-nibbles) fails
+       (persistence.lisp 166). The node's POINTER PATH, not its coverage, must
+       already be that deep. A leaf or extension that covers a depth-four bucket
+       from pointer-path depth two is not publishable: `visit` falls through to
+       the etypecase and a leaf recurses to nothing. Sparse regions of the
+       account trie publish nothing at depth four.
+    c. node-reference-hashed-p fails (persistence.lisp 167): an inlined node
+       under 32 bytes has no hash for a proof to name.
+    d. dirty-subtree-p fails (persistence.lisp 113-124): every descendant must
+       be newly reconstructed by this page, so any clean or proof-edge node
+       below disqualifies the whole bucket.
+    e. SNAP-SYNC-CLASSIFY-ACCOUNT-RANGE-SUBTREES (client.lisp 2427-2439). The
+       cond has no else clause. A bucket whose page-local deferred-storage list
+       exceeds +SNAP-SYNC-ACCOUNT-SUBTREE-DEPENDENCIES-MAX+ = 64 (client.lisp
+       216, 2431) contributes neither an :ACCOUNT proof nor a dependency proof.
+       This is the 64-dependency bound named as a suspect.
+
+P2. Range-plan promotion, SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN (5013-5108).
+    The only producer that is not page-geometry-bound, and the only producer of
+    shallow whole-bucket :ACCOUNT proofs. Excluded when:
+
+    a. client.lisp 5033-5034: the plan marker is absent for the state root.
+       Returns 0 before reading the plan. This is the mid-range-rebase failure.
+    b. client.lisp 5110-5113: SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLANS iterates
+       SNAP-SYNC-DEFERRED-STORAGE-PLAN-ROOTS (4875-4905), which enumerates
+       MARKERS. With no marker the loop body never runs, so (a) is reached only
+       by a direct call.
+    c. client.lisp 5061-5077: a bucket naming any plan work that lacks BOTH
+       SNAP-SYNC-STORAGE-RANGE-TASKS-COMPLETED-P and a published :STORAGE-ROOT
+       closure proof is added to unsafe-buckets and excluded. Unchanged by
+       519e4c9b and correct.
+    d. Its references come from MPT-HASHED-SUBTREES-WITH-PREFIX-AT-DEPTH
+       (persistence.lisp 201-240), which carries the same pointer-path gate at
+       218, so a shallow spine yields nothing at depth four here either.
+
+P3. The healer's own post-order sentinel, gated by SNAP-SYNC-HEALED-SUBTREE-
+    PUBLICATION-CANDIDATE-P (5658-5671). It only publishes what it has already
+    walked, so it can never prevent a walk.
+
+Consumers.
+
+C1. SNAP-SYNC-HEALED-SUBTREE-CANDIDATE-P (5629-5649). A work may consume a
+    proof only when its marker-state is NIL or :INSIDE and its path length is at
+    least *SNAP-SYNC-HEALED-SUBTREE-PREFIX-NIBBLES*, with one exception: a
+    STORAGE root at path length zero (5646-5647). An account root, and every
+    account node above the publication depth, is never a candidate. The top four
+    nibbles of the account trie are always walked.
+C2. client.lisp 6474-6477: skip when SNAP-SYNC-FILTERED-HEALED-SUBTREES-PRESENT
+    returns 1 for that exact (hash, :ACCOUNT) pair.
+C3. client.lisp 6478-6485 with SNAP-SYNC-HEAL-DEFER-DEPENDENCIES-P (3144-3164):
+    skip when a dependency proof exists with 1..64 roots and
+    deferred-storage-count + dependency-count <= 2048. A node with no recorded
+    dependencies is not deferrable (3162 requires (plusp dependency-count)).
+C4. integrate-present-work, client.lisp 6312-6324. THE ACCOUNT-SIDE HOLE. A
+    durably present, unmarked, hash-addressed node is skipped only when
+    (eq :storage (snap-sync-heal-work-kind work)). :ACCOUNT falls to
+    (t (process-object work object)) and is expanded, because an unmarked
+    account subtree may still name code or storage that is not durable.
+
+Why live coverage was 537 and 12,151 against 65,536 depth-four buckets
+
+The 12,151 :ACCOUNT proofs are buckets that passed every gate in P1 in some
+page: whole bucket inside one page's proved interval, pointer path already four
+nibbles deep, hash-addressed, wholly dirty, and zero page-local deferred storage
+roots. The 537 dependency proofs are buckets that passed the same geometric
+gates but carried 1..64 page-local deferred roots. P2, the producer that is not
+page-geometry-bound, contributed 0 on that run, which is the measurement this
+file reproduces.
+
+The 64-dependency bound is a suspect the counts do not support as the dominant
+exclusion. Only 537 buckets carried a page-local deferred root small enough to
+record at all, so buckets excluded by exceeding 64 are at most a small residue
+beside the roughly 52,800 buckets that produced nothing. The geometric gates
+P1(a)-(d) are the larger share by elimination. Which of them dominates is NOT
+established: it needs a per-bucket census of the preserved 5c8a39c0 store, which
+was not run.
+
+Tests landed
+
+tests/snap-tests.lisp, both new, both green on this tree.
+
+  snap-mid-range-rebase-zeroes-range-plan-promotion  (integration)
+    The two-arm reproduction above, with every number in the table asserted.
+    The DEFECT ASSERTION is marked in the source:
+      (is (= 322 (getf reproduction :processed)))
+    with the stated target that account-side closure must bring the
+    reproduction arm's walk down to the control arm's order, so this equality
+    and the three ratio assertions below it go red and the fix replaces 322 with
+    a number near 28. The control arm's (is (= 28 ...)) is the positive control:
+    it fails if the fixture ever stops being a cheap walk when promotion runs.
+    The narrow-bound arm is the second positive control: it fails if the width
+    bound, rather than the marker, is what zeroes promotion.
+
+  snap-mid-range-rebase-witness-blocks-every-plan-marker-reader  (unit)
+    The mechanism with no download. Sixteen page commits publish the marker;
+    the same sixteen with a rebase between page two and page three do not,
+    although every task completes and the witness is provably neither root.
+    Then a three-root plan under a segment bound of two -- wider than the bound
+    -- shows all three readers answering zero
+    (SNAP-SYNC-DEFERRED-STORAGE-SEGMENT, SNAP-SYNC-DEFERRED-STORAGE-PLAN-ROOTS,
+    SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN), and hand-writing ONLY the suppressed
+    marker restores all three: a capped two-work segment with more-p true, one
+    plan root, and 13 of 16 buckets promoted with the three open buckets still
+    excluded. That last pair is the positive control that the zeroes are caused
+    by the marker alone and not by the plan being wider than the bound.
+
+Verification
+
+  cl-workbench doctor --strict                                    exit 0
+
+  warm image, by name (cl-workbench test NAME), each exit 0:
+    snap-mid-range-rebase-zeroes-range-plan-promotion
+    snap-mid-range-rebase-witness-blocks-every-plan-marker-reader
+    snap-state-import-rebases-ranges-and-heals-the-new-pivot-root
+    snap-range-plan-promotion-streams-a-plan-wider-than-its-bound
+    snap-state-healer-reuses-proved-subtrees-across-pivots
+
+  assertion positive control: the defect assertion was temporarily changed to
+  (= 321 ...) and the warm run failed with
+    LISP-ERROR: Assertion failed: (= 321 (GETF REPRODUCTION :PROCESSED))
+  exit 1, then reverted. The harness also fails closed on an unknown test name
+  (exit 1, "Unknown test"), so neither run selected zero tests.
+
+  cl-workbench validation run cold-integration  > log 2>&1   exit 0
+    ok SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION
+    575 tests passed, 9 skipped.
+
+  cl-workbench validation run cold-unit         > log 2>&1   exit 0
+    ok SNAP-MID-RANGE-REBASE-WITNESS-BLOCKS-EVERY-PLAN-MARKER-READER
+    1409 tests passed, 3 skipped.
+
+  Both logs carry no `not ok` line, no duplicate and no torn TAP line, and no
+  compile warning under /workspace/src. The cold-unit result was produced twice
+  on the same untouched tree and is identical both times.
+
+  The counts add one test per layer, which is what this change contains: the
+  diff adds exactly one :LAYER :UNIT deftest and one :LAYER :INTEGRATION
+  deftest. Against the c4e9ec34 record in
+  docs/evidence/sec5-c4e9ec34-storage-plan-segments.txt (1403 unit, 574
+  integration) the integration delta is exactly +1; the unit delta also carries
+  the commits between that revision and fb944d33 and is not attributable here.
+
+  ONE COLD RUN WAS DISCARDED. The first cold-unit invocation reported "1411
+  tests passed", two more than either clean run. Its log contains duplicated and
+  torn TAP lines ("ok SNAPPY-COMPRESS-Rok TEST-WAIT-CONDITION-..."), because
+  tests/snap-tests.lisp was edited while that run was in progress. Its number is
+  not evidence of anything and is recorded here only so the discrepancy is not
+  mistaken later for a flaky test. CLAUDE.md states the do-not-edit-during-a-run
+  rule for src/ and the warm image; it holds for tests/ and for a cold run too.
+
+What is NOT verified
+
+1. The live magnitude. This fixture is a 403-account miniature at one-nibble
+   publication depth. It reproduces the mechanism, the marker absence, the three
+   zeroed readers and the DIRECTION and rough shape of the cost. It does not
+   predict the live constant: the 3305307d sample had processedNodes 1.23M,
+   frontierWorks 1.33M and promotedSubtrees 0, and nothing here models a trie
+   deep enough for depth-four buckets to exist.
+2. The account/storage split of processedNodes. That counter includes decoded
+   inline and hash-addressed nodes of both kinds. The 553 and 15 denominators
+   are account-trie only, computed separately. The storage share is small in
+   this fixture but is not separated out.
+3. The production multi-source path. SNAP-SYNC-IMPORT-STATE loads progress with
+   task-count 1 (client.lisp 7121-7123), so this reproduction runs one
+   whole-keyspace task; SNAP-SYNC-IMPORT-STATE-MULTI and the 64-task live
+   geometry are not exercised, and bucket-to-page alignment differs accordingly.
+4. Which of the P1 geometric gates dominates the live 52,800 unproved buckets.
+   Bounded by elimination above, not measured.
+5. Any fix. No account-side closure design is proposed, implemented, or
+   evaluated here, by instruction; other work owns it.
+6. No live run. Nothing remote was started, sampled, or modified.
+
+Carried forward
+
+1. The account side of closure is unchanged: C4 above, client.lisp 6312-6324.
+   The reproduction now gives it a deterministic RED target.
+2. sec5-c4e9ec34-storage-plan-segments.txt "Carried forward" item 3 can be
+   marked measured rather than code-read: a rebase does leave the new root with
+   no plan, SNAP-SYNC-DEFERRED-STORAGE-SEGMENT does return nothing, and the
+   healer does take the state-root walk from then on.
+3. A mid-range rebase also makes the plan marker unrecoverable for the OLD root,
+   whose ranges were fully paid for. Whether a marker keyed by something other
+   than the session's current state root would be sound is not analysed here.
