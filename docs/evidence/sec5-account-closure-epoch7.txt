@@ -13,6 +13,35 @@ Revision
 Branch account-closure-epoch7, on f4ac108b.
   b785afeb  snap: persist an account node only when its closure is durable
   ef70708c  snap: switch the closed account writer with the healer rule it needs
+  619acead  snap: a dependency-carrying account subtree keeps its interior marked
+
+Design record: docs/snap-account-closure.md.
+
+Exact-revision gates
+
+cl-workbench validation run cold-unit
+  1418 tests passed, 3 skipped.   Exit 0.
+cl-workbench validation run cold-integration
+  581 tests passed, 9 skipped.    Exit 0.
+No compile warning under /workspace/src in either run. Each of the ten new
+tests plus the two it retargets was grepped by name in the logs and is present
+as "ok", so neither run passed by selecting fewer tests than were registered.
+No PAX transcript names the closure epoch, the healer rule or the proved-range
+functions, so cold-docs is unaffected by this change.
+
+One pre-existing test was retargeted rather than relaxed:
+SNAP-ACCOUNT-RANGE-SUBTREE-PROOFS-CARRY-BOUNDED-STORAGE-GAPS pinned the counts
+that the dependency branch produced while it still recorded complete
+references. Its complete-reference count falls from six to two, its incomplete
+count rises from two to four, and it now also asserts that the dependent and
+nested groups are absent from the complete references.
+
+The mid-range-rebase reproduction (SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-
+PROMOTION) and its DEFECT ASSERTION are untouched and green. They are red only
+while the writer is switched on without the healer rule -- the control arm
+loses its 218 promoted subtrees -- which is precisely why the writer now sits
+behind a seam. Retargeting them to the post-closure numbers belongs to the
+epoch change, not to this one.
 
 The invariant
 
