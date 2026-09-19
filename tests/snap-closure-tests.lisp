@@ -1066,3 +1066,77 @@ open-storage-accounts=~D~%"
                 (hash-table-count node-map) pages reconstructed closed
                 open-code open-storage)
         (is (>= open-storage 0))))))
+
+;;; ------------------------------------------------------------------
+;;; The compensating machinery is disabled, not merely unreachable
+;;; ------------------------------------------------------------------
+
+(deftest snap-closed-account-store-never-promotes-a-range-plan
+  (:layer :unit :module :p2p)
+  ;; The walk-free completion publishes a state root without traversing the
+  ;; trie, on the strength of a range plan whose promotion walks a durable
+  ;; account spine.  A closed-writer store deliberately has no such spine, so
+  ;; entering it would publish completion over a trie the healer has not filled
+  ;; in.  It is already unreachable second-hand -- its predicate reads a plan
+  ;; marker that is never written for such a store -- and this pins the
+  ;; explicit guard so removing one of the two cannot silently re-open it.
+  (let ((database (make-memory-key-value-database))
+        (state-root (make-hash32 (snap-test-hash 61))))
+    (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+         database))
+    ;; Seed the plan marker and a promotion the legacy paths would consume, so
+    ;; the guard is the only thing that can be keeping them out.
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+       batch state-root)
+      (kv-apply-batch database batch))
+    (is (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+         database state-root))
+    ;; Control: with the legacy writer promotion gets past the marker check and
+    ;; goes on to open a persisted MPT on the state root, which this synthetic
+    ;; store does not hold. Reaching that walk at all is the proof that nothing
+    ;; but the guard keeps the closed-writer arm out of it.
+    (is (not (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
+              database)))
+    (signals error
+      (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+       database state-root))
+    ;; Subject: under the closed writer both refuse before reading anything.
+    (call-with-snap-closure-proof-depth
+     4
+     (lambda ()
+       (is (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
+            database))
+       (is (zerop
+            (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+             database state-root)))))
+    ;; SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P itself is deliberately NOT gated:
+    ;; it answers a question about the plan, and the guard belongs at the one
+    ;; site that would act on the answer. That site,
+    ;; SNAP-SYNC-FILL-STORAGE-THEN-HEAL, carries its own explicit refusal so
+    ;; the completion cannot be re-opened by dropping the plan-marker gate.
+    (is (ethereum-lisp.snap-sync::snap-sync-range-plan-fully-durable-p
+         database state-root))))
+
+(deftest snap-healed-storage-leaf-value-meets-the-uint256-ceiling
+  (:layer :unit :module :p2p)
+  ;; The 33-byte storage-value ceiling is what keeps account and storage nodes
+  ;; disjoint in the kind-blind trie-node table, and contract storage is
+  ;; attacker-controlled on a public network.  SNAP-SYNC-STORAGE-ENTRIES
+  ;; applies it to every StorageRanges response, but a storage leaf reached by
+  ;; hash during healing never passes through that function, so the same bound
+  ;; is applied where such a node is decoded.
+  (is (bytes= (rlp-encode (1- (ash 1 256)))
+              (ethereum-lisp.snap-sync::snap-sync-storage-trie-value
+               (rlp-encode (1- (ash 1 256))))))
+  ;; An over-wide value, a zero value and a non-string value are all refused.
+  (signals error
+    (ethereum-lisp.snap-sync::snap-sync-storage-trie-value
+     (rlp-encode (make-byte-vector 33 :initial-element 7))))
+  (signals error
+    (ethereum-lisp.snap-sync::snap-sync-storage-trie-value (rlp-encode 0)))
+  ;; An account leaf value can never pass the storage ceiling, which is the
+  ;; disjointness argument stated as an executable check.
+  (signals error
+    (ethereum-lisp.snap-sync::snap-sync-storage-trie-value
+     (state-account-rlp (make-state-account)))))

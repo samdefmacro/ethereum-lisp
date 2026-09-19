@@ -6438,8 +6438,23 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
          (process-value (work path value)
            (unless (byte-vector-p value)
              (error "Snap healed trie leaf value is not bytes"))
-           (when (eq :account (snap-sync-heal-work-kind work))
-             (queue-account-value path value)))
+           (if (eq :account (snap-sync-heal-work-kind work))
+               (queue-account-value path value)
+               ;; A storage leaf reached by hash rather than through a
+               ;; StorageRanges response has never met the uint256 ceiling that
+               ;; SNAP-SYNC-STORAGE-ENTRIES applies on the range path. That
+               ;; ceiling is what keeps account and storage nodes disjoint in
+               ;; the kind-blind trie-node table, and contract storage is
+               ;; attacker-controlled on a public network, so enforce it at
+               ;; every ingestion point rather than assuming the protocol.
+               (handler-case (snap-sync-storage-trie-value value)
+                 (error (condition)
+                   (if (snap-sync-heal-work-fetched-p work)
+                       (error "Snap peer returned an invalid storage leaf: ~A"
+                              condition)
+                       (ethereum-lisp.validation:storage-fail
+                        "Persisted snap storage leaf is invalid: ~A"
+                        condition))))))
          (process-object (work object)
            (when (snap-sync-heal-work-fetched-p work)
              (when (plusp healer-pending)
