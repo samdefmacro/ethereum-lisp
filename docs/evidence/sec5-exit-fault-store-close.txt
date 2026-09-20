@@ -1,0 +1,173 @@
+Section 5 exit-time memory fault: closing the store before exit(3)
+
+Status
+
+IN PROGRESS. This first revision records only what has been established by
+reading the pinned third-party source and this tree, before any behavioural
+change. It states the binding surface a fix can use and the exact durability
+contract of each entry point, so that the fix that follows can be reviewed
+against a written contract rather than against an assumption. Nothing here is
+a measurement of the fault; the measurements this document will carry are
+named under "Owed" and are not yet run.
+
+Revision at which the reading was done: a324d868 (branch
+sec5-public-bootstrap-sync), which carries the HTTP keep-alive shutdown fix.
+
+What is already established elsewhere, and is taken as given
+
+docs/evidence/sec5-shutdown-memory-fault-trace.txt records the fault itself:
+an SBCL memory fault on pid 1 tid 1 -- the MAIN thread -- in the final phase of
+process exit, on three long Hoodi runs (0c6b51bf, 646da589, 5c8a39c0), with the
+process still reporting exit 0 afterwards. A later addendum in the same file
+resolves the recorded pc, by layout arithmetic against a live /proc/1/maps,
+into libc's malloc region, and explains the fault address as
+heap_for_ptr(p)->ar_ptr with arena_for_chunk inlined into free -- i.e. free()
+of a chunk whose size word carries a spurious NON_MAIN_ARENA bit.
+
+docs/evidence/sec5-shutdown-provenance-audit.txt (Part A) enumerates every
+foreign allocation and every explicit foreign free this tree performs and finds
+no double, interior or mismatched free anywhere in it. Its A5 finding names the
+only exit-time teardown the process provokes: RocksDB's Env::Default()
+registers a single static, JoinThreadsOnExit, whose destructor runs under
+__cxa_atexit on the calling thread and joins every background thread, then
+clears bgthreads_ and so frees each std::thread control block -- chunks
+allocated when the pool grew at DB open, early in process life.
+
+Both documents converge on the same prerequisite: the node never closes the
+database, so at exit(3) the thread pools are still populated and still running.
+
+What this change is about
+
+Making the node close the store before it exits, on every exit path, so that
+the A5 teardown finds nothing of RocksDB's left to tear down.
+
+Established by reading: the store is never closed from the node
+
+CLOSE-ROCKSDB-KEY-VALUE-DATABASE is defined at
+src/foundation/database/rocksdb.lisp:376-384. Its only caller in src/ is
+DEVNET-CLI-CLOSE-DB-OPERATOR-DATABASE, src/app/cli/db.lisp:108, which is
+reached only from the offline `db` subcommand wrappers. Every other caller in
+the tree is a test. Confirmed by grep over src/, tests/ and scripts/ at
+a324d868.
+
+The serving node caches its handles in *DEVNET-CLI-KV-DATABASE-CACHE* and its
+scope macro's cleanup only rebinds that table; no close, no options destroy.
+
+Established by reading: what the pinned binding exposes today
+
+src/foundation/database/rocksdb.lisp binds, of the shutdown-relevant C API:
+
+    rocksdb_close                     rocksdb.lisp:93
+    rocksdb_options_destroy           rocksdb.lisp:15
+    rocksdb_readoptions_destroy       rocksdb.lisp:84
+    rocksdb_writeoptions_destroy      rocksdb.lisp:87
+    rocksdb_iter_destroy              rocksdb.lisp:124
+    rocksdb_writebatch_destroy        rocksdb.lisp:113
+
+and it does NOT bind rocksdb_cancel_all_background_work, rocksdb_flush,
+rocksdb_flush_wal, rocksdb_wait_for_compact or rocksdb_disable_manual_compaction.
+There are no column-family bindings and no snapshot bindings in the tree at
+all, so there are no CF handles or snapshots to release at shutdown.
+
+Established by reading the pinned RocksDB source: what close already does
+
+The pinned archive is tools/rocksdb/rocksdb-11.1.2.tar.gz, root
+facebook-rocksdb-9d94571. It was extracted read-only into a scratch directory
+and grepped; nothing was built or executed.
+
+    include/rocksdb/c.h:517    void rocksdb_close(rocksdb_t* db);
+    include/rocksdb/c.h:788    void rocksdb_flush_wal(rocksdb_t*, unsigned char
+                               sync, char** errptr);
+    include/rocksdb/c.h:3496   void rocksdb_cancel_all_background_work(
+                               rocksdb_t* db, unsigned char wait);
+
+    db/c.cc:1557-1560          rocksdb_close = `delete db->rep; delete db;`
+    db/c.cc:8645-8647          rocksdb_cancel_all_background_work =
+                               CancelAllBackgroundWork(db->rep, wait)
+    db/c.cc:2686-2688          rocksdb_flush_wal = db->rep->FlushWAL(sync)
+
+`delete db->rep` runs DBImpl::~DBImpl (db/db_impl/db_impl.cc:744-765), which
+takes closing_mutex_ and, when not already closed, calls CloseImpl -> CloseHelper
+(db_impl.cc:527). CloseHelper:
+
+  - sets shutdown_initiated_ and waits for background error recovery
+    (db_impl.cc:529-536);
+  - calls CancelAllBackgroundWork(false) (db_impl.cc:546);
+  - unschedules every task for this DB on all three priority pools
+    (db_impl.cc:551-557);
+  - WAITS on bg_cv_ until bg_bottom_compaction_scheduled_,
+    bg_compaction_scheduled_, bg_flush_scheduled_, bg_purge_scheduled_ and the
+    rest have drained (db_impl.cc:562-571);
+  - then releases the column-family handles and the rest of the DB state.
+
+Two consequences matter for the fix.
+
+1. rocksdb_close ALREADY cancels background work and waits for it. A separate
+   rocksdb_cancel_all_background_work(db, wait=1) binding is the earlier,
+   non-destructive half of the same thing; it is useful for splitting the wait
+   away from the destructive step (so a bounded wait can be observed and
+   reported before anything is deleted), but it is not a prerequisite for a
+   correct close. Note that CloseHelper's own wait has NO timeout: a close
+   issued while a large compaction is running blocks until that compaction
+   finishes.
+
+2. The close is DBImpl's own destructor, so it is idempotent at the C++ level
+   only in the sense that `closed_` guards a second CloseImpl; calling
+   rocksdb_close twice on the same pointer is a double delete. Idempotence has
+   to come from the Lisp side, and rocksdb.lisp:377/383 already provides it by
+   guarding on a null handle and nulling the slot.
+
+Established by reading the pinned source: durability at close
+
+DBImpl::CancelAllBackgroundWork (db_impl.cc:482-506) flushes all column
+families with FlushReason::kShutDown only when
+
+    !shutting_down_ && has_unpersisted_data_ && !avoid_flush_during_shutdown
+
+has_unpersisted_data_ is set by writes that BYPASS the WAL. This tree never
+disables the WAL: there is no rocksdb_writeoptions_disable_WAL binding at all,
+and the two write-option objects it creates differ only in the sync flag
+(rocksdb.lisp:348 sets sync=1 on WRITE-OPTIONS, rocksdb.lisp:352 sets sync=0 on
+BUFFERED-WRITE-OPTIONS).
+
+So the durability statement a close can honestly make on this tree is:
+
+  - every write that returned to the caller is already in the WAL, because no
+    write path disables it;
+  - a write made through WRITE-OPTIONS (sync=1) was fsynced before it returned,
+    and RocksDB's synced write flushes the preceding WAL prefix too
+    (as the comment at rocksdb.lisp:349-351 states);
+  - a write made through BUFFERED-WRITE-OPTIONS (sync=0) is in the WAL file but
+    not necessarily fsynced; closing the DB does not add an fsync for it, and
+    does not need to -- it survives a process exit, and is lost only to a host
+    or kernel crash, exactly as before this change;
+  - closing does NOT flush memtables to SSTs, and does not need to: their
+    contents are in the WAL and are replayed on the next open.
+
+Therefore an orderly close changes NOTHING about what is durable. It changes
+only whether the background threads and the block cache are released by the
+process while it is alive, instead of by a static destructor at exit(3).
+
+Does it reproduce locally?
+
+NOT ESTABLISHED YET in this session. The prior record (ea865333) is that the
+bounded probe scripts/rocksdb-exit-fault-probe.lisp and the e2e control
+ROCKSDB-UNWINDING-EXIT-DOES-NOT-FAULT-WITH-AN-OPEN-STORE are green in both
+arms and cannot reach the regime the live faults need: the probe writes about
+200 MiB and lives about a minute, while the faulting runs are above an hour at
+a 50 GiB datadir. The live artifact is amd64 and this machine's dev and test
+images are arm64, which is a second reason a local negative is not evidence of
+health.
+
+The consequence for this change, stated plainly: the RED control for the
+regression cannot be the fault itself. It has to be the property whose absence
+lets the fault happen -- that the node reaches its exit with the store open --
+and any test asserting it must say so in its own comment.
+
+Owed (not verified at the time of writing)
+
+- Whether the fault reproduces locally at all, and on which architecture.
+- An amd64 live-host confirmation that the fault is absent after a clean close.
+  Nothing in this document or the change it accompanies establishes that; it
+  remains owed to the record.
+- The cold-layer verification of the change itself.
