@@ -1,0 +1,115 @@
+Section 5: the per-node cost of a purely local heal walk
+
+Scope
+
+This file is about the CONSTANT FACTOR of the healer's local walk, not about
+which nodes it walks. Whether the healer should descend into present, unmarked
+account subtrees after a pivot rebase is a separate, concurrent piece of work
+(docs/snap-account-closure.md, sec5-3305307d-hoodi-stall.txt). Nothing recorded
+here changes the skip/descend decision, the closure epoch, or the completion
+predicate.
+
+The question is narrower: the 3305307d Hoodi sample walks nodes that are
+already present in the local RocksDB store at processedRate 260 nodes/s while
+the container burns 111% of eight cores. That is ~4.3 ms of CPU per node for
+what should be a point read, an RLP decode and a Keccak check. A 10-100x
+constant-factor win shortens every heal regardless of which closure design
+lands.
+
+Live numbers this works from (sec5-3305307d-hoodi-stall.txt, 16 h 8 min in)
+
+  processedNodes        804,864      processedRate    260
+  reusedNodes         1,851,380      discoveredRate   520
+  fetchedNodes            1,291      netDrainRate    -260
+  requestCount              669
+  frontierWorks         909,342      knownIncompleteNodes  796,382
+  skippedSubtrees     4,514,481      promotedSubtrees        0
+
+frontierWorks 909,342 is the number that matters below.
+
+The per-node path, as mapped on a324d868
+
+All line numbers are src/networking/snap-sync/client.lisp at a324d868.
+
+  %SNAP-SYNC-HEAL-STATE                                     5947
+    COLLECT-MISSING                                         6584
+      outer loop, once per local read batch                 6607
+        READ-LIMIT = SNAP-SYNC-HEAL-LOCAL-READ-LIMIT        6632
+        inner loop: pop works until READ-LIMIT              6649
+          STACK-POP                                         6106  O(1)
+          :node-complete / :complete sentinels              6659
+            BLOCK-COMPLETION or PERSIST-COMPLETE-NODE       6326
+          SNAP-SYNC-HEALED-SUBTREE-CANDIDATE-P              5873
+        per batch, for the candidate works:
+          SNAP-SYNC-FILTERED-HEALED-SUBTREES-PRESENT        4988  metadata MultiGet
+          SNAP-SYNC-FILTERED-ACCOUNT-SUBTREE-DEPENDENCIES   5030  metadata MultiGet
+        per batch, for the surviving works:
+          READ-LOCAL-NODES                                  6186
+            SNAP-SYNC-HEAL-LOCAL-NODE-AND-INCOMPLETE-BATCH  4727  trie-node + marker MultiGet
+            decoder: DECODE-LOCAL-NODE -> DECODE-ENCODED    6517  keccak-256 + rlp-decode-one
+        per work resolved present:
+          INTEGRATE-PRESENT-WORK                            6543
+            push :node-complete sentinel when marked        6564
+            PROCESS-OBJECT                                  6458
+              16 x (concatenate 'vector path (vector index)) 6483
+              16 x PUSH-REFERENCE -> STACK-PUSH             6267
+              account leaf: QUEUE-ACCOUNT-VALUE             6425
+              REPORT-LOCAL-CHECKPOINT every 2048 nodes      6150
+
+So a batch of width W costs three metadata/trie MultiGets plus W decodes; a
+batch of width 1 costs the same three MultiGets for one node.
+
+Finding 1 (unverified by measurement at the time of writing): the local read
+batch collapses to width 1 once the frontier passes 131,072 works
+
+SNAP-SYNC-HEAL-LOCAL-READ-LIMIT (3348) computes
+
+  frontier-limit  = +snap-sync-heal-live-frontier-max-works+ = 131,072
+                    (4,096 only while the frontier is below the checkpoint
+                     soft target)
+  expansion-room  = floor(max(0, frontier-limit - stack-count) / 63)
+  read-limit      = min(4096, missing-room, checkpoint-room, max(1, expansion-room))
+
+With the live frontier at 909,342 the subtraction saturates at 0, so
+expansion-room is 0 and read-limit is exactly 1. Every node then becomes its
+own read batch: its own healed-subtree presence MultiGet, its own
+account-subtree dependency MultiGet, its own trie-node/marker MultiGet, its own
+dispatch through the eight-thread bounded read pool, and its own per-batch
+vector/`coerce` allocation. The 4,096-wide batching that
++SNAP-SYNC-HEAL-LOCAL-READS-PER-BATCH+ advertises is unreachable for the whole
+of the live run.
+
+The bound it is trying to enforce -- "one batch must not push the frontier past
+frontier-limit" -- is already violated at that point and returning 1 does not
+restore it, because a single work can still expand the frontier by up to 63.
+Below the limit the bound is meaningful; above it, it costs throughput and buys
+nothing.
+
+The same threshold appears a second time in COLLECT-MISSING's outer loop guard
+(6611): under BOUNDED-REFILL-P the guard
+
+  (<= (+ stack-count missing-count deferred-storage-count remote-work-count 63)
+      +snap-sync-heal-live-frontier-max-works+)
+
+is false for a 909,342-work frontier, so the live pipeline's refill path
+performs no local work at all and all progress comes from the unbounded path.
+
+This is stated here as a reading of the code. It is NOT yet confirmed by a
+measurement; the benchmark below is what would confirm it.
+
+Benchmark shape (planned)
+
+A local-only walk over a synthetic account trie fully present in a real on-disk
+RocksDB store, seeded from the root with every node marked incomplete, i.e. the
+mode the live run is in (knownIncompleteNodes / processedNodes = 0.99). The
+measurement of record is operation COUNTS per node -- metadata MultiGets,
+trie-node MultiGets, decodes, batch applies -- not wall clock, so it cannot
+drift on a shared machine. Wall clock is recorded alongside as an observation
+only, and arm64 container numbers are not the amd64 host's.
+
+Not verified
+
+- No measurement has been taken yet; every number above except the live sample
+  is a reading of the source.
+- The live sample is an amd64 host. Any local benchmark runs in an arm64
+  container and its absolute times do not transfer.
