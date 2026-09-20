@@ -337,3 +337,99 @@ Not verified
   Every existing datadir will have to resync when the epoch does advance; the
     revocation path keeps their content and drops the skip. That is free, since
     none has ever converged.
+
+================================================================================
+Phase two: the non-snap writers, read out of the tree
+================================================================================
+
+Phase one classified the non-snap writers in prose. Epoch seven makes account
+presence load-bearing, so each one is re-read here as a mechanism, with the
+question stated the way it has to be answered: for THIS caller, is the whole
+dirty set plus the code it names applied in ONE atomic batch -- in which case
+I1 holds iff the base state was already closed -- or in several, in which case
+order and crash behaviour decide it?
+
+The mechanism that makes the question sharp
+
+MPT-POPULATE-DIRTY-BATCH (src/foundation/trie/persistence.lisp:419-437) adds
+(MPT-DIRTY-NODES TRIE) and nothing else. MPT-PERSIST's own docstring at :444-449
+states the consequence: "For a trie opened from a persisted root, untouched hash
+subtrees are never resolved or rewritten." A dirty-node batch is therefore a
+closed subtree only when every hash child it names was ALREADY durable. That is
+the exact shape of an I1 violation for a non-snap writer, and no marker, proof
+or provenance bit distinguishes such a node from one the closed snap writer
+wrote: the :TRIE-NODE table is content-addressed and kind-blind.
+
+Callers, enumerated from the tree
+
+  src/storage/node-store/persistence/export/state.lisp:196
+    CHAIN-STORE-POPULATE-STATE-TRIE-RECORD-TO-KV. Iterates
+    CHAIN-STORE-STATE-PERSISTENCE-TRIES (account trie first, then the touched
+    accounts' storage tries -- src/runtime/state/roots.lisp:111-129) putting each
+    trie's dirty nodes into the CALLER's batch, then puts every code body of the
+    same block through NODE-STORE-CODE-SINK-PUT (:200-202) into that SAME batch
+    (src/storage/node-store/persistence/code-store.lisp:82-112). Three
+    lifecycles reach it, and all three build one batch and apply it once:
+      full / genesis export  export/orchestrator.lisp:1215 batch, :1250 apply
+      payload candidate      export/orchestrator.lisp:678  batch, :779-780 apply
+      forkchoice             export/orchestrator.lisp:990  batch, :1135-1137 apply
+    The payload-candidate and forkchoice applies choose buffered or synchronous;
+    both are atomic, so the choice is a durability question, not an atomicity
+    one.
+
+  src/storage/node-store/persistence/import/state.lisp:487
+    The schema-v4 migration, rewriting records already in the store.
+
+  src/foundation/trie/persistence.lisp:451
+    MPT-PERSIST, one batch of one trie's dirty nodes and NO code. Its only
+    callers in src/ are src/networking/snap-sync/backend.lisp:29 and :177 --
+    the snap/1 SERVER.
+
+(a) Genesis export: sound as it stands, for a reason worth pinning
+
+The scheme marker is stamped by its own batch inside
+SNAP-SYNC-ENABLE-COMPLETE-NODE-SCHEME-P (client.lisp:893-904), called from
+src/app/cli/devnet/persistence.lisp:539-552 deliberately BEFORE the export. Two
+batches, in that order. The review reads this as the marker certifying only
+"the store was empty at datadir creation", which is true and is exactly what
+makes it safe here:
+
+  - :897 stamps only when SNAP-SYNC-TRIE-NODE-STORE-EMPTY-P (:883-891) holds,
+    so a crash between the marker batch and the export batch leaves a marked
+    store with an EMPTY :TRIE-NODE table. I1 is vacuous there, and the next
+    start re-enters the same path.
+  - the export batch is a single atomic write carrying the whole materialized
+    trie AND the code it names. A crash loses all of it or none of it. A
+    partial genesis trie is not reachable through this path.
+
+So the smallest sound change at the genesis site is NO change. What is missing
+is that the soundness rests entirely on "one batch", and nothing in the tree
+says so: splitting the export for memory reasons would silently void I1 while
+every existing test stayed green. That is what the new regression pins.
+
+(b) Block commits over an incomplete state
+
+Mechanically the hazard is real: a dirty-only commit writes new parent nodes
+above hash children it assumes durable. What makes it unreachable is that
+execution needs the parent state, and the snap path refuses to execute until
+the import reports completion -- src/app/cli/devnet/dialer.lisp:2272-2275
+signals "Snap pivot state import returned before completion" and only then
+installs the forkchoice sync pivot (:2279-2292) and executes the bounded
+post-pivot tail (:2293-2325), each tail block required to return VALID.
+
+That is an orchestration argument about one call path, not a property of the
+writer, and epoch seven must not rest on it. Stated as an induction it is
+honest: genesis writes a complete state in one atomic batch, a snap sync
+publishes its root only through the healer's post-order contract, and every
+block commit preserves closure if its base had it. The base cases are the two
+this change is about; the step is the block commit.
+
+(c) The snap/1 server is the one that does not fit
+
+SNAP-SYNC-ROOT-TRIE (src/networking/snap-sync/backend.lisp:18-30) calls
+(MPT-PERSIST DATABASE TRIE) on (STATE-DB-STATE-TRIE STATE) -- the ACCOUNT trie
+alone. Not the touched storage tries, not the code. It is not a complete-state
+commit and does not have the atomic-batch-of-everything property the other
+three callers have, and peer-sync keeps it live while we are ourselves syncing.
+This is the writer that needs a change rather than a comment; it is recorded
+here before the fix so the reasoning survives the diff.
