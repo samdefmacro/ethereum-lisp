@@ -198,21 +198,18 @@ completion (closed wins: a leaf is open only if no page ever closed it).
 A withheld node is charged to open storage when an open storage-owning leaf
 lies beneath it, else to open code when an open code-only leaf does, else
 to a leaf no page ever judged (a rebase changed it after its page was
-downloaded under the older root), else to the page-boundary straddle -- a spine or range-straddling node whose subtree
-is wholly closed but was never inside one delivered page.
+downloaded under the older root), else to the page-boundary straddle -- a
+spine or range-straddling node whose subtree is wholly closed but was never
+inside one delivered page.
 
-Returns a plist: node totals, present, withheld by cause, and the walk a
-healer with an account presence skip would make from ROOT (every absent node
-fetched and descended, every present node reached from an absent parent
-skipped)."
+Returns a plist: node totals, present, withheld by cause, and the number of
+present nodes with an absent descendant (the subtree half of I1)."
   (let ((open-memo (make-hash-table :test #'equalp))
         (present 0)
         (withheld-storage 0)
         (withheld-code 0)
         (withheld-straddle 0)
         (withheld-unjudged 0)
-        (skip-fetched 0)
-        (skip-skipped 0)
         (full-memo (make-hash-table :test #'equalp))
         (subtree-violations 0))
     (labels
@@ -247,14 +244,7 @@ skipped)."
              (when (and (funcall present-p hash) (not children-full))
                (incf subtree-violations))
              (setf (gethash hash full-memo)
-                   (and children-full (funcall present-p hash)))))
-         (skip-walk (hash)
-           (if (funcall present-p hash)
-               (incf skip-skipped)
-               (progn
-                 (incf skip-fetched)
-                 (dolist (child (car (gethash hash trie)))
-                   (skip-walk child))))))
+                   (and children-full (funcall present-p hash))))))
       (openness root)
       (full-p root)
       (maphash
@@ -269,28 +259,27 @@ skipped)."
                  ((third flags) (incf withheld-unjudged))
                  (t (incf withheld-straddle))))))
        trie)
-      (skip-walk root)
       (list :nodes (hash-table-count trie) :present present
             :withheld (- (hash-table-count trie) present)
             :withheld-open-storage withheld-storage
             :withheld-open-code withheld-code
             :withheld-straddle withheld-straddle
             :withheld-unjudged withheld-unjudged
-            :skip-walk-processed (+ skip-fetched skip-skipped)
-            :skip-walk-fetched skip-fetched
-            :skip-walk-skipped skip-skipped
             :i1-subtree-violations subtree-violations))))
 
 ;;; ------------------------------------------------------------------
 ;;; One instrumented import
 ;;; ------------------------------------------------------------------
 
-(defun call-with-snap-density-writer (closed-p depth thunk)
-  "Run THUNK with the account writer selected by CLOSED-P and proofs at DEPTH.
+(defun call-with-snap-density-writer (depth thunk)
+  "Run THUNK with the closure seam on and range proofs published at DEPTH.
 
-Set process-globally, not bound: the multi-source importer prepares and
-completes pages on worker threads, where a LET binding is invisible and the run
-would silently exercise the legacy writer."
+The seam is the production default; it is set rather than assumed so a test
+that left it off cannot make this run exercise the legacy writer.  Set
+process-globally, not bound: the multi-source importer prepares and completes
+pages on worker threads, where a LET binding is invisible.  Which writer a
+store gets is then decided by the store itself: a fresh store enters the
+closure epoch, one seeded by SNAP-TEST-SEED-LEGACY-TRIE-STORE never does."
   (let ((writes ethereum-lisp.snap-sync::*snap-sync-account-closure-writes*)
         (lookup ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*)
         (coarse ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*)
@@ -299,7 +288,7 @@ would silently exercise the legacy writer."
     (unwind-protect
          (progn
            (setf ethereum-lisp.snap-sync::*snap-sync-account-closure-writes*
-                 closed-p
+                 t
                  ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                  depth
                  ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
@@ -338,14 +327,21 @@ would silently exercise the legacy writer."
 
 With BEFORE, the range phase first runs REBASE-AFTER-PAGES pages under
 BEFORE-ROOT, the progress is rebased to AFTER-ROOT, and the import then
-finishes under AFTER-ROOT: the live mid-range rebase.  CLOSED-P selects the
-closed account writer, MULTI-P the multi-source importer with two sources.
+finishes under AFTER-ROOT: the live mid-range rebase.  CLOSED-P NIL seeds the
+target as a legacy store (SNAP-TEST-SEED-LEGACY-TRIE-STORE), so it never
+enters the closure epoch and gets the legacy writer and healer rule; T leaves
+it fresh, so it gets the closed writer and the account presence skip.  MULTI-P
+selects the multi-source importer with two sources.
 BYTE-LIMIT is both the AccountRange and the StorageRanges byte cap, which is
 how the importer sends them.
 
 The store the healer faces is sampled at SNAP-SYNC-HEAL-STATE entry, after the
 range phase and the deferred-storage fill; the heal counters are the importer's
-own last heal-progress event."
+own last heal-progress event.  The account side of the heal is split out of
+those mixed counters: HEAL-ACCOUNT-TOUCHED is every account node the healer
+created work for, HEAL-ACCOUNT-EXPANDED the ones it descended into (an
+interior node whose children it pushed, a leaf whose account it decoded), and
+HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced."
   (multiple-value-bind (trie root) (snap-density-trie after)
     (unless (bytes= root (hash32-bytes after-root))
       (error "Density fixture trie does not belong to its root"))
@@ -387,11 +383,10 @@ own last heal-progress event."
              (fdefinition 'ethereum-lisp.snap-sync::snap-sync-heal-state))
            (real-make-work
              (fdefinition 'ethereum-lisp.snap-sync::snap-sync-make-heal-work))
-           (real-proofs-present
-             (fdefinition
-              'ethereum-lisp.snap-sync::snap-sync-filtered-healed-subtrees-present))
+           (real-decode-account
+             (fdefinition 'ethereum-lisp.state:decode-state-account-rlp))
            (heal-account-reached (make-hash-table :test #'equalp))
-           (heal-account-proof-skips (make-hash-table :test #'equalp))
+           (heal-account-leaves (make-hash-table :test #'equalp))
            (real-fill
              (fdefinition
               'ethereum-lisp.snap-sync::snap-sync-fill-storage-then-heal))
@@ -418,8 +413,10 @@ own last heal-progress event."
                     :max-pages max-pages
                     :on-heal-progress
                     (lambda (event) (push event heal-events)))))))
+      (unless closed-p
+        (snap-test-seed-legacy-trie-store target))
       (call-with-snap-density-writer
-       closed-p depth
+       depth
        (lambda ()
          (unwind-protect
               (progn
@@ -444,11 +441,22 @@ own last heal-progress event."
                  (fdefinition 'ethereum-lisp.snap-sync::snap-sync-heal-state)
                  (lambda (&rest arguments)
                    (setf at-heal (funcall snapshot))
-                   (apply real-heal arguments))
+                   ;; Only the healer decodes an account leaf while it runs
+                   ;; (the range-phase decoders have all joined), and it does
+                   ;; so exactly when it expands that leaf.
+                   (setf (fdefinition 'ethereum-lisp.state:decode-state-account-rlp)
+                         (lambda (value)
+                           (sb-thread:with-mutex (lock)
+                             (setf (gethash value heal-account-leaves) t))
+                           (funcall real-decode-account value)))
+                   (unwind-protect (apply real-heal arguments)
+                     (setf (fdefinition
+                            'ethereum-lisp.state:decode-state-account-rlp)
+                           real-decode-account)))
                  ;; The healer's counters mix account and storage nodes.  Every
                  ;; account node it reaches is created as a work item first, and
-                 ;; every account subtree it skips on a closure proof is answered
-                 ;; by the proof lookup, so these two seams split them out.
+                 ;; it pushes a node's children only when it expands the node,
+                 ;; so this seam splits the account side out.
                  (fdefinition 'ethereum-lisp.snap-sync::snap-sync-make-heal-work)
                  (lambda (kind account-hash path reference &rest keys)
                    (when (and (eq kind :account)
@@ -456,20 +464,7 @@ own last heal-progress event."
                                       '(nil :armed :inside)))
                      (sb-thread:with-mutex (lock)
                        (setf (gethash reference heal-account-reached) t)))
-                   (apply real-make-work kind account-hash path reference keys))
-                 (fdefinition
-                  'ethereum-lisp.snap-sync::snap-sync-filtered-healed-subtrees-present)
-                 (lambda (database references kinds bloom)
-                   (let ((present (funcall real-proofs-present
-                                           database references kinds bloom)))
-                     (sb-thread:with-mutex (lock)
-                       (dotimes (index (length references))
-                         (when (and (eq :account (aref kinds index))
-                                    (= 1 (aref present index)))
-                           (setf (gethash (aref references index)
-                                          heal-account-proof-skips)
-                                 t))))
-                     present)))
+                   (apply real-make-work kind account-hash path reference keys)))
                 (when before
                   (funcall run-import before before-root (funcall pivot 3) 100
                            rebase-after-pages)
@@ -522,12 +517,24 @@ own last heal-progress event."
                     (and last-event
                          (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
                           last-event))
-                    :heal-account-reached (hash-table-count heal-account-reached)
-                    :heal-account-proof-skips
-                    (hash-table-count heal-account-proof-skips)
-                    :heal-account-decoded
-                    (- (hash-table-count heal-account-reached)
-                       (hash-table-count heal-account-proof-skips))
+                    :heal-account-touched
+                    (loop for hash being the hash-keys of heal-account-reached
+                          count (nth-value 1 (gethash hash trie)))
+                    :heal-account-expanded
+                    (loop for shape being the hash-values of trie
+                          count (if (cdr shape)
+                                    (nth-value
+                                     1 (gethash (cdr shape) heal-account-leaves))
+                                    (some (lambda (child)
+                                            (nth-value
+                                             1 (gethash child
+                                                        heal-account-reached)))
+                                          (car shape))))
+                    :heal-account-fetched
+                    (loop for hash being the hash-keys of heal-account-reached
+                          count (and (nth-value 1 (gethash hash trie))
+                                     faced
+                                     (not (nth-value 1 (gethash hash faced)))))
                     :promoted
                     (and last-event
                          (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
@@ -543,9 +550,8 @@ own last heal-progress event."
             real-heal
             (fdefinition 'ethereum-lisp.snap-sync::snap-sync-make-heal-work)
             real-make-work
-            (fdefinition
-             'ethereum-lisp.snap-sync::snap-sync-filtered-healed-subtrees-present)
-            real-proofs-present)))))))
+            (fdefinition 'ethereum-lisp.state:decode-state-account-rlp)
+            real-decode-account)))))))
 
 ;;; ------------------------------------------------------------------
 ;;; The pinned measurement
@@ -565,7 +571,7 @@ own last heal-progress event."
   ;; single-source importer, so interior nodes lie wholly inside pages as they
   ;; do live.  Closure proofs are published and consulted at depth one, the
   ;; geometry in which a depth bucket is wider than a page and the legacy
-  ;; healer re-walks after a rebase (SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-
+  ;; healer re-walks most after a rebase (SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-
   ;; PROMOTION).  docs/evidence/sec5-closure-density-measurement.txt holds the
   ;; 5,000-account tables, both depths and the multi-source arms.
   (multiple-value-bind (before contracts population) (snap-density-state 2000)
@@ -608,9 +614,13 @@ own last heal-progress event."
                       trie root (lambda (hash) (not (bytes= hash leaf)))
                       (make-hash-table))
                      :i1-subtree-violations)))))
-      ;; The live stall: the pivot moves after half the pages, 1.5% of the
+      ;; The live stall: the pivot moves after two of five pages, 1.5% of the
       ;; accounts change, and the rest of the range downloads under the new
-      ;; root.  Both arms install the same root; they differ only in the writer.
+      ;; root.  Both arms install the same root and run the real healer; they
+      ;; differ only in the store.  The legacy arm is seeded with a trie node
+      ;; before the closure stamp, so it never enters the epoch: legacy writer,
+      ;; no account presence skip.  The subject is a fresh epoch-seven store:
+      ;; closed writer, and the healer skips present unmarked account nodes.
       (multiple-value-bind (after changed)
           (snap-density-rebase before contracts 2000)
         (is (plusp changed))
@@ -631,29 +641,28 @@ own last heal-progress event."
             (is (bytes= (hash32-bytes after-root) (getf arm :installed-root)))
             (is (getf arm :healer-ran-p)))
           (is (zerop (getf subject :i1-subtree-violations)))
+          ;; The legacy store carries the spine above changed paths, so it
+          ;; does not satisfy I1; the subject's zero above is a discriminating
+          ;; check, not an idle counter.
+          (is (plusp (getf legacy :i1-subtree-violations)))
           ;; The rebase is what the healer repairs: nodes no page judged.
           (is (plusp (getf subject :withheld-unjudged)))
           ;; Positive control: the legacy healer really re-walks after the
-          ;; rebase -- it decodes many times the account nodes that changed.
-          (is (> (getf legacy :heal-account-decoded)
-                 (* 3 (getf subject :withheld-unjudged))))
-          ;; The comparison the epoch bump rests on.  With an account presence
-          ;; skip, the healer decodes only the absent nodes it fetches and
-          ;; stops at every present one, so its walk over the closed store is
-          ;; SKIP-WALK-*.  That skip is not in this tree yet; the walk is
-          ;; computed from the store the healer faced and is an estimate of the
-          ;; rule, not a measurement of it.  It is strictly below legacy both in
-          ;; account nodes decoded and in account nodes touched at all.
-          (is (< (getf subject :skip-walk-fetched)
-                 (getf legacy :heal-account-decoded)))
-          (is (< (getf subject :skip-walk-processed)
-                 (getf legacy :heal-account-reached)))
-          ;; DEFECT ASSERTION for the interim, not the target.  The healer in
-          ;; this tree trusts an account node only through a closure proof at
-          ;; its lookup depth, and after a rebase the depth-one nodes above
-          ;; every changed path are new hashes, so on a closed-writer store it
-          ;; re-walks MORE than legacy.  This is why the writer sits behind its
-          ;; seam until the presence skip lands; that change must turn this
-          ;; comparison around and retarget it.
-          (is (> (getf subject :heal-account-decoded)
-                 (getf legacy :heal-account-decoded))))))))
+          ;; rebase -- it expands several times the account nodes it fetches
+          ;; (measured 257 expanded, 50 fetched).
+          (is (> (getf legacy :heal-account-expanded)
+                 (* 3 (getf legacy :heal-account-fetched))))
+          ;; The account presence skip, measured on the real healer: on the
+          ;; closed store it expands exactly the account nodes it had to
+          ;; fetch and stops at every present one (measured 64 and 64).
+          (is (plusp (getf subject :heal-account-fetched)))
+          (is (= (getf subject :heal-account-expanded)
+                 (getf subject :heal-account-fetched)))
+          ;; The comparison the epoch bump rests on: strictly fewer account
+          ;; nodes expanded than legacy (64 against 257) and strictly fewer
+          ;; touched at all (366 against 417).  It fetches more (64 against
+          ;; 50): the spine the closed writer does not write.
+          (is (< (getf subject :heal-account-expanded)
+                 (getf legacy :heal-account-expanded)))
+          (is (< (getf subject :heal-account-touched)
+                 (getf legacy :heal-account-touched))))))))

@@ -213,3 +213,97 @@ Not verified
   Live page density (thousands of accounts a page) and live trie depth.
   Storage-side heal cost is not split out; the storage walk is included in
   the importer's total counters only.
+
+Measured with the real skip
+
+Revision: branch closure-density-real on 5605c936, which carries the
+epoch-seven change (closure writes on by default, scheme #(7), and
+INTEGRATE-PRESENT-WORK skipping a present unmarked account node on a store
+whose closed-account scheme is on). Same fixture, same byte cap, same
+rebase. The estimate above is replaced by the healer itself.
+
+The two arms now differ by the store, not by a flag. The closed arm is a
+fresh store, which enters epoch seven: closed writer plus the presence skip.
+The legacy arm is seeded by SNAP-TEST-SEED-LEGACY-TRIE-STORE with one trie
+node before the stamp, so it never enters the epoch: legacy writer, no
+account presence skip and, unlike the earlier legacy arm, no storage
+presence skip either. That is why the legacy totals below carry about 2,300
+more processed nodes than before; they are storage nodes, and the account
+columns are the comparison.
+
+Account columns, split out of the healer's mixed counters at two seams:
+touched = distinct account references the healer created work for
+(SNAP-SYNC-MAKE-HEAL-WORK); expanded = account nodes it descended into (an
+interior node whose children it pushed, a leaf whose account it decoded
+while healing); fetched = touched nodes absent from the store at
+SNAP-SYNC-HEAL-STATE entry. The earlier "decoded" (reached minus closure-proof
+skips) is retired: a presence skip is neither.
+
+Single-source importer, mid-range rebase, touched / expanded / fetched:
+
+                                legacy store          closed epoch-7 store
+  2,000 accounts, 88 of 2,647 nodes changed, rebase after 2 of 5 pages
+    lookup depth 1              417 / 257 / 50        366 / 64 / 64
+    lookup depth 2              432 /  79 / 50        366 / 64 / 64
+  5,000 accounts, 178 of 6,873 nodes changed, rebase after 5 of 10 pages
+    lookup depth 1            1,317 / 1,133 / 103     848 / 131 / 131
+    lookup depth 2              839 /   196 / 103     848 / 131 / 131
+
+  The real healer on the closed store reproduces the estimate exactly
+  (366 / 64 and 848 / 131): it expands precisely the nodes it fetches.
+
+  No rebase, closed store: 2,000 accounts 156 / 17 / 17, 5,000 accounts
+  344 / 34 / 34 at both depths. The legacy store expands no account node
+  without a rebase (its range proofs cover the trie).
+
+What this establishes
+
+  The closed store expands strictly fewer account nodes than the legacy
+  store in all four rebase cells: 64 against 257 and 79, 131 against 1,133
+  and 196. The ratio is widest where a lookup bucket is wider than a page
+  (depth one) and narrowest where legacy range proofs cover whole buckets
+  (depth two).
+
+  It touches fewer in three cells and 9 more (848 against 839, +1.1%) in
+  the fourth, 5,000 accounts at depth two. The skip stops at the present
+  siblings of every changed path, and legacy's depth-two range proofs stop
+  at about as many. Touched counts one lookup per node, not one expansion.
+
+  It fetches more in every cell (64 against 50, 131 against 103): the spine
+  and page-boundary nodes the closed writer never writes and the open
+  chunked-storage paths. That is the design's stated price.
+
+The pinned test, retargeted
+
+SNAP-CLOSED-ACCOUNT-WRITER-AT-PAGE-DENSITY-AND-AFTER-A-MID-RANGE-REBASE now
+runs the real healer on both stores (2,000 accounts, depth one). The
+withheld-fraction bound, the I1 read-back and their RED controls are
+unchanged. The skip-walk estimate and the interim defect assertion are gone;
+in their place:
+
+  legacy positive control: expanded > 3 x fetched (257 > 150), and the
+    legacy store reports I1 violations (2), so the closed store's zero is a
+    discriminating check;
+  the skip: closed expanded = closed fetched (64 = 64), non-zero;
+  the comparison: closed expanded < legacy expanded (64 < 257) and closed
+    touched < legacy touched (366 < 417).
+
+RED control for the comparison: with SNAP-SYNC-CLOSED-ACCOUNT-WRITES-P
+forced to NIL only for the duration of SNAP-SYNC-HEAL-STATE (the store is
+still written by the closed writer; only the healer's skip is off), the
+closed arm expands 947 of 1,072 touched and the test fails at
+(= expanded fetched); 947 is also above legacy's 257. That is the same 947
+the interim defect assertion pinned before the skip landed.
+
+Verification of record for this section, on the test change in this commit:
+  cl-workbench validation run cold-integration
+    593 tests passed, 9 skipped.   Exit 0.
+  No STYLE-WARNING; the "; density rebase closed" line is in the log, so the
+  test ran. The registered integration set is unchanged from 5605c936 (the
+  test was retargeted, not added). cold-unit not run: no unit test changed.
+
+Still not verified
+
+  50,000 accounts and multi-source at page density, for the memory reason
+  above. Live page density and trie depth. Storage-side heal cost, beyond
+  the note that the legacy store now also walks storage it used to skip.
