@@ -1,0 +1,234 @@
+Section 5 account-side closure: the snap/1 server writer and the cross-thread crash seams
+
+Status
+
+Two items the account-closure work left open. The snap/1 server no longer
+writes the state it serves, and the two cross-thread crash seams of the
+multi-source import that sec5-account-closure-epoch7.txt listed as "Not
+covered" now have crash-injection tests. The closure epoch is not advanced
+and the healer is untouched. No live run.
+
+Revision
+
+Branch snap-server-closure, on a324d868 (sec5-public-bootstrap-sync).
+  00cf8da4  snap: the snap/1 server reads the state it serves and writes nothing
+  4271833b  snap: crash the multi-source import at its two cross-thread seams
+  b2b36ac4  snap: the backend test expects the served root not to be persisted
+  (this file and docs/snap-account-closure.md section 7 in the commit after)
+
+Reference: go-ethereum 38271784c2b31926563806da9a2e023b88f5e7a8
+(v1.17.6-unstable), eth/protocols/snap/handlers.go.
+
+1. The server writer
+
+What it did. SNAP-SYNC-ROOT-TRIE (src/networking/snap-sync/backend.lisp)
+called (MPT-PERSIST DATABASE TRIE) on STATE-DB-STATE-TRIE -- the account trie
+alone, one batch of its dirty nodes, with no storage trie and no code -- every
+time it served AccountRange, StorageRanges or TrieNodes. The flat-entry branch
+of SNAP-SYNC-ACCOUNT-STORAGE-TRIE persisted each storage trie it rebuilt the
+same way. The server is built over the node's own database by
+DEVNET-PEER-SNAP-BACKEND and is live while we are ourselves syncing, and
+CHAIN-STORE-STATE-DB can hand it a state whose tries are still pending export
+(COPY-MPT of the committed tries). So the server could write account nodes
+for a state whose storage and code were never going to be durable, and it also
+marked the served trie's nodes clean, which a later export would skip. Under
+I1 such a record is a false-closed node.
+
+What geth does. ServiceGetAccountRangeQuery, ServiceGetStorageRangesQuery and
+ServiceGetTrieNodesQuery open the requested root read-only
+(trie.New / trie.NewStateTrie over chain.TrieDB()) and return an empty answer
+when it cannot be opened. A server never writes state to serve it.
+
+The change. The server now serves the trie the state holds and writes
+nothing; both MPT-PERSIST calls are gone and MPT-PERSIST has no caller left in
+src/. The alternative the brief allowed -- one atomic batch of every node,
+code and storage trie, only for a complete state -- was not needed: nothing in
+serving reads the persisted copy. The brief's "refuse when the root is not
+durable" was deliberately not adopted: the in-memory state IS the trie this
+server can open, geth serves its in-memory diff layers the same way, and
+refusing would have turned about a hundred existing server tests (whose
+states live only in memory) into empty answers without making anything
+safer, since a read cannot break I1.
+
+  SNAP-SERVER-SERVING-AN-INCOMPLETE-STATE-WRITES-NO-TRIE-NODE  (unit)
+    Serves one request of each kind over the dependency fixture held only in
+    memory (its code and storage never durable in the database), requires
+    every request to be answered (accounts, slots, codes, two trie nodes),
+    then requires the batch audit to inspect zero account nodes and the store
+    to hold none of the account or storage trie's nodes.
+
+    RED control: on the server at a324d868 it fails at
+    (ZEROP (GETF AUDIT :INSPECTED)), after the four served-count assertions
+    pass -- the account nodes the old server wrote were inspected.
+    In-test control: writing the old writer's exact batch (the account trie
+    alone) into a fresh store is flagged by the audit (inspected > 0,
+    violations) and by the store check, and puts the root in the store.
+
+  SNAP-BACKEND-SERVES-AND-PERSISTS-RUNTIME-STATE pinned the old write and
+  went red in the cold integration lane at 4271833b (582 passed, 1 failed).
+  It is retargeted, not relaxed: renamed
+  SNAP-BACKEND-SERVES-RUNTIME-STATE-WITHOUT-PERSISTING-IT, same requests and
+  response checks, and it now requires the served root to be ABSENT.
+
+2. The writer scanner
+
+SNAP-ACCOUNT-TRIE-NODE-WRITERS-ARE-ALL-CLASSIFIED looked eighty characters
+past each PUT-CHAIN-RECORD for :TRIE-NODE and compared a list of FILES. It
+missed a third writer: the healer's fetched-node flush in
+%SNAP-SYNC-HEAL-STATE (src/networking/snap-sync/client.lisp), whose put is
+spelled over three lines, and because client.lisp was already on the list a
+new site in it could never have failed the test anyway.
+
+The scanner now reads the call's leading arguments up to its first nested form
+or closing parenthesis, however many lines they span, and the expectation is
+per site: persistence.lisp 1, client.lisp 2. It also fails on any src/ caller
+of MPT-PERSIST, which writes one trie's dirty nodes with no code and no other
+trie.
+
+  RED control: over client.lisp at this revision the old eighty-character
+  window finds 1 site and the new scanner 2. Over backend.lisp at a324d868
+  the MPT-PERSIST scanner finds 2 call sites; at HEAD, 0.
+  Positive controls in the test: a one-line and a three-line synthetic put
+  are flagged; a :METADATA put and a :TRIE-NODE inside a nested argument form
+  are not.
+
+docs/snap-account-closure.md section 7 said exactly two functions put such
+records. It now lists the three sites and says why the healer's is different.
+
+3. The healer site does not satisfy I1 by presence alone (finding, not fixed)
+
+The fetched-node flush writes each node the healer fetches as soon as it
+arrives, top-down, with its incomplete marker in the same batch, and clears
+the marker only at the node's post-order completion. So an account node it
+writes can stand above absent children and absent code or storage; I1 holds
+for it only if the presence rule reads that marker. This is the epoch-six
+marker scheme working as designed, and it is exactly what an epoch-seven
+presence-only account skip must not ignore.
+
+Measured with the batch audit (SNAP-CLOSURE-AUDIT-BATCHES), which is
+marker-blind, on SNAP-SYNC-IMPORT-STATE-MULTI over the dependency fixture with
+the chunked contract at 600 slots, closed writer on, no crash injected:
+  64 account-node puts inspected, violations all of kind :MISSING-NODE,
+  two distinct parent nodes (0xb8ce2619..., 0xa928b4b4...) put in one
+  8-account-node batch whose child 0x3f97606d... arrived in the next batch.
+  Both batches came from FLUSH-FETCHED-NODES under PERSIST-COMPLETE-NODE in
+  %SNAP-SYNC-HEAL-STATE (backtrace captured on the applying thread).
+With the page's code fetch disabled (see RED controls below) the same audit
+reported 24 violations; every batch that named a code not yet in the store
+came from the same healer flush, and the range writer stayed closed.
+
+The final store of the uncrashed 600-slot run is fine
+(SNAP-CLOSURE-STORE-VIOLATIONS = 0);
+the exposure is a crash between the flush and the completion. It belongs to
+the epoch-seven healer change, which owns the presence rule, and is recorded
+here rather than fixed because this branch must not touch the healer.
+
+4. The two cross-thread crash seams
+
+Both run SNAP-SYNC-IMPORT-STATE-MULTI with two sources over the dependency
+fixture, closed writer and proof depth 2 set process-globally, byte limit
+4096.
+
+Mechanism. The committer (SNAP-SYNC-MULTI-COMMIT-STORAGE-RESULTS) and the
+code worker (SNAP-SYNC-MULTI-CODE-WORKER) are wrapped so the thread that
+applies their batches carries a binding naming the writer; the audit's TRIP
+runs on the applying thread and reads it. The trip fires at the first batch
+from any other writer that puts an account node with a leaf depending on what
+that writer applied. The audit gained a crash latch: once tripped it refuses
+every later batch to the target, as a dead process would. Without it the
+second source retries the failed page and heals the very seam under test.
+
+  SNAP-ACCOUNT-CLOSURE-SURVIVES-A-CRASH-AFTER-THE-CODE-WORKER-COMMIT
+                                                           (integration)
+    Dependent = a leaf naming a code hash the worker applied. Oracle: the
+    audit's own code check, which is exact.
+    Asserts: no audit violation, no store violation after the crash, the trip
+    fired after >0 worker applies, >0 batches dropped, every code the worker
+    applied survived, and the resumed import completes and holds the
+    authorized root with no store violation.
+
+  SNAP-ACCOUNT-CLOSURE-SURVIVES-A-CRASH-AFTER-THE-CHUNKED-STORAGE-COMMIT
+                                                           (integration)
+    The chunked contract has 600 slots: at 96 the multi path answers it in
+    one StorageRanges response and the committer never runs. Dependent = a
+    leaf naming the chunked contract's storage root. The trip waits until
+    the committer has marked that storage job complete.
+    The audit's storage check asks only that the storage ROOT NODE be
+    present, and a range proof supplies that node long before the storage is
+    complete, so it cannot see this seam. The test therefore counts every
+    dependent batch that arrives before the job is complete ("premature")
+    and requires zero.
+    Under the closed writer the chunked contract's leaf is never in a range
+    page's batch (no closure proof until the healer publishes one), so the
+    first dependent write, and the one dropped, is the healer's.
+    Asserts: zero premature, no audit violation, no store violation after the
+    crash, >0 account nodes inspected, the job completed, the trip fired
+    after >0 committer applies, >0 batches dropped, every storage node the
+    committer applied survived, and the resumed import completes and holds
+    the authorized root with no store violation.
+
+RED controls. Each seam has two defences: the page waits for the dependency
+(SNAP-SYNC-MULTI-FETCH-PAGE-CODES loops until the codes are durable;
+SNAP-SYNC-MULTI-COMPLETE-DEFERRED-STORAGE-ROOTS fills the chunked root), and
+the closure predicate (SNAP-SYNC-ACCOUNT-CLOSURE-PREDICATE) re-reads the store.
+Mutated through FDEFINITION in the warm image, restored afterwards:
+
+  code test,    both removed          RED at (NULL (GETF AUDIT :VIOLATIONS))
+  code test,    wait removed only     RED at (NULL (GETF AUDIT :VIOLATIONS)),
+                                      from the healer flush of section 3
+  code test,    predicate only        green
+  storage test, both removed          RED at (ZEROP PREMATURE)
+  storage test, wait removed only     RED at (ZEROP PREMATURE); weaker than
+                                      it looks: with the fill removed the
+                                      committer never runs and the healer
+                                      fills the storage, so the premature
+                                      batch is the healer's
+  storage test, predicate only        green
+  both tests green again after restoring.
+
+"Predicate only" stays green because the wait alone still orders the write;
+each defence covers the other. A first attempt that made the dependency fetch
+asynchronous instead of removing it did NOT go red: the committer's first
+chunk usually lands before the page's batch, and the trip then drops exactly
+the offending batch. A trip that fires at the first dependent batch after the
+first committer apply was therefore replaced by one that waits for the
+storage job to complete and counts earlier dependent batches. Recorded because
+the first design looks sound and is not.
+
+Both tests passed three consecutive runs in the warm image with
+*SNAP-SYNC-ACCOUNT-CLOSURE-WRITES* defaulting to NIL and three with it
+defaulting to T (the tests set it themselves and restore it).
+
+Oracle caveat: the memory backend's buffered apply re-enters KV-APPLY-BATCH,
+so the audit sees each buffered batch twice. Violations and trips are
+unaffected (the trip answers a repeated batch the same way), but the audit's
+:INSPECTED and :DROPPED counters count such batches twice.
+
+Verification of record
+
+At b2b36ac4 (the code of this branch; the commit after adds only this file
+and the design-doc section):
+  cl-workbench validation run cold-unit
+    1421 tests passed, 3 skipped.   Exit 0.
+  cl-workbench validation run cold-integration
+    583 tests passed, 9 skipped.    Exit 0.
+No STYLE-WARNING and no warning under /workspace/src in either log. The four
+new or renamed tests and the rewritten scanner test are each present as "ok"
+by name. Registered-test delta against a324d868, counted from the layer tags:
++1 unit, +2 integration, and one integration test renamed. At 4271833b,
+before the retarget, the integration lane selected the same 583 and failed
+one (SNAP-BACKEND-SERVES-AND-PERSISTS-RUNTIME-STATE, section 1).
+cold-e2e was not run: no CLI, runtime or shutdown path changed; the server
+change removes a write from a request handler.
+
+Not verified
+
+  No live run.
+  The epoch-seven presence rule's treatment of the healer's fetched-node
+    flush (section 3).
+  The server serving a pending, unexported state whose storage tries are not
+    in memory: SNAP-SYNC-ACCOUNT-STORAGE-TRIE's persisted branch still opens
+    the storage root from the database and signals when it is absent. That
+    was true before this change and is unchanged by it.
+  Crash seams on RocksDB; the memory backend is the oracle, as in the
+    epoch-seven evidence.

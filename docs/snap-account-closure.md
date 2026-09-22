@@ -149,14 +149,26 @@ phase entirely: a subtree owing storage is withheld rather than marked.
 ## 7. Other writers
 
 Under a presence-based account rule, every writer of an account-path
-`:trie-node` record is part of the contract. Exactly two functions put such
-records: `MPT-POPULATE-DIRTY-BATCH` (block and genesis state export, the
-schema-v4 migration, and the snap/1 server, which is live while we sync) and
-`SNAP-SYNC-POPULATE-VERIFIED-TRIE-RECORDS-BATCH`. The first writes one atomic
-batch of children-before-parents nodes for a trie fully materialized in memory,
-with code in the same batch, so it upholds I1 for a complete state.
-`SNAP-ACCOUNT-TRIE-NODE-WRITERS-ARE-ALL-CLASSIFIED` pins that list so a new
-writer breaks a test rather than a live sync.
+`:trie-node` record is part of the contract. Three sites put such records:
+
+- `MPT-POPULATE-DIRTY-BATCH` (block and genesis state export, and the
+  schema-v4 migration) writes one atomic batch of children-before-parents
+  nodes for a trie fully materialized in memory, with every touched trie and
+  the code in the same batch, so it upholds I1 for a complete state.
+- `SNAP-SYNC-POPULATE-VERIFIED-TRIE-RECORDS-BATCH` is the range writer of
+  section 3.
+- The healer's fetched-node flush in `%SNAP-SYNC-HEAL-STATE` writes each
+  fetched node top-down, with its incomplete marker in the same batch, and
+  clears the marker at the node's post-order completion. A present account
+  node written there can stand above absent children, code or storage, so I1
+  holds for it only if the presence rule also reads that marker.
+
+The snap/1 server used to be a fourth: it called `MPT-PERSIST` on the account
+trie it was about to serve, with no storage tries and no code, while live
+during our own sync. It now serves without writing, as geth's handlers do.
+`SNAP-ACCOUNT-TRIE-NODE-WRITERS-ARE-ALL-CLASSIFIED` pins the sites per file
+and refuses any `src/` caller of `MPT-PERSIST`, so a new writer breaks a test
+rather than a live sync.
 
 ## 8. Rejected alternatives
 
