@@ -1,0 +1,215 @@
+Section 5 account-side closure: the withheld fraction at page density, and
+the heal after a mid-range rebase
+
+Status
+
+Measurement only. No src/ change; the closed account writer stays behind
+*SNAP-SYNC-ACCOUNT-CLOSURE-WRITES* and the healer is the one in this tree,
+which has no account presence skip. Every "presence skip" number below is an
+estimate computed from the store the healer faced, not a run of that rule.
+No live run.
+
+Revision
+
+Branch closure-density-fixture, on a324d868.
+  200e102b  snap: measure the closed account writer at page density and after
+            a rebase
+  (this file)
+
+Fixture (tests/snap-closure-density-tests.lisp)
+
+SNAP-DENSITY-STATE builds a state from a seeded 64-bit LCG, so every number
+here is reproducible and no assertion depends on randomness. At 5,000
+accounts: 767 contracts (15%) drawing code from a pool of one code per eight
+contracts, 641 storage-owning accounts (12.8%; live Hoodi ranges showed about
+9%, docs/validation.md), 6,982 slots. Most contracts own one to eight slots,
+20% own none, and three own 1,000 to 2,000 slots. The byte cap is 30,000
+bytes for AccountRange and StorageRanges alike (the importer sends one cap
+for both); it yields 500 accounts per page on the single-source path and
+chunks the three wide contracts. SNAP-DENSITY-REBASE changes each
+account with probability 15 per mille (62 of 5,000 here: nonce and
+balance, plus one storage slot for a contract), which moves 178 of the
+6,873 account-trie nodes.
+
+A rebase arm downloads the first half of the pages under the old root,
+rebases the progress with SNAP-SYNC-REBASE-PROGRESS, finishes the range
+under the new root and heals it, which is how
+SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION drives the live stall.
+
+What is counted, and how
+
+  Store faced by the healer: every account-trie node of the target root is
+  looked up at SNAP-SYNC-HEAL-STATE entry (after the range phase and the
+  deferred-storage fill).
+  Withheld cause: a withheld node is charged to open storage when an open
+  storage-owning leaf lies beneath it, else open code, else a leaf no page
+  ever judged (changed by the rebase after its page downloaded), else the
+  page-boundary straddle. "Open" is the closed writer's own predicate
+  verdict, recorded by wrapping SNAP-SYNC-ACCOUNT-CLOSURE-PREDICATE.
+  Healer account walk: the importer's heal counters mix account and storage
+  nodes, so account nodes are split out at two seams. "reached" is the
+  distinct account references the healer created work for
+  (SNAP-SYNC-MAKE-HEAL-WORK), "proof skips" the distinct account references
+  a closure proof answered (SNAP-SYNC-FILTERED-HEALED-SUBTREES-PRESENT),
+  "decoded" = reached - proof skips.
+  Presence-skip estimate: a walk from the root that fetches and descends
+  every absent node and stops at every present one. It is valid only because
+  the closed store holds I1, which the fixture reads back (a present node
+  with an absent descendant counts as an I1 violation; zero in every closed
+  arm, two in the legacy rebase arm at 2,000 accounts).
+
+Measurements: 5,000 accounts, single-source importer, 500 accounts/page
+
+  No rebase, 10 pages, 6,873 account-trie nodes.
+
+                              legacy writer      closed writer
+  persisted by the range      6,873 (spine       6,839
+                              marked incomplete)
+  withheld                    0                  34 (0.49%)
+    open chunked storage                         12
+    open code                                    0
+    page-boundary straddle                       22
+  heal, account nodes decoded
+    lookup depth 2            0                  2,532 (304 proof skips)
+    lookup depth 1            0                  34    (310 proof skips)
+  presence-skip estimate                         344 touched:
+                                                 34 fetched, 310 skipped
+
+  The legacy arm decodes no account node because range-plan promotion
+  covers the trie (3,118 subtrees at depth 2), which the closed store
+  deliberately cannot use.
+
+  Mid-range rebase after 5 of 10 pages, 178 of 6,873 nodes changed.
+
+                              legacy writer      closed writer
+  heal, account nodes (depth 2)
+    reached / decoded         839 / 199          3,321 / 3,036
+  heal, account nodes (depth 1)
+    reached / decoded         1,317 / 1,136      2,563 / 2,276
+  presence-skip estimate                         848 touched:
+                                                 131 fetched, 717 skipped
+  withheld at heal entry      103 (all changed)  131: 102 changed,
+                                                 12 open storage, 17 straddle
+
+  The answer the coordinator asked for: with the closed writer plus an
+  account presence skip, the post-rebase heal is estimated to touch 848
+  account nodes and decode 131 of them, against 1,317 touched and 1,136
+  decoded for the legacy healer at depth-one geometry, and 839 touched and
+  199 decoded at depth-two geometry. The skip decodes fewer account nodes in
+  both geometries; it touches about as many as legacy when legacy's range
+  proofs happen to cover whole buckets (depth two), and 36% fewer when they
+  do not (depth one). It fetches 28 more nodes than legacy, the price of not
+  writing the spine.
+
+  Which depth is live: at 4-nibble publication a live bucket holds hundreds
+  of accounts and a live page thousands, so a page covers roughly ten
+  buckets; the fixture's depth two (20 accounts a bucket, 25 buckets a page)
+  and depth one (312 a bucket, 1.6 a page) bracket it.
+
+Measurements: 2,000 accounts, multi-source importer (two sources)
+
+  64 tasks at 2,000 accounts is 32 accounts a page, so this is the
+  task-bounded shape, not page density. 65 pages, 2,647 nodes.
+
+  No rebase, closed writer: withheld 24 (0.91%): 10 open storage, 14
+  straddle. Heal decoded 24 account nodes with 277 proof skips at either
+  depth, identical to the presence-skip estimate (301).
+  Legacy: nothing decoded, 1,834 (depth 2) / 266 (depth 1) promoted.
+
+  Rebase after 32 pages, 30 accounts / 88 nodes changed:
+                              legacy             closed (current healer)
+    depth 2 reached/decoded   390 / 65           465 / 203
+    depth 1 reached/decoded   442 / 205          465 / 203
+    presence-skip estimate                       413 touched, 60 fetched
+
+  Here the estimate decodes slightly fewer than legacy (60 vs 65) but touches
+  more (413 vs 390) at depth two. Small pages already keep every maximal
+  closed root deep, so the closed writer's own proofs do most of the work.
+
+  Open code was 0 in every arm: code was durable by page completion on both
+  importers, so the cross-thread code seam did not hold an account open here.
+
+Findings
+
+  1. The withheld fraction at page density is under one percent (0.49% at
+     500 accounts a page, 0.64% at 400 in the pinned test) and is dominated
+     by the chunked contracts and the page-boundary spine. Denser pages only
+     shrink the straddle share.
+
+  2. The closed writer must not ship without the presence skip. With the
+     healer in this tree, a closed store heals worse than legacy after a
+     rebase (2,276-3,036 decoded against 199-1,136), and even without a
+     rebase at depth two (2,532 decoded against 0). The healer trusts an
+     account node only through a closure proof at its lookup depth, and
+     after a rebase the nodes at that depth above every changed path are new
+     hashes. This is the interim state the seam exists for; it is now pinned
+     as a defect assertion so the presence-skip change has to reverse it.
+
+  3. Closure proofs are published only for maximal closed roots at or below
+     the publication depth (SNAP-SYNC-CLOSED-ACCOUNT-PAGE-CONTENT). A
+     maximal root shallower than that depth publishes nothing for its
+     descendants, so a healer that looks only at the lookup depth walks the
+     whole subtree: 2,532 decoded at depth two against 34 at depth one on the
+     same store. A presence skip at any depth makes this moot; a skip
+     restricted to the lookup depth would not.
+
+  4. The brief's "about 470 accounts per page" is not what the repo's own
+     live evidence shows: docs/validation.md records Hoodi range runs of
+     2,336,962 accounts in 251 pages and 587,492 in 82 (about 5,600 to 9,300
+     accounts a page at the 512 KiB request size). The fixture uses 400-500
+     so that several pages exist at a size the dev image can hold.
+
+The pinned test
+
+SNAP-CLOSED-ACCOUNT-WRITER-AT-PAGE-DENSITY-AND-AFTER-A-MID-RANGE-REBASE
+(integration, 2,000 accounts, depth one, single source, about 21 s warm):
+
+  no rebase, closed:   400 accounts/page, 17 of 2,647 withheld (10 open
+                       storage, 7 straddle), 3 open accounts, 0 I1
+                       violations; asserts withheld < 1% and both causes
+                       non-zero.
+  rebase, legacy:      reached 417, decoded 259, 2 I1 violations.
+  rebase, closed:      presence-skip estimate 366 touched / 64 fetched;
+                       current healer decoded 947; 0 I1 violations.
+  asserts 64 < 259 and 366 < 417, and (defect) 947 > 259.
+
+RED controls
+
+  The withheld bound: SNAP-DENSITY-CLASSIFY over a store that holds nothing
+  reports every node withheld, which fails the one-percent bound; asserted
+  in the test.
+  The I1 counter: a store missing one leaf under present ancestors reports a
+  violation; asserted in the test. The legacy rebase arm, which persists the
+  spine above changed paths, reports 2 violations, so the closed arm's zero
+  is a discriminating check and not an idle counter.
+  The comparison: the legacy arm is the positive control -- it must decode
+  more than three times the changed nodes the closed arm reports as
+  unjudged (259 > 3 x 48), so the healer the estimate is compared with
+  really re-walks.
+
+Verification of record
+
+  On 200e102b (this file adds no code):
+  cl-workbench validation run cold-unit
+    1420 tests passed, 3 skipped.   Exit 0.
+  cl-workbench validation run cold-integration
+    582 tests passed, 9 skipped.    Exit 0.
+  No STYLE-WARNING in either log. The change registers exactly one new
+  integration test and no unit test (248 integration deftests against 247 at
+  a324d868), and its three "; density" report lines are in the
+  cold-integration log, so it ran rather than being deselected. The test
+  takes about 21 s in the warm image.
+
+Not verified
+
+  The presence skip itself: every skip-walk number is an estimate from the
+  store, not a run of the rule (branch account-closure-epoch7-bump carried
+  no healer change when this was measured).
+  50,000 accounts, and the multi-source importer at 5,000: the dev image has
+  a 1 GiB dynamic space, and on the shared Docker VM (7.7 GiB, about 6.7 GiB
+  in use by other sessions) a 5,000-account multi-source arm was
+  OOM-killed twice. The multi-source arms are therefore at 2,000 accounts
+  and task-bounded page size.
+  Live page density (thousands of accounts a page) and live trie depth.
+  Storage-side heal cost is not split out; the storage walk is included in
+  the importer's total counters only.
