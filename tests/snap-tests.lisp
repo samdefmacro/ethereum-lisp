@@ -1919,15 +1919,22 @@ datadir upgraded from that earlier epoch.  Returns DATABASE."
       ;; cursor. The final closure walk should need only a small boundary
       ;; repair, never the account trie or a full storage scan.
       (is (< trie-node-requests 16))
-      ;; Epoch seven: the one account owes chunked storage when its page is
-      ;; written, so the closed writer withholds its leaf -- here the whole
-      ;; account trie -- and the store gets no dependency plan to seed healing
-      ;; from, because the plan exists only to reconstruct account closure
-      ;; after the fact. Healing therefore starts at the account root: a
-      ;; one-item path set proves it fetched the node the writer withheld.
-      ;; The plan-seeded start that a legacy store still takes is pinned by
-      ;; the epoch-six arms of SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION.
-      (is saw-account-heal-path-p)
+      ;; Epoch seven: the one account owns chunked storage. Its last cursor
+      ;; completes before its page resumes, and the partitioned-storage
+      ;; closure step publishes the whole-root proof then, so the closed
+      ;; writer finds the storage durable and persists the leaf -- here the
+      ;; whole account trie. Healing therefore never asks for an account
+      ;; path and fetches nothing. The store still gets no dependency plan,
+      ;; which exists only to reconstruct account closure after the fact.
+      ;; With the closure step stubbed out the writer withholds the leaf and
+      ;; healing starts by fetching the account root through a one-item path
+      ;; set (docs/evidence/sec5-marker-population.txt). The plan-seeded start
+      ;; that a legacy store still takes is pinned by the epoch-six arms of
+      ;; SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION.
+      (is (not saw-account-heal-path-p))
+      (is (zerop trie-node-requests))
+      (is (nth-value 1 (ethereum-lisp.trie:trie-node-store-get
+                        target-database (hash32-bytes root))))
       (is (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
            target-database))
       (is (not (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
