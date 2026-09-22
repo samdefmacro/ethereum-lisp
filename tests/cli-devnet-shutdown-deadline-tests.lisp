@@ -261,3 +261,177 @@ Depth four is 69,905 nodes, every one of them present locally."
         (is (second log-closes))
         (is (eql 1 (first log-closes)))
         (is (null (search "abandoned" stderr-text)))))))
+
+#+sbcl
+(defun devnet-shutdown-deadline-stuck-worker (name release)
+  "A worker that ignores the stop AND a terminate until RELEASE holds T.
+
+WITHOUT-INTERRUPTS defers SB-THREAD:TERMINATE-THREAD exactly as a foreign call
+does, which is where a live worker would be stuck: inside RocksDB, or in a
+blocking socket call no closeable reaches."
+  (sb-thread:make-thread
+   (lambda ()
+     (handler-case
+         (sb-sys:without-interrupts
+           (loop until (car release) do (sleep 0.02d0)))
+       (serious-condition () nil)))
+   :name name))
+
+#+sbcl
+(deftest devnet-shutdown-joins-share-one-deadline
+  (:layer :unit :module :cli :estimated-seconds 4d0)
+  ;; Two workers that will not stop, joined one after the other under one
+  ;; budget: the second gets only what the first left, so the sequence ends on
+  ;; the deadline and the step after the joins (the store close, in the node)
+  ;; still runs on time.
+  (let ((release (list nil))
+        (threads '()))
+    (unwind-protect
+         (let* ((first (devnet-shutdown-deadline-stuck-worker
+                        "test-stuck-first" release))
+                (second (devnet-shutdown-deadline-stuck-worker
+                         "test-stuck-second" release))
+                (stream (make-string-output-stream))
+                (closed-at nil))
+           (setf threads (list first second))
+           ;; Positive control, and the RED shape: the same two joins each with
+           ;; a budget of its own -- the per-join bounds this replaces -- add up
+           ;; to twice the budget.
+           (let ((started (get-internal-real-time)))
+             (is (eq :abandoned
+                     (ethereum-lisp.cli::devnet-join-worker-by-deadline
+                      first (ethereum-lisp.cli::devnet-shutdown-join-deadline 1)
+                      "first" :stream stream)))
+             (is (eq :abandoned
+                     (ethereum-lisp.cli::devnet-join-worker-by-deadline
+                      second (ethereum-lisp.cli::devnet-shutdown-join-deadline 1)
+                      "second" :stream stream)))
+             (is (>= (devnet-shutdown-deadline-seconds-since started) 2d0)))
+           ;; Subject: one shared deadline.
+           (let* ((started (get-internal-real-time))
+                  (deadline
+                    (ethereum-lisp.cli::devnet-shutdown-join-deadline 1))
+                  (outcomes
+                    (list
+                     (ethereum-lisp.cli::devnet-join-worker-by-deadline
+                      first deadline "first" :stream stream)
+                     (ethereum-lisp.cli::devnet-join-worker-by-deadline
+                      second deadline "second" :stream stream))))
+             (setf closed-at (devnet-shutdown-deadline-seconds-since started))
+             (is (equal '(:abandoned :abandoned) outcomes))
+             (is (>= closed-at 1d0))
+             (is (< closed-at 1.5d0)))
+           (let ((text (get-output-stream-string stream)))
+             (is (search "abandoned worker first" text))
+             (is (search "abandoned worker second" text)))
+           ;; The other outcomes, so the abandoned path is not all it can say.
+           (is (eq :absent
+                   (ethereum-lisp.cli::devnet-join-worker-by-deadline
+                    nil (ethereum-lisp.cli::devnet-shutdown-join-deadline 1)
+                    "none")))
+           (is (eq :joined
+                   (ethereum-lisp.cli::devnet-join-worker-by-deadline
+                    (sb-thread:make-thread (lambda () 7) :name "test-quick")
+                    (ethereum-lisp.cli::devnet-shutdown-join-deadline 1)
+                    "quick")))
+           (is (eq :terminated
+                   (ethereum-lisp.cli::devnet-join-worker-by-deadline
+                    (sb-thread:make-thread
+                     (lambda () (handler-case (sleep 30) (serious-condition () nil)))
+                     :name "test-terminable")
+                    (ethereum-lisp.cli::devnet-shutdown-join-deadline 0.2d0)
+                    "terminable"))))
+      (setf (car release) t)
+      (dolist (thread threads)
+        (sb-thread:join-thread thread :timeout 5 :default nil)))))
+
+#+sbcl
+(deftest devnet-stuck-workers-do-not-keep-the-node-from-its-store-close
+  (:layer :integration :module :cli :requires-local-sockets t
+   :estimated-seconds 8d0)
+  ;; Through the shipped sequence: a real node whose dialer and discovery
+  ;; workers ignore both the stop and a terminate. With a 3 s budget the node
+  ;; must return on that budget, report both workers abandoned, and still close
+  ;; its RocksDB store.
+  ;;
+  ;; RED on the previous service.lisp: each join had its own 5 s bound and a
+  ;; further 5 s after its terminate, so the two workers alone held the node
+  ;; for about 20 s.
+  (let* ((path (devnet-shutdown-deadline-temp-directory "stuck-workers"))
+         (release (list nil))
+         (threads '())
+         (budget ethereum-lisp.cli::*devnet-shutdown-join-budget-seconds*)
+         (server-error nil)
+         (stop-started nil)
+         (stop-to-return nil)
+         (log-closes nil)
+         (stderr (make-string-output-stream)))
+    (flet ((stuck (name)
+             (let ((thread (devnet-shutdown-deadline-stuck-worker name release)))
+               (push thread threads)
+               thread)))
+      (unwind-protect
+           (devnet-shutdown-deadline-call-with-overrides
+            (list
+             (cons 'ethereum-lisp.cli::devnet-start-dial-scheduler-thread
+                   (lambda (&rest arguments)
+                     (declare (ignore arguments))
+                     (values (stuck "ethereum-lisp-devnet-test-stuck-dialer")
+                             nil)))
+             (cons 'ethereum-lisp.cli::devnet-start-discovery-thread
+                   (lambda (&rest arguments)
+                     (declare (ignore arguments))
+                     (stuck "ethereum-lisp-devnet-test-stuck-discovery"))))
+            (lambda ()
+              (setf ethereum-lisp.cli::*devnet-shutdown-join-budget-seconds* 3)
+              (let ((*error-output* stderr))
+                (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+                 (lambda ()
+                   (let* ((node (ethereum-lisp.cli:make-devnet-node
+                                 :genesis-json *eth-sync-paris-genesis-json*
+                                 :database-path path :db-engine :rocksdb
+                                 :port 0 :public-port 0))
+                          (controller
+                            (ethereum-lisp.cli::make-devnet-shutdown-controller))
+                          (server
+                            (sb-thread:make-thread
+                             (lambda ()
+                               (handler-case
+                                   (let ((*error-output* stderr))
+                                     (ethereum-lisp.cli:start-devnet-node
+                                      node :shutdown-controller controller))
+                                 (serious-condition (condition)
+                                   (setf server-error condition))))
+                             :name "ethereum-lisp-test-node-server")))
+                     (unwind-protect
+                          (wait-for-test-condition
+                           "stuck workers started" 10
+                           (lambda () (= 2 (length threads))))
+                       (setf stop-started (get-internal-real-time))
+                       (ethereum-lisp.cli:devnet-shutdown-request controller)
+                       (sb-thread:join-thread server :timeout 60 :default nil)
+                       (setf stop-to-return
+                             (devnet-shutdown-deadline-seconds-since
+                              stop-started)))))))
+              (setf log-closes
+                    (multiple-value-list
+                     (devnet-shutdown-deadline-rocksdb-closes path)))))
+        (setf ethereum-lisp.cli::*devnet-shutdown-join-budget-seconds* budget)
+        (setf (car release) t)
+        (dolist (thread threads)
+          (sb-thread:join-thread thread :timeout 5 :default nil))
+        (when (probe-file path)
+          (uiop:delete-directory-tree path :validate t
+                                           :if-does-not-exist :ignore))))
+    (let ((text (get-output-stream-string stderr)))
+      (setf *devnet-shutdown-deadline-last-measurement*
+            (list :stop-to-return stop-to-return :log-closes log-closes
+                  :stderr text))
+      (is (null server-error))
+      (is (= 2 (length threads)))
+      (is (and stop-to-return (>= stop-to-return 3d0)))
+      (is (and stop-to-return (< stop-to-return 5d0)))
+      (is (search "abandoned worker dialer" text))
+      (is (search "abandoned worker discovery" text))
+      (is (second log-closes))
+      (is (eql 1 (first log-closes))))))

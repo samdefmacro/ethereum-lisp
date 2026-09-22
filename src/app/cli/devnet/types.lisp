@@ -717,6 +717,76 @@ shutdown a caller was trying to perform."
       (ignore-errors (funcall (cdr entry)))))
   t)
 
+(defparameter *devnet-shutdown-join-budget-seconds* 12
+  "Seconds that ALL of a serving node's worker joins may take together.
+
+A supervisor such as `docker stop` sends SIGKILL a fixed grace period after
+SIGTERM (30 s by default). The joins share this one budget rather than each
+carrying its own bound, because bounds that each look short add up: before the
+budget, a node whose sync coordinator ignored the stop spent 15 s on that join
+alone and then 5 s or more on each later one. What is left of the grace period
+after the joins belongs to the shutdown export and the store close, which
+waits up to five seconds for the store's users and two for RocksDB's pools.")
+
+(defun devnet-shutdown-join-deadline
+    (&optional (budget-seconds *devnet-shutdown-join-budget-seconds*))
+  "The internal-real-time at which a shutdown stops waiting for its workers."
+  (unless (and (realp budget-seconds) (plusp budget-seconds))
+    (error "Devnet shutdown join budget must be a positive number of seconds"))
+  (+ (get-internal-real-time)
+     (ceiling (* budget-seconds internal-time-units-per-second))))
+
+(defun devnet-shutdown-seconds-left (deadline)
+  "Seconds until DEADLINE, never below a millisecond.
+
+SB-THREAD:JOIN-THREAD rejects a zero timeout with a TYPE-ERROR, so an expired
+deadline still polls the thread once instead of signalling."
+  (max 1/1000
+       (/ (- deadline (get-internal-real-time))
+          internal-time-units-per-second)))
+
+(defun devnet-join-worker-by-deadline
+    (thread deadline label &key (stream *error-output*))
+  "Join THREAD by DEADLINE; past it, terminate THREAD and abandon it.
+
+Returns :ABSENT for a NIL thread, :JOINED when it stopped by itself, and
+:TERMINATED when it stopped after SB-THREAD:TERMINATE-THREAD within what was
+left of the deadline. Otherwise reports LABEL on STREAM and returns
+:ABANDONED: the shutdown goes on to the export and the store close, whose own
+drain waits for any user still inside the store handle."
+  #-sbcl
+  (declare (ignore thread deadline label stream))
+  #-sbcl
+  :absent
+  #+sbcl
+  (cond
+    ((null thread) :absent)
+    ((not (eq :timeout
+              (nth-value 1 (sb-thread:join-thread
+                            thread
+                            :timeout (devnet-shutdown-seconds-left deadline)
+                            :default nil))))
+     :joined)
+    (t
+     (ignore-errors (sb-thread:terminate-thread thread))
+     ;; Terminating unwinds at the thread's next safepoint; a thread inside a
+     ;; foreign call or WITHOUT-INTERRUPTS gets there only when it leaves it.
+     (if (eq :timeout
+             (nth-value 1 (sb-thread:join-thread
+                           thread
+                           :timeout (min 1 (devnet-shutdown-seconds-left
+                                            deadline))
+                           :default nil)))
+         (progn
+           (ignore-errors
+            (format stream
+                    "Devnet shutdown abandoned worker ~A: it did not stop ~
+                     within the shared worker join deadline.~%"
+                    label)
+            (finish-output stream))
+           :abandoned)
+         :terminated))))
+
 (defun devnet-signal-number (name)
   #+sbcl
   (let* ((package (find-package "SB-UNIX"))
