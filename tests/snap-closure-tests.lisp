@@ -1096,11 +1096,26 @@ open-storage-accounts=~D~%"
     ;; goes on to open a persisted MPT on the state root, which this synthetic
     ;; store does not hold. Reaching that walk at all is the proof that nothing
     ;; but the guard keeps the closed-writer arm out of it.
-    (is (not (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
-              database)))
-    (signals error
-      (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
-       database state-root))
+    ;; The closed writer is the default since epoch seven, so the legacy arm
+    ;; turns the seam off.  PROMOTE runs on this thread, so a binding reaches
+    ;; it.
+    (let ((ethereum-lisp.snap-sync::*snap-sync-account-closure-writes* nil))
+      (is (not (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
+                database)))
+      (signals error
+        (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+         database state-root)))
+    ;; The same holds for a store that never entered the epoch, which is what
+    ;; every datadir written by earlier code is: promotion stays live there.
+    (let ((legacy (snap-test-seed-legacy-trie-store
+                   (make-memory-key-value-database))))
+      (let ((batch (make-kv-write-batch)))
+        (ethereum-lisp.snap-sync::snap-sync-populate-deferred-storage-plan-batch
+         batch state-root)
+        (kv-apply-batch legacy batch))
+      (signals error
+        (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+         legacy state-root)))
     ;; Subject: under the closed writer both refuse before reading anything.
     (call-with-snap-closure-proof-depth
      4
@@ -1140,3 +1155,371 @@ open-storage-accounts=~D~%"
   (signals error
     (ethereum-lisp.snap-sync::snap-sync-storage-trie-value
      (state-account-rlp (make-state-account)))))
+
+;;; ------------------------------------------------------------------
+;;; Epoch seven -- the healer consumes I1
+;;; ------------------------------------------------------------------
+
+(defun snap-closure-heal-generation (database state state-root seed)
+  "Import STATE-ROOT into DATABASE, rebasing an existing session onto it.
+
+SEED names the pivot.  Returns the final heal progress event of the call, or
+NIL when the call ended without healing."
+  (let* ((events '())
+         (source
+           (snap-test-source
+            (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+             (make-memory-key-value-database) state)))
+         (pivot (make-hash32 (snap-test-hash seed)))
+         (genesis (make-hash32 (snap-test-hash 71)))
+         (authority (make-hash32 (snap-test-hash 72))))
+    (when (nth-value 1 (ethereum-lisp.snap-sync::snap-sync-read-progress
+                        database))
+      (ethereum-lisp.snap-sync:snap-sync-rebase-progress
+       database :pivot-hash pivot :pivot-number (* 10 seed)
+       :state-root state-root :target-hash pivot
+       :chain-id 560048 :genesis-hash genesis :authority-id authority))
+    (let ((progress
+            (ethereum-lisp.snap-sync:snap-sync-import-state
+             database source
+             :pivot-hash pivot :pivot-number (* 10 seed)
+             :state-root state-root :target-hash pivot
+             :chain-id 560048 :genesis-hash genesis :authority-id authority
+             :byte-limit 4096 :max-pages 4000
+             :on-heal-progress (lambda (event) (push event events)))))
+      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
+      (multiple-value-bind (installed present-p)
+          (kv-get-chain-record database :state-history (hash32-bytes pivot))
+        (is present-p)
+        (is (bytes= (hash32-bytes state-root) installed))))
+    (first events)))
+
+(deftest snap-state-healer-skips-closed-account-subtrees
+  (:layer :integration :module :p2p)
+  ;; Invariant I1 is what lets the healer skip a present, unmarked ACCOUNT
+  ;; node without descending, and that skip is what makes healing after a
+  ;; pivot rebase cost the changed paths rather than the whole trie.
+  ;;
+  ;; Two stores receive the same complete account trie through the shipped
+  ;; import -- range phase, dependencies, healing -- and are then rebased onto
+  ;; a root that differs in one account. They differ only in the closure
+  ;; contract: one is born under epoch seven, the other held a trie node first
+  ;; and so never entered it, which is how every datadir written by earlier
+  ;; code presents. The legacy arm is the positive control: it has to walk
+  ;; the account trie, so the comparison can fail.
+  (let ((first-state (make-state-db)))
+    (loop for index from 1 to 1024
+          do (let ((address (snap-test-address-from-integer index)))
+               (state-db-set-account
+                first-state address
+                (make-state-account :nonce index :balance (+ 3000 index)))
+               ;; Real dependencies, so the closed store's skip rests on code
+               ;; and storage that are durable rather than absent.
+               (when (zerop (mod index 64))
+                 (state-db-set-code first-state address
+                                    (vector 96 (mod index 251) 96 0))
+                 (state-db-set-storage
+                  first-state address
+                  (make-hash32 (snap-test-index-hash index))
+                  (+ 4000 index)))))
+    (let* ((second-state (state-db-copy first-state))
+           (first-root (state-db-root first-state))
+           (second-root
+             (progn
+               (state-db-set-account
+                second-state (snap-test-address-from-integer 500)
+                (make-state-account :nonce 9999 :balance 424242))
+               (state-db-root second-state)))
+           (first-records
+             (mpt-dirty-node-records
+              (first (state-db-persistence-tries (state-db-copy first-state)))))
+           (node-map (snap-closure-account-node-map first-records))
+           (closed (make-memory-key-value-database))
+           (legacy (snap-test-seed-legacy-trie-store
+                    (make-memory-key-value-database))))
+      (is (not (hash32= first-root second-root)))
+      (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+           closed))
+      (is (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p closed))
+      (snap-closure-heal-generation closed first-state first-root 81)
+      (snap-closure-heal-generation legacy first-state first-root 81)
+      ;; Both stores now hold the whole first account trie, and the closed
+      ;; one holds no account node whose closure it lacks.
+      (dolist (database (list closed legacy))
+        (is (every (lambda (record)
+                     (nth-value 1 (trie-node-store-get database (car record))))
+                   first-records)))
+      (is (null (snap-closure-store-violations closed node-map)))
+      (let* ((closed-event
+               (snap-closure-heal-generation closed second-state second-root 83))
+             (legacy-event
+               (snap-closure-heal-generation legacy second-state second-root 83))
+             (closed-counts (snap-test-heal-event-counts closed-event))
+             (legacy-counts (snap-test-heal-event-counts legacy-event)))
+        (is closed-event)
+        (is legacy-event)
+        ;; Both fetch exactly the changed path; neither heals less.
+        (is (plusp (getf closed-counts :fetched)))
+        (is (= (getf closed-counts :fetched) (getf legacy-counts :fetched)))
+        (let ((*print-pretty* nil))
+          (format t "~&; closed-account skip: account-trie-nodes=~D closed=~S legacy=~S~%"
+                  (length first-records) closed-counts legacy-counts))
+        ;; The closed arm decodes strictly fewer nodes and skips strictly more
+        ;; of them.  "More" is counted in nodes left undecoded, not in the
+        ;; SKIPPED-SUBTREES counter, which counts skip EVENTS: the legacy arm
+        ;; still runs range-plan promotion and skips on its shallow proofs
+        ;; hundreds of times deep in the trie, while the closed arm skips a
+        ;; few dozen subtrees right below the changed path, each covering far
+        ;; more of the trie.
+        (is (plusp (getf closed-counts :skipped)))
+        (is (plusp (getf legacy-counts :promoted)))
+        (is (< (getf closed-counts :processed)
+               (getf legacy-counts :processed)))
+        (is (> (- (length first-records) (getf closed-counts :processed))
+               (- (length first-records) (getf legacy-counts :processed))))
+        ;; And not marginally: even with promotion the legacy arm decodes most
+        ;; of the account trie, while the closed arm decodes only what it
+        ;; fetched -- the changed path -- and re-reads nothing present.
+        (is (= (getf closed-counts :fetched)
+               (getf closed-counts :processed)))
+        (is (> (getf legacy-counts :processed)
+               (floor (length first-records) 2)))))))
+
+;;; ------------------------------------------------------------------
+;;; Epoch seven -- the non-snap writers
+;;; ------------------------------------------------------------------
+
+(defun snap-closure-import-block (parent number state-root)
+  (make-block
+   :header
+   (make-block-header
+    :number number
+    :parent-hash (if parent (block-hash parent) (zero-hash32))
+    :state-root state-root
+    :timestamp number
+    :gas-limit 30000000
+    :extra-data (vector number))))
+
+(defun snap-closure-block-import-chain (database &key (before-genesis-export
+                                                        #'identity))
+  "Export a genesis state into DATABASE, then import two blocks on top of it.
+
+This drives the shipped writers, not a model of them: NODE-STORE-EXPORT-TO-KV
+for the genesis export, COMMIT-STATE-DB-TO-CHAIN-STORE for each block's post
+state, and NODE-STORE-EXPORT-FORKCHOICE-TO-KV for each block's durable commit.
+Genesis carries twelve contracts with code and storage; each block creates
+twenty more and writes a slot into an existing one, so every commit names new
+code, new storage roots and an untouched remainder it assumes is durable.
+BEFORE-GENESIS-EXPORT is called with the store just before the genesis export,
+which is where the devnet datadir path stamps the closure epoch.  Returns the
+three state roots in order."
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :chain-id 1))
+         (state (make-state-db))
+         (genesis nil)
+         (roots '()))
+    (flet ((head (block)
+             (chain-store-update-forkchoice-checkpoints
+              store
+              (make-forkchoice-state
+               :head-block-hash (block-hash block)
+               :safe-block-hash (block-hash genesis)
+               :finalized-block-hash (block-hash genesis)))
+             (nth-value 1 (chain-store-set-canonical-head
+                           store (block-hash block)
+                           :expected-chain-id 1 :chain-config config)))
+           (commit (block post-state)
+             (chain-store-put-block store block :state-available-p t)
+             (commit-state-db-to-chain-store
+              store (block-hash block) post-state)))
+      (loop for index from 1 to 300
+            do (let ((address (snap-test-address-from-integer index)))
+                 (state-db-set-account
+                  state address
+                  (make-state-account :nonce index :balance (+ 100 index)))
+                 (when (zerop (mod index 25))
+                   (state-db-set-code state address
+                                      (vector 96 (mod index 251) 96 1))
+                   (state-db-set-storage
+                    state address (make-hash32 (snap-test-index-hash index))
+                    (+ 9 index)))))
+      (push (state-db-root state) roots)
+      (setf genesis (snap-closure-import-block nil 0 (first roots)))
+      (commit genesis state)
+      (head genesis)
+      (funcall before-genesis-export store)
+      (node-store-export-to-kv store database)
+      (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+       store)
+      (let ((parent genesis))
+        (loop for number from 1 to 2
+              for base from 1000 by 1000
+              do (let ((next (state-db-copy state)))
+                   (loop for index from (+ base 1) to (+ base 20)
+                         do (let ((address (snap-test-address-from-integer index)))
+                              (state-db-set-account
+                               next address
+                               (make-state-account :nonce 1 :balance index))
+                              (state-db-set-code
+                               next address (vector 96 (mod index 251) 96 2))
+                              (state-db-set-storage
+                               next address
+                               (make-hash32 (snap-test-index-hash index))
+                               (+ 7 index))))
+                   (state-db-set-storage
+                    next (snap-test-address-from-integer 25)
+                    (make-hash32 (snap-test-index-hash (+ base 5))) 77)
+                   (push (state-db-root next) roots)
+                   (let ((block
+                           (snap-closure-import-block parent number
+                                                      (first roots))))
+                     (commit block next)
+                     (node-store-export-forkchoice-to-kv
+                      store (head block) database)
+                     (setf parent block
+                           state next)))))
+      (nreverse roots))))
+
+(defun snap-closure-account-records-under-roots (database roots)
+  "Return every account-trie record of DATABASE reachable from ROOTS."
+  (let ((all (make-hash-table :test #'equalp))
+        (records (make-hash-table :test #'equalp)))
+    (dolist (entry (kv-chain-record-entries database :trie-node))
+      (setf (gethash (car entry) all) (cdr entry)))
+    (dolist (root roots)
+      (multiple-value-bind (leaf-values visited missing-p)
+          (snap-closure-walk-account-subtree all (hash32-bytes root))
+        (declare (ignore leaf-values))
+        (is (not missing-p))
+        (dolist (hash visited)
+          (setf (gethash hash records) (gethash hash all)))))
+    (loop for hash being the hash-keys of records using (hash-value encoded)
+          collect (cons hash encoded))))
+
+(defun snap-closure-split-account-node-batches (target-database node-map thunk)
+  "Run THUNK applying each batch to TARGET-DATABASE as two batches.
+
+Account trie-node puts named by NODE-MAP go first, everything else second.
+This is the regression a memory-motivated export split would introduce, and
+is only ever used as a positive control."
+  (let ((inner (fdefinition 'ethereum-lisp.database:kv-apply-batch))
+        (node-prefix (snap-closure-chain-prefix :trie-node)))
+    (unwind-protect
+         (progn
+           (setf (fdefinition 'ethereum-lisp.database:kv-apply-batch)
+                 (lambda (database batch)
+                   (if (eq database target-database)
+                       (let ((accounts (make-kv-write-batch))
+                             (rest (make-kv-write-batch))
+                             (account-count 0))
+                         (dolist (operation
+                                  (reverse
+                                   (ethereum-lisp.database::kv-write-batch-operations
+                                    batch)))
+                           (destructuring-bind (kind key &optional value)
+                               operation
+                             (cond
+                               ((and (eq kind :put)
+                                     (= node-prefix (aref key 0))
+                                     (nth-value
+                                      1 (gethash (subseq key 1) node-map)))
+                                (incf account-count)
+                                (ethereum-lisp.database::kv-batch-put
+                                 accounts key value))
+                               ((eq kind :put)
+                                (ethereum-lisp.database::kv-batch-put
+                                 rest key value))
+                               (t
+                                (ethereum-lisp.database::kv-batch-delete
+                                 rest key)))))
+                         (when (plusp account-count)
+                           (funcall inner database accounts))
+                         (funcall inner database rest))
+                       (funcall inner database batch))))
+           (funcall thunk))
+      (setf (fdefinition 'ethereum-lisp.database:kv-apply-batch) inner))))
+
+(deftest snap-epoch-seven-does-not-trust-account-nodes-written-by-block-import
+  (:layer :integration :module :p2p)
+  ;; Epoch seven lets the healer skip any present, unmarked account node, and
+  ;; the :TRIE-NODE table records no provenance, so every writer of an
+  ;; account-path node is part of the contract -- not only the closed snap
+  ;; writer.  The epoch marker is stamped by its own batch BEFORE the devnet
+  ;; datadir's genesis export writes its first trie node
+  ;; (src/app/cli/devnet/persistence.lisp, SNAP-SYNC-ENABLE-COMPLETE-NODE-
+  ;; SCHEME-P), so it certifies "the store was empty at creation", not "every
+  ;; account node came from the closed writer".  What makes that sound:
+  ;;
+  ;;   - a store that already holds block-imported nodes can never enter the
+  ;;     epoch, so the healer never trusts nodes written before the contract;
+  ;;   - after the stamp, the genesis export applies the whole materialized
+  ;;     trie AND the code it names as one atomic batch, and each block commit
+  ;;     applies its dirty nodes with that block's code in one batch over a
+  ;;     base that was already closed.  Both are checked here batch by batch
+  ;;     with the I1 auditor, not argued.
+  ;;
+  ;; The positive control splits the SAME export into an account-node batch
+  ;; followed by everything else -- the natural shape of an export chunked for
+  ;; memory -- and the auditor must go red on it.  That is the regression this
+  ;; test exists to stop.
+  (let* ((probe (make-memory-key-value-database))
+         (roots (snap-closure-block-import-chain probe))
+         (records (snap-closure-account-records-under-roots probe roots))
+         (node-map (snap-closure-account-node-map records)))
+    (is (= 3 (length roots)))
+    (is (> (length records) 300))
+    ;; A store that took block-imported account nodes before the contract was
+    ;; offered stays outside the epoch: the healer will walk it.
+    (is (not (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+              probe)))
+    (is (not (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+              probe)))
+    ;; Positive control: a split genesis export leaves account leaves naming
+    ;; code and storage that the store does not yet hold.
+    (let* ((split (make-memory-key-value-database))
+           (audit
+             (snap-closure-audit-batches
+              split records
+              (lambda ()
+                (snap-closure-split-account-node-batches
+                 split node-map
+                 (lambda ()
+                   (snap-closure-block-import-chain
+                    split
+                    :before-genesis-export
+                    (lambda (store)
+                      (declare (ignore store))
+                      (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+                           split))))))))))
+      (is (plusp (getf audit :inspected)))
+      (is (find :missing-code (getf audit :violations) :key #'first))
+      (is (find :missing-storage (getf audit :violations) :key #'first)))
+    ;; Subject: the shipped writers, epoch stamped exactly where the devnet
+    ;; datadir stamps it.
+    (let* ((target (make-memory-key-value-database))
+           (audit
+             (snap-closure-audit-batches
+              target records
+              (lambda ()
+                (snap-closure-block-import-chain
+                 target
+                 :before-genesis-export
+                 (lambda (store)
+                   (declare (ignore store))
+                   (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+                        target))))))))
+      (is (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+           target))
+      (is (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p target))
+      ;; Counters first, so an audit that saw nothing cannot pass -- and it
+      ;; must have seen the block commits, not only the genesis export.
+      (is (> (getf audit :inspected)
+             (length (snap-closure-account-records-under-roots
+                      probe (list (first roots))))))
+      (is (plusp (getf audit :account-leaves)))
+      (is (plusp (getf audit :code-checks)))
+      (is (plusp (getf audit :storage-checks)))
+      (is (null (getf audit :violations)))
+      (is (null (snap-closure-store-violations target node-map)))
+      (dolist (root roots)
+        (is (nth-value 1 (trie-node-store-get target (hash32-bytes root))))))))
