@@ -296,6 +296,18 @@ An account-subtree proof can replace its popped candidate with sixty-four
 storage dependencies, for a net increase of sixty-three works. That dominates
 the seventeen-work net increase from a sixteen-child branch carrying both
 subtree and node-completion sentinels.")
+(defconstant +snap-sync-heal-live-overflow-read-width+
+  (floor +snap-sync-heal-checkpoint-max-works+
+         +snap-sync-heal-max-net-expansion-per-work+)
+  "Local read width kept while the live frontier is at or near its bound.
+
+Above +SNAP-SYNC-HEAL-LIVE-FRONTIER-MAX-WORKS+ the expansion room is zero, and
+shrinking the batch to one work does not restore the bound: blocked post-order
+sentinels, not batch width, are what the frontier accumulates while any
+missing work is pending, and a single work can still add sixty-three.  Width
+one only made every node pay its own healed-subtree, dependency and trie-node
+MultiGets serially.  This width caps one batch's worst-case overshoot at one
+durable checkpoint's worth of works (8,190) instead.")
 (defparameter *snap-sync-heal-pipeline-refill-work-quantum* 4096
   "Maximum local works examined by one live-pipeline refill.
 
@@ -432,6 +444,7 @@ state completion.")
                       response-bytes promoted-subtrees skipped-subtrees
                       frontier-works deferred-storage-works remote-works
                       known-incomplete-nodes
+                      local-read-batches local-read-works
                       completed-p)))
   "One cumulative, observational snapshot of final TrieNodes healing.
 
@@ -445,7 +458,9 @@ current healer invocation. FRONTIER-WORKS is the currently discovered local,
 deferred-storage, and remote work; it can grow as decoded nodes reveal children
 and therefore is not a remaining-work denominator. KNOWN-INCOMPLETE-NODES is
 the conservative durable-marker population and may include content from an
-older pivot that the current root never reaches. These counters are
+older pivot that the current root never reaches. LOCAL-READ-BATCHES counts
+ordered local trie-node reads and LOCAL-READ-WORKS the works they carried, so
+their ratio is the mean local read width. These counters are
 observational and not consensus-visible."
   (processed-nodes 0)
   (reused-nodes 0)
@@ -458,12 +473,15 @@ observational and not consensus-visible."
   (deferred-storage-works 0)
   (remote-works 0)
   (known-incomplete-nodes 0)
+  (local-read-batches 0)
+  (local-read-works 0)
   (completed-p nil))
 
 (defun snap-sync-report-heal-progress
     (callback processed-nodes reused-nodes fetched-nodes request-count
      response-bytes promoted-subtrees skipped-subtrees frontier-works
-     deferred-storage-works remote-works known-incomplete-nodes completed-p)
+     deferred-storage-works remote-works known-incomplete-nodes completed-p
+     &key (local-read-batches 0) (local-read-works 0))
   (when callback
     (funcall
      callback
@@ -479,6 +497,8 @@ observational and not consensus-visible."
       :deferred-storage-works deferred-storage-works
       :remote-works remote-works
       :known-incomplete-nodes known-incomplete-nodes
+      :local-read-batches local-read-batches
+      :local-read-works local-read-works
       :completed-p completed-p))))
 
 (defun snap-sync-require-hash32 (value label)
@@ -3346,7 +3366,8 @@ frontier concurrently."
           paths-per-source)))
 
 (defun snap-sync-heal-local-read-limit
-    (stack-count missing-count missing-limit checkpoint-room)
+    (stack-count missing-count missing-limit checkpoint-room
+     &optional (live-overflow-width +snap-sync-heal-live-overflow-read-width+))
   "Bound one local read batch by progress and worst-case trie expansion.
 
 Each popped external reference can expose either sixty-four account-subtree
@@ -3354,20 +3375,30 @@ storage dependencies, or sixteen children plus both completion sentinels. The
 former increases the frontier by sixty-three works and is the whole-class
 bound. Stay within the durable checkpoint bound throughout its normal
 soft-target region, and use the separate live bound for a larger resumed
-frontier so remote batching does not collapse at 8,192 works."
+frontier so remote batching does not collapse at 8,192 works.
+
+In the live region the width never falls below LIVE-OVERFLOW-WIDTH. A frontier
+already past the live bound has no expansion room, and the former floor of one
+turned a 909,342-work Hoodi frontier into one-node batches for the rest of the
+walk without shrinking it. The bounded pipeline refill passes one, because its
+own loop guard is what returns a saturated generation to the event loop."
   (unless (and (integerp stack-count) (not (minusp stack-count))
                (integerp missing-count) (not (minusp missing-count))
                (integerp missing-limit) (> missing-limit missing-count)
-               (integerp checkpoint-room) (plusp checkpoint-room))
+               (integerp checkpoint-room) (plusp checkpoint-room)
+               (integerp live-overflow-width)
+               (<= 1 live-overflow-width
+                   +snap-sync-heal-live-overflow-read-width+))
     (error "Invalid snap heal local read limits"))
-  (let* ((frontier-limit
+  (let* ((checkpoint-region-p
+           (<= stack-count +snap-sync-heal-checkpoint-frontier-target+))
+         (frontier-limit
            ;; Below the ordinary checkpoint target, retain enough room for the
            ;; next batch's worst-case expansion to stay immediately durable.
            ;; A restored or transiently larger frontier instead drains under
            ;; the separately bounded live limit; applying the checkpoint cap
            ;; there is the one-path/request failure this split prevents.
-           (if (<= stack-count
-                   +snap-sync-heal-checkpoint-frontier-target+)
+           (if checkpoint-region-p
                +snap-sync-heal-checkpoint-max-works+
                +snap-sync-heal-live-frontier-max-works+))
          (expansion-room
@@ -3377,7 +3408,8 @@ frontier so remote batching does not collapse at 8,192 works."
     (min +snap-sync-heal-local-reads-per-batch+
          (- missing-limit missing-count)
          checkpoint-room
-         (max 1 expansion-room))))
+         (max (if checkpoint-region-p 1 live-overflow-width)
+              expansion-room))))
 
 (defun snap-sync-heal-defer-dependencies-p
     (deferred-storage-count dependency-count)
@@ -6089,6 +6121,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                  (snap-sync-heal-checkpoint-response-bytes checkpoint)
                  0))
            (skipped-subtrees 0)
+           ;; Observational only: the ordered local reads and the works they
+           ;; carried, whose ratio is the mean local read width.
+           (local-read-batches 0)
+           (local-read-works 0)
            (last-checkpoint-processed-nodes processed-nodes)
            ;; Geth-style feedback state. PENDING counts delivered top-level
            ;; nodes not yet integrated by PROCESS-OBJECT; RATE is nodes/second.
@@ -6159,7 +6195,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
               skipped-subtrees
               (+ stack-count deferred-storage-count remote-work-count)
               deferred-storage-count remote-work-count
-              (hash-table-count incomplete-nodes) nil)))
+              (hash-table-count incomplete-nodes) nil
+              :local-read-batches local-read-batches
+              :local-read-works local-read-works)))
          (record-processing-rate (started-at processed-before)
            (let ((fills (- processed-nodes processed-before)))
              (when (plusp fills)
@@ -6196,6 +6234,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                   (cached-references '())
                   (uncached-indices '())
                   (uncached-references '()))
+             (incf local-read-batches)
+             (incf local-read-works count)
              (dotimes (index count)
                (let ((reference (aref references index)))
                  (multiple-value-bind (object cached-p)
@@ -6634,7 +6674,10 @@ for more missing hashes."
                              (snap-sync-heal-local-read-limit
                               (+ stack-count deferred-storage-count
                                  remote-work-count missing-count)
-                              missing-count missing-limit checkpoint-room)
+                              missing-count missing-limit checkpoint-room
+                              (if bounded-refill-p
+                                  1
+                                  +snap-sync-heal-live-overflow-read-width+))
                              (if bounded-refill-p
                                  (max
                                   1
@@ -6951,7 +6994,9 @@ for more missing hashes."
                                 remaining-remote-work-count)
                              deferred-storage-count
                              remaining-remote-work-count
-                             (hash-table-count incomplete-nodes) nil))
+                             (hash-table-count incomplete-nodes) nil
+                             :local-read-batches local-read-batches
+                             :local-read-works local-read-works))
                           (values (nreverse unmatched) nil fills))
                       (ethereum-lisp.validation:storage-error (condition)
                         (error condition))
@@ -7257,7 +7302,9 @@ for more missing hashes."
       (snap-sync-report-heal-progress
        on-heal-progress processed-nodes reused-nodes fetched-nodes
        request-count response-bytes promoted-subtrees skipped-subtrees
-       0 0 0 (hash-table-count incomplete-nodes) t)
+       0 0 0 (hash-table-count incomplete-nodes) t
+       :local-read-batches local-read-batches
+       :local-read-works local-read-works)
       completed))))))
 
 (defun snap-sync-heal-state

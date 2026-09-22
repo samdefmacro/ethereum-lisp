@@ -509,6 +509,8 @@
    #:snap-sync-heal-progress-deferred-storage-works
    #:snap-sync-heal-progress-remote-works
    #:snap-sync-heal-progress-known-incomplete-nodes
+   #:snap-sync-heal-progress-local-read-batches
+   #:snap-sync-heal-progress-local-read-works
    #:snap-sync-heal-progress-completed-p
    #:snap-sync-enable-complete-node-scheme-p
    #:snap-sync-read-progress

@@ -899,7 +899,10 @@ counters plus the number of whole durable subtrees skipped through
 completion. The event also reports `frontierWorks`, `deferredStorageWorks`, and
 `remoteWorks` for the currently discovered queue, plus
 `knownIncompleteNodes` for conservative durable negative markers observed by
-the active traversal. Production restart never hydrates the complete marker
+the active traversal. `localReadBatches` and `localReadWorks` count the
+ordered local trie-node reads and the works they carried; their ratio is the
+mean local read width, which stays wide even while the frontier is above its
+live bound. Production restart never hydrates the complete marker
 namespace; bounded ordered marker MultiGets preserve exact fail-closed
 classification as references enter the DFS. The frontier can grow when a
 decoded parent reveals children, including a small bounded DFS overshoot above
