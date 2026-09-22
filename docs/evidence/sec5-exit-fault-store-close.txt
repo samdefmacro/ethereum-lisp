@@ -2,13 +2,19 @@ Section 5 exit-time memory fault: closing the store before exit(3)
 
 Status
 
-IN PROGRESS. This first revision records only what has been established by
-reading the pinned third-party source and this tree, before any behavioural
-change. It states the binding surface a fix can use and the exact durability
-contract of each entry point, so that the fix that follows can be reviewed
-against a written contract rather than against an assumption. Nothing here is
-a measurement of the fault; the measurements this document will carry are
-named under "Owed" and are not yet run.
+IMPLEMENTED AND VERIFIED LOCALLY (cold unit, integration and e2e; see
+"Verification of record"). The node now closes every cached store on every
+exit path and then empties RocksDB's shared background pools, before exit(3).
+Whether this removes the live exit fault is NOT established: that fault has
+only been observed on hour-long amd64 Hoodi runs and has not been reproduced
+here (see "Does it reproduce locally?"). What is established is the property
+whose absence let it happen -- the process reached exit(3) with the store open
+and the pools populated -- and that property is now asserted by tests with
+RED controls.
+
+The first revision of this file (9a725cd0) recorded only the reading of the
+pinned source. That reading is kept below unchanged except where the fix
+proved one of its statements incomplete; that correction is marked.
 
 Revision at which the reading was done: a324d868 (branch
 sec5-public-bootstrap-sync), which carries the HTTP keep-alive shutdown fix.
@@ -40,6 +46,15 @@ What this change is about
 
 Making the node close the store before it exits, on every exit path, so that
 the A5 teardown finds nothing of RocksDB's left to tear down.
+
+CORRECTED by the implementation: closing the database alone does NOT achieve
+that. The background thread pools A5 names belong to the process-wide
+Env::Default(), not to the DB (env/env_posix.cc:220-227 at the pin;
+DBOptions::IncreaseParallelism, options/options.cc:698-703, sizes them on the
+Env). rocksdb_close unschedules this DB's tasks and waits for its jobs, but the
+pool threads stay parked, and JoinThreadsOnExit still joins them and clears
+each std::thread vector at exit(3). The change therefore also empties the
+pools while the process is alive; see "What changed" below.
 
 Established by reading: the store is never closed from the node
 
@@ -148,26 +163,174 @@ Therefore an orderly close changes NOTHING about what is durable. It changes
 only whether the background threads and the block cache are released by the
 process while it is alive, instead of by a static destructor at exit(3).
 
+What changed
+
+Revision: branch exit-fault-close-store over 9a725cd0:
+  68c244b7  database: a RocksDB close happens once, waits for its callers,
+            and can empty the pools
+  ad6ed0c3  cli: the node closes every cached store when its lifetime scope
+            exits
+  736ce3ac  ws: a session deregisters its socket, and a hung-up client no
+            longer spins
+  e0a60850  tests: a real node closes its RocksDB store on SIGTERM, return and
+            error exit
+  2781311a  database: release the pools only in a process that opened a
+            RocksDB store
+
+1. The RocksDB backend (src/foundation/database/rocksdb.lisp).
+   - A close is claimed once, by compare-and-swap on a per-handle CLOSING-P.
+     A second or concurrent close returns NIL and touches no native pointer.
+   - Every native call that takes the rocksdb_t*, and every live iterator
+     from creation to its finish, is counted as a user of the handle
+     (ROCKSDB-USAGE; increment, full barrier, then read CLOSING-P; the closer
+     claims, full barrier, then reads the count). The close waits, bounded by
+     +ROCKSDB-CLOSE-DRAIN-SECONDS+ (5 s), for those users to leave, and only
+     then calls rocksdb_close and destroys the three option objects. A user
+     arriving after the claim signals ROCKSDB-DATABASE-CLOSED-ERROR instead
+     of passing a freed or NULL pointer to the C API.
+   - A user that outlasts the bound makes the close return :BUSY and leaves
+     the handle OPEN and unusable. A leaked handle is the pre-existing exit
+     behaviour; a DB freed under a live caller is a fault.
+   - The separate rocksdb_cancel_all_background_work binding drafted before
+     this revision was dropped: CloseHelper already calls
+     CancelAllBackgroundWork(false) first (db_impl.cc:546), so calling it
+     beforehand changed nothing.
+   - RELEASE-ROCKSDB-BACKGROUND-THREADS (only in a process that opened a
+     RocksDB database) sets the LOW, HIGH and BOTTOM pools of
+     the default Env to zero threads when no RocksDB database is open, then
+     waits up to 2 s for the last rocksdb:* thread to go. Setting a pool to
+     zero makes each worker detach itself and pop its std::thread from the
+     vector while the process is alive (threadpool_imp.cc, the
+     IsLastExcessiveThread branch of BGThread), so JoinThreadsOnExit at
+     exit(3) finds empty vectors and frees nothing. Opens, closes and the
+     release share one lock, so a release cannot empty pools an opening DB is
+     about to rely on; a later open sizes them again through
+     IncreaseParallelism and SanitizeOptions.
+   - KV-CLOSE is the backend-neutral entry point (types.lisp); the file and
+     memory backends take a no-op default.
+
+2. The node (src/app/cli/devnet/files.lisp).
+   CALL-WITH-DEVNET-CLI-KV-DATABASE-CACHE closes each distinct cached handle
+   exactly once and then releases the pools, in an unwind-protect cleanup, so
+   it runs on normal return and on any unwind. It is the innermost scope of
+   both the serving node and init. Order on the serving path:
+     signal handler -> DEVNET-SHUTDOWN-REQUEST only (unchanged; no store work
+       in signal context)
+     START-DEVNET-NODE-LISTENERS cleanup -> joins every worker (bounded joins
+       terminate and re-join a worker that does not stop)
+     DEVNET-CLI-RUN-SERVE-NODE cleanup -> shutdown export, devnet.shutdown
+     cache scope cleanup -> close each handle, release pools
+     DEVNET-CLI-RUN returns the exit code -> scripts/ethereum-lisp.lisp exit
+   A worker that the bounded joins abandoned is covered by (1): the close
+   waits for it if it is inside the handle and makes its next call signal.
+   Closed handles stay in the table so a straggler gets a signalling handle
+   rather than a miss that would reopen the store. A :BUSY or failed close is
+   reported on stderr.
+
+3. WebSocket (src/app/cli/devnet/ws-server.lisp). The carried-forward leak is
+   fixed: a session removes its shutdown closeable when it ends. Writing its
+   test found a worse defect in DEVNET-WS-READ-HANDSHAKE: LISTEN is false at
+   end of file and an fd at EOF is always usable for input, so a client that
+   hung up before finishing its upgrade request left its session thread
+   spinning (wait -> usable -> LISTEN false -> wait) until the node shut down.
+   The reader now reads once the fd is usable.
+
+E4 is not changed by this revision: the SIGTERM handler still takes the
+closeable mutex and runs closeable thunks in signal context. The store close
+was deliberately kept out of it.
+
+Measurements (warm dev image, arm64, this machine)
+
+- rocksdb:* threads in the process with one store open: 10. After closing it:
+  still 10 (the close alone does not touch the pools). After
+  RELEASE-ROCKSDB-BACKGROUND-THREADS: 0. The info LOG of that store carries
+  one "Shutdown complete" after the close.
+- WebSocket session of a client that connected and closed without a request,
+  on the pre-fix reader: still alive 2 s after the client closed, the process
+  consuming 1.01 CPU-seconds per wall second while otherwise idle.
+
+RED controls (each run against the new test, in the warm image unless noted)
+
+- ROCKSDB-CLOSE-WAITS-FOR-A-CALLER-INSIDE-THE-HANDLE, with the usage counting
+  replaced by a pass-through: fails at (THREAD-ALIVE-P CLOSER) -- the close
+  returned at once under a live iterator.
+- DEVNET-KV-CACHE-CLOSES-THE-NODE-STORE-ONCE-AFTER-ITS-WORKERS-STOP, with the
+  previous scope body loaded: fails at (= 1 (COUNT STORE-DATABASE CLOSES)).
+  Its worker probe has its own positive control: it must see live node
+  workers while the node serves.
+- WEBSOCKET-SESSION-DEREGISTERS-ITS-SOCKET-WHEN-IT-ENDS fails with "Timed out
+  after 5s waiting for the first session to deregister" in three separate
+  runs: the original ws-server.lisp; the new file with deregistration
+  disabled; the new file with the original handshake reader. Its positive
+  control is the BASELINE + 1 (and + 3) count observed while connections are
+  open.
+- DEVNET-CLI-NODE-CLOSES-ITS-ROCKSDB-STORE-ON-EVERY-EXIT-PATH (e2e, real node
+  processes), with a324d868's files.lisp on disk: "sigterm: expected one
+  RocksDB close in the LOG, found 0". With the assertion recording instead of
+  failing, all three arms on that tree: sigterm 0, no-serve 0, bind-error 0
+  "Shutdown complete" lines, each LOG present with its "RocksDB version"
+  line. With the change: exactly 1 in each arm.
+- ROCKSDB-RELEASE-EMPTIES-THE-SHARED-BACKGROUND-POOLS carries its positive
+  control inline: the probe counts rocksdb:* threads while a DB is open, after
+  a release refused with a DB open, and after a bare close.
+- ROCKSDB-CLOSE-HAPPENS-ONCE-AND-EVERY-LATER-USE-SIGNALS: NOT run red. On the
+  old close a later call passes a NULL rocksdb_t* into the C API, a native
+  fault in the test image rather than a test failure. The positive control
+  (every operation works before the close) is inline.
+
 Does it reproduce locally?
 
-NOT ESTABLISHED YET in this session. The prior record (ea865333) is that the
-bounded probe scripts/rocksdb-exit-fault-probe.lisp and the e2e control
+Not attempted in this revision beyond the earlier record: ea865333's bounded
+probe (scripts/rocksdb-exit-fault-probe.lisp) and the e2e control
 ROCKSDB-UNWINDING-EXIT-DOES-NOT-FAULT-WITH-AN-OPEN-STORE are green in both
-arms and cannot reach the regime the live faults need: the probe writes about
-200 MiB and lives about a minute, while the faulting runs are above an hour at
-a 50 GiB datadir. The live artifact is amd64 and this machine's dev and test
-images are arm64, which is a second reason a local negative is not evidence of
-health.
+arms on this machine and do not reach the regime of the live faults (about a
+minute and 200 MiB here, above an hour and 50 GiB live), and this machine's
+images are arm64 while the live artifact is amd64. A local green is therefore
+not evidence of health, and no before/after of the fault itself is recorded.
+Every e2e arm above exited with the expected status (0, 0, 1) and wrote no
+"left open" or "failed to close" line.
 
-The consequence for this change, stated plainly: the RED control for the
-regression cannot be the fault itself. It has to be the property whose absence
-lets the fault happen -- that the node reaches its exit with the store open --
-and any test asserting it must say so in its own comment.
+Verification of record
 
-Owed (not verified at the time of writing)
+At 2781311a (code), cold images, this machine, 2026-09-23:
 
-- Whether the fault reproduces locally at all, and on which architecture.
-- An amd64 live-host confirmation that the fault is absent after a clean close.
-  Nothing in this document or the change it accompanies establishes that; it
-  remains owed to the record.
-- The cold-layer verification of the change itself.
+cl-workbench validation run cold-unit
+  1420 tests passed, 3 skipped.   Exit 0.   (no unit test added)
+cl-workbench validation run cold-integration
+  586 tests passed, 9 skipped.    Exit 0.   (five integration tests added;
+  the neighbouring record at 6e5c7a73 is 581 passed, 9 skipped)
+cl-workbench validation run cold-e2e
+  worker 1: 33 tests passed; worker 2: 36 tests passed.   Exit 0.
+  (one e2e test added)
+
+Each of the six new tests and the modified
+ROCKSDB-KEY-VALUE-DATABASE-PERSISTS-ATOMIC-BATCHES was grepped by name in the
+logs and is "ok", including both keep-alive SIGTERM stop tests. No "not ok",
+no compile warning under /workspace/src, and no "left open", "failed to
+close" or "were not released" line in any of the three logs.
+
+An earlier cold-e2e at the same code failed two ready-file waits
+(DEV-PERIOD-SEAL-SURVIVES-SIGKILL-AFTER-PUBLIC-VISIBILITY and
+SERVE-MODE-HONORS-RUNNER-HTTP-SHAPING) and timed out its second worker at
+900 s, with the shared host at load average 21-33 from other checkouts. Both
+tests passed alone in the warm image, and the whole lane passed on the rerun
+recorded above. A second attempt died in the Docker build (buildkit
+"DeadlineExceeded: no active session") before any test ran.
+
+Not verified
+
+- That the live Hoodi exit fault is gone. Owed: an amd64 run long enough to
+  have faulted before (above an hour, ~50 GiB datadir), stopped with the
+  gate's `docker stop --time 30`, with the exit status, the container log's
+  "Shutdown complete" line in chaindata/LOG, and the kernel log checked.
+- How long a close takes on a large live store. CloseHelper's wait has no
+  timeout; CancelAllBackgroundWork makes running compactions abort at their
+  next shutdown check, but the time to that check on a 50 GiB store under
+  compaction debt is unmeasured, and it now sits inside the supervisor's
+  30 s grace period after the export.
+- That the pool release completes before exit on amd64 glibc: the wait is
+  observed through thread names (/proc/self/task/*/comm), measured here only
+  on the arm64 dev image.
+- The `db` subcommands close their handle as before but do not release the
+  pools; they are offline tools and were not changed.
+- E4 (signal-context mutex and closeable thunks) is unchanged.
