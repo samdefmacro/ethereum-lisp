@@ -1,7 +1,13 @@
 # Account-side closure in snap sync
 
-Why the healer cannot trust a present account node today, what invariant would
-let it, and how the range phase establishes that invariant at write time.
+Why the healer could not trust a present account node, what invariant lets it,
+and how the range phase establishes that invariant at write time.
+
+Status: in force as closure epoch seven (`#(7)`). The closed writer and the
+healer's account presence skip are switched together by
+`*SNAP-SYNC-ACCOUNT-CLOSURE-WRITES*`; an epoch-six datadir is recognized,
+never trusted, and resyncs. Measurements and RED controls are in
+`docs/evidence/sec5-account-closure-epoch7.txt`, "Phase two: the epoch".
 
 Reference client: go-ethereum `38271784c2b31926563806da9a2e023b88f5e7a8`,
 version `1.17.6-unstable`, vendored under `references/go-ethereum`. The syncer
@@ -156,7 +162,21 @@ schema-v4 migration, and the snap/1 server, which is live while we sync) and
 batch of children-before-parents nodes for a trie fully materialized in memory,
 with code in the same batch, so it upholds I1 for a complete state.
 `SNAP-ACCOUNT-TRIE-NODE-WRITERS-ARE-ALL-CLASSIFIED` pins that list so a new
-writer breaks a test rather than a live sync.
+writer breaks a test rather than a live sync, and
+`SNAP-EPOCH-SEVEN-DOES-NOT-TRUST-ACCOUNT-NODES-WRITTEN-BY-BLOCK-IMPORT` audits
+the genesis export and block commits batch by batch into an epoch-seven store.
+The snap/1 server's `SNAP-SYNC-ROOT-TRIE` persists the account trie alone,
+without its storage tries or code, and is not covered by that argument.
+
+There is a third writer, which the list above missed and the snap-server-closure
+change found (`fc0bb2ea`): the healer's own fetched-node flush in
+`%SNAP-SYNC-HEAL-STATE`. It writes fetched nodes top-down, a parent in a batch
+before its children, each with its incomplete marker in the same batch, and
+only the node's post-order `:node-complete` sentinel deletes the marker. So the
+presence rule is "present AND unmarked", exactly as the epoch-six storage rule
+was: the healer processes a marked node before it considers the skip.
+`SNAP-EPOCH-SEVEN-HEALER-DESCENDS-A-MARKED-ACCOUNT-NODE-AFTER-A-CRASH` pins that
+across a crash.
 
 ## 8. Rejected alternatives
 
