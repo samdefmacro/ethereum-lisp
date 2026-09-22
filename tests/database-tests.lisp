@@ -284,15 +284,182 @@
                         (kv-get database #(2))
                       (is present-p)
                       (is (bytes= #(20) value)))
-                    (let ((iterator (kv-iterator database)))
-                      (multiple-value-bind (key value present-p)
-                          (funcall iterator)
-                        (is present-p)
-                        (is (bytes= #(2) key))
-                        (is (bytes= #(20) value)))))
+                    ;; Finished explicitly: a live iterator pins the DB, and
+                    ;; the close below would wait for it.
+                    (multiple-value-bind (iterator finish) (kv-iterator database)
+                      (unwind-protect
+                           (multiple-value-bind (key value present-p)
+                               (funcall iterator)
+                             (is present-p)
+                             (is (bytes= #(2) key))
+                             (is (bytes= #(20) value)))
+                        (funcall finish))))
                (close-rocksdb-key-value-database database))))
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))))
+
+(defun rocksdb-close-test-path (label)
+  (merge-pathnames
+   (make-pathname :directory
+                  `(:relative ,(format nil "ethereum-lisp-rocks-~A-~A"
+                                       label (gensym))))
+   #P"/private/tmp/"))
+
+(deftest rocksdb-close-happens-once-and-every-later-use-signals
+  (:layer :integration :module :database)
+  ;; The node's shutdown now closes a handle other threads may still reach.
+  ;; Before this change a close nulled only the handle slot, and a later call
+  ;; passed the NULL rocksdb_t* straight into the C API -- a fault, not an
+  ;; error. Each use below must SIGNAL instead, and a second close must not
+  ;; reach rocksdb_close again (that is a double delete of DBImpl).
+  (let ((path (rocksdb-close-test-path "close-once")))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           ;; Positive control: every operation below works on an open handle,
+           ;; so the signals after the close are about the close.
+           (kv-put database #(1) #(10))
+           (is (bytes= #(10) (kv-get database #(1))))
+           (multiple-value-bind (next finish) (kv-iterator database)
+             (is (nth-value 2 (funcall next)))
+             (funcall finish))
+           (is (eq :closed
+                   (ethereum-lisp.database:close-rocksdb-key-value-database
+                    database)))
+           (is (null (ethereum-lisp.database:close-rocksdb-key-value-database
+                      database)))
+           (is (null (ethereum-lisp.database:kv-close database)))
+           (signals ethereum-lisp.database:rocksdb-database-closed-error
+             (kv-get database #(1)))
+           (signals ethereum-lisp.database:rocksdb-database-closed-error
+             (kv-get-many database (list #(1))))
+           (signals ethereum-lisp.database:rocksdb-database-closed-error
+             (kv-put database #(2) #(20)))
+           (signals ethereum-lisp.database:rocksdb-database-closed-error
+             (kv-delete database #(1)))
+           (signals ethereum-lisp.database:rocksdb-database-closed-error
+             (let ((batch (make-kv-write-batch)))
+               (kv-batch-put batch #(3) #(30))
+               (kv-apply-batch database batch)))
+           (signals ethereum-lisp.database:rocksdb-database-closed-error
+             (kv-iterator database))
+           ;; The acknowledged write survived the close: it was in the WAL.
+           (let ((reopened (make-rocksdb-key-value-database path)))
+             (unwind-protect
+                  (is (bytes= #(10) (kv-get reopened #(1))))
+               (ethereum-lisp.database:close-rocksdb-key-value-database
+                reopened))))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
+#+sbcl
+(deftest rocksdb-close-waits-for-a-caller-inside-the-handle
+  (:layer :integration :module :database :estimated-seconds 3d0)
+  ;; A live iterator pins the DB exactly as an in-flight native call does, and
+  ;; is the long-lived case of it. The close must wait for it rather than
+  ;; free the DB underneath it, and must refuse (:BUSY) rather than free when
+  ;; the caller outlasts the drain bound -- the shape of a worker the node's
+  ;; shutdown abandoned after a bounded join.
+  (let ((path (rocksdb-close-test-path "close-drain"))
+        (closer nil))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (kv-put database #(1) #(10))
+           (kv-put database #(2) #(20))
+           ;; Arm 1: the close waits, then completes once the caller leaves.
+           (multiple-value-bind (next finish) (kv-iterator database)
+             (multiple-value-bind (key value present-p) (funcall next)
+               (declare (ignore value))
+               (is present-p)
+               (is (bytes= #(1) key)))
+             (setf closer
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (handler-case
+                          (ethereum-lisp.database:close-rocksdb-key-value-database
+                           database :drain-seconds 30)
+                        (serious-condition (condition) condition)))
+                    :name "ethereum-lisp-test-rocksdb-closer"))
+             (sleep 0.3)
+             ;; RED without the in-flight accounting: the close would have
+             ;; returned already, with the iterator still open on a freed DB.
+             (is (sb-thread:thread-alive-p closer))
+             (is (not (cffi:null-pointer-p
+                       (ethereum-lisp.database::rocksdb-handle database))))
+             ;; A new caller arriving while the close waits is refused.
+             (signals ethereum-lisp.database:rocksdb-database-closed-error
+               (kv-get database #(1)))
+             ;; The caller already inside keeps working until it leaves.
+             (multiple-value-bind (key value present-p) (funcall next)
+               (declare (ignore value))
+               (is present-p)
+               (is (bytes= #(2) key)))
+             (funcall finish))
+           (is (eq :closed (sb-thread:join-thread closer :timeout 10
+                                                         :default :timeout)))
+           (is (cffi:null-pointer-p
+                (ethereum-lisp.database::rocksdb-handle database))))
+      (when closer
+        (ignore-errors (sb-thread:join-thread closer :timeout 10
+                                                     :default :timeout))))
+    ;; Arm 2: a caller that outlasts the bound is not freed under.
+    (let ((database (make-rocksdb-key-value-database path)))
+      (unwind-protect
+           (multiple-value-bind (next finish) (kv-iterator database)
+             (declare (ignore next))
+             (is (eq :busy
+                     (ethereum-lisp.database:close-rocksdb-key-value-database
+                      database :drain-seconds 0.2)))
+             (is (not (cffi:null-pointer-p
+                       (ethereum-lisp.database::rocksdb-handle database))))
+             (funcall finish))
+        ;; Test cleanup only: reopen the claim so the handle can be released.
+        (setf (ethereum-lisp.database::rocksdb-usage-closing-p
+               (ethereum-lisp.database::rocksdb-usage database))
+              nil)
+        (ethereum-lisp.database:close-rocksdb-key-value-database database)
+        (when (probe-file path)
+          (uiop:delete-directory-tree path :validate t))))))
+
+(deftest rocksdb-release-empties-the-shared-background-pools
+  (:layer :integration :module :database :estimated-seconds 3d0)
+  ;; The thread pools are Env::Default()'s, not the database's, so closing a
+  ;; database leaves them parked, and the static JoinThreadsOnExit joins and
+  ;; frees them at exit(3) -- the teardown the Section 5 exit fault runs in.
+  ;; Releasing them while the process is alive leaves that join nothing to do.
+  (let ((path (rocksdb-close-test-path "release-pools")))
+    (unwind-protect
+         (let ((database (make-rocksdb-key-value-database path)))
+           (unless (ethereum-lisp.database:rocksdb-background-thread-count)
+             (ethereum-lisp.database:close-rocksdb-key-value-database database)
+             (skip-test "Thread names are not visible on this platform"))
+           (unless (= 1 ethereum-lisp.database::*rocksdb-open-database-count*)
+             (ethereum-lisp.database:close-rocksdb-key-value-database database)
+             (skip-test "Another RocksDB database is open in this image"))
+           (kv-put database #(1) #(10))
+           ;; Positive control: the probe sees the pool while a DB is open, and
+           ;; a release with a DB open refuses and changes nothing.
+           (is (plusp (ethereum-lisp.database:rocksdb-background-thread-count)))
+           (is (eq :open
+                   (ethereum-lisp.database:release-rocksdb-background-threads)))
+           (is (plusp (ethereum-lisp.database:rocksdb-background-thread-count)))
+           (ethereum-lisp.database:close-rocksdb-key-value-database database)
+           ;; The close alone does not empty the pools.
+           (is (plusp (ethereum-lisp.database:rocksdb-background-thread-count)))
+           (is (eq :released
+                   (ethereum-lisp.database:release-rocksdb-background-threads)))
+           (is (zerop (ethereum-lisp.database:rocksdb-background-thread-count)))
+           ;; And a later open sizes them again and still writes.
+           (let ((reopened (make-rocksdb-key-value-database path)))
+             (unwind-protect
+                  (progn
+                    (kv-put reopened #(2) #(20))
+                    (is (plusp
+                         (ethereum-lisp.database:rocksdb-background-thread-count))))
+               (ethereum-lisp.database:close-rocksdb-key-value-database
+                reopened))))
+      (when (probe-file path)
+        (uiop:delete-directory-tree path :validate t)))))
+
 
 (deftest rocksdb-key-value-database-configures-public-node-read-cache
   (:layer :integration :module :database)

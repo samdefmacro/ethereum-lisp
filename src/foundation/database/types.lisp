@@ -114,6 +114,23 @@ suffix, so callers must not use it for irreplaceable completion markers."))
 The default backends establish a durable seam even through the buffered API;
 callers use this capability to report durability and generation changes
 accurately while RocksDB group-commits unpublished work."))
+(defgeneric kv-close (database)
+  (:documentation
+   "Release every native resource DATABASE holds. Idempotent.
+
+Backends whose state is entirely Lisp-side have nothing to release and take the
+default method, so a caller closing a heterogeneous set of handles -- the node's
+handle cache, whose backend is chosen by --db.engine -- needs no type test and
+is safe when nothing native was ever opened.
+
+A backend that does hold native resources must release them here and leave the
+handle in a state where every later operation SIGNALS. Returning the handle to a
+state where it would call into freed memory is not an acceptable close."))
+
+(defmethod kv-close ((database key-value-database))
+  "Nothing native to release."
+  nil)
+
 (defgeneric kv-iterator (database &key start end reverse-p)
   (:documentation
    "Return an iterator function and, as a second value, an idempotent closer.

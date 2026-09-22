@@ -51,11 +51,19 @@ decoding it by hand costs nothing and avoids depending on a bivalent stream."
                              :adjustable t :fill-pointer 0))
         (fd (sb-sys:fd-stream-fd stream)))
     (loop
-      (let ((byte (if (listen stream) (read-byte stream nil nil) :wait)))
+      ;; LISTEN is false at end of file as well as when no byte is buffered,
+      ;; and an fd at EOF is always usable for input. Reading only after LISTEN
+      ;; therefore spun a core forever on a client that hung up before
+      ;; finishing its request: wait -> usable at once -> LISTEN false -> wait.
+      ;; Once the fd is usable, READ-BYTE cannot block -- it returns the next
+      ;; octet or NIL at end of file -- so read it rather than ask LISTEN again.
+      (let ((byte (cond
+                    ((listen stream) (read-byte stream nil nil))
+                    ((sb-sys:wait-until-fd-usable fd :input timeout-seconds nil)
+                     (read-byte stream nil nil))
+                    (t :timeout))))
         (cond
-          ((eq byte :wait)
-           (unless (sb-sys:wait-until-fd-usable fd :input timeout-seconds nil)
-             (return nil)))
+          ((eq byte :timeout) (return nil))
           ((null byte) (return nil))
           (t
            (vector-push-extend byte bytes)
@@ -279,17 +287,26 @@ Returns NIL when --ws is off, so a node that does not ask for it pays nothing."
                       ;; The accept loop never serves on its own thread, for the
                       ;; same reason the RLPx one does not: one slow client
                       ;; would stop it noticing anything, shutdown included.
-                      (devnet-shutdown-controller-add-closeable
-                       shutdown-controller
-                       (lambda ()
-                         (ignore-errors
-                          (sb-bsd-sockets:socket-close socket))))
-                      (let ((thread
+                      ;; The session deregisters its socket when it ends, as
+                      ;; the peer sessions do; otherwise the controller keeps
+                      ;; one closure per connection ever accepted for the
+                      ;; life of the node. A NIL token (shutdown already
+                      ;; requested, socket already closed) removes nothing.
+                      (let* ((token
+                               (devnet-shutdown-controller-add-closeable
+                                shutdown-controller
+                                (lambda ()
+                                  (ignore-errors
+                                   (sb-bsd-sockets:socket-close socket)))))
+                             (thread
                               (sb-thread:make-thread
                                (lambda ()
                                  (handler-case
-                                     (devnet-ws-serve-connection
-                                      node socket shutdown-controller)
+                                     (unwind-protect
+                                          (devnet-ws-serve-connection
+                                           node socket shutdown-controller)
+                                       (devnet-shutdown-controller-remove-closeable
+                                        shutdown-controller token))
                                    (serious-condition (condition)
                                      (devnet-ws-log node "ws.session_failed"
                                                     condition))))
