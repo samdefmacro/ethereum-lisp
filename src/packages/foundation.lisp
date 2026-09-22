@@ -44,6 +44,10 @@
    #:make-file-key-value-database
    #:make-rocksdb-key-value-database
    #:close-rocksdb-key-value-database
+   #:rocksdb-database-closed-error
+   #:release-rocksdb-background-threads
+   #:rocksdb-background-thread-count
+   #:kv-close
    #:rocksdb-available-p
    #:kv-database-reopen-required-p
    #:kv-log-corruption-error
