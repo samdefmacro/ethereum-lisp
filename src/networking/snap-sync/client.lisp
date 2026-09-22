@@ -413,6 +413,41 @@ state completion.")
      (declare (ignore condition))
      (write-string "Snap healer yielded for target re-evaluation" stream))))
 
+(defvar *snap-sync-stop-p* nil
+  "NIL, or a function of no arguments that returns true once the process is
+stopping.
+
+The coordinator that owns a snap import binds it on its own thread. Every
+snap work loop consults it at the batch boundaries it already has and, once it
+is true, unwinds by signalling SNAP-SYNC-STOPPED without writing anything more:
+no checkpoint, no flush of buffered nodes, no completion. Markers and
+checkpoints are crash-safe by design, so a stop is simply a crash the next run
+tolerates. Unlike HEAL-YIELD-P it is read at every local read batch, because a
+walk over a store that already holds the trie is one pass that no peer
+interrupts.")
+
+(define-condition snap-sync-stopped (condition) ()
+  (:documentation
+   "A snap work loop observed *SNAP-SYNC-STOP-P* and unwound at a batch
+boundary. Deliberately not an ERROR: the loops' own ERROR and
+SERIOUS-CONDITION boundaries retire sources and classify faults, and a stop is
+neither. Only the coordinator that bound *SNAP-SYNC-STOP-P* handles it.")
+  (:report
+   (lambda (condition stream)
+     (declare (ignore condition))
+     (write-string "Snap work stopped for process shutdown" stream))))
+
+(defun snap-sync-stop-requested-p ()
+  "Whether the coordinator that owns this thread's snap work is stopping."
+  (let ((stop-p *snap-sync-stop-p*))
+    (and stop-p (funcall stop-p) t)))
+
+(defun snap-sync-check-stop ()
+  "Unwind with SNAP-SYNC-STOPPED when a stop is requested; otherwise NIL."
+  (when (snap-sync-stop-requested-p)
+    (error 'snap-sync-stopped))
+  nil)
+
 (defun snap-sync-signal-sources-exhausted (phase failures)
   (unless failures
     (error "Snap workers stopped without source-failure evidence"))
@@ -6159,6 +6194,7 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
                                    (snap-sync-storage-worker-event-result event))))
                            (snap-sync-storage-runtime-release
                             runtime task-index source next)
+                           (snap-sync-check-stop)
                            (when (and heal-yield-p (funcall heal-yield-p))
                              (error 'snap-sync-heal-yielded))
                            (refresh-sources))))))))))
@@ -7101,7 +7137,11 @@ for more missing hashes."
                               (< deferred-storage-count
                                  +snap-sync-heal-deferred-storage-target+)
                               (not
-                               (checkpoint-blocks-traversal-p missing-count)))
+                               (checkpoint-blocks-traversal-p missing-count))
+                              ;; Inside the remote pipeline a stop ends the
+                              ;; refill instead of unwinding through it; the
+                              ;; pipeline then pauses and FETCH-MISSING unwinds.
+                              (not (snap-sync-stop-requested-p)))
                    do
                    (let* ((checkpoint-room
                             (max
@@ -7317,6 +7357,11 @@ for more missing hashes."
                       (when stale-p
                         (setf remote-pipeline-yield-requested-p t))
                       (or
+                       ;; A stop is observed here as well: assignment ends, the
+                       ;; in-flight responses drain (their peer sockets are
+                       ;; already closed), and FETCH-MISSING unwinds before
+                       ;; any flush or checkpoint.
+                       (snap-sync-stop-requested-p)
                        ;; A stale-root decision is independent from the normal
                        ;; checkpoint cadence.  Stop assigning new work now;
                        ;; SNAP-SYNC-HEAL-RUN-PIPELINE still drains every
@@ -7506,6 +7551,9 @@ for more missing hashes."
                       (snap-sync-heal-source-request-capacity
                        source healer-throttle)))
                  (setf remote-work-count 0)
+                 ;; A stop leaves the fetched nodes unflushed and the
+                 ;; frontier uncheckpointed, exactly as a crash here would.
+                 (snap-sync-check-stop)
                  (flush-fetched-nodes)
                  (flush-healed-subtrees)
                  (when (or remaining paused-p)
@@ -7533,6 +7581,7 @@ for more missing hashes."
         ;; A coordinator may therefore yield a stale, CL-authorized target and
         ;; atomically rebase its durable progress on the next pass. Content-
         ;; addressed nodes and completed-subtree proofs remain reusable.
+        (snap-sync-check-stop)
         (when (and heal-yield-p (funcall heal-yield-p))
           (error 'snap-sync-heal-yielded))
         (let* ((pass-started-at (get-internal-real-time))
@@ -7554,6 +7603,10 @@ for more missing hashes."
                               +snap-sync-heal-deferred-storage-target+)
                            (not (checkpoint-blocks-traversal-p missing-count)))
                 do
+                ;; One local pass can be the whole walk when the store
+                ;; already holds the trie, so the pass boundary above is
+                ;; not enough: observe a stop before every read batch.
+                (snap-sync-check-stop)
                 (let* ((checkpoint-room
                          (max
                           1
@@ -7942,6 +7995,7 @@ MAX-PAGES intentionally bounds a test or one scheduling slice."
                 database source state-root task-index task byte-limit)))
         (incf pages)
         (when on-progress (funcall on-progress progress))
+        (snap-sync-check-stop)
         (when (and range-yield-p (funcall range-yield-p))
           (error 'snap-sync-heal-yielded))
         (when (snap-sync-progress-completed-p progress)
@@ -9478,6 +9532,7 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
                              ;; cursor batch boundary. Other workers may still
                              ;; own bounded in-flight pages; unwind stops them
                              ;; and their uncommitted results remain retryable.
+                             (snap-sync-check-stop)
                              (when (and
                                     range-yield-p
                                     (loop repeat (length result-events)
