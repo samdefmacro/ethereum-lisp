@@ -1,0 +1,60 @@
+Section 5 Hoodi run at cceee42f: dead on arrival, and the one-line cause
+
+Status
+
+Failure record. The fresh-datadir run at cceee42f started at
+2026-09-22T23:18:19Z (container hoodi-el-sec5-cceee42f, datadir-cceee42f,
+12 GiB, replacing hoodi-el-sec5-75b0b7a7 through the broker) and stopped
+making range progress after its ninth page. It was replaced by aac5f762 the
+same night.
+
+What happened
+
+  23:18:54Z  ninth and last peer.snap.progress event
+  23:19:52Z  first peer.snap.import_failed:
+             ("error" . "KV multi-get exceeds 4096 keys")
+  23:34:02Z  751 import_failed events, progress count still 9, 16
+             pivot_unavailable, one rebase, 0 runtime faults, datadir 474 MB.
+
+Every failure carried the same error. The storage root closure step that
+77ab2530 added (sec5-marker-population.txt) walks a chunked contract's whole
+local trie once its sixteen cursors complete, then looked up the incomplete
+markers of every visited node in ONE native multi-get. The walk admits up to
+*SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES* (1,048,576) nodes;
++KV-GET-MANY-MAX-KEYS+ is 4,096. The fixtures that verified the step held
+2,500-slot contracts, about 2,100 walked nodes each, under the bound; the
+live chain's chunked contracts are wider, so every account page that carried
+one failed its import and was retried against the next source with the same
+result.
+
+The fix, aac5f762
+
+The lookup goes in +KV-GET-MANY-MAX-KEYS+ groups; nothing else in the step
+changes. RED control:
+SNAP-STORAGE-ROOT-CLOSURE-PUBLISHES-A-TRIE-WIDER-THAN-ONE-MULTI-GET builds a
+5,000-slot storage trie with the bare MPT API (a state-db that wide, and the
+partition import helper, both exhaust the warm image's heap), stamps the
+epoch, marks every node, seeds sixteen completed cursors and publishes.
+Against the cceee42f publisher, loaded over the warm image, it fails with
+exactly the live error; against aac5f762 it returns :CLOSED with the
+:STORAGE-ROOT proof present and every marker gone.
+
+cl-workbench validation run cold-all on aac5f762, exit 0, no `not ok`, no
+compile warning under /workspace/src:
+
+  1428 tests passed, 3 skipped.   (unit)      (+1: the test above)
+  595 tests passed, 9 skipped.    (integration)
+  33 tests passed.                (e2e)
+  36 tests passed.                (e2e)
+
+The replaced 75b0b7a7 container, again
+
+hoodi-el-sec5-75b0b7a7 was stopped by the broker at 23:17:48.795Z ("Devnet
+shutdown requested; closing RPC listeners."). Both HTTP listeners finished
+within the second (42 and 100 connections), then nothing was logged for
+30 s and it exited 137 at 23:18:19.125Z, OOMKilled=false. RocksDB's LOG has
+no shutdown line, so the store close (6a6dbbb8) was never reached. The
+keep-alive fix works; something between listener finish and the store close
+does not return while a heal walk is active. That is the sixth
+SIGKILL-at-stop on this gate and is being worked as its own change
+(sec5-sigterm-during-heal.txt when it lands).
