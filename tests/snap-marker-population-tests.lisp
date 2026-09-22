@@ -653,3 +653,57 @@ processed=~A fetched=~A root-proofs=~A created=~S deleted=~S census=~S~%"
         (is (< (* 10 (getf (car pair) :healer-marked-walk))
                (getf (cdr pair) :healer-marked-walk)))
         (is (< (getf (car pair) :processed) (getf (cdr pair) :processed)))))))
+
+(deftest snap-storage-root-closure-publishes-a-trie-wider-than-one-multi-get
+  (:layer :unit :module :p2p)
+  ;; Hoodi, revision cceee42f, 2026-09-22T23:19Z: every page carrying a chunked
+  ;; contract wider than +KV-GET-MANY-MAX-KEYS+ trie nodes failed with "KV
+  ;; multi-get exceeds 4096 keys" and the range phase stopped at its ninth
+  ;; page.  The closure step looked up the incomplete markers of every walked
+  ;; node in ONE native multi-get, while the walk itself admits up to
+  ;; *SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES*.  RED on that code: PUBLISH
+  ;; signals the multi-get bound.  Subject: the lookup goes in bounded groups,
+  ;; the proof is published and every marker of the walked trie is cleared.
+  ;;
+  ;; The storage trie is built with the bare MPT API and written straight into
+  ;; the store: a state-db with this many slots on one account, and the
+  ;; partition import helper, both exhaust the warm image's heap.  The shape
+  ;; the closure step sees is the live one: an epoch-seven store, every node
+  ;; present and marked, sixteen completed cursors tiling the keyspace, and no
+  ;; :STORAGE proof to stop the walk.
+  (let* ((trie (make-mpt))
+         (target (make-memory-key-value-database))
+         (state-root (make-hash32 (keccak-256 (rlp-encode "state root"))))
+         (account-hash (keccak-256 (address-bytes (snap-density-address 1)))))
+    (loop for slot from 1 to 5000
+          do (ethereum-lisp.trie::mpt-put
+              trie
+              (keccak-256 (hash32-bytes (snap-density-slot 1 slot)))
+              (rlp-encode (+ 90000 slot))))
+    ;; The epoch is stamped only on an empty store, so before the trie lands.
+    (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p target))
+    (let* ((storage-root (ethereum-lisp.trie::mpt-persist target trie))
+           (root-bytes (hash32-bytes storage-root)))
+      (multiple-value-bind (reachable absent) (snap-marker-reachable target root-bytes)
+        (is (zerop absent))
+        ;; Wider than one multi-get, or the test cannot go red.
+        (is (> (hash-table-count reachable)
+               ethereum-lisp.database:+kv-get-many-max-keys+))
+        (let ((batch (make-kv-write-batch)))
+          (loop for hash being the hash-keys of reachable
+                do (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch
+                    batch hash))
+          (kv-apply-batch target batch))
+        (is (= (hash-table-count reachable)
+               (hash-table-count (snap-marker-markers target)))))
+      (snap-marker-put-task-set
+       target state-root account-hash storage-root
+       (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+        :count ethereum-lisp.snap-sync::+snap-sync-storage-task-count+
+        :completed-p t))
+      (is (eq :closed
+              (ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure
+               target state-root account-hash storage-root)))
+      (is (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+           target root-bytes :storage-root))
+      (is (zerop (hash-table-count (snap-marker-markers target)))))))

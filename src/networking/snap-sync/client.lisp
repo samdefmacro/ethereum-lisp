@@ -6027,17 +6027,31 @@ store keeps its behaviour.  Return :CLOSED, :ALREADY-CLOSED, :LEGACY-STORE,
               (if (not (eq reason :closed))
                   reason
                   (let ((batch (make-kv-write-batch)))
-                    (multiple-value-bind (values marked)
-                        (kv-get-chain-records
-                         database :metadata
-                         (map 'vector #'snap-sync-incomplete-node-identifier
-                              visited))
-                      (declare (ignore values))
-                      (loop for hash in visited
-                            for index from 0
-                            when (= 1 (aref marked index))
-                              do (snap-sync-delete-incomplete-node-batch
-                                  batch hash)))
+                    ;; A walked trie can hold up to
+                    ;; *SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES* nodes, far
+                    ;; past one native multi-get, so the marker lookup goes
+                    ;; in +KV-GET-MANY-MAX-KEYS+ groups. On Hoodi the single
+                    ;; lookup failed every page that carried a chunked
+                    ;; contract wider than 4,096 nodes and stalled the range
+                    ;; phase at its ninth page.
+                    (loop with remaining = visited
+                          while remaining
+                          do (let* ((count (min +kv-get-many-max-keys+
+                                                (length remaining)))
+                                    (group (subseq remaining 0 count)))
+                               (setf remaining (nthcdr count remaining))
+                               (multiple-value-bind (values marked)
+                                   (kv-get-chain-records
+                                    database :metadata
+                                    (map 'vector
+                                         #'snap-sync-incomplete-node-identifier
+                                         group))
+                                 (declare (ignore values))
+                                 (loop for hash in group
+                                       for index from 0
+                                       when (= 1 (aref marked index))
+                                         do (snap-sync-delete-incomplete-node-batch
+                                             batch hash)))))
                     (snap-sync-populate-healed-subtree-batch
                      batch (hash32-bytes storage-root) :storage-root)
                     #+sbcl
