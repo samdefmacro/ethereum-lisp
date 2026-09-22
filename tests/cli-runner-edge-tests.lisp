@@ -1062,3 +1062,156 @@ container at exit 137 while it was still answering Engine requests."
     (is (null (getf options :chain-preset)))
     (is (null (ethereum-lisp.cli::devnet-cli-resolve-genesis-json
                options nil)))))
+
+(defun devnet-cli-rocksdb-info-log (datadir)
+  "The text of the RocksDB info LOG of DATADIR's chain store, or NIL.
+
+RocksDB rotates the previous LOG aside on every open, so the current LOG
+belongs to the most recent process that opened the store."
+  (let ((path (merge-pathnames "chaindata/LOG" datadir)))
+    (when (probe-file path)
+      (devnet-cli-file-string path))))
+
+(defun devnet-cli-count-substring (needle haystack)
+  (loop with start = 0
+        for found = (search needle haystack :start2 start)
+        while found
+        count t
+        do (setf start (1+ found))))
+
+#+sbcl
+(defun devnet-cli-assert-rocksdb-store-closed (datadir arm)
+  "Assert the node that last opened DATADIR's store closed it exactly once.
+
+\"Shutdown complete\" is written by DBImpl::CloseHelper after it has waited out
+the background jobs and released the directory LOCK (db/db_impl/db_impl.cc:705
+at the pinned 11.1.2), and nowhere else -- so it is RocksDB's own record that
+rocksdb_close ran. A process that reaches exit(3) with the store open never
+writes it."
+  (let ((log (devnet-cli-rocksdb-info-log datadir)))
+    ;; Positive control: this is the store's LOG, written by this run.
+    (is (stringp log))
+    (is (search "RocksDB version" log))
+    (let ((closes (devnet-cli-count-substring "Shutdown complete" log)))
+      (unless (= 1 closes)
+        (error "~A: expected one RocksDB close in the LOG, found ~D" arm closes)))))
+
+#+sbcl
+(deftest devnet-cli-node-closes-its-rocksdb-store-on-every-exit-path
+  (:layer :e2e :module :cli :launches-processes t :requires-local-sockets t
+   :estimated-seconds 60d0)
+  ;; The exit-time memory fault (docs/evidence/sec5-shutdown-memory-fault-
+  ;; trace.txt) runs inside RocksDB's static teardown at exit(3), which only
+  ;; has work to do because the node never closed its store. This drives a
+  ;; real node process down the three ways it exits -- SIGTERM while serving,
+  ;; a normal --no-serve return, and an error exit after the store is open --
+  ;; and asserts RocksDB itself recorded exactly one close each time.
+  ;;
+  ;; It cannot assert the fault is gone: that fault has only been seen on
+  ;; hour-long amd64 Hoodi runs. It asserts the property whose absence lets the
+  ;; fault happen. RED on the tree before the close: no "Shutdown complete"
+  ;; line in any arm (recorded in docs/evidence/sec5-exit-fault-store-close.txt).
+  (let ((script (namestring (truename "scripts/ethereum-lisp.lisp")))
+        (genesis (namestring (truename +devnet-cli-genesis-fixture+)))
+        (directories '())
+        (files '())
+        (blocker nil))
+    (flet ((datadir (label)
+             (let ((path (devnet-cli-temp-directory
+                          (format nil "ethereum-lisp-store-close-~A" label))))
+               (push path directories)
+               path))
+           (temp (label type)
+             (let ((path (devnet-cli-temp-path
+                          (format nil "ethereum-lisp-store-close-~A" label)
+                          type)))
+               (push path files)
+               path))
+           (node-args (datadir &rest more)
+             (append (list "sbcl" "--script" script "--" "devnet"
+                           "--genesis" genesis
+                           "--datadir" (namestring datadir)
+                           "--db.engine" "rocksdb"
+                           "--engine-port" "0")
+                     more)))
+      (unwind-protect
+           (progn
+             ;; Arm 1: SIGTERM while serving.
+             (let* ((dir (datadir "sigterm"))
+                    (ready (temp "sigterm-ready" "json"))
+                    (pid-path (temp "sigterm" "pid"))
+                    (process
+                      (test-launch-program
+                       (node-args dir "--public-port" "0"
+                                  "--ready-file" (namestring ready)
+                                  "--pid-file" (namestring pid-path))
+                       :directory #P"/private/tmp/"
+                       :output :stream :error-output :stream)))
+               (unless (devnet-cli-wait-for-file ready 10)
+                 (when (uiop:process-alive-p process)
+                   (uiop:terminate-process process)
+                   (devnet-cli-wait-process-exit process 5))
+                 (let ((stderr (devnet-cli-read-stream-string
+                                (uiop:process-info-error-output process))))
+                   (when (search "Operation not permitted" stderr)
+                     (skip-test
+                      "Local socket bind is not permitted in this sandbox"))
+                   (error "sigterm arm: the node never became ready: ~A"
+                          stderr)))
+               ;; While it serves, the store is open and not yet closed.
+               (is (zerop (devnet-cli-count-substring
+                           "Shutdown complete"
+                           (or (devnet-cli-rocksdb-info-log dir) ""))))
+               (multiple-value-bind (out err status)
+                   (uiop:run-program
+                    (list "kill" "-TERM"
+                          (write-to-string
+                           (devnet-cli-pid-file-process-id pid-path)))
+                    :output :string :error-output :string
+                    :ignore-error-status t)
+                 (declare (ignore out err))
+                 (is (= 0 status)))
+               (let ((status (devnet-cli-wait-process-exit process 30)))
+                 (when (eq status :timeout)
+                   (uiop:terminate-process process))
+                 (is (eql 0 status)))
+               (let ((stderr (devnet-cli-read-stream-string
+                              (uiop:process-info-error-output process))))
+                 (is (null (search "left open" stderr)))
+                 (is (null (search "failed to close" stderr))))
+               (devnet-cli-assert-rocksdb-store-closed dir "sigterm"))
+             ;; Arm 2: an ordinary --no-serve return.
+             (let ((dir (datadir "no-serve")))
+               (multiple-value-bind (stdout stderr status)
+                   (uiop:run-program (node-args dir "--no-serve")
+                                     :directory #P"/private/tmp/"
+                                     :output :string :error-output :string
+                                     :ignore-error-status t)
+                 (declare (ignore stdout))
+                 (is (eql 0 status))
+                 (is (null (search "left open" stderr))))
+               (devnet-cli-assert-rocksdb-store-closed dir "no-serve"))
+             ;; Arm 3: an error exit after the store was opened -- the public
+             ;; port is already taken, so serving fails and the node exits 1.
+             (let ((dir (datadir "bind-error")))
+               (multiple-value-bind (socket port)
+                   (handler-case (devnet-cli-open-loopback-socket)
+                     (sb-bsd-sockets:operation-not-permitted-error ()
+                       (skip-test
+                        "Local socket bind is not permitted in this sandbox")))
+                 (setf blocker socket)
+                 (multiple-value-bind (stdout stderr status)
+                     (uiop:run-program
+                      (node-args dir "--public-port" (write-to-string port))
+                      :directory #P"/private/tmp/"
+                      :output :string :error-output :string
+                      :ignore-error-status t)
+                   (declare (ignore stdout stderr))
+                   (is (eql 1 status))))
+               (devnet-cli-assert-rocksdb-store-closed dir "bind-error")))
+        (when blocker (ignore-errors (sb-bsd-sockets:socket-close blocker)))
+        (dolist (path files)
+          (when (probe-file path) (delete-file path)))
+        (dolist (path directories)
+          (when (probe-file path)
+            (uiop:delete-directory-tree path :validate t)))))))
