@@ -405,3 +405,291 @@ references it requested."
                   reference)
                  (ethereum-lisp.snap-sync::snap-sync-node-hash-key-hash
                   (copy-seq reference)))))))))
+
+;;; ------------------------------------------------------------------
+;;; Post-order sentinels no longer close a local read batch
+;;; ------------------------------------------------------------------
+
+(defun snap-heal-sentinel-marked-state (accounts slots)
+  "Return (VALUES ROOT RECORDS CHILDREN) for a state whose storage is marked.
+
+ACCOUNTS accounts each own SLOTS storage slots.  RECORDS are every
+hash-addressed account and storage trie node.  CHILDREN maps a node hash to
+the hashes the healer must resolve before that node's marker may go: its
+hash-addressed trie children and, for an account leaf, its storage root."
+  (let ((state (make-state-db)))
+    (loop for index from 1 to accounts
+          for address = (snap-test-address-from-integer (+ 7000 index))
+          do (state-db-set-account
+              state address
+              (make-state-account :nonce index :balance (+ 500000 index)))
+             (loop for slot from 1 to slots
+                   do (state-db-set-storage
+                       state address
+                       (make-hash32
+                        (snap-test-index-hash (+ (* index 4096) slot)))
+                       (+ (* index 100000) slot))))
+    (let* ((root (hash32-bytes (state-db-root state)))
+           (tries (state-db-persistence-tries state))
+           (encodings (make-hash-table :test #'equalp))
+           (account-nodes (make-hash-table :test #'equalp))
+           (children (make-hash-table :test #'equalp)))
+      (loop for trie in tries
+            for account-trie-p = t then nil
+            do (dolist (record (mpt-dirty-node-records trie))
+                 (when (= 32 (length (car record)))
+                   (setf (gethash (car record) encodings) (cdr record))
+                   (when account-trie-p
+                     (setf (gethash (car record) account-nodes) t)))))
+      (flet ((hash-child-p (reference)
+               (and (byte-vector-p reference) (= 32 (length reference)))))
+        (maphash
+         (lambda (hash encoded)
+           (let ((items (rlp-list-items
+                         (rlp-decode-one encoded :max-list-items 17))))
+             (setf (gethash hash children)
+                   (cond
+                     ((= 17 (length items))
+                      (remove-if-not #'hash-child-p (subseq items 0 16)))
+                     ((not (logbitp 5 (aref (first items) 0)))
+                      (and (hash-child-p (second items))
+                           (list (second items))))
+                     ((gethash hash account-nodes)
+                      (let ((storage-root
+                              (state-account-storage-root
+                               (decode-state-account-rlp (second items)))))
+                        (unless (hash32= storage-root +empty-trie-hash+)
+                          (list (hash32-bytes storage-root)))))
+                     (t '())))))
+         encodings))
+      (values root
+              (loop for hash being the hash-keys of encodings
+                      using (hash-value encoded)
+                    collect (cons hash encoded))
+              children))))
+
+(defun snap-heal-sentinel-run (root records children)
+  "Heal the fully marked RECORDS from ROOT through the shipped healer.
+
+Every node is present and carries its incomplete marker, so the walk is
+purely local and must complete without asking the source for anything.
+Return a plist of the healer's counters, the order in which markers were
+deleted, the post-order violations that order contains against CHILDREN,
+and the store's final entries."
+  (let* ((database (make-memory-key-value-database))
+         (deleted (make-hash-table :test #'equalp))
+         (deletion-order '())
+         (violations 0)
+         (published 0)
+         (early-publications 0)
+         (snapshots '())
+         (delete-name
+           'ethereum-lisp.snap-sync::snap-sync-delete-incomplete-node-batch)
+         (publish-name
+           'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+         (real-delete (fdefinition delete-name))
+         (real-publish (fdefinition publish-name))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (error "Sentinel fixture requested an account range"))
+            :storage-ranges
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (error "Sentinel fixture requested a storage range"))
+            :bytecodes
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (error "Sentinel fixture requested bytecode"))
+            :trie-nodes
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (error "Sentinel fixture requested a trie node"))))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 41))
+            :pivot-number 6090 :state-root (make-hash32 root)
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 42))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 43))
+            :authority-id (make-hash32 (snap-test-hash 44))
+            :completed-p nil :complete-node-scheme-p t
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t))))
+    (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+         database))
+    (let ((batch (make-kv-write-batch)))
+      (dolist (record records)
+        (kv-batch-put-chain-record batch :trie-node (car record) (cdr record)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+       batch (mapcar #'car records))
+      (kv-apply-batch database batch))
+    (unwind-protect
+         (progn
+           ;; A marker may go only after every node it waits for is resolved.
+           ;; Every node here is marked, so "resolved" is "its own marker went
+           ;; first".
+           (setf (fdefinition delete-name)
+                 (lambda (batch reference)
+                   (unless (every (lambda (child) (gethash child deleted))
+                                  (gethash reference children))
+                     (incf violations))
+                   (setf (gethash (copy-seq reference) deleted) t)
+                   (push (copy-seq reference) deletion-order)
+                   (funcall real-delete batch reference))
+                 (fdefinition publish-name)
+                 (lambda (batch reference &rest rest)
+                   (incf published)
+                   (unless (gethash reference deleted)
+                     (incf early-publications))
+                   (apply real-publish batch reference rest)))
+           (let ((outcome
+                   (ethereum-lisp.snap-sync::snap-sync-heal-state
+                    database (list source) progress (* 2 1024 1024)
+                    :on-heal-progress
+                    (lambda (snapshot) (push snapshot snapshots)))))
+             (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                  outcome))))
+      (setf (fdefinition delete-name) real-delete
+            (fdefinition publish-name) real-publish))
+    (let ((last-snapshot (first snapshots)))
+      (list
+       :processed
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+        last-snapshot)
+       :reused
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+        last-snapshot)
+       :skipped
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+        last-snapshot)
+       :fetched
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+        last-snapshot)
+       :batches
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-local-read-batches
+        last-snapshot)
+       :works
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-local-read-works
+        last-snapshot)
+       :max-frontier
+       (reduce #'max snapshots
+               :key
+               #'ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works)
+       :deleted
+       (sort (mapcar #'bytes-to-hex deletion-order) #'string<)
+       :violations violations
+       :published published
+       :early-publications early-publications
+       :marked-left
+       (hash-table-count
+        (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes database))
+       :entries
+       (mapcar (lambda (entry)
+                 (cons
+                  (bytes-to-hex
+                   (ethereum-lisp.database::kv-memory-entry-key entry))
+                  (bytes-to-hex
+                   (ethereum-lisp.database::kv-memory-entry-value entry))))
+               (ethereum-lisp.database::kv-database-sorted-entries
+                database))))))
+
+(deftest snap-heal-restore-carried-completions-keeps-exposed-work-above
+  (:layer :unit :module :p2p)
+  (let* ((floor-list (list :f1 :f2))
+         (stack (list* :new1 :new2 floor-list)))
+    ;; CARRIED is most recent first; the sentinels go back in their original
+    ;; order, directly on the floor, beneath everything integration pushed.
+    (is (equal '(:new1 :new2 :s1 :s2 :f1 :f2)
+               (ethereum-lisp.snap-sync::snap-sync-heal-restore-carried-completions
+                stack floor-list (list :s2 :s1))))
+    (is (equal '(:s1 :s2 :f1 :f2)
+               (ethereum-lisp.snap-sync::snap-sync-heal-restore-carried-completions
+                floor-list floor-list (list :s2 :s1))))
+    (is (equal '(:new1 :s1)
+               (ethereum-lisp.snap-sync::snap-sync-heal-restore-carried-completions
+                (list :new1) nil (list :s1))))
+    (let ((untouched (list :new1 :f1)))
+      (is (eq untouched
+              (ethereum-lisp.snap-sync::snap-sync-heal-restore-carried-completions
+               untouched (cdr untouched) '()))))
+    ;; A floor that is not a tail of the stack is a diverged frontier.
+    (signals error
+      (ethereum-lisp.snap-sync::snap-sync-heal-restore-carried-completions
+       (list :new1 :f1) (list :f1) (list :s1)))))
+
+(deftest snap-heal-local-read-batch-carries-post-order-sentinels
+  (:layer :unit :module :p2p)
+  ;; 64 accounts, each owning 40 storage slots, with every account and
+  ;; storage trie node present AND marked incomplete -- the shape a partially
+  ;; delivered range leaves and the one the Hoodi heal reports
+  ;; (knownIncompleteNodes tracking processedNodes).  Nothing is missing, so
+  ;; the walk is purely local and completes.
+  ;;
+  ;; The control arm is the previous rule (carry bound zero): a post-order
+  ;; sentinel popped after the batch's first lookup closes the batch, so the
+  ;; mean width is the fan-out of one node.  The subject carries the
+  ;; sentinels.  Both must walk the same nodes, delete the same markers in
+  ;; post-order, and leave byte-identical stores.
+  (multiple-value-bind (root records children)
+      (snap-heal-sentinel-marked-state 64 40)
+    (let ((control
+            (let ((ethereum-lisp.snap-sync::*snap-sync-heal-carried-completions-per-batch*
+                    0))
+              (snap-heal-sentinel-run root records children)))
+          (subject (snap-heal-sentinel-run root records children)))
+      (is (> (length records) 3000))
+      (dolist (run (list control subject))
+        (is (= (length records) (getf run :processed)))
+        (is (= (length records) (length (getf run :deleted))))
+        (is (zerop (getf run :marked-left)))
+        (is (zerop (getf run :fetched)))
+        ;; The ordering property, in both arms: no marker went while a node
+        ;; it waits for was unresolved, and no subtree record was published
+        ;; above a node whose marker was still there.
+        (is (zerop (getf run :violations)))
+        (is (plusp (getf run :published)))
+        (is (zerop (getf run :early-publications))))
+      (dolist (key '(:processed :reused :skipped :fetched :published
+                     :deleted :entries))
+        (is (equal (getf control key) (getf subject key))))
+      ;; RED arm: the previous rule reads at the fan-out of one node.
+      (is (< (/ (getf control :works) (getf control :batches)) 4))
+      ;; Subject: batches fill across the carried sentinels.
+      (is (>= (/ (getf subject :works) (getf subject :batches)) 16))
+      (is (< (* 16 (getf subject :batches)) (getf control :batches)))
+      ;; Carrying never takes the frontier past one durable checkpoint.
+      (is (<= (getf subject :max-frontier)
+              ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)))))
+
+(deftest snap-heal-carried-sentinels-wait-for-the-work-their-batch-exposes
+  (:layer :unit :module :p2p)
+  ;; RED arm for the ordering property.  Put the carried sentinels back ON TOP
+  ;; of the work their own batch's integration exposed -- i.e. let a node's
+  ;; completion run before its last children resolve -- and the same fixture
+  ;; must report markers deleted above unresolved children.  The subject's
+  ;; zero in SNAP-HEAL-LOCAL-READ-BATCH-CARRIES-POST-ORDER-SENTINELS is only
+  ;; meaningful because this arm is not zero.
+  (multiple-value-bind (root records children)
+      (snap-heal-sentinel-marked-state 64 40)
+    (let* ((name
+             'ethereum-lisp.snap-sync::snap-sync-heal-restore-carried-completions)
+           (real (fdefinition name))
+           (early
+             (unwind-protect
+                  (progn
+                    (setf (fdefinition name)
+                          (lambda (stack batch-floor carried)
+                            (declare (ignore batch-floor))
+                            (revappend carried stack)))
+                    (snap-heal-sentinel-run root records children))
+               (setf (fdefinition name) real))))
+      (is (plusp (getf early :violations)))
+      ;; The misordered walk still "completes" and deletes every marker: the
+      ;; violation is invisible to the counters, which is why the test reads
+      ;; the order itself.
+      (is (zerop (getf early :marked-left))))))
