@@ -1,0 +1,126 @@
+Section 5 exact linux/amd64 runtime artifact evidence
+
+Recorded at: 2026-09-22T19:45:00Z
+Branch: sec5-public-bootstrap-sync
+Revision: 75b0b7a7554810274c3416da327e8aea7ed7fcb4
+Image: ethereum-lisp-runtime:sec5-75b0b7a7-amd64
+Local image ID:
+  sha256:a5c1ce0ac7fce4df7b169af993f6271da22285615a69eb6ed33b2c182a02ca03
+Platform: linux/amd64
+OCI revision label: 75b0b7a7554810274c3416da327e8aea7ed7fcb4
+Local image size: 72057690 bytes
+
+Revision under test
+
+75b0b7a7 is the branch head after the 2026-09-23 session, in which five
+parallel agents worked the one remaining Section 5 blocker: the healer did
+not converge on Hoodi (sec5-3305307d-hoodi-stall.txt). It supersedes the
+3305307d image by twenty-five non-merge commits, brought in through six
+merges, oldest first:
+
+  d5f523a6  Merge the heal walk constant-factor fix: wide local reads above
+            the live bound and cheaper per-node encoding
+            (sec5-heal-walk-throughput.txt)
+  62fb8c7b  Merge the closed-writer density measurement
+            (sec5-closure-density-measurement.txt)
+  fe12d63c  Merge the read-only snap/1 server and the cross-thread closure
+            crash seams (sec5-snap-server-closure.txt)
+  6a6dbbb8  Merge the exit-time store close: RocksDB handles close once and
+            the pools release before exit (sec5-exit-fault-store-close.txt)
+  5605c936  Merge closure epoch seven: the closed account writer is on and
+            the healer trusts closed account presence
+            (sec5-account-closure-epoch7.txt, "Phase two: the epoch")
+  75b0b7a7  Merge the density test retarget: the real epoch-seven healer
+            expands only what it fetches
+
+What this revision changes for the live run, relative to 3305307d:
+
+- The store scheme marker is #(7). An account-path trie node is written by
+  the range phase only when its whole subtree and every code hash and
+  storage root it names are durable (docs/snap-account-closure.md, I1), and
+  the healer skips a present, unmarked account node without descending. A
+  #(6) datadir opens and resyncs; datadir-3305307d is therefore not reused.
+- The snap/1 server no longer persists the trie it serves.
+- The healer's local read batch stays 130 wide above the 131,072-work live
+  frontier bound instead of collapsing to width one, and the per-node path
+  no longer builds generic sequences. peer.snap.heal_progress carries two
+  new fields, localReadBatches and localReadWorks.
+- The node closes every cached RocksDB handle and releases the background
+  thread pools before exit(3), on SIGTERM, return and error exit.
+- A WebSocket session deregisters its shutdown closeable, and a client that
+  hangs up before its upgrade request no longer spins a core.
+
+Exact-revision gates
+
+cl-workbench validation run cold-all on 75b0b7a7, exit 0, no `not ok` line,
+no compile warning under /workspace/src (log kept in the session scratchpad
+as final-cold-all.log):
+
+  1423 tests passed, 3 skipped.   (unit)
+  593 tests passed, 9 skipped.    (integration)
+  33 tests passed.                (e2e)
+  36 tests passed.                (e2e)
+
+Against the 3305307d record (1408 / 574 / 32 / 34): +15 unit, +19
+integration, +3 e2e. The per-branch records above account for every one of
+them; each agent grepped its new tests by name in its own cold logs.
+
+A first cold-integration on the merged tree at 5605c936, before the last
+merge, failed exactly one test,
+SNAP-CLOSED-ACCOUNT-WRITER-AT-PAGE-DENSITY-AND-AFTER-A-MID-RANGE-REBASE, at
+its own DEFECT ASSERTION: the density measurement had pinned that the
+pre-epoch healer heals a closed store worse than legacy, and the epoch-seven
+skip reversed it, as intended. 75b0b7a7 retargets that assertion to the real
+healer (closed store: 64 account nodes expanded, all of them fetched; legacy:
+257) and removes the estimate.
+
+Build and revision fence
+
+The checkout was on the branch at 75b0b7a7 and clean before the build, and
+remained clean through build, export and smoke. The reviewed runtime-build
+broker ran with RUNTIME_PLATFORM=linux/amd64 on an arm64 control plane, so
+the amd64 Lisp stage was emulated:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-75b0b7a7-amd64
+  scripts/dev.sh runtime-export ethereum-lisp-runtime:sec5-75b0b7a7-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-75b0b7a7-amd64.tar
+
+Exported artifact
+
+  /private/tmp/ethereum-lisp-runtime-sec5-75b0b7a7-amd64.tar
+  72082944 bytes
+  sha256 9de615d24fe301978bd4c1fe6045395e7186ff509cc0c95b9f6066be177fb5c9
+
+The export broker verified the image's OCI revision label against HEAD and
+the platform against linux/amd64 before saving; the sha256 above is the
+broker's own output and agrees with an independent shasum readback.
+
+Runtime smoke
+
+cl-workbench validation run runtime-smoke ethereum-lisp-runtime:sec5-75b0b7a7-amd64
+passed seven of seven, exit 0:
+
+  ok - --hoodi built its genesis from the packaged allocation
+  ok - eth_chainId = 0x539
+  ok - web3_clientVersion = {"jsonrpc":"2.0","id":1,"result":"ethereum-lisp/0.1.0/CL/0x75b0b7a7"}
+  ok - unauthenticated engine_exchangeCapabilities rejected with 401
+  ok - authenticated engine_exchangeCapabilities answered
+  ok - engine_getClientVersionV1 identifies 75b0b7a7554810274c3416da327e8aea7ed7fcb4 as 0x75b0b7a7
+  ok - eth_syncing on the Engine port answered
+  PASS: runtime image ethereum-lisp-runtime:sec5-75b0b7a7-amd64 serves public RPC and an authenticated Engine API
+
+Remote preparation
+
+Under the user's in-session authorization of 2026-09-23 (any operation on
+the Hoodi host, disk cleanup included, without further asking), the four
+stopped epoch-six containers hoodi-el-sec5-05c13ad5, -5c8a39c0, -646da589
+and -0c6b51bf-r1, the two finished Hive runner containers, and the preserved
+datadirs datadir-05c13ad5 and datadir-5c8a39c0 were removed before this
+run; none of them could converge under epoch six and each is recorded in its
+own evidence file. /data went from 71% used (196 GiB free) to 54% (304 GiB
+free). datadir-3305307d and its running container were left in place for
+the broker's own old-container replacement branch; the geth control
+baseline and the Lighthouse datadir were kept.
+
+The live run itself is recorded separately.
