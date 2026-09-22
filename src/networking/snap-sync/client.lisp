@@ -3512,7 +3512,16 @@ In the live region the width never falls below LIVE-OVERFLOW-WIDTH. A frontier
 already past the live bound has no expansion room, and the former floor of one
 turned a 909,342-work Hoodi frontier into one-node batches for the rest of the
 walk without shrinking it. The bounded pipeline refill passes one, because its
-own loop guard is what returns a saturated generation to the event loop."
+own loop guard is what returns a saturated generation to the event loop.
+
+CHECKPOINT-ROOM, the processed nodes left before the next durable checkpoint
+falls due, binds only while STACK-COUNT is at or below
++SNAP-SYNC-HEAL-CHECKPOINT-MAX-WORKS+.  A larger frontier cannot be written as
+a checkpoint, so nothing moves the checkpoint forward and the room stays at
+one: on Hoodi (75b0b7a7) every batch read one node from the 262,144th
+processed node to the end of the walk.  A frontier that can drain into the
+checkpoint region still checkpoints on the same schedule, because the room
+binds again there."
   (unless (and (integerp stack-count) (not (minusp stack-count))
                (integerp missing-count) (not (minusp missing-count))
                (integerp missing-limit) (> missing-limit missing-count)
@@ -3538,7 +3547,9 @@ own loop guard is what returns a saturated generation to the event loop."
             +snap-sync-heal-max-net-expansion-per-work+)))
     (min +snap-sync-heal-local-reads-per-batch+
          (- missing-limit missing-count)
-         checkpoint-room
+         (if (> stack-count +snap-sync-heal-checkpoint-max-works+)
+             +snap-sync-heal-local-reads-per-batch+
+             checkpoint-room)
          (max (if checkpoint-region-p 1 live-overflow-width)
               expansion-room))))
 

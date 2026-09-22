@@ -28,13 +28,39 @@
     (is (= 1
            (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
             909342 0 1024 262144 1)))
-    ;; Progress and checkpoint room still bind above the live bound.
+    ;; Progress still binds above the live bound.
     (is (= 24
            (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
             909342 1000 1024 262144)))
-    (is (= 5
+    ;; Checkpoint room binds only where a checkpoint can be written: a
+    ;; frontier above one durable checkpoint (8,192 works) never moves the
+    ;; checkpoint forward, so its room would stay at one for the rest of the
+    ;; walk -- the Hoodi 75b0b7a7 width of exactly one from the 262,144th
+    ;; processed node on.  The parent rule returned 5 and 1 here.
+    (is (= 130
            (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
             909342 0 1024 5)))
+    (is (= 130
+           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+            451583 0 16384 1)))
+    (is (= 1024
+           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+            8193 0 1024 1)))
+    ;; Inside the checkpoint region the room binds exactly as before, so a
+    ;; frontier that drains there still checkpoints on schedule.
+    (is (= 5
+           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+            8192 0 1024 5)))
+    (is (= 1
+           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+            5000 0 1024 1)))
+    (is (= 5
+           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+            100 0 2048 5)))
+    ;; The bounded refill keeps its floor of one wherever the room is one.
+    (is (= 1
+           (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
+            909342 0 1024 1 1)))
     ;; The durable checkpoint region is untouched.
     (is (= 130
            (ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit
@@ -693,3 +719,217 @@ and the store's final entries."
       ;; violation is invisible to the counters, which is why the test reads
       ;; the order itself.
       (is (zerop (getf early :marked-left))))))
+
+;;; ------------------------------------------------------------------
+;;; Checkpoint room above a frontier that cannot be checkpointed
+;;; ------------------------------------------------------------------
+
+(defun snap-heal-walk-missing-leaves ()
+  "Return the encodings of the two leaves SNAP-HEAL-WALK-SHARED-SUBTREE-TRIE
+withholds, keyed by the hex of the compact path the healer requests."
+  (loop for balance in '(1 2)
+        for nibble in '(0 15)
+        collect
+        (cons (bytes-to-hex
+               (ethereum-lisp.trie.encoding:hex-prefix-encode
+                (vector nibble) :terminator nil))
+              (rlp-encode
+               (make-rlp-list
+                (ethereum-lisp.trie.encoding:hex-prefix-encode
+                 (make-array 63 :initial-element balance) :terminator t)
+                (state-account-rlp
+                 (make-state-account :nonce 1 :balance balance)))))))
+
+#+sbcl
+(defun snap-heal-walk-complete-run (root records missing)
+  "Heal the shared-subtree trie to completion from a memory store.
+
+The source serves exactly the two withheld leaves.  Return the heal's final
+counters, its progress snapshots in order, how many times each marker was
+deleted, and the store's final entries."
+  (let* ((database (make-memory-key-value-database))
+         (leaves (snap-heal-walk-missing-leaves))
+         (snapshots '())
+         (deletions (make-hash-table :test #'equal))
+         (delete-name
+           'ethereum-lisp.snap-sync::snap-sync-delete-incomplete-node-batch)
+         (real-delete (fdefinition delete-name))
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (error "Heal-walk fixture requested an account range"))
+            :storage-ranges
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (error "Heal-walk fixture requested a storage range"))
+            :bytecodes
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (error "Heal-walk fixture requested bytecode"))
+            :trie-nodes
+            (lambda (request)
+              (ethereum-lisp.snap:make-snap-trie-nodes
+               (ethereum-lisp.snap:snap-get-trie-nodes-id request)
+               (loop for path-set
+                       in (ethereum-lisp.snap:snap-get-trie-nodes-paths request)
+                     for path = (bytes-to-hex
+                                 (if (listp path-set)
+                                     (first path-set)
+                                     path-set))
+                     collect (or (cdr (assoc path leaves :test #'string=))
+                                 (error "Heal-walk fixture was asked for ~A"
+                                        path)))))))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 61))
+            :pivot-number 6090 :state-root (make-hash32 root)
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 62))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 63))
+            :authority-id (make-hash32 (snap-test-hash 64))
+            :completed-p nil :complete-node-scheme-p t
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t))))
+    ;; The fixture's withheld hashes are exactly the leaves served here.
+    (is (equalp (sort (mapcar #'bytes-to-hex missing) #'string<)
+                (sort (mapcar (lambda (leaf) (bytes-to-hex (keccak-256 (cdr leaf))))
+                              leaves)
+                      #'string<)))
+    (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+         database))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
+       database batch records)
+      (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-records-batch
+       batch (mapcar #'car records))
+      (kv-apply-batch database batch))
+    (unwind-protect
+         (progn
+           (setf (fdefinition delete-name)
+                 (lambda (batch reference)
+                   (incf (gethash (bytes-to-hex reference) deletions 0))
+                   (funcall real-delete batch reference)))
+           (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                (ethereum-lisp.snap-sync::snap-sync-heal-state
+                 database (list source) progress (* 2 1024 1024)
+                 :on-heal-progress
+                 (lambda (snapshot) (push snapshot snapshots))))))
+      (setf (fdefinition delete-name) real-delete))
+    (setf snapshots (nreverse snapshots))
+    (let ((last-snapshot (car (last snapshots))))
+      (list
+       :processed
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+        last-snapshot)
+       :reused
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
+        last-snapshot)
+       :skipped
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+        last-snapshot)
+       :fetched
+       (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+        last-snapshot)
+       :snapshots snapshots
+       :deletions
+       (sort (loop for key being the hash-keys of deletions
+                     using (hash-value count)
+                   collect (cons key count))
+             #'string< :key #'car)
+       :marked-left
+       (hash-table-count
+        (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes database))
+       :entries
+       (mapcar (lambda (entry)
+                 (cons
+                  (bytes-to-hex
+                   (ethereum-lisp.database::kv-memory-entry-key entry))
+                  (bytes-to-hex
+                   (ethereum-lisp.database::kv-memory-entry-value entry))))
+               (ethereum-lisp.database::kv-database-sorted-entries
+                database))))))
+
+(defun snap-heal-walk-width-after (snapshots processed-floor)
+  "Return (VALUES BATCHES WORKS) read locally between the first snapshot at or
+past PROCESSED-FLOOR and the last one taken before any node was fetched."
+  (let* ((local
+           (remove-if
+            (lambda (snapshot)
+              (plusp
+               (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                snapshot)))
+            snapshots))
+         (start
+           (find-if
+            (lambda (snapshot)
+              (>= (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                   snapshot)
+                  processed-floor))
+            local))
+         (end (car (last local))))
+    (values
+     (- (ethereum-lisp.snap-sync:snap-sync-heal-progress-local-read-batches end)
+        (ethereum-lisp.snap-sync:snap-sync-heal-progress-local-read-batches start))
+     (- (ethereum-lisp.snap-sync:snap-sync-heal-progress-local-read-works end)
+        (ethereum-lisp.snap-sync:snap-sync-heal-progress-local-read-works start)))))
+
+#+sbcl
+(deftest snap-heal-checkpoint-room-does-not-bind-an-uncheckpointable-frontier
+  (:layer :integration :module :p2p)
+  ;; Four depth-one children share one 16-ary subtree, so 279,620 marked
+  ;; nodes are walked while two withheld leaves are pending: every sentinel
+  ;; is blocked and the frontier passes 131,072 works, the Hoodi shape.  No
+  ;; heal checkpoint can be written above 8,192 works, so the checkpoint
+  ;; never moves and, on the parent rule, its room is one from the 262,144th
+  ;; processed node on: every later batch reads one node.  The control arm
+  ;; restores that rule through the shipped limiter.  Both arms then fetch
+  ;; the two leaves and complete; the walk, the markers deleted and the final
+  ;; store must not depend on the width.
+  (multiple-value-bind (root records missing)
+      (snap-heal-walk-shared-subtree-trie 4)
+    (let* ((limit-name
+             'ethereum-lisp.snap-sync::snap-sync-heal-local-read-limit)
+           (real-limit (fdefinition limit-name))
+           (interval
+             ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-node-interval+)
+           (window-start
+             (+ interval
+                ethereum-lisp.snap-sync::*snap-sync-heal-progress-node-interval*))
+           (control
+             (unwind-protect
+                  (progn
+                    (setf (fdefinition limit-name)
+                          (lambda (stack missing-count missing-limit
+                                   checkpoint-room &rest rest)
+                            (min (apply real-limit stack missing-count
+                                        missing-limit checkpoint-room rest)
+                                 checkpoint-room)))
+                    (snap-heal-walk-complete-run root records missing))
+               (setf (fdefinition limit-name) real-limit)))
+           (subject (snap-heal-walk-complete-run root records missing)))
+      (dolist (run (list control subject))
+        ;; The regime is reached: past the checkpoint interval, above the live
+        ;; bound, with nothing fetched yet.
+        (is (> (getf run :processed) (+ interval 8192)))
+        (is (> (reduce #'max (getf run :snapshots)
+                       :key #'ethereum-lisp.snap-sync:snap-sync-heal-progress-frontier-works)
+               ethereum-lisp.snap-sync::+snap-sync-heal-live-frontier-max-works+))
+        (is (= 2 (getf run :fetched)))
+        (is (zerop (getf run :marked-left)))
+        (is (plusp (length (getf run :deletions)))))
+      (dolist (key '(:processed :reused :skipped :fetched :deletions :entries))
+        (is (equal (getf control key) (getf subject key))))
+      (multiple-value-bind (batches works)
+          (snap-heal-walk-width-after (getf control :snapshots) window-start)
+        ;; RED arm: the parent rule reads exactly one node per batch here.
+        (is (> works 8192))
+        (is (= batches works)))
+      (multiple-value-bind (batches works)
+          (snap-heal-walk-width-after (getf subject :snapshots) window-start)
+        ;; Subject: the batch keeps its width for the whole walk.
+        (is (> works 8192))
+        (is (>= works (* 16 batches)))))))
