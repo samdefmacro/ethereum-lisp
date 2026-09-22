@@ -728,6 +728,10 @@ alone and then 5 s or more on each later one. What is left of the grace period
 after the joins belongs to the shutdown export and the store close, which
 waits up to five seconds for the store's users and two for RocksDB's pools.")
 
+(defconstant +devnet-shutdown-terminate-grace-seconds+ 1/10
+  "How long a worker that missed the join deadline has to unwind once it is
+terminated, before it is abandoned.")
+
 (defun devnet-shutdown-join-deadline
     (&optional (budget-seconds *devnet-shutdown-join-budget-seconds*))
   "The internal-real-time at which a shutdown stops waiting for its workers."
@@ -750,8 +754,8 @@ deadline still polls the thread once instead of signalling."
   "Join THREAD by DEADLINE; past it, terminate THREAD and abandon it.
 
 Returns :ABSENT for a NIL thread, :JOINED when it stopped by itself, and
-:TERMINATED when it stopped after SB-THREAD:TERMINATE-THREAD within what was
-left of the deadline. Otherwise reports LABEL on STREAM and returns
+:TERMINATED when it stopped within +DEVNET-SHUTDOWN-TERMINATE-GRACE-SECONDS+
+of SB-THREAD:TERMINATE-THREAD. Otherwise reports LABEL on STREAM and returns
 :ABANDONED: the shutdown goes on to the export and the store close, whose own
 drain waits for any user still inside the store handle."
   #-sbcl
@@ -771,11 +775,15 @@ drain waits for any user still inside the store handle."
      (ignore-errors (sb-thread:terminate-thread thread))
      ;; Terminating unwinds at the thread's next safepoint; a thread inside a
      ;; foreign call or WITHOUT-INTERRUPTS gets there only when it leaves it.
+     ;; The join above timed out AT the deadline, so what is left of it is
+     ;; nothing: give the unwind a short fixed grace instead. Each stuck
+     ;; worker can thus overrun the deadline by at most that grace.
      (if (eq :timeout
              (nth-value 1 (sb-thread:join-thread
                            thread
-                           :timeout (min 1 (devnet-shutdown-seconds-left
-                                            deadline))
+                           :timeout
+                           (max (devnet-shutdown-seconds-left deadline)
+                                +devnet-shutdown-terminate-grace-seconds+)
                            :default nil)))
          (progn
            (ignore-errors
