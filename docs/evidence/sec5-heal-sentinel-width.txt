@@ -1,0 +1,229 @@
+Section 5: post-order sentinels and the healer's local read width
+
+Status
+
+The sentinel mechanism is fixed and measured: a local read batch now keeps
+popping past a post-order sentinel instead of closing on it, and a sentinel
+still runs only after every node it waits for. Measured in an arm64 warm image
+on memory and RocksDB stores, not on the Hoodi host. No live run.
+
+The brief's diagnosis of the live width is NOT confirmed. The Hoodi width of
+exactly one on 75b0b7a7 is not the sentinel rule. It is the checkpoint-room
+term of the read limit, which saturates at one once 262,144 nodes have been
+processed without a checkpoint, and no checkpoint can be written while the
+frontier is above 8,192 works. That is reproduced below and is NOT changed
+here: the brief excludes the read limiter, and a pinned test asserts the
+current behaviour. This change does not move the live width.
+
+Revision
+
+Branch heal-sentinel-width, on 75b0b7a7.
+  daa95d7f  snap: a local heal read batch carries post-order sentinels past it
+  e62f647f  snap: pin that carried heal sentinels keep post-order and widen
+            the read
+
+What the sentinel rule did
+
+src/networking/snap-sync/client.lisp, COLLECT-MISSING and the main loop's
+copy of the same batch loop. A marked node, when integrated, pushes its
+:NODE-COMPLETE sentinel and then its children above it (an :ARMED node also
+pushes a :COMPLETE sentinel for its healed-subtree record). Popping a sentinel
+did, in order:
+
+  missing work in this pass, or remote work        -> block it (unchanged)
+  the batch already holds a lookup, or storage is  -> push it back and close
+  deferred                                            the batch
+  otherwise                                         -> run it
+
+So over a subtree in which every node is marked, a batch is the children of
+one node, then that node's sentinel closes it: the mean width is the mean
+fan-out. On the fixture below that is 3.58; across the fixture shapes tried it
+was 2.5 to 4.0 (1,000 accounts x 2 slots: 2.55; 1 account x 3,000 slots:
+3.95). It is never below 2 on a real trie, so the brief's RED threshold
+("below 2 on 75b0b7a7") does not hold for this mechanism; the control arm
+below asserts below 4 instead.
+
+The change
+
+When a sentinel is popped and the batch already holds a lookup, the batch
+CARRIES it (off the stack, still counted in the frontier) and keeps popping.
+After the batch is integrated, SNAP-SYNC-HEAL-RESTORE-CARRIED-COMPLETIONS puts
+the carried sentinels back, in their original order, on the stack as it stood
+when popping stopped -- i.e. BELOW every work integration pushed.
+
+Why no sentinel runs early: a sentinel's trie descendants were all above it
+when the batch reached it, so the batch popped every one of them. After
+integration each is resolved, or its children are above the sentinel again,
+or it is missing, and a pass with missing work blocks every sentinel it
+reaches (that rule is decided first and is unchanged). Account-leaf storage
+roots go to the deferred list and reach the stack only on top of it (the
+sentinel-time drain and the end-of-pass drain), and a sentinel popped with
+storage deferred still drains instead of running. A carried sentinel is never
+run in the batch that carried it.
+
+This is option 2 of the brief. It keeps sentinels on the stack between
+batches, so the checkpoint format is untouched and a resumed heal restores
+sentinels exactly as before; option 1 (dependency counters) would have needed
+a new durable frontier encoding.
+
+The bound that matters. An unbounded carry turns the depth-first walk into a
+slice across sibling subtrees, and the frontier grows with it: on a
+33,232-node fixture an unbounded carry reached a peak frontier of 11,910
+works, past the 8,192 a checkpoint can record. Once a checkpoint falls due,
+such a frontier holds every later read at width one until it drains (the
+live finding below). So a batch carries only while
+
+  stack + deferred + 63 x (lookups + 1)  <=  8,192
+
+i.e. while its worst-case expansion (the limiter's own 63-per-work figure)
+still fits one durable checkpoint. Above that the walk closes at sentinels and
+stays depth first, exactly as before. Variants measured on the same 33,232-node
+fixture (mean width / peak frontier):
+
+  no carry (previous rule)                    3.71 /    362
+  carry, unbounded                          377.6  / 11,910
+  carry while stack + lookups <= 4,096        4.30 /  7,563
+  carry while worst case fits 8,192          66.2  /  5,763   <- shipped
+
+A per-batch carry count bound, *SNAP-SYNC-HEAL-CARRIED-COMPLETIONS-PER-BATCH*
+(4,096), keeps one batch from carrying a long run of restored blocked
+sentinels back and forth; zero is the previous rule and is how the test's
+control arm runs.
+
+Nothing else changes: which nodes are walked, the skip decision, the epoch,
+SNAP-SYNC-HEAL-LOCAL-READ-LIMIT, the frontier bounds and the checkpoint
+format.
+
+Fixture
+
+SNAP-HEAL-SENTINEL-MARKED-STATE: 64 accounts, each owning 40 storage slots,
+built through STATE-DB. All 3,616 hash-addressed account and storage trie
+nodes are written and every one carries its incomplete marker; the scheme
+marker is stamped (so epoch seven, closed-account presence on). The heal runs
+through the shipped SNAP-SYNC-HEAL-STATE from the present, marked root with a
+source that fails any request; nothing is missing, so the walk is purely
+local and completes.
+
+Measurements
+
+Memory store (the test, one run each; counts are the record):
+
+                                  control (carry 0)   subject
+  processed / reused              3,616 / 3,616       3,616 / 3,616
+  skipped / fetched               0 / 0               0 / 0
+  local read batches              1,009               44
+  local read works                3,616               3,616
+  mean width                      3.58                82.18
+  peak frontier works             118                 2,408
+  markers deleted                 3,616               3,616 (same set)
+  post-order violations           0                   0
+  storage-root records published  64                  64
+  store entries after completion  3,683               3,683 (byte-identical)
+
+RocksDB store on the container tmpfs, production eight-thread read pool,
+three runs per arm, walk only:
+
+  64 x 40 (3,616 nodes)     control 0.115 - 0.118 s  (30.6k - 31.4k nodes/s)
+                            subject 0.019 - 0.028 s  (129k - 190k nodes/s)
+  400 x 60 (33,232 nodes)   control 1.125 - 1.199 s  (27.7k - 29.5k nodes/s)
+                            width 3.71, 8,969 batches, peak frontier 362
+                            subject 0.203 - 0.224 s  (148k - 164k nodes/s)
+                            width 66.2, 502 batches, peak frontier 5,763
+
+Counts were identical across repetitions; wall clock is an observation on a
+shared arm64 Docker VM. The speed-up is consistent with the per-batch cost
+(three MultiGets and a pool dispatch) that sec5-heal-walk-throughput.txt
+measured at 90-150 us per small pooled batch; it was not profiled here.
+
+RED controls
+
+  Width. SNAP-HEAL-LOCAL-READ-BATCH-CARRIES-POST-ORDER-SENTINELS runs the
+  previous rule as its control arm: mean width 3.58, which fails the
+  subject's ">= 16" assertion; the subject is 82.18 with identical processed,
+  reused, skipped, fetched and published counts, the same deleted-marker set
+  and byte-identical final stores.
+
+  Ordering. SNAP-HEAL-CARRIED-SENTINELS-WAIT-FOR-THE-WORK-THEIR-BATCH-EXPOSES
+  replaces the splice with one that puts the carried sentinels ON TOP of the
+  work their batch exposed, i.e. a node's completion runs before its last
+  children resolve. The checker (every marker deletion must follow the
+  deletion of each hash child, and of the storage root of an account leaf)
+  then reports 1,050 violations. That arm's counters, deleted-marker set and
+  final store are identical to the correct arm's -- a false completion
+  leaves no trace in the outcome, which is why the test reads the order. The
+  correct arms report 0.
+
+  SNAP-HEAL-RESTORE-CARRIED-COMPLETIONS-KEEPS-EXPOSED-WORK-ABOVE pins the
+  splice, including that a floor which is not a tail of the stack signals.
+
+The live width of one: the checkpoint-room term (finding, not changed)
+
+SNAP-SYNC-HEAL-LOCAL-READ-LIMIT takes CHECKPOINT-ROOM, computed in both batch
+loops as
+
+  max(1, 262,144 - (processed-nodes - last-checkpoint-processed-nodes))
+
+LAST-CHECKPOINT-PROCESSED-NODES moves only in PERSIST-CHECKPOINT, and a
+checkpoint is written only when the frontier is at most 8,192 works
+(SNAP-SYNC-HEAL-CHECKPOINT-FRONTIER-P); CHECKPOINT-BLOCKS-TRAVERSAL-P stops the
+walk to drain only when the frontier is already at most 8,192. A heal whose
+frontier stays above 8,192 therefore never checkpoints, and after 262,144
+processed nodes every batch is exactly one work, whatever the sentinels do.
+
+Hoodi on 75b0b7a7: healing from about 21:20Z, width 22 at the start (frontier
+127k), processedNodes 354,304 at 21:47Z with frontierWorks 451,583, and
+afterwards localReadBatches = localReadWorks per window (width exactly 1).
+The frontier is mostly restored blocked sentinels at the bottom of the stack,
+which cannot run until everything above them has, so it cannot drain below
+8,192 before the heal ends: width one is permanent for the rest of the run.
+
+Reproduced with SNAP-HEAL-WALK-SHARED-SUBTREE-TRIE at four shared children
+(279,620 walked nodes, every node marked, two missing leaves; memory store),
+per 2,048-node progress window:
+
+  processed    frontier   batches   works
+    116,736     130,448        16    2,080
+    247,808     264,308        16    2,080
+    264,192     279,741     2,048    2,048   <- 262,144 crossed: width 1
+
+The same numbers before and after this change: the frontier is far above
+8,192, so no batch carries.
+
+SNAP-HEAL-LOCAL-READ-WIDTH-SURVIVES-A-FRONTIER-ABOVE-THE-LIVE-BOUND pins
+"(= 5 (snap-sync-heal-local-read-limit 909342 0 1024 5))" -- progress and
+checkpoint room are asserted to bind above the live bound -- so relaxing the
+term is a deliberate change to a pinned rule, and needs its own decision: for
+instance, not letting checkpoint room bind while the combined frontier is
+above +SNAP-SYNC-HEAL-CHECKPOINT-MAX-WORKS+, since no checkpoint can be written
+there anyway.
+
+Verification of record
+
+On e62f647f:
+
+cl-workbench validation run cold-unit
+  1426 tests passed, 3 skipped.   Exit 0.
+cl-workbench validation run cold-integration
+  593 tests passed, 9 skipped.    Exit 0.
+No STYLE-WARNING or compiler diagnostic under /workspace/src in either log.
+The three new tests appear by name as "ok" in the unit log, so unit moves
+from the 1,423 recorded for 75b0b7a7 in the coordinator's cold-all to 1,426
+-- exactly the tests added -- and integration stays at 593. The healer crash
+test SNAP-EPOCH-SEVEN-HEALER-DESCENDS-A-MARKED-ACCOUNT-NODE-AFTER-A-CRASH and
+SNAP-HEAL-LOCAL-WALK-KEEPS-WIDE-READS-ABOVE-THE-LIVE-FRONTIER-BOUND are "ok".
+
+No checkpoint, CLI, runtime or shutdown path changed, so cold-e2e was not
+run. No PAX transcript names the changed functions, so cold-docs was not run.
+
+Not verified
+
+- No live run, and this change is not expected to move the live width while
+  the checkpoint-room term holds it at one (above).
+- arm64 container timings do not transfer to the amd64 host; only the counts
+  do.
+- The fixtures hold no code, so QUEUE-CODE-HASH and code flushes are not in
+  these measurements. Storage-root deferral and publication are.
+- The carry is exercised here only with nothing missing. With missing or
+  remote work pending, sentinels are blocked before the carry rule is
+  reached, so that path is the unchanged one; the existing healer crash and
+  missing-node tests cover it.
