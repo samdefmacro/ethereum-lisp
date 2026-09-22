@@ -478,6 +478,7 @@
      (:file "snap-tests")
      (:file "snap-closure-tests")
      (:file "snap-heal-walk-tests")
+     (:file "snap-closure-density-tests")
      (:file "p2p-enr-tests")
      (:file "p2p-dns-discovery-tests")
      (:file "p2p-discv4-tests")
