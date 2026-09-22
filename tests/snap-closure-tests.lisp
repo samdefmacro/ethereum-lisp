@@ -142,7 +142,7 @@ and storage root named by a leaf beneath it must be present too."
     (nreverse violations)))
 
 (defun snap-closure-audit-batches
-    (target-database account-records thunk &key trip)
+    (target-database account-records thunk &key trip crash-latch)
   "Run THUNK while auditing every batch applied to TARGET-DATABASE.
 
 For every account-path trie-node put, every descendant node, every non-empty
@@ -150,7 +150,10 @@ code hash and every non-empty storage root named by a leaf beneath it must be
 durable in that same batch or in an earlier one.  TRIP, when supplied, is
 called with the batch before it is applied; a true answer raises a simulated
 crash at that seam instead of applying it, which is what a durable-write
-boundary actually loses -- whole trailing batches.
+boundary actually loses -- whole trailing batches.  CRASH-LATCH makes that
+crash final: every later batch to TARGET-DATABASE is refused as well, which is
+what a dead process does.  It is needed wherever other threads keep writing
+after the first one fails, or a retry would quietly heal the seam under test.
 
 The result is a plist carrying the counters that make a green run non-vacuous
 plus the violation list."
@@ -162,6 +165,7 @@ plus the violation list."
         (code-checks 0)
         (storage-checks 0)
         (tripped nil)
+        (dropped 0)
         (violations '())
         (node-prefix (snap-closure-chain-prefix :trie-node))
         (code-prefix (snap-closure-chain-prefix :code))
@@ -230,8 +234,13 @@ plus the violation list."
            (if (eq database target-database)
                (let ((crash-p nil))
                  (sb-thread:with-mutex (lock)
-                   (when (and trip (not tripped) (funcall trip batch))
-                     (setf tripped t crash-p t))
+                   (cond
+                     ((and tripped crash-latch)
+                      (incf dropped)
+                      (setf crash-p t))
+                     ((and trip (not tripped) (funcall trip batch))
+                      (incf dropped)
+                      (setf tripped t crash-p t)))
                    (unless crash-p (record-batch batch)))
                  (if crash-p
                      (error "Simulated snap closure crash at a batch seam")
@@ -252,7 +261,8 @@ plus the violation list."
               real-buffered)))
     (list :inspected inspected :account-leaves leaves
           :code-checks code-checks :storage-checks storage-checks
-          :tripped tripped :violations (nreverse violations))))
+          :tripped tripped :dropped dropped
+          :violations (nreverse violations))))
 
 (defun snap-closure-dependency-fixture (&key (wide-slots 96))
   "Return a state exercising every external dependency edge of an account.
@@ -802,17 +812,25 @@ persisted=~D withheld=~D~%"
 (defun snap-closure-trie-node-put-sites (text)
   "Return the offsets in TEXT where a :TRIE-NODE record is written.
 
-A put site is a PUT-CHAIN-RECORD call naming :TRIE-NODE within the next eighty
-characters, which covers the one-line and two-line spellings the tree uses."
+A put site is a PUT-CHAIN-RECORD call naming :TRIE-NODE among the arguments
+that precede its first nested form or its closing parenthesis, however many
+lines they span.  An earlier version looked only eighty characters ahead and
+so missed the healer's three-line spelling in client.lisp."
   (let ((sites '())
         (start 0))
     (loop
       (let ((found (search "put-chain-record" text :start2 start)))
         (unless found (return (nreverse sites)))
-        (let ((window (subseq text found (min (length text) (+ found 80)))))
+        (let* ((after (+ found (length "put-chain-record")))
+               (stop (or (position-if (lambda (character)
+                                        (member character '(#\( #\))))
+                                      text :start after)
+                         (length text)))
+               (window (subseq text after stop)))
           (when (search ":trie-node" window)
             (push found sites)))
         (setf start (1+ found))))))
+
 
 (defun snap-closure-mpt-persist-call-sites (text)
   "Return the offsets in TEXT where MPT-PERSIST is called, not defined.
@@ -837,7 +855,7 @@ both (mpt-persist ...) and (ethereum-lisp.trie:mpt-persist ...) count while
   ;; new writer that appears without being classified is the same class of
   ;; defect as 03263d2f, so it must break this test rather than a live sync.
   ;;
-  ;; Classification of the two writers that exist:
+  ;; Classification of the three writer sites that exist:
   ;;
   ;;   src/foundation/trie/persistence.lisp MPT-POPULATE-DIRTY-BATCH
   ;;     One atomic batch holding MPT-DIRTY-NODES, which is documented as
@@ -854,12 +872,27 @@ both (mpt-persist ...) and (ethereum-lisp.trie:mpt-persist ...) count while
   ;;     MPT-PERSIST itself has no caller left in src/; a new one is a new
   ;;     writer and must be classified here.
   ;;
-  ;;   src/networking/snap-sync/client.lisp
+  ;;   src/networking/snap-sync/client.lisp  (two sites)
   ;;   SNAP-SYNC-POPULATE-VERIFIED-TRIE-RECORDS-BATCH
-  ;;     The snap client, whose account-side contract is this file's subject.
+  ;;     The snap client's range writer, whose account-side contract is this
+  ;;     file's subject.
+  ;;   %SNAP-SYNC-HEAL-STATE, the fetched-node flush
+  ;;     The healer writes each node it fetches into PENDING-FETCHED-BATCH as
+  ;;     soon as it arrives, top-down, with the node's incomplete marker in the
+  ;;     same batch, and removes the marker only at the node's post-order
+  ;;     completion.  So a present account node written here can stand above
+  ;;     absent children and absent code or storage, and I1 holds for it only
+  ;;     if the presence rule reads that marker.  Observed with the batch audit
+  ;;     on a multi-source import whose chunked contract the healer finishes.
+  ;;     This site was missed until the scanner stopped looking a fixed eighty
+  ;;     characters ahead; it is recorded here, not fixed, because the healer
+  ;;     rule belongs to the epoch-seven change.
+  ;;
+  ;; The expectation is per SITE, not per file: a second writer added to an
+  ;; already classified file must break this test too.
   (let ((expected
-          (list "src/foundation/trie/persistence.lisp"
-                "src/networking/snap-sync/client.lisp"))
+          (list (cons "src/foundation/trie/persistence.lisp" 1)
+                (cons "src/networking/snap-sync/client.lisp" 2)))
         (found '())
         (persist-callers '()))
     (dolist (path (snap-closure-source-paths))
@@ -869,21 +902,30 @@ both (mpt-persist ...) and (ethereum-lisp.trie:mpt-persist ...) count while
                   (subseq buffer 0 (read-sequence buffer stream))))))
         (when (snap-closure-mpt-persist-call-sites text)
           (push (namestring path) persist-callers))
-        (when (snap-closure-trie-node-put-sites text)
-          (let* ((namestring (namestring path))
-                 (marker (search "/src/" namestring)))
-            (push (if marker
-                      (concatenate 'string "src" (subseq namestring
-                                                         (+ marker 4)))
-                      namestring)
-                  found)))))
-    (setf found (sort (nreverse found) #'string<))
-    ;; Positive control: the scanner must flag a synthetic writer.
+        (let ((sites (length (snap-closure-trie-node-put-sites text))))
+          (when (plusp sites)
+            (let* ((namestring (namestring path))
+                   (marker (search "/src/" namestring)))
+              (push (cons (if marker
+                              (concatenate 'string "src"
+                                           (subseq namestring (+ marker 4)))
+                              namestring)
+                          sites)
+                    found))))))
+    (setf found (sort (nreverse found) #'string< :key #'car))
+    ;; Positive control: the scanner must flag a synthetic writer in both the
+    ;; one-line and the multi-line spelling, and ignore a :METADATA put and a
+    ;; :TRIE-NODE that only appears inside a nested argument form.
     (is (snap-closure-trie-node-put-sites
          "(kv-batch-put-chain-record batch :trie-node hash encoded)"))
+    (is (snap-closure-trie-node-put-sites
+         (format nil "(kv-batch-put-chain-record~%~40Tpending-fetched-batch~%~40T:trie-node hash encoded)")))
     (is (null (snap-closure-trie-node-put-sites
                "(kv-batch-put-chain-record batch :metadata key value)")))
+    (is (null (snap-closure-trie-node-put-sites
+               "(kv-batch-put-chain-record batch :metadata (f :trie-node))")))
     (is (equal expected found))
+
     ;; MPT-PERSIST writes one trie's dirty nodes with no code and no other
     ;; trie, so any caller of it is an unclassified account-node writer.
     (is (snap-closure-mpt-persist-call-sites "(mpt-persist database trie)"))
@@ -1149,6 +1191,282 @@ requests were really answered rather than refused as unavailable."
           (is (null violations))
           (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
                progress)))))))
+
+;;; ------------------------------------------------------------------
+;;; Crash injection at the two cross-thread seams of the multi-source path
+;;; ------------------------------------------------------------------
+
+(defvar *snap-closure-batch-origin* nil
+  "The writer a batch came from, bound on the thread that applies it.")
+
+(defun call-with-snap-closure-writer-origins (thunk &key after-commit)
+  "Run THUNK with the committer and code-worker applies tagged by origin.
+
+Both writers run on their own threads, so the tag is a binding made by a
+wrapper on that thread and read by the batch audit's TRIP on the same thread.
+AFTER-COMMIT, when given, is called with each committed storage entry list
+once SNAP-SYNC-MULTI-COMMIT-STORAGE-RESULTS has returned.  The wrappers are
+installed process-globally and always restored."
+  (let ((real-commit
+          (fdefinition
+           'ethereum-lisp.snap-sync::snap-sync-multi-commit-storage-results))
+        (real-code
+          (fdefinition 'ethereum-lisp.snap-sync::snap-sync-multi-code-worker)))
+    (unwind-protect
+         (progn
+           (setf (fdefinition
+                  'ethereum-lisp.snap-sync::snap-sync-multi-commit-storage-results)
+                 (lambda (runtime database state-root entries &rest options)
+                   (multiple-value-prog1
+                       (let ((*snap-closure-batch-origin* :storage-committer))
+                         (apply real-commit runtime database state-root entries
+                                options))
+                     (when after-commit
+                       (funcall after-commit entries)))))
+           (setf (fdefinition
+                  'ethereum-lisp.snap-sync::snap-sync-multi-code-worker)
+                 (lambda (&rest arguments)
+                   (let ((*snap-closure-batch-origin* :code-worker))
+                     (apply real-code arguments))))
+           (funcall thunk))
+      (setf (fdefinition
+             'ethereum-lisp.snap-sync::snap-sync-multi-commit-storage-results)
+            real-commit
+            (fdefinition 'ethereum-lisp.snap-sync::snap-sync-multi-code-worker)
+            real-code))))
+
+(defun snap-closure-batch-puts (batch kind)
+  "Return the keys BATCH puts for chain-record KIND, without the prefix."
+  (let ((prefix (snap-closure-chain-prefix kind))
+        (keys '()))
+    (dolist (operation (ethereum-lisp.database::kv-write-batch-operations batch)
+                       (nreverse keys))
+      (let ((key (second operation)))
+        (when (and (eq :put (first operation))
+                   (plusp (length key))
+                   (= prefix (aref key 0)))
+          (push (subseq key 1) keys))))))
+
+(defun snap-closure-batch-account-leaves (batch node-map)
+  "Return the decoded account leaves beneath every account node BATCH puts."
+  (loop for hash in (snap-closure-batch-puts batch :trie-node)
+        when (nth-value 1 (gethash hash node-map))
+          append (mapcar #'ethereum-lisp.state:decode-state-account-rlp
+                         (snap-closure-walk-account-subtree node-map hash))))
+
+(defun snap-closure-multi-crash-and-resume
+    (state account-records trip seed &key after-commit)
+  "Crash one multi-source import at TRIP's seam for good, then resume it.
+
+Return the store's I1 violations right after the crash, the audit, the resumed
+progress and the target database."
+  (let* ((root (state-db-root state))
+         (node-map (snap-closure-account-node-map account-records))
+         (source-database (make-memory-key-value-database))
+         (target-database (make-memory-key-value-database))
+         (backend
+           (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+            source-database state))
+         (import
+           (lambda ()
+             (ethereum-lisp.snap-sync:snap-sync-import-state-multi
+              target-database
+              (list (snap-test-source backend) (snap-test-source backend))
+              :pivot-hash (make-hash32 (snap-test-hash seed))
+              :pivot-number 77 :state-root root
+              :target-hash (make-hash32 (snap-test-hash (+ seed 1)))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash (+ seed 2)))
+              :authority-id (make-hash32 (snap-test-hash (+ seed 3)))
+              :byte-limit 4096)))
+         (audit
+           (call-with-snap-closure-writer-origins
+            (lambda ()
+              (snap-closure-audit-batches
+               target-database account-records
+               (lambda ()
+                 (handler-case (funcall import)
+                   (serious-condition (condition)
+                     (list :crashed (princ-to-string condition)))))
+               :trip trip :crash-latch t))
+            :after-commit after-commit))
+         (violations (snap-closure-store-violations target-database node-map)))
+    (values violations audit (funcall import) target-database)))
+
+(defun snap-closure-dependent-batch-trip
+    (node-map origin kind dependent-p &key (ready-p (constantly t)))
+  "Return a TRIP that crashes at the first account write depending on ORIGIN.
+
+ORIGIN's applies are recognised by *SNAP-CLOSURE-BATCH-ORIGIN*, and the keys
+each one puts for chain-record KIND are collected.  A batch from any other
+writer is DEPENDENT when it puts an account node with a leaf beneath it for
+which DEPENDENT-P, called with the leaf and the collected key table, is true.
+The trip fires at the first dependent batch once ORIGIN has applied at least
+once and READY-P is true; a dependent batch that arrives earlier is PREMATURE:
+it is let through and counted, because it is the defect this seam must never
+show.  A batch the memory backend re-applies through its inner entry point is
+seen twice and answered the same way both times.
+
+The second value is a function returning the origin's apply count, its key
+table and the premature count."
+  (let ((written (make-hash-table :test #'equalp))
+        (origin-applies 0)
+        (premature 0)
+        (last-batch nil)
+        (last-answer nil))
+    (values
+     (lambda (batch)
+       (if (eq batch last-batch)
+           last-answer
+           (let ((answer
+                   (cond
+                     ((eq *snap-closure-batch-origin* origin)
+                      (incf origin-applies)
+                      (dolist (key (snap-closure-batch-puts batch kind))
+                        (setf (gethash key written) t))
+                      nil)
+                     ((notany (lambda (leaf) (funcall dependent-p leaf written))
+                              (snap-closure-batch-account-leaves batch node-map))
+                      nil)
+                     ((and (plusp origin-applies) (funcall ready-p))
+                      t)
+                     (t
+                      (incf premature)
+                      nil))))
+             (setf last-batch batch last-answer answer))))
+     (lambda () (values origin-applies written premature)))))
+
+(deftest snap-account-closure-survives-a-crash-after-the-chunked-storage-commit
+  (:layer :integration :module :p2p)
+  ;; Chunked storage on the multi-source path is applied by the storage
+  ;; committer thread (SNAP-SYNC-MULTI-COMMIT-STORAGE-RESULTS), not by the page
+  ;; that owns the account.  No account node naming the chunked contract may be
+  ;; written before the committer has applied the whole of its storage job,
+  ;; and a crash for good at the first one written after that must leave the
+  ;; store holding no account node whose closure it lacks, keep every storage
+  ;; node the committer applied, and let a resumed import converge on the
+  ;; authorized root.
+  ;;
+  ;; The batch audit's storage check is presence of the root NODE, which a
+  ;; range proof can supply long before the storage is complete, so it cannot
+  ;; see this seam; the premature count is the check that can.  Under the
+  ;; closed writer the chunked contract's leaf is never in a range page's
+  ;; account batch -- its root has no closure proof until the healer publishes
+  ;; one -- so the first dependent account write is the healer's.  600 slots
+  ;; against a 4096-byte cap is what makes the multi path chunk the contract;
+  ;; 96 slots fit one response there.
+  ;;
+  ;; RED control (docs/evidence/sec5-snap-server-closure.txt): with the page no
+  ;; longer waiting for its deferred storage and the closure predicate no
+  ;; longer checking storage, this test fails.
+  (with-snap-closure-proof-depth (2)
+    (multiple-value-bind (state addresses wide)
+        (snap-closure-dependency-fixture :wide-slots 600)
+      (declare (ignore addresses))
+      (let* ((account-trie (first (state-db-persistence-tries state)))
+             (account-records (mpt-dirty-node-records account-trie))
+             (node-map (snap-closure-account-node-map account-records))
+             (wide-hash (keccak-256 (address-bytes wide)))
+             (wide-root
+               (hash32-bytes
+                (state-account-storage-root
+                 (ethereum-lisp.state:decode-state-account-rlp
+                  (mpt-get account-trie wide-hash)))))
+             (wide-committed nil))
+        (multiple-value-bind (trip counters)
+            (snap-closure-dependent-batch-trip
+             node-map :storage-committer :trie-node
+             (lambda (leaf written)
+               (declare (ignore written))
+               (bytes= wide-root
+                       (hash32-bytes (state-account-storage-root leaf))))
+             :ready-p (lambda () wide-committed))
+          (multiple-value-bind (violations audit progress target)
+              (snap-closure-multi-crash-and-resume
+               state account-records trip 180
+               :after-commit
+               (lambda (entries)
+                 (dolist (entry entries)
+                   (let ((job (ethereum-lisp.snap-sync::snap-sync-global-storage-result-job
+                               entry)))
+                     (when (and (bytes= wide-hash
+                                        (ethereum-lisp.snap-sync::snap-sync-global-storage-job-account-hash
+                                         job))
+                                (ethereum-lisp.snap-sync::snap-sync-global-storage-job-completed-p
+                                 job))
+                       (setf wide-committed t))))))
+            (multiple-value-bind (committer-applies committed premature)
+                (funcall counters)
+              ;; No account node named the chunked storage before the committer
+              ;; had applied all of it, and every account node the crashed run
+              ;; did write was closed.
+              (is (zerop premature))
+              (is (null (getf audit :violations)))
+              (is (null violations))
+              (is (plusp (getf audit :inspected)))
+              ;; The seam really fired, after the committer finished, and the
+              ;; latch refused every later write.
+              (is wide-committed)
+              (is (getf audit :tripped))
+              (is (plusp committer-applies))
+              (is (plusp (hash-table-count committed)))
+              (is (plusp (getf audit :dropped)))
+              ;; The storage the committer applied before the crash survived it.
+              (is (loop for hash being the hash-keys of committed
+                        always (nth-value 1 (trie-node-store-get target hash))))
+              ;; The resumed import converged on the authorized root.
+              (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                   progress))
+              (is (nth-value 1 (trie-node-store-get
+                                target (hash32-bytes (state-db-root state)))))
+              (is (null (snap-closure-store-violations target node-map))))))))))
+
+(deftest snap-account-closure-survives-a-crash-after-the-code-worker-commit
+  (:layer :integration :module :p2p)
+  ;; Code on the multi-source path is written by the import-wide code worker's
+  ;; own batch (SNAP-SYNC-MULTI-CODE-WORKER); the page that owns the account
+  ;; learns of it only by re-reading the store.  Crash for good at the first
+  ;; account batch naming a code the worker has applied: the store must hold
+  ;; no account node whose closure it lacks, that code must have survived,
+  ;; and a resumed import must converge and install the authorized root.
+  ;; Code presence is exact, so here the batch audit's own code check is the
+  ;; oracle for an account batch that outran its code.
+  ;;
+  ;; RED control (docs/evidence/sec5-snap-server-closure.txt): with the page no
+  ;; longer waiting for its codes and the closure predicate no longer checking
+  ;; code, this test fails.
+  (with-snap-closure-proof-depth (2)
+    (multiple-value-bind (state addresses wide) (snap-closure-dependency-fixture)
+      (declare (ignore addresses wide))
+      (let* ((account-records
+               (mpt-dirty-node-records
+                (first (state-db-persistence-tries state))))
+             (node-map (snap-closure-account-node-map account-records)))
+        (multiple-value-bind (trip counters)
+            (snap-closure-dependent-batch-trip
+             node-map :code-worker :code
+             (lambda (leaf written)
+               (nth-value 1 (gethash (hash32-bytes
+                                      (state-account-code-hash leaf))
+                                     written))))
+          (multiple-value-bind (violations audit progress target)
+              (snap-closure-multi-crash-and-resume
+               state account-records trip 190)
+            (multiple-value-bind (code-applies codes) (funcall counters)
+              (is (null (getf audit :violations)))
+              (is (null violations))
+              (is (getf audit :tripped))
+              (is (plusp code-applies))
+              (is (plusp (hash-table-count codes)))
+              (is (plusp (getf audit :dropped)))
+              (is (loop for hash being the hash-keys of codes
+                        always (nth-value 1 (kv-get-chain-record
+                                             target :code hash))))
+              (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                   progress))
+              (is (nth-value 1 (trie-node-store-get
+                                target (hash32-bytes (state-db-root state)))))
+              (is (null (snap-closure-store-violations target node-map))))))))))
 
 ;;; ------------------------------------------------------------------
 ;;; The measurement that decides whether this design converges at all
