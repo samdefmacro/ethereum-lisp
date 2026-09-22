@@ -6405,10 +6405,17 @@ count assertion instead of hanging the run."
               ;; The first post-rebase generation must still fetch what the
               ;; closed writer withheld -- the spine, the page boundaries and
               ;; the range-straddling regions of twenty pages proved under a
-              ;; different root -- so it is cheaper than epoch six but not yet
-              ;; at the control arm's order: 197 decoded, 64 fetched.
-              (is (= 197 (getf closed :processed)))
-              (is (= 64 (getf closed :fetched)))
+              ;; different root -- and now decodes nothing else: 59 decoded,
+              ;; all 59 fetched.  Before the partitioned-storage closure step
+              ;; it decoded 197 and fetched 64: the three byte-capped
+              ;; contracts' partition pages left 133 present, closed nodes
+              ;; marked at heal entry, and without their root proofs the
+              ;; contracts' account leaves stayed open.  With the step stubbed
+              ;; out this arm returns to exactly 197 and 64
+              ;; (docs/evidence/sec5-marker-population.txt).
+              (is (= 59 (getf closed :processed)))
+              (is (= 59 (getf closed :fetched)))
+              (is (= (getf closed :processed) (getf closed :fetched)))
               (is (< (getf closed :processed) (getf reproduction :processed)))
               ;; THE TARGET.  From the second generation on, a mid-range rebase
               ;; costs what a clean one does: the reproduction arm's walk falls

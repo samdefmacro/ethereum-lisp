@@ -135,14 +135,48 @@ response, or a root a rebase moved to after its content arrived under another."
         (when close (funcall close))))
     (if found :cursor-set :no-cursor-set)))
 
-(defun snap-marker-census (database markers owners creators)
-  "Attribute MARKERS by creating site and owning trie; judge each one."
+(defun snap-marker-verdicts (database markers)
+  "Judge every marker in MARKERS against DATABASE as it stands now."
+  (let ((memo (make-hash-table :test #'equalp))
+        (verdicts (make-hash-table :test #'equalp)))
+    (maphash (lambda (hash ignored)
+               (declare (ignore ignored))
+               (setf (gethash hash verdicts)
+                     (if (snap-marker-closed-p database hash memo)
+                         :stale :genuine)))
+             markers)
+    verdicts))
+
+(defun snap-marker-storage-root-proofs (database)
+  "Return every storage root carrying a whole-root closure proof in DATABASE."
+  (let* ((prefix
+           ethereum-lisp.snap-sync::+snap-sync-healed-storage-root-identifier-prefix+)
+         (start (kv-chain-record-key :metadata prefix))
+         (end (kv-chain-record-key
+               :metadata
+               (ethereum-lisp.snap-sync::snap-sync-byte-prefix-end prefix)))
+         (roots '()))
+    (multiple-value-bind (iterator close) (kv-iterator database :start start :end end)
+      (unwind-protect
+           (loop
+             (multiple-value-bind (key value present-p) (funcall iterator)
+               (declare (ignore value))
+               (unless present-p (return))
+               (push (subseq (kv-chain-record-key-identifier :metadata key)
+                             (length prefix))
+                     roots)))
+        (when close (funcall close))))
+    roots))
+
+(defun snap-marker-census (database verdicts owners creators)
+  "Attribute judged markers by creating site and owning trie.
+
+VERDICTS maps each marker to :STALE or :GENUINE as judged against the store the
+healer faced, which SNAP-MARKER-VERDICTS takes at that moment."
   (let ((rows (make-hash-table :test #'equal))
-        (memo (make-hash-table :test #'equalp))
         (classes (make-hash-table :test #'equalp)))
     (maphash
-     (lambda (hash ignored)
-       (declare (ignore ignored))
+     (lambda (hash verdict)
        (let* ((owner (gethash hash owners))
               (trie (cond ((null owner) :unreachable)
                           ((eq owner :account) :account)
@@ -151,11 +185,9 @@ response, or a root a rebase moved to after its content arrived under another."
                                        (snap-marker-storage-class
                                         database (cdr owner)))))))
               (site (or (gethash hash creators) :unknown))
-              (verdict (if (snap-marker-closed-p database hash memo)
-                           :stale :genuine))
               (key (list site trie verdict)))
          (incf (gethash key rows 0))))
-     markers)
+     verdicts)
     (sort (loop for key being the hash-keys of rows using (hash-value count)
                 collect (append key (list count)))
           #'> :key #'fourth)))
@@ -200,6 +232,9 @@ Returns THUNK's value and a plist (:CREATORS table :CREATED alist :DELETED alist
               'ethereum-lisp.snap-sync::snap-sync-buffer-account-page-content
               :account-page)
              (site-wrapper 'ethereum-lisp.snap-sync::%snap-sync-heal-state :healer)
+             (site-wrapper
+              'ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure
+              :storage-root-closure)
              (let ((put (fdefinition
                          'ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch))
                    (delete (fdefinition
@@ -262,13 +297,25 @@ root and a handful of small accounts.  Values: before, after."
 
 (defun snap-marker-population-arm
     (state state-root &key multi-p before before-root (rebase-after-pages 0)
-                           (byte-limit 30000) (seed 70))
+                           (byte-limit 30000) (seed 70) (publish-p t))
   "Import STATE-ROOT into a fresh epoch-seven store and take the marker census.
 
 With BEFORE, REBASE-AFTER-PAGES account pages are first downloaded under
-BEFORE-ROOT and the progress is rebased: the live mid-range rebase."
+BEFORE-ROOT and the progress is rebased: the live mid-range rebase.  PUBLISH-P
+NIL disables SNAP-SYNC-PUBLISH-STORAGE-ROOT-CLOSURE, which is the store the
+range phase produced before it existed.
+
+At SNAP-SYNC-HEAL-STATE entry the arm also audits every whole-root storage
+proof in the store: :ROOT-PROOFS counts them and :UNCLOSED-ROOT-PROOFS counts
+those whose trie is not wholly durable there, which must be zero."
   (let* ((target (make-memory-key-value-database))
          (at-heal nil)
+         (root-proofs nil)
+         (unclosed-root-proofs nil)
+         (heal-events '())
+         (real-publish
+           (fdefinition
+            'ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure))
          (pivot (lambda (offset) (make-hash32 (snap-test-hash (+ seed offset)))))
          (sources-for
            (lambda (state)
@@ -287,24 +334,43 @@ BEFORE-ROOT and the progress is rebased: the live mid-range rebase."
                   :state-root root :target-hash pivot-hash
                   :chain-id 560048 :genesis-hash (funcall pivot 1)
                   :authority-id (funcall pivot 2) :byte-limit byte-limit
-                  :max-pages max-pages)
+                  :max-pages max-pages
+                  :on-heal-progress
+                  (lambda (event) (push event heal-events)))
                  (ethereum-lisp.snap-sync:snap-sync-import-state
                   target (first (funcall sources-for state))
                   :pivot-hash pivot-hash :pivot-number number
                   :state-root root :target-hash pivot-hash
                   :chain-id 560048 :genesis-hash (funcall pivot 1)
                   :authority-id (funcall pivot 2) :byte-limit byte-limit
-                  :max-pages max-pages))))
+                  :max-pages max-pages
+                  :on-heal-progress
+                  (lambda (event) (push event heal-events))))))
          (real-heal (fdefinition 'ethereum-lisp.snap-sync::snap-sync-heal-state)))
     (multiple-value-bind (final instrumentation)
         (call-with-snap-marker-instrumentation
          (lambda ()
            (unwind-protect
                 (progn
+                  (unless publish-p
+                    (setf (fdefinition
+                           'ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure)
+                          (lambda (&rest arguments)
+                            (declare (ignore arguments))
+                            :disabled)))
                   (setf (fdefinition 'ethereum-lisp.snap-sync::snap-sync-heal-state)
                         (lambda (&rest arguments)
                           (unless at-heal
-                            (setf at-heal (snap-marker-markers target)))
+                            (setf at-heal (snap-marker-verdicts
+                                           target (snap-marker-markers target)))
+                            (let ((proofs (snap-marker-storage-root-proofs target))
+                                  (memo (make-hash-table :test #'equalp)))
+                              (setf root-proofs (length proofs)
+                                    unclosed-root-proofs
+                                    (count-if-not
+                                     (lambda (root)
+                                       (snap-marker-closed-p target root memo))
+                                     proofs))))
                           (apply real-heal arguments)))
                   (when before
                     (funcall run-import before before-root (funcall pivot 3) 100
@@ -316,10 +382,13 @@ BEFORE-ROOT and the progress is rebased: the live mid-range rebase."
                      :authority-id (funcall pivot 2)))
                   (funcall run-import state state-root (funcall pivot 4) 110 nil))
              (setf (fdefinition 'ethereum-lisp.snap-sync::snap-sync-heal-state)
-                   real-heal))))
+                   real-heal
+                   (fdefinition
+                    'ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure)
+                   real-publish))))
       (let* ((owners (snap-marker-owners target state-root))
              (creators (getf instrumentation :creators))
-             (at-end (snap-marker-markers target)))
+             (at-end (snap-marker-verdicts target (snap-marker-markers target))))
         (list :closed-writes-p
               (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p target)
               :completed-p
@@ -330,9 +399,257 @@ BEFORE-ROOT and the progress is rebased: the live mid-range rebase."
                             (hash32-bytes (funcall pivot 4))))
               :created (getf instrumentation :created)
               :deleted (getf instrumentation :deleted)
+              :root-proofs root-proofs
+              :unclosed-root-proofs unclosed-root-proofs
+              ;; Heal counters restart with each healer session, so report the
+              ;; largest each reached rather than the last event.
+              :processed
+              (loop for event in heal-events
+                    maximize
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+                     event))
+              :fetched
+              (loop for event in heal-events
+                    maximize
+                    (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                     event))
+              :healer-marked-walk
+              (or (cdr (assoc :healer (getf instrumentation :deleted))) 0)
               :at-heal-count (and at-heal (hash-table-count at-heal))
               :at-heal (and at-heal
                             (snap-marker-census target at-heal owners creators))
               :at-end-count (hash-table-count at-end)
               :at-end (snap-marker-census target at-end owners creators)
               :target target)))))
+
+;;; ------------------------------------------------------------------
+;;; The partitioned storage closure, measured and refused
+;;; ------------------------------------------------------------------
+
+(defun snap-marker-partitioned-store (state address byte-limit)
+  "Fill ADDRESS's storage trie from STATE into a fresh epoch-seven store.
+
+Only the StorageRanges partitions run -- %SNAP-SYNC-FILL-STORAGE-ROOT-RANGES,
+not the publishing wrapper -- so the store is what the range phase leaves
+before the closure step.  Values: the store, the account hash, the storage
+root and the state root."
+  (let* ((root (state-db-root state))
+         (account-hash (keccak-256 (address-bytes address)))
+         (storage-root (state-db-get-storage-root state address))
+         (target (make-memory-key-value-database))
+         (source
+           (snap-test-source
+            (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+             (make-memory-key-value-database) state))))
+    (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p target))
+    (is (ethereum-lisp.snap-sync::%snap-sync-fill-storage-root-ranges
+         target (list source) root account-hash storage-root byte-limit))
+    (values target account-hash storage-root root)))
+
+(defun snap-marker-put-task-set (database state-root account-hash storage-root tasks)
+  (let ((batch (make-kv-write-batch)))
+    (ethereum-lisp.snap-sync::snap-sync-populate-storage-task-set-batch
+     batch state-root account-hash storage-root tasks)
+    (kv-apply-batch database batch)))
+
+(defun snap-marker-task-set (database state-root account-hash storage-root)
+  (multiple-value-bind (records present)
+      (kv-get-chain-records
+       database :metadata
+       (coerce
+        (loop for index below ethereum-lisp.snap-sync::+snap-sync-storage-task-count+
+              collect (ethereum-lisp.snap-sync::snap-sync-storage-task-identifier
+                       state-root account-hash storage-root index))
+        'vector))
+    (is (every (lambda (bit) (= 1 bit)) present))
+    (loop for record across records
+          collect (ethereum-lisp.snap-sync::snap-sync-storage-task-from-record
+                   record))))
+
+(deftest snap-storage-root-closure-refuses-without-full-coverage-under-one-root
+  (:layer :unit :module :p2p)
+  ;; A byte-capped contract's partitions leave every node above the four-nibble
+  ;; proof depth marked incomplete, and nothing on the range path ever clears
+  ;; those markers (docs/evidence/sec5-marker-population.txt).  The closure
+  ;; step publishes the whole-root proof and clears them only when completeness
+  ;; is provable: all sixteen cursors completed, tiling the keyspace, and a walk
+  ;; from THIS root reaching only present nodes down to range-derived :STORAGE
+  ;; proofs.  Each refusal below must publish nothing and delete nothing.
+  (let* ((state (make-state-db))
+         (address (snap-density-address 1))
+         (other (snap-density-address 2)))
+    (state-db-set-account state address (make-state-account :nonce 1 :balance 1))
+    (loop for slot from 1 to 600
+          do (state-db-set-storage state address (snap-density-slot 1 slot)
+                                   (+ 70000 slot)))
+    (state-db-set-account state other (make-state-account :nonce 2 :balance 2))
+    (multiple-value-bind (target account-hash storage-root state-root)
+        (snap-marker-partitioned-store state address 4000)
+      (let* ((markers-before (hash-table-count (snap-marker-markers target)))
+             (tasks (snap-marker-task-set target state-root account-hash
+                                          storage-root))
+             (root-bytes (hash32-bytes storage-root)))
+        (flet ((publish (&optional (root storage-root))
+                 (ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure
+                  target state-root account-hash root))
+               (untouched-p (&optional (root storage-root))
+                 (and (= markers-before
+                         (hash-table-count (snap-marker-markers target)))
+                      (not (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+                            target (hash32-bytes root) :storage-root)))))
+          ;; The shape the live store has: the chunked trie is complete on disk
+          ;; and still marked.
+          (is (plusp markers-before))
+          (is (snap-marker-closed-p target root-bytes
+                                    (make-hash-table :test #'equalp)))
+          (is (untouched-p))
+          ;; RED, coverage gap: task 0 claims to start one hash above zero, so
+          ;; key 0 is owned by no completed cursor.  Completed flags alone
+          ;; would pass.
+          (let ((first (first tasks)))
+            (snap-marker-put-task-set
+             target state-root account-hash storage-root
+             (cons (ethereum-lisp.snap-sync::snap-sync-account-task
+                    :start (ethereum-lisp.snap-sync::snap-sync-integer-to-hash-bytes 1)
+                    :limit (ethereum-lisp.snap-sync::snap-sync-account-task-limit first)
+                    :completed-p t)
+                   (rest tasks)))
+            (is (eq :cursors-open (publish)))
+            (is (untouched-p)))
+          ;; RED, an open cursor: the same set with one partition unfinished.
+          (let ((first (first tasks)))
+            (snap-marker-put-task-set
+             target state-root account-hash storage-root
+             (cons (ethereum-lisp.snap-sync::snap-sync-account-task
+                    :start (ethereum-lisp.snap-sync::snap-sync-account-task-start first)
+                    :limit (ethereum-lisp.snap-sync::snap-sync-account-task-limit first)
+                    :next-origin
+                    (ethereum-lisp.snap-sync::snap-sync-account-task-start first))
+                   (rest tasks)))
+            (is (eq :cursors-open (publish)))
+            (is (untouched-p)))
+          (snap-marker-put-task-set target state-root account-hash storage-root tasks)
+          ;; RED, a partition whose content never became durable: every cursor
+          ;; says done, but one node the walk must reach is absent.
+          (let* ((visited
+                   (ethereum-lisp.snap-sync::snap-sync-storage-root-closure-walk
+                    target storage-root))
+                 (victim (car (last visited))))
+            (is (> (length visited) 1))
+            (multiple-value-bind (encoded present-p)
+                (trie-node-store-get target victim)
+              (is present-p)
+              (let ((batch (make-kv-write-batch)))
+                (kv-batch-delete-chain-record batch :trie-node victim)
+                (kv-apply-batch target batch))
+              (is (eq :missing-node (publish)))
+              (is (untouched-p))
+              (let ((batch (make-kv-write-batch)))
+                (kv-batch-put-chain-record batch :trie-node victim encoded)
+                (kv-apply-batch target batch))))
+          ;; RED, partitions proved against a different root: a rebase moved
+          ;; the contract to ROOT-2 (one slot differs) and its cursor set was
+          ;; carried over completed.  Every page on disk was proved against
+          ;; STORAGE-ROOT, so the walk from ROOT-2 meets the changed path and
+          ;; refuses; the shared nodes' markers stay.
+          (let ((moved (state-db-copy state)))
+            (state-db-set-storage moved address (snap-density-slot 1 17) 424242)
+            (let ((root-2 (state-db-get-storage-root moved address)))
+              (is (not (hash32= root-2 storage-root)))
+              (snap-marker-put-task-set target state-root account-hash root-2 tasks)
+              (is (eq :missing-node (publish root-2)))
+              (is (untouched-p root-2))
+              (is (untouched-p))))
+          ;; A legacy store keeps its behaviour.
+          (let ((legacy (make-memory-key-value-database)))
+            (snap-test-seed-legacy-trie-store legacy)
+            (is (eq :legacy-store
+                    (ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure
+                     legacy state-root account-hash storage-root))))
+          ;; Subject: the untouched set publishes, clears every marker this
+          ;; trie carried, and is idempotent.
+          (is (eq :closed (publish)))
+          (is (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+               target root-bytes :storage-root))
+          (is (zerop (hash-table-count (snap-marker-markers target))))
+          (is (eq :already-closed (publish)))
+          ;; Positive control for the closure oracle the integration arms use
+          ;; to audit every published proof: a missing node makes it false.
+          (let ((victim (first (snap-marker-node-children
+                                (trie-node-store-get target root-bytes)))))
+            (let ((batch (make-kv-write-batch)))
+              (kv-batch-delete-chain-record batch :trie-node victim)
+              (kv-apply-batch target batch))
+            (is (not (snap-marker-closed-p target root-bytes
+                                           (make-hash-table :test #'equalp))))))))))
+
+(deftest snap-partitioned-storage-closure-leaves-the-healer-no-stale-marker
+  (:layer :integration :module :p2p)
+  ;; The live store: 372,561 marked nodes at heal entry against 28,665 fetched,
+  ;; on an epoch-seven store whose account pages mark nothing.  Two byte-capped
+  ;; contracts of 2,500 slots among 300 accounts reproduce it: every surviving
+  ;; marker was written by a StorageRanges partition (the first byte-capped
+  ;; page or a later cursor page) of a chunked trie, and every one is stale --
+  ;; the node and its whole trie closure are durable before healing starts.
+  (multiple-value-bind (before after)
+      (snap-marker-population-state :big-slots 2500)
+    (let* ((before-root (state-db-root before))
+           (after-root (state-db-root after))
+           (red (snap-marker-population-arm before before-root :publish-p nil))
+           (single (snap-marker-population-arm before before-root))
+           (multi (snap-marker-population-arm before before-root :multi-p t))
+           (red-rebase
+             (snap-marker-population-arm
+              after after-root :before before :before-root before-root
+              :rebase-after-pages 3 :byte-limit 8000 :publish-p nil))
+           (rebase
+             (snap-marker-population-arm
+              after after-root :before before :before-root before-root
+              :rebase-after-pages 3 :byte-limit 8000)))
+      (dolist (entry (list (list "red" red) (list "single" single)
+                           (list "multi" multi) (list "red-rebase" red-rebase)
+                           (list "rebase" rebase)))
+        (destructuring-bind (label arm) entry
+          (let ((*print-pretty* nil))
+            (format *standard-output*
+                    "~&; marker population ~A: at-heal=~A healer-marked-walk=~A ~
+processed=~A fetched=~A root-proofs=~A created=~S deleted=~S census=~S~%"
+                    label (getf arm :at-heal-count)
+                    (getf arm :healer-marked-walk) (getf arm :processed)
+                    (getf arm :fetched) (getf arm :root-proofs)
+                    (getf arm :created) (getf arm :deleted)
+                    (getf arm :at-heal)))
+          (is (getf arm :closed-writes-p))
+          (is (getf arm :completed-p))
+          (is (zerop (getf arm :at-end-count)))
+          ;; No published whole-root proof may name a trie with an absent node
+          ;; at heal entry (the oracle's own RED is in the unit test above).
+          (is (zerop (getf arm :unclosed-root-proofs)))))
+      (dolist (arm (list red single multi))
+        (is (bytes= (hash32-bytes before-root)
+                    (getf arm :installed-root))))
+      ;; RED: the range phase as it stood.  Every marker at heal entry is a
+      ;; stale partition marker of a chunked trie; none is genuine.
+      (dolist (arm (list red red-rebase))
+        (is (> (getf arm :at-heal-count) 1000))
+        (dolist (row (getf arm :at-heal))
+          (destructuring-bind (site trie verdict count) row
+            (declare (ignore count))
+            (is (member site '(:storage-first-page :storage-partition-page)))
+            (is (not (eq trie :account)))
+            (is (eq verdict :stale)))))
+      ;; Subject: the genuinely open set at heal entry is empty, so the marked
+      ;; population drops to it on every path, including after a mid-range
+      ;; rebase, and the closure step deleted exactly what RED left behind.
+      (dolist (arm (list single multi rebase))
+        (is (zerop (getf arm :at-heal-count)))
+        (is (>= (getf arm :root-proofs) 2)))
+      (is (= (getf red :at-heal-count)
+             (cdr (assoc :storage-root-closure (getf single :deleted)))))
+      ;; And the healer's walk shrinks with it: the marked nodes it had to
+      ;; process and complete, and the nodes it decoded at all.
+      (dolist (pair (list (cons single red) (cons rebase red-rebase)))
+        (is (> (getf (cdr pair) :healer-marked-walk) 1000))
+        (is (< (* 10 (getf (car pair) :healer-marked-walk))
+               (getf (cdr pair) :healer-marked-walk)))
+        (is (< (getf (car pair) :processed) (getf (cdr pair) :processed)))))))

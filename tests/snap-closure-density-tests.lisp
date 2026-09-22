@@ -322,7 +322,7 @@ closure epoch, one seeded by SNAP-TEST-SEED-LEGACY-TRIE-STORE never does."
 (defun snap-density-arm
     (after after-root
      &key before before-root closed-p multi-p (byte-limit 25000) (depth 2)
-          (rebase-after-pages 0) (seed 40))
+          (rebase-after-pages 0) (seed 40) (storage-closure-p t))
   "Import AFTER-ROOT through a production importer and measure the account side.
 
 With BEFORE, the range phase first runs REBASE-AFTER-PAGES pages under
@@ -341,7 +341,11 @@ own last heal-progress event.  The account side of the heal is split out of
 those mixed counters: HEAL-ACCOUNT-TOUCHED is every account node the healer
 created work for, HEAL-ACCOUNT-EXPANDED the ones it descended into (an
 interior node whose children it pushed, a leaf whose account it decoded), and
-HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced."
+HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced.
+
+STORAGE-CLOSURE-P NIL stubs out SNAP-SYNC-PUBLISH-STORAGE-ROOT-CLOSURE, so a
+byte-capped contract gets no whole-root proof during the range phase and its
+account leaf stays open: the range phase as it stood before that step."
   (multiple-value-bind (trie root) (snap-density-trie after)
     (unless (bytes= root (hash32-bytes after-root))
       (error "Density fixture trie does not belong to its root"))
@@ -390,6 +394,9 @@ HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced."
            (real-fill
              (fdefinition
               'ethereum-lisp.snap-sync::snap-sync-fill-storage-then-heal))
+           (real-publish
+             (fdefinition
+              'ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure))
            (pivot (lambda (offset) (make-hash32 (snap-test-hash (+ seed offset)))))
            (run-import
              (lambda (state state-root pivot-hash number max-pages)
@@ -420,6 +427,12 @@ HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced."
        (lambda ()
          (unwind-protect
               (progn
+                (unless storage-closure-p
+                  (setf (fdefinition
+                         'ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure)
+                        (lambda (&rest arguments)
+                          (declare (ignore arguments))
+                          :disabled)))
                 (setf
                  (fdefinition
                   'ethereum-lisp.snap-sync::snap-sync-account-closure-predicate)
@@ -551,7 +564,10 @@ HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced."
             (fdefinition 'ethereum-lisp.snap-sync::snap-sync-make-heal-work)
             real-make-work
             (fdefinition 'ethereum-lisp.state:decode-state-account-rlp)
-            real-decode-account)))))))
+            real-decode-account
+            (fdefinition
+             'ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure)
+            real-publish)))))))
 
 ;;; ------------------------------------------------------------------
 ;;; The pinned measurement
@@ -580,8 +596,14 @@ HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced."
     (is (= 3 (getf population :big-contracts)))
     (let* ((before-root (state-db-root before))
            (closed (snap-density-arm before before-root
-                                     :closed-p t :byte-limit 30000 :depth 1)))
+                                     :closed-p t :byte-limit 30000 :depth 1))
+           (unclosed (snap-density-arm before before-root
+                                       :closed-p t :byte-limit 30000 :depth 1
+                                       :storage-closure-p nil)))
       (snap-density-report "no-rebase closed" closed)
+      (snap-density-report "no-rebase closed, no storage closure" unclosed)
+      (is (getf unclosed :completed-p))
+      (is (zerop (getf unclosed :i1-subtree-violations)))
       (is (getf closed :completed-p))
       (is (bytes= (hash32-bytes before-root) (getf closed :installed-root)))
       ;; Production-like page density, not one account per task.
@@ -589,14 +611,23 @@ HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced."
       ;; I1 read back off the store the healer faced.
       (is (zerop (getf closed :i1-subtree-violations)))
       ;; The withheld fraction at page density: below one percent of the
-      ;; account trie (measured 17 of 2,647).  Both causes the design names
-      ;; must be visible, or the attribution is not measuring anything: the
-      ;; three chunked contracts are the only open accounts, and the page
-      ;; boundaries withhold the spine above them.
-      (is (= 3 (getf closed :open-verdicts)))
-      (is (plusp (getf closed :withheld-open-storage)))
+      ;; account trie.  Both causes the design names must be visible, or the
+      ;; attribution is not measuring anything.  With the partitioned-storage
+      ;; closure step switched off, the three chunked contracts are the only
+      ;; open accounts and the page boundaries withhold the spine above them
+      ;; (measured 17 of 2,647).  With it on -- production -- each chunked
+      ;; contract's whole-root proof is published when its last cursor
+      ;; completes, before its account page resumes, so no account is open and
+      ;; only the page-boundary straddle is withheld (measured 10 of 2,647).
+      (is (= 3 (getf unclosed :open-verdicts)))
+      (is (plusp (getf unclosed :withheld-open-storage)))
+      (is (plusp (getf unclosed :withheld-straddle)))
+      (is (< (* 100 (getf unclosed :withheld)) (getf unclosed :nodes)))
+      (is (zerop (getf closed :open-verdicts)))
+      (is (zerop (getf closed :withheld-open-storage)))
       (is (plusp (getf closed :withheld-straddle)))
-      (is (< (* 100 (getf closed :withheld)) (getf closed :nodes)))
+      (is (= (getf closed :withheld) (getf closed :withheld-straddle)))
+      (is (< (getf closed :withheld) (getf unclosed :withheld)))
       ;; Positive controls for the two store-reading counters: a store that
       ;; holds nothing withholds everything, and a store missing one leaf under
       ;; present ancestors is an I1 violation.
@@ -654,13 +685,14 @@ HEAL-ACCOUNT-FETCHED the touched ones absent from the store it faced."
                  (* 3 (getf legacy :heal-account-fetched))))
           ;; The account presence skip, measured on the real healer: on the
           ;; closed store it expands exactly the account nodes it had to
-          ;; fetch and stops at every present one (measured 64 and 64).
+          ;; fetch and stops at every present one (measured 59 and 59;
+          ;; 64 and 64 before the partitioned-storage closure step).
           (is (plusp (getf subject :heal-account-fetched)))
           (is (= (getf subject :heal-account-expanded)
                  (getf subject :heal-account-fetched)))
           ;; The comparison the epoch bump rests on: strictly fewer account
-          ;; nodes expanded than legacy (64 against 257) and strictly fewer
-          ;; touched at all (366 against 417).  It fetches more (64 against
+          ;; nodes expanded than legacy (59 against 257) and strictly fewer
+          ;; touched at all (352 against 417).  It fetches more (59 against
           ;; 50): the spine the closed writer does not write.
           (is (< (getf subject :heal-account-expanded)
                  (getf legacy :heal-account-expanded)))

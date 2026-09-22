@@ -2548,9 +2548,11 @@ evidence.  Completed partition cursors prove authenticated key-space coverage,
 not that every node was materialized -- this file says so at the two sites that
 already demand the root proof, SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P and
 SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN.  The same standard applies here, so a
-chunked contract stays open until the healer publishes its root, which is
-geth's rule that clears needHeal only when the reassembled root both matches
-and is present (eth/protocols/snap/sync.go:2272-2282).
+chunked contract stays open until its root proof exists: published by
+SNAP-SYNC-PUBLISH-STORAGE-ROOT-CLOSURE once every cursor completed and a walk
+from the root found every node present, or by the healer.  That is geth's rule
+that clears needHeal only when the reassembled root both matches and is
+present (eth/protocols/snap/sync.go:2272-2282).
 
 CODES are the bytecodes this page will write in the same batch as its account
 nodes, so they count as durable.  Everything else is read back from the store."
@@ -5821,8 +5823,183 @@ retaining the exact cursor/content crash boundary for every response."
       (remhash task-index (snap-sync-storage-runtime-claims runtime)))
     (snap-sync-storage-runtime-notify runtime)))
 
+(defparameter *snap-sync-storage-root-closure-max-nodes* 1048576
+  "Most unproved nodes one storage-root closure walk may visit before refusing.
+
+The walk descends only nodes that no range-derived :STORAGE proof covers, which
+for a large trie is the region above the four-nibble publication depth plus the
+page seams, so this bound is far above any real contract.  Exceeding it is not
+an error: the markers stay and the healer walks the trie, as before.")
+
+(defun snap-sync-storage-task-set-covers-keyspace-p (tasks)
+  "True when every one of TASKS is completed and their ranges tile the keyspace.
+
+A cursor set is created with contiguous ranges from zero to the last hash, so
+this can only fail on a corrupt or hand-edited set; it is checked anyway,
+because a completed cursor over a range nobody fetched is exactly the false
+completion the closure proof must never inherit."
+  (and (= +snap-sync-storage-task-count+ (length tasks))
+       (every #'snap-sync-account-task-completed-p tasks)
+       (let ((next 0)
+             (maximum (1- (ash 1 256))))
+         (dolist (task (sort (copy-list tasks) #'<
+                             :key (lambda (task)
+                                    (bytes-to-integer
+                                     (snap-sync-account-task-start task))))
+                       (> next maximum))
+           (let ((start (bytes-to-integer (snap-sync-account-task-start task)))
+                 (limit (bytes-to-integer (snap-sync-account-task-limit task))))
+             (when (> start next)
+               (return nil))
+             (setf next (max next (1+ limit))))))))
+
+(defun snap-sync-storage-root-closure-walk (database storage-root)
+  "Walk STORAGE-ROOT's local trie down to its range-derived subtree proofs.
+
+Return the hash of every visited node, parents before children, and :CLOSED;
+or NIL and the reason the trie is not provably closed: :MISSING-NODE when a
+reached node is absent, :INVALID-NODE when a stored node does not match its
+hash or is malformed, :TOO-WIDE past *SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES*.
+
+Only this client's own :STORAGE subtree proofs stop the descent.  Marker
+absence is not trusted here: an unmarked node is descended like a marked one,
+so the result never rests on the negative-marker bookkeeping it replaces.
+Inline children are shorter than a hash and so name no further node."
+  (let ((seen (make-hash-table :test #'equalp))
+        (visited '())
+        (count 0)
+        (stack (list (hash32-bytes storage-root))))
+    (flet ((refuse (reason)
+             (return-from snap-sync-storage-root-closure-walk
+               (values nil reason))))
+      (loop while stack
+            do (let ((hash (pop stack)))
+                 (unless (or (nth-value 1 (gethash hash seen))
+                             (snap-sync-healed-subtree-present-p
+                              database hash :storage))
+                   (setf (gethash hash seen) t)
+                   (when (> (incf count)
+                            *snap-sync-storage-root-closure-max-nodes*)
+                     (refuse :too-wide))
+                   (multiple-value-bind (encoded present-p)
+                       (trie-node-store-get database hash)
+                     (unless present-p
+                       (refuse :missing-node))
+                     (unless (bytes= hash (keccak-256 encoded))
+                       (refuse :invalid-node))
+                     (push hash visited)
+                     (let ((items
+                             (handler-case
+                                 (rlp-list-items
+                                  (rlp-decode-one encoded :max-list-items 17))
+                               (error () (refuse :invalid-node)))))
+                       (flet ((reference (item)
+                                (cond
+                                  ((and (byte-vector-p item)
+                                        (= 32 (length item)))
+                                   (push (copy-seq item) stack))
+                                  ((and (byte-vector-p item)
+                                        (zerop (length item))))
+                                  ((rlp-list-p item))
+                                  (t (refuse :invalid-node)))))
+                         (case (length items)
+                           (17 (loop for index below 16
+                                     do (reference (nth index items))))
+                           (2
+                            (let ((path (first items)))
+                              (unless (and (byte-vector-p path)
+                                           (plusp (length path)))
+                                (refuse :invalid-node))
+                              (if (logbitp 5 (aref path 0))
+                                  ;; The uint256 ceiling every storage ingestion
+                                  ;; path enforces; see the account/storage
+                                  ;; disjointness argument at the healer's skip.
+                                  (handler-case
+                                      (snap-sync-storage-trie-value
+                                       (second items))
+                                    (error () (refuse :invalid-node)))
+                                  (reference (second items)))))
+                           (otherwise (refuse :invalid-node))))))))))
+    (values (nreverse visited) :closed)))
+
+(defun snap-sync-publish-storage-root-closure
+    (database state-root account-hash storage-root &key write-lock)
+  "Publish STORAGE-ROOT's whole-root closure proof once its ranges are all in.
+
+This is geth's rule for a chunked contract, which clears needHeal only when
+every storage subtask is done and the reassembled root both matches and is
+present (eth/protocols/snap/sync.go:2272-2282 at 38271784).  Here:
+
+  - the cursor set is keyed by STORAGE-ROOT and every page of it was verified
+    against that root, so there is no second root to mix in; its sixteen
+    cursors must all be completed and must tile the whole keyspace;
+  - the local trie is then walked from STORAGE-ROOT down to this client's own
+    :STORAGE subtree proofs, requiring every node reached to be present and to
+    match its hash.  Content addressing makes that walk the proof: a node that
+    arrived under another root, or through another trie, is used only if its
+    hash is the one this root names.
+
+On success one buffered batch deletes the incomplete markers of the walked
+nodes -- each is now proved closed, which is all a marker's absence may mean
+-- and publishes the :STORAGE-ROOT proof the healer and the closed account
+writer both consume.  Any failure publishes nothing and deletes nothing, so the
+markers stay and the healer walks the trie as before.
+
+Only a store under the current closure contract takes this path; a legacy
+store keeps its behaviour.  Return :CLOSED, :ALREADY-CLOSED, :LEGACY-STORE,
+:NO-CURSOR-SET, :CURSORS-OPEN, or a reason from the walk."
+  (cond
+    ((not (snap-sync-closed-account-writes-p database)) :legacy-store)
+    ((hash32= storage-root +empty-trie-hash+) :already-closed)
+    ((snap-sync-healed-subtree-present-p
+      database (hash32-bytes storage-root) :storage-root)
+     :already-closed)
+    (t
+     (let ((identifiers
+             (coerce
+              (loop for index below +snap-sync-storage-task-count+
+                    collect (snap-sync-storage-task-identifier
+                             state-root account-hash storage-root index))
+              'vector)))
+       (multiple-value-bind (records present)
+           (kv-get-chain-records database :metadata identifiers)
+         (cond
+           ((/= +snap-sync-storage-task-count+ (count 1 present))
+            :no-cursor-set)
+           ((not (snap-sync-storage-task-set-covers-keyspace-p
+                  (loop for record across records
+                        collect (snap-sync-storage-task-from-record record))))
+            :cursors-open)
+           (t
+            (multiple-value-bind (visited reason)
+                (snap-sync-storage-root-closure-walk database storage-root)
+              (if (not (eq reason :closed))
+                  reason
+                  (let ((batch (make-kv-write-batch)))
+                    (multiple-value-bind (values marked)
+                        (kv-get-chain-records
+                         database :metadata
+                         (map 'vector #'snap-sync-incomplete-node-identifier
+                              visited))
+                      (declare (ignore values))
+                      (loop for hash in visited
+                            for index from 0
+                            when (= 1 (aref marked index))
+                              do (snap-sync-delete-incomplete-node-batch
+                                  batch hash)))
+                    (snap-sync-populate-healed-subtree-batch
+                     batch (hash32-bytes storage-root) :storage-root)
+                    #+sbcl
+                    (if write-lock
+                        (sb-thread:with-mutex (write-lock)
+                          (kv-apply-batch-buffered database batch))
+                        (kv-apply-batch-buffered database batch))
+                    #-sbcl
+                    (kv-apply-batch-buffered database batch)
+                    :closed))))))))))
+
 #+sbcl
-(defun snap-sync-fill-storage-root
+(defun %snap-sync-fill-storage-root-ranges
     (database sources state-root account-hash storage-root byte-limit
      &key source-provider on-source-error heal-yield-p)
   "Fill one large storage trie through a restart-safe continuous worker pool.
@@ -5941,7 +6118,7 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
           (sb-thread:join-thread thread))))))
 
 #-sbcl
-(defun snap-sync-fill-storage-root
+(defun %snap-sync-fill-storage-root-ranges
     (database sources state-root account-hash storage-root byte-limit
      &key source-provider on-source-error heal-yield-p)
   "Portable serial fallback for restart-safe large storage ranges."
@@ -5990,6 +6167,23 @@ caller safely falls back to TrieNodes healing with authenticated pages retained.
               (funcall on-source-error source condition))))
         (when (and progress-p heal-yield-p (funcall heal-yield-p))
           (error 'snap-sync-heal-yielded))))))
+
+(defun snap-sync-fill-storage-root
+    (database sources state-root account-hash storage-root byte-limit
+     &rest keys &key source-provider on-source-error heal-yield-p)
+  "Fill one large storage trie's ranges, then publish its closure if provable.
+
+Return true when every range cursor completed, as before; the closure proof is
+an addition that a refusal never turns into a failure."
+  (declare (ignore source-provider on-source-error heal-yield-p))
+  (let ((completed-p
+          (apply #'%snap-sync-fill-storage-root-ranges
+                 database sources state-root account-hash storage-root
+                 byte-limit keys)))
+    (when completed-p
+      (snap-sync-publish-storage-root-closure
+       database state-root account-hash storage-root))
+    completed-p))
 
 (defun snap-sync-complete-deferred-storage-roots
     (database sources state-root commitments byte-limit &key source-provider)
@@ -8403,6 +8597,12 @@ for RocksDB compaction or a preceding batch write."
         (snap-sync-multi-notify runtime)))
     (when (typep terminal 'condition)
       (error terminal))
+    ;; Before the owning account page resumes, so the closed account writer
+    ;; reads this root's proof when it judges the account leaf.
+    (when (eq terminal :completed)
+      (snap-sync-publish-storage-root-closure
+       database state-root account-hash storage-root
+       :write-lock (snap-sync-multi-runtime-database-write-lock runtime)))
     (eq terminal :completed)))
 
 #+sbcl
