@@ -2667,8 +2667,20 @@ flushes this earlier WAL prefix before the cursor becomes durable.  A crash
 before that seam can expose no cursor and merely causes the page to be fetched
 again."
   (declare (ignorable write-lock))
-  (let ((batch (make-kv-write-batch))
-        (closed-writes-p (snap-sync-page-result-closed-writes-p result)))
+  (let* ((batch (make-kv-write-batch))
+         (closed-writes-p (snap-sync-page-result-closed-writes-p result))
+         ;; A closed-subtree page that closes nothing -- every node straddles
+         ;; its bounds or sits above an open account -- has nothing to write,
+         ;; and an empty buffered batch is a WAL append that carries no data.
+         (content-p
+           (or (snap-sync-page-result-account-records result)
+               (snap-sync-page-result-complete-node-hashes result)
+               (snap-sync-page-result-codes result)
+               (snap-sync-page-result-deferred-storage result)
+               (snap-sync-page-result-healed-subtrees result)
+               (and (not closed-writes-p)
+                    (or (snap-sync-page-result-incomplete-node-hashes result)
+                        (snap-sync-page-result-dependency-subtrees result))))))
     (snap-sync-populate-verified-trie-records-batch
      database batch (snap-sync-page-result-account-records result))
     ;; Range pages overlap at proof boundaries.  A later authenticated page can
@@ -2693,13 +2705,14 @@ again."
       (dolist (entry (snap-sync-page-result-dependency-subtrees result))
         (snap-sync-populate-account-subtree-dependencies-batch
          batch (car entry) (cdr entry))))
-    #+sbcl
-    (if write-lock
-        (sb-thread:with-mutex (write-lock)
+    (when content-p
+      #+sbcl
+      (if write-lock
+          (sb-thread:with-mutex (write-lock)
+            (kv-apply-batch-buffered database batch))
           (kv-apply-batch-buffered database batch))
-        (kv-apply-batch-buffered database batch))
-    #-sbcl
-    (kv-apply-batch-buffered database batch)
+      #-sbcl
+      (kv-apply-batch-buffered database batch))
     ;; The coordinator now needs only ordering metadata. Do not retain a large
     ;; page's reconstructed nodes and code while it waits behind other cursors.
     (setf (snap-sync-page-result-account-records result) '()
