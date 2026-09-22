@@ -1,5 +1,20 @@
 Section 5: the per-node cost of a purely local heal walk
 
+Status
+
+Finding 1 is VERIFIED by measurement and fixed, and the coordinator's own
+per-node cost behind it is cut. Measured in an arm64 warm image on a local
+RocksDB store, not on the Hoodi host. Which nodes are walked, the
+skip/descend decision, the closure epoch and the completion predicate are
+unchanged; every before/after pair below walks the same nodes. No live run.
+
+Revision
+
+Branch heal-walk-throughput, on a324d868.
+  e8a3b597  docs(sec5): map the healer per-node path and the width-1 read batch
+  67039a6e  snap: keep the local heal read wide above the live frontier bound
+  7e9d8cab  snap: cut the heal walk's per-node encoding and hashing cost
+
 Scope
 
 This file is about the CONSTANT FACTOR of the healer's local walk, not about
@@ -59,57 +74,220 @@ All line numbers are src/networking/snap-sync/client.lisp at a324d868.
 So a batch of width W costs three metadata/trie MultiGets plus W decodes; a
 batch of width 1 costs the same three MultiGets for one node.
 
-Finding 1 (unverified by measurement at the time of writing): the local read
-batch collapses to width 1 once the frontier passes 131,072 works
+Finding 1: the local read batch collapsed to width 1 once the frontier passed
+131,072 works (VERIFIED)
 
-SNAP-SYNC-HEAL-LOCAL-READ-LIMIT (3348) computes
+SNAP-SYNC-HEAL-LOCAL-READ-LIMIT (3348 at a324d868) computed
 
   frontier-limit  = +snap-sync-heal-live-frontier-max-works+ = 131,072
-                    (4,096 only while the frontier is below the checkpoint
-                     soft target)
+                    (8,192 only while the frontier is at or below the
+                     4,096-work checkpoint soft target)
   expansion-room  = floor(max(0, frontier-limit - stack-count) / 63)
   read-limit      = min(4096, missing-room, checkpoint-room, max(1, expansion-room))
 
 With the live frontier at 909,342 the subtraction saturates at 0, so
 expansion-room is 0 and read-limit is exactly 1. Every node then becomes its
 own read batch: its own healed-subtree presence MultiGet, its own
-account-subtree dependency MultiGet, its own trie-node/marker MultiGet, its own
-dispatch through the eight-thread bounded read pool, and its own per-batch
-vector/`coerce` allocation. The 4,096-wide batching that
-+SNAP-SYNC-HEAL-LOCAL-READS-PER-BATCH+ advertises is unreachable for the whole
-of the live run.
+account-subtree dependency MultiGet, its own trie-node/marker MultiGet. (The
+reading above said each also paid a dispatch through the eight-thread read
+pool. It does not: a one-reference batch is below
++SNAP-SYNC-HEAL-PARALLEL-READ-MINIMUM+ and takes the serial path, so the three
+MultiGets run on the coordinator thread.)
 
-The bound it is trying to enforce -- "one batch must not push the frontier past
+The bound it enforces -- "one batch must not push the frontier past
 frontier-limit" -- is already violated at that point and returning 1 does not
-restore it, because a single work can still expand the frontier by up to 63.
-Below the limit the bound is meaningful; above it, it costs throughput and buys
-nothing.
+restore it. What fills the frontier is blocked post-order sentinels: while any
+missing work is pending in the pass, every :NODE-COMPLETE and :COMPLETE
+sentinel the walk reaches is moved to BLOCKED-COMPLETIONS and still counted, so
+the frontier grows by about one work per marked node visited, whatever the
+batch width. That is also why the Hoodi frontier (909,342) is so close to
+knownIncompleteNodes (796,382).
 
-The same threshold appears a second time in COLLECT-MISSING's outer loop guard
-(6611): under BOUNDED-REFILL-P the guard
+The bounded pipeline refill (COLLECT-MISSING with BOUNDED-REFILL-P) has its own
+loop guard on the same bound and does no local work above it. That is by
+design -- a saturated generation must return to the event loop -- and it is
+left exactly as it was.
 
-  (<= (+ stack-count missing-count deferred-storage-count remote-work-count 63)
-      +snap-sync-heal-live-frontier-max-works+)
+Fixtures
 
-is false for a 909,342-work frontier, so the live pipeline's refill path
-performs no local work at all and all progress comes from the unbounded path.
+A. Realistic. 150,000 accounts at Keccak keys, plus two accounts at keys
+   00..00 and FF..FF whose leaves are withheld from the store, so the walk
+   finds missing work at whichever end of the root it pops first. 208,318
+   stored trie nodes, all written through
+   SNAP-SYNC-POPULATE-VERIFIED-TRIE-RECORDS-BATCH, every one marked incomplete
+   (the Hoodi mode: knownIncompleteNodes / processedNodes = 0.99), in a real
+   RocksDB store on the container tmpfs, complete-node scheme enabled. The
+   walk runs through the shipped SNAP-SYNC-HEAL-STATE until it asks the one
+   source for the two missing leaves; the source then fails and the run ends.
+   Counts come from wrapping KV-GET-MANY and
+   SNAP-SYNC-HEAL-LOCAL-NODE-AND-INCOMPLETE-BATCH, nodes/s from the healer's
+   own progress snapshots every 2,048 processed nodes. The scratch harness is
+   not in git.
 
-This is stated here as a reading of the code. It is NOT yet confirmed by a
-measurement; the benchmark below is what would confirm it.
+B. Regression. SNAP-HEAL-WALK-SHARED-SUBTREE-TRIE: a real trie whose three
+   depth-one children share one 16-ary subtree, so six stored nodes are walked
+   209,716 times; two depth-one leaves are never stored. It is the fixture of
+   SNAP-HEAL-LOCAL-WALK-KEEPS-WIDE-READS-ABOVE-THE-LIVE-FRONTIER-BOUND.
 
-Benchmark shape (planned)
+Measurements, fixture A (walk only; the store is built before timing)
 
-A local-only walk over a synthetic account trie fully present in a real on-disk
-RocksDB store, seeded from the root with every node marked incomplete, i.e. the
-mode the live run is in (knownIncompleteNodes / processedNodes = 0.99). The
-measurement of record is operation COUNTS per node -- metadata MultiGets,
-trie-node MultiGets, decodes, batch applies -- not wall clock, so it cannot
-drift on a shared machine. Wall clock is recorded alongside as an observation
-only, and arm64 container numbers are not the amd64 host's.
+The measurement of record is the operation counts. They were identical in
+every repetition. Wall clock is an observation on a shared arm64 Docker VM;
+the first run after an image start is 5-10x slower and is excluded.
+
+                                   parent        width fix     + per-node fix
+                                   (a324d868)    (67039a6e)    (7e9d8cab)
+  processed nodes (last snapshot)  206,848       206,848       206,848
+  peak frontier works              265,774       265,905       265,905
+  local read batches               108,495       1,072         1,072
+    above 131,072 works            105,918       832           832
+    mean width above the bound     1.00          129.67        129.67
+    below the bound                2,577         240           240
+    mean width below the bound     39.7          418.5         418.5
+  RocksDB MultiGets                329,043       25,605        25,605
+  walk seconds (3-5 runs)          3.5 - 4.5     2.4 - 2.75    1.43 - 1.93
+  nodes/s below the bound          58k - 89k     88k - 101k    126k - 183k
+  nodes/s above the bound          40k - 45k     65k - 76k     86k - 124k
+
+So Finding 1 holds: every batch above the live bound was exactly one work, and
+the walk above the bound ran at about half the rate of the walk below it. The
+width fix removes 92% of MultiGets and 99% of batches; the frontier peak moves
+by 131 works. Above the bound the rate is now 2.0-2.8x the parent's.
+
+Fixture B, the regression test's own two arms (one run each):
+
+                                   control (floor 1)   subject
+  processed / reused nodes         208,896 / 208,896   208,896 / 208,896
+  skipped subtrees                 0                   0
+  requested paths                  0x10, 0x1f          0x10, 0x1f
+  peak frontier works              221,140             221,894
+  batches / works above the bound  86,016 / 86,016     678 / 88,104
+  walk seconds                     8.9                 3.5
+
+Profile
+
+sb-sprof in :CPU mode on the coordinator thread only, fixture A, parent code.
+This SBCL (2.2.9, arm64) produced flat self counts but an empty caller graph,
+so the call sites below are attributed by reading the code and confirmed by
+the ablations that follow, not by the profiler. Share of coordinator samples:
+
+  1. Generic sequence construction, 21.8%: REPLACE 14.8, simple-vector
+     DATA-VECTOR-SET/REF 5.7, %CONCATENATE-TO-SIMPLE-VECTOR 1.3. Sources:
+     (CONCATENATE 'VECTOR PATH (VECTOR INDEX)) for all sixteen branch
+     children, empty ones included; HEX-PREFIX-DECODE plus
+     (CONCATENATE 'VECTOR PATH SEGMENT) for every leaf; the incomplete-marker,
+     healed-subtree and dependency identifiers built as simple-vectors; and
+     KV-CHAIN-RECORD-KEY converting each back to octets through CONCAT-BYTES.
+  2. RocksDB memtable lookups on the coordinator, ~17%: skip-list search 5.9,
+     memcmp 5.9, key comparator 4.1, MultiGet entry 1.0. These are the three
+     serial one-key MultiGets per node that width one forced.
+  3. EQUALP hashing of 32-byte node hashes, 7.4%: PSXHASH's element-wise
+     vector hash 3.6, NUMBER-SXHASH 1.6, GETHASH/EQUALP 1.1, the rest of
+     PSXHASH 1.1. About five lookups per node across INCOMPLETE-NODES,
+     PENDING-COMPLETE-NODES and FETCHED-NODE-CACHE.
+  Keccak (3.4%) and RLP decoding (~2%) are inherent to the walk.
+
+Micro-measurements in the same image on the parent code, ns per call:
+incomplete-marker record key 1,590; healed-subtree identifier 370; one-key
+KV-CHAIN-RECORD-KEY 365; Keccak of a 532-byte branch 3,565; RLP decode of that
+branch 1,515; EQUALP GETHASH in a 200,000-entry table 440; one sixteen-way
+path concatenate 70.
+
+After both changes the same profile has no REPLACE or PSXHASH entry above
+1.7%, and coordinator samples for the same walk fall from about 2,830 to 581.
+The top coordinator cost is now the futex wake of the eight-thread read pool,
+18.2%.
+
+The fixes
+
+1. Width (67039a6e). In the live region the read width never falls below
+   +SNAP-SYNC-HEAL-LIVE-OVERFLOW-READ-WIDTH+ = floor(8,192 / 63) = 130, so one
+   batch overshoots the live bound by at most one durable checkpoint's worth of
+   works (8,190). The checkpoint region keeps its exact rule, and the bounded
+   pipeline refill passes a width of one, so its behaviour is unchanged. The
+   frontier-max-works bound itself is not raised.
+2. Per-node CPU (7e9d8cab). Paths and identifiers are built once, directly as
+   octet vectors; empty branch children build no path; short nodes decode
+   their hex-prefix path straight into the extended path; the three per-node
+   node-hash tables keep an EQUALP test with a hash over the first seven
+   octets of the Keccak hash.
+3. Observability. The heal progress snapshot and peer.snap.heal_progress now
+   carry localReadBatches and localReadWorks, whose ratio is the mean local
+   read width, so the next live run can confirm the width directly.
+
+RED controls
+
+  SNAP-HEAL-LOCAL-WALK-KEEPS-WIDE-READS-ABOVE-THE-LIVE-FRONTIER-BOUND forces
+  the previous floor of one through the shipped limiter in its control arm:
+  86,016 batches of exactly one work above the bound, against 678 batches
+  averaging 130 in the subject arm, with identical processed, reused and
+  skipped counts and identical requested paths. Its width assertion is the one
+  the control arm fails.
+
+  SNAP-HEAL-LOCAL-READ-WIDTH-SURVIVES-A-FRONTIER-ABOVE-THE-LIVE-BOUND asserts
+  130 at the Hoodi frontier of 909,342; the parent's formula returns 1 there
+  (max(1, 0)).
+
+  SNAP-HEAL-WALK-PER-NODE-ENCODERS-MATCH-THEIR-GENERIC-FORMS compares each new
+  helper with the generic form it replaces over all 256 hex-prefix flag bytes
+  x 33 tail lengths, every identifier namespace and every identifier shape
+  the record key accepts. Its control: a compact path with the odd flag
+  cleared decodes differently, and the comparison sees it.
+
+A second finding, not changed here: the read pool on small batches
+
+When no missing work is pending, post-order sentinels are not blocked, every
+marked node's sentinel splits the batch, and the mean width is 3.6. Fixture A
+without the two withheld leaves (208,320 nodes, completes the heal):
+
+  local read workers 8 (production)   21.1 s on the parent; 21.2 - 23.7 s
+                                      after both changes, one outlier 80 s;
+                                      535,342 MultiGets, 58,319 batches in all
+  local read workers 1 (both changes) 3.5 s, 174,409 MultiGets
+
+Handing a two-to-five reference batch to the pool costs ~90-150 us per job on
+this VM (micro: node+marker read of two references pooled 87.7 us, serial
+6.6 us; sixteen references pooled 172 us, serial 48 us; 128 references pooled
+220 us, serial 371 us). In the blocked mode the pool still pays: fixture A
+with one worker takes 2.3 s against 1.5-1.9 s with eight. On a disk-backed
+store a cold point read costs far more than a memtable hit, and the pool
+exists for that case, so +SNAP-SYNC-HEAL-PARALLEL-READ-MINIMUM+ is left alone
+until the Hoodi host can A/B *SNAP-SYNC-HEAL-LOCAL-READ-WORKERS*.
+
+Verification of record
+
+On b41bcf82 (the code revision; this file is the only later change):
+
+cl-workbench validation run cold-unit
+  1422 tests passed, 3 skipped.   Exit 0.
+cl-workbench validation run cold-integration
+  582 tests passed, 9 skipped.    Exit 0.
+cl-workbench validation run cold-e2e
+  36 + 32 tests passed.           Exit 0.
+No STYLE-WARNING or caught compiler diagnostic in any of the three logs.
+
+The two new unit tests and the new integration test appear by name as "ok",
+as does DEVNET-SNAP-PIVOT-LOGS-EACH-DURABLE-STATE-PAGE with its new
+localReadBatches/localReadWorks assertions. The parent was not re-run here;
+its tests are identical to 29781c15, whose record reports 581 integration
+tests, so integration moves by exactly the one test added. The unit count
+implies 1,420 on the parent, not the 1,418 that record reports; the two
+unit tests 6e5c7a73 added would account for that, but it is an inference,
+not a measurement. No PAX transcript names the changed functions, so
+cold-docs was not run.
 
 Not verified
 
-- No measurement has been taken yet; every number above except the live sample
-  is a reading of the source.
-- The live sample is an amd64 host. Any local benchmark runs in an arm64
-  container and its absolute times do not transfer.
+- No live run. The Hoodi rate of 260 nodes/s is ~4.3 ms of CPU per node; the
+  worst width-one rate measured here is ~22 us per node on a memtable-resident
+  store. Most of the Hoodi per-node cost is therefore somewhere this fixture
+  does not reach -- most likely cold RocksDB block reads (read, checksum,
+  decompress) on a large store -- and the size of the live gain is not
+  predicted by these numbers. The new localReadBatches/localReadWorks fields
+  are how the next run shows whether the width actually changed.
+- arm64 container timings do not transfer to the amd64 host; only the counts
+  do.
+- The fixtures hold no code or storage, so the account-leaf dependency paths
+  (QUEUE-CODE-HASH, DEFER-STORAGE-REFERENCE, deferred-storage drains) are not
+  in these measurements.
+- The small-batch read-pool cost above is measured only on this shared VM.
