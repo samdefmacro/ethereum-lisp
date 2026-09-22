@@ -1,0 +1,85 @@
+Section 5 Hoodi run at 75b0b7a7: the healer under closure epoch seven, observed
+
+Status
+
+Observation record. Not completion. The run started at 2026-09-22T19:44:52Z
+(sec5-75b0b7a7-hoodi-start.txt) and was replaced by the next revision the
+same night; this file records what the first epoch-seven healer did on the
+live chain, because the two changes that followed (the read width and the
+stale storage markers) were derived from it.
+
+Range phase
+
+The range download ran from 19:44Z to about 21:20Z with one pivot rebase and
+no failure-class event. Every page_profile event logged incompleteNodes=0:
+the closed account writer marks nothing, as designed. Datadir at heal entry:
+56.9 GB. 16,841 storage_profile events.
+
+Healer, first generation (raw peer.snap.heal_progress events, pivot 3676404)
+
+  time     processed  reused    fetched  skipped    frontier  knownIncompl  batches   works    rate  drain
+  ~21:20        0          0         1          0          1           1         1        1
+  ~21:21   32,133     27,592    22,003    308,814    127,835      32,211     3,458   77,860   1071  -4261
+  21:47   354,304    808,577    28,665  2,150,020    451,583     360,273   237,894  859,904    228   -227
+  21:52   360,448    821,612    28,665  2,206,327    457,734     366,417   250,929  872,939    215   -214
+  21:57   366,592    835,878    28,665  2,255,176    463,829     372,561   265,195  887,205    215   -214
+  22:02   567,296          -    28,665  3,531,689    651,249     567,241         -        -    239   -219
+
+Three things this shows.
+
+1. The account skip works. 28,665 fetched nodes are the withheld spine, the
+   page-boundary paths and the accounts the rebase changed; 2.2 million
+   present subtrees were skipped in the first 27 minutes, 3.5 million by
+   22:02. On 3305307d the same phase walked the account trie node by node.
+
+2. Every processed node is a marked node. knownIncompleteNodes tracks
+   processedNodes one for one and the fetched count is flat, so the walk is
+   over ~340,000 PRESENT nodes that carry snap-incomplete-trie-node-v1:
+   markers the healer never wrote. The account pages wrote none. The
+   partition pages of chunked storage tries did: a partition page proves
+   subtrees only at depth four or deeper, so the top of every chunked
+   storage trie and most of a mid-sized one stays marked and nothing on the
+   range path ever clears it (sec5-marker-population.txt, measured: 4,265
+   surviving markers per 2,500-slot contract on a fresh epoch-seven store,
+   all on complete content).
+
+3. The local read width fell to exactly one. At 21:21 the width was 22
+   (77,860 works over 3,458 batches). From 21:47 on, localReadBatches and
+   localReadWorks advance by the same number every window (27,301 in the
+   five minutes to 21:57). The read-limiter floor from d5f523a6 is in the
+   image and did not apply: the binding term is the checkpoint room,
+   max(1, 262144 - (processed - lastCheckpointProcessed)), and a heal
+   checkpoint is written only when the frontier is at or below 8,192 works.
+   This frontier (127k at the first sample, 651k at 22:02, mostly blocked
+   post-order sentinels) never gets there, so after 262,144 processed nodes
+   every batch was one work for the rest of the walk
+   (sec5-heal-sentinel-width.txt reproduces the cliff at exactly 262,144).
+
+Pivot rebases during healing
+
+At 22:1xZ and again at 22:3xZ a rebase re-seeded the healer from the new
+root (counters reset; 414 and 339 fetched). Each generation re-walks the
+same marked population, because the markers are deleted only by the walk's
+post-order completion, which never arrives before the next rebase. At 215
+nodes/s a 340,000-node marked walk takes about 26 minutes, the same order
+as the pivot lifetime, and the frontier's blocked sentinels make it longer.
+That is the convergence condition this run fails: the marked walk must
+finish inside one pivot lifetime.
+
+Last sample before replacement, 22:55Z, third generation: processed
+473,088, skipped 3,088,053, frontier 378,864, knownIncompleteNodes 282,036,
+fetched 339, rate 229/s, drain -208/s, completed=false, eth_blockNumber
+0x0, el-runtime-fault-count 0, container memory 7.4 GiB of 12, no OOM.
+
+What the next revision changes, from this
+
+- G: after all sixteen storage cursors of a partitioned trie complete under
+  one root with full coverage, the importer walks the trie (bounded at
+  1,048,576 nodes, fail-closed), publishes snap-healed-storage-root-v3: and
+  deletes the markers in one batch. Markers at heal entry drop to zero on
+  every fixture arm; the healer's marked walk drops from 4,273 nodes to 2.
+- F: the checkpoint room no longer binds the read width above a
+  checkpointable frontier (width stays 130 above 8,192), and a batch carries
+  post-order sentinels instead of closing at them (mean width 3.6 -> 82 on a
+  fully marked fixture). Post-order deletion is pinned by a test that fails
+  on a marker deleted above an unresolved child.
