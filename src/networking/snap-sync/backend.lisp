@@ -15,19 +15,27 @@ state-store work.")
 (defun snap-sync-response-byte-limit (requested)
   (min requested +snap-sync-soft-response-limit+))
 
-(defun snap-sync-root-trie (database state requested-root)
+(defun snap-sync-root-trie (state requested-root)
   "Return the requested live state trie, or NIL when this backend lacks ROOT.
 
 An unavailable state root is a normal snap/1 availability result, not a peer
 protocol fault.  Pinned geth responds with an empty AccountRange,
 StorageRanges, or TrieNodes packet so the requester can fail over without
-tearing down the shared eth+snap session."
+tearing down the shared eth+snap session.
+
+Serving is a read: the trie is returned as STATE holds it and nothing is
+written.  Geth's handlers open the requested root read-only and answer empty
+when it is absent (eth/protocols/snap/handlers.go at
+38271784c2b31926563806da9a2e023b88f5e7a8).  This server used to persist the
+ACCOUNT trie it was about to serve -- one batch of that trie's dirty nodes,
+without the storage tries or the code its leaves name, and it is live while we
+are ourselves syncing into the same store.  Under the account closure contract
+(docs/snap-account-closure.md, I1) such a record claims that everything below
+it and everything it names is durable, so that write could plant a present
+account node above absent dependencies."
   (when state
-    (let* ((root (state-db-root state))
-           (trie (state-db-state-trie state)))
-      (when (bytes= requested-root (hash32-bytes root))
-        (mpt-persist database trie)
-        trie))))
+    (when (bytes= requested-root (hash32-bytes (state-db-root state)))
+      (state-db-state-trie state))))
 
 (defun snap-sync-state-for-root (state state-provider requested-root)
   "Resolve REQUESTED-ROOT without pinning a long-lived peer to one head state.
@@ -106,9 +114,12 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
            code-hash)))))
 
 (defun snap-sync-account-response (database state request)
+  ;; DATABASE keeps the handlers' common signature.  An account range is
+  ;; answered from STATE's trie alone and nothing is written to DATABASE.
+  (declare (ignore database))
   (let* ((trie
            (snap-sync-root-trie
-            database state (snap-get-account-range-root request))))
+            state (snap-get-account-range-root request))))
     (unless trie
       (return-from snap-sync-account-response
         (make-snap-account-range
@@ -174,7 +185,8 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
          (let ((trie (snap-sync-storage-trie flat-entry)))
            (unless (hash32= root (make-hash32 (mpt-root-hash trie)))
              (error "snap storage trie does not match its account commitment"))
-           (mpt-persist database trie)
+           ;; Served from memory and never persisted: a storage node the
+           ;; server wrote would be a closure claim it has no business making.
            trie))
         ((hash32= root +empty-trie-hash+) (make-mpt))
         (t
@@ -183,7 +195,7 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
 (defun snap-sync-storage-response (database state request)
   (let* ((account-trie
            (snap-sync-root-trie
-            database state (snap-get-storage-ranges-root request))))
+            state (snap-get-storage-ranges-root request))))
     (unless account-trie
       (return-from snap-sync-storage-response
         (make-snap-storage-ranges
@@ -293,7 +305,7 @@ shared eth+snap session."
 (defun snap-sync-trie-node-response (database state request)
   (let* ((account-trie
            (snap-sync-root-trie
-            database state (snap-get-trie-nodes-root request))))
+            state (snap-get-trie-nodes-root request))))
     (unless account-trie
       (return-from snap-sync-trie-node-response
         (make-snap-trie-nodes (snap-get-trie-nodes-id request) '())))
@@ -340,7 +352,10 @@ shared eth+snap session."
 
 (defun make-persistent-snap-state-backend
     (database state &key state-provider)
-  "Serve snap/1 from retained states while persisting traversed trie nodes.
+  "Serve snap/1 from retained states without writing to DATABASE.
+
+DATABASE is read for code and for storage tries the state does not hold in
+memory; the server never persists what it serves (see SNAP-SYNC-ROOT-TRIE).
 
 STATE is the current-state fast path.  STATE-PROVIDER receives a requested
 32-byte state root when a peer asks for a different historical root.  This is

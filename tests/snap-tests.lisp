@@ -5040,8 +5040,14 @@
         ;; this bound retains allocator headroom while rejecting the old route.
         (is (< allocated 1300000))))))
 
-(deftest snap-backend-serves-and-persists-runtime-state
+(deftest snap-backend-serves-runtime-state-without-persisting-it
   (:layer :integration :module :p2p)
+  ;; This test used to require the served root to be persisted: the server
+  ;; wrote the account trie it served, alone, without the storage tries or
+  ;; code its leaves name.  Under the account closure contract that is a
+  ;; false-closed account node (SNAP-SERVER-SERVING-AN-INCOMPLETE-STATE-
+  ;; WRITES-NO-TRIE-NODE), so the server now reads and never writes, and the
+  ;; same requests are still answered from the in-memory state.
   (let* ((state (make-state-db))
          (database (make-memory-key-value-database))
          (address-a
@@ -5072,10 +5078,8 @@
           (is (plusp
                (length
                 (ethereum-lisp.snap:snap-account-range-proof response))))))
-      (multiple-value-bind (root-node present-p)
-          (ethereum-lisp.trie:trie-node-store-get database root)
-        (is present-p)
-        (is (plusp (length root-node))))
+      (is (not (nth-value 1 (ethereum-lisp.trie:trie-node-store-get
+                             database root))))
       (let ((trie-request
               (ethereum-lisp.snap:make-snap-get-trie-nodes
                ;; snap trie-node paths use compact hex-prefix encoding. #(0)
