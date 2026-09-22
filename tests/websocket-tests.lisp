@@ -520,3 +520,90 @@ therefore reads exactly one byte of any response and then times out."
       (when thread
         (ignore-errors (sb-thread:join-thread thread :timeout 5
                                                      :default :timeout))))))
+
+#+sbcl
+(deftest websocket-session-deregisters-its-socket-when-it-ends
+  (:layer :integration :module :devnet :requires-local-sockets t
+   :estimated-seconds 15d0)
+  ;; Each accepted socket is registered as a shutdown closeable so a stop can
+  ;; wake its session. Before this change nothing ever removed it, so the
+  ;; controller kept one closure per connection ever accepted for the life of
+  ;; the node. RED on the unchanged tree: the count never falls back, so the
+  ;; first wait for the baseline times out (at BASELINE + 1).
+  ;;
+  ;; The positive control is the first arm: while a connection is OPEN the
+  ;; count is BASELINE + 1, so the registration is observable and a return to
+  ;; the baseline cannot pass merely because nothing was ever registered.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0
+                :ws-enabled-p t :ws-host "127.0.0.1" :ws-port 0))
+         (controller (ethereum-lisp.cli::make-devnet-shutdown-controller))
+         (thread-error nil)
+         (thread nil))
+    (flet ((closeable-count ()
+             (length (ethereum-lisp.cli::devnet-shutdown-controller-closeables
+                      controller)))
+           (connect (port)
+             (let ((socket (make-instance 'sb-bsd-sockets:inet-socket
+                                          :type :stream :protocol :tcp)))
+               (handler-case
+                   (sb-bsd-sockets:socket-connect
+                    socket (sb-bsd-sockets:make-inet-address "127.0.0.1") port)
+                 (sb-bsd-sockets:operation-not-permitted-error ()
+                   (skip-test
+                    "Local socket connect is not permitted in this sandbox")))
+               socket)))
+      (unwind-protect
+           (multiple-value-bind (server-thread sessions)
+               (ethereum-lisp.cli:devnet-start-ws-server-thread
+                node controller (lambda (c) (setf thread-error c)))
+             (setf thread server-thread)
+             (let ((port (ethereum-lisp.cli:devnet-node-ws-port node))
+                   (baseline (closeable-count)))
+               ;; Arm 1: registration is visible while the session lives.
+               (let ((socket (connect port)))
+                 (unwind-protect
+                      (wait-for-test-condition
+                       "the open connection's closeable" 10
+                       (lambda () (= (1+ baseline) (closeable-count)))
+                       :diagnostics
+                       (lambda () (format nil "count=~D" (closeable-count))))
+                   (sb-bsd-sockets:socket-close socket)))
+               ;; The client hung up before sending a request, so the session
+               ;; must see end of file and end. The bound is half the 10 s
+               ;; handshake timeout: before the handshake-read fix the session
+               ;; spun on the EOF fd until the node shut down, and a bound at
+               ;; or above that timeout could not tell a fix from a timeout.
+               (wait-for-test-condition
+                "the first session to deregister" 5
+                (lambda () (= baseline (closeable-count))))
+               ;; Arm 2: three connections held open together, then closed.
+               ;; Waiting for BASELINE + 3 first proves all three were accepted
+               ;; and registered, so the return below is not a race won by
+               ;; sessions that had not started yet.
+               (let ((sockets (loop repeat 3 collect (connect port))))
+                 (unwind-protect
+                      (wait-for-test-condition
+                       "three open connections' closeables" 10
+                       (lambda () (= (+ baseline 3) (closeable-count)))
+                       :diagnostics
+                       (lambda () (format nil "count=~D" (closeable-count))))
+                   (dolist (socket sockets)
+                     (sb-bsd-sockets:socket-close socket))))
+               (wait-for-test-condition
+                "the closeables to return to the baseline" 10
+                (lambda () (= baseline (closeable-count)))
+                :diagnostics
+                (lambda () (format nil "baseline=~D count=~D"
+                                   baseline (closeable-count))))
+               (wait-for-test-condition
+                "every session thread to end" 10
+                (lambda ()
+                  (notany #'sb-thread:thread-alive-p (funcall sessions))))
+               (is (= baseline (closeable-count)))
+               (is (null thread-error))))
+        (ethereum-lisp.cli:devnet-shutdown-request controller)
+        (when thread
+          (ignore-errors (sb-thread:join-thread thread :timeout 10
+                                                       :default :timeout)))))))
