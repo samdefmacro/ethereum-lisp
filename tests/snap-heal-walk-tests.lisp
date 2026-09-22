@@ -295,3 +295,113 @@ references it requested."
         (is (<= (getf subject :max-frontier)
                 (+ (getf control :max-frontier)
                    ethereum-lisp.snap-sync::+snap-sync-heal-checkpoint-max-works+)))))))
+
+(defun snap-heal-walk-reference-short-node-path (path compact)
+  "The short-node path exactly as the healer derived it before it was inlined."
+  (multiple-value-bind (segment leaf-p)
+      (ethereum-lisp.trie.encoding:hex-prefix-decode compact)
+    (let ((segment
+            (if (and leaf-p
+                     (ethereum-lisp.trie.encoding:has-terminator-p segment))
+                (subseq segment 0 (1- (length segment)))
+                segment)))
+      (values (concatenate 'vector path segment) leaf-p))))
+
+(deftest snap-heal-walk-per-node-encoders-match-their-generic-forms
+  (:layer :unit :module :p2p)
+  ;; The per-node helpers replace generic sequence code with typed octet
+  ;; copies. Each must produce exactly what the generic form produced, now as
+  ;; an octet vector, for every input the walk can present.
+  (let ((state (sb-ext:seed-random-state 20260923))
+        (checked 0))
+    (flet ((random-bytes (count)
+             (let ((bytes (make-byte-vector count)))
+               (dotimes (index count bytes)
+                 (setf (aref bytes index) (random 256 state)))))
+           (random-path (count)
+             (let ((path (make-byte-vector count)))
+               (dotimes (index count path)
+                 (setf (aref path index) (random 16 state))))))
+      ;; Every hex-prefix flag byte, including the flags a malformed peer node
+      ;; can carry, against every tail length a 32-byte key allows.
+      (dotimes (first-byte 256)
+        (loop for tail-length from 0 to 32
+              for compact = (concatenate 'byte-vector
+                                         (vector first-byte)
+                                         (random-bytes tail-length))
+              for path = (random-path (random 8 state))
+              do (multiple-value-bind (expected expected-leaf-p)
+                     (snap-heal-walk-reference-short-node-path path compact)
+                   (multiple-value-bind (actual actual-leaf-p)
+                       (ethereum-lisp.snap-sync::snap-sync-heal-short-node-path
+                        path compact)
+                     (is (typep actual 'byte-vector))
+                     (is (equalp expected actual))
+                     (is (eq expected-leaf-p actual-leaf-p))
+                     (incf checked)))))
+      (is (= (* 256 33) checked))
+      ;; RED arm: the comparison can fail. Flipping the odd-length flag bit
+      ;; changes the decoded nibbles.
+      (let ((compact (make-array 3 :element-type '(unsigned-byte 8)
+                                   :initial-contents '(#x3a #xbc #xde))))
+        (is (not (equalp
+                  (snap-heal-walk-reference-short-node-path #() compact)
+                  (ethereum-lisp.snap-sync::snap-sync-heal-short-node-path
+                   #() (make-array 3 :element-type '(unsigned-byte 8)
+                                     :initial-contents '(#x2a #xbc #xde)))))))
+      (dotimes (index 16)
+        (let* ((path (random-path (random 64 state)))
+               (child (ethereum-lisp.snap-sync::snap-sync-heal-child-path
+                       path index)))
+          (is (typep child 'byte-vector))
+          (is (equalp (concatenate 'vector path (vector index)) child))))
+      (let ((reference (random-bytes 32)))
+        (dolist (entry
+                 (list
+                  (cons ethereum-lisp.snap-sync::+snap-sync-incomplete-node-identifier-prefix+
+                        (ethereum-lisp.snap-sync::snap-sync-incomplete-node-identifier
+                         reference))
+                  (cons ethereum-lisp.snap-sync::+snap-sync-healed-subtree-identifier-prefix+
+                        (ethereum-lisp.snap-sync::snap-sync-healed-subtree-identifier
+                         reference :account))
+                  (cons ethereum-lisp.snap-sync::+snap-sync-healed-storage-subtree-identifier-prefix+
+                        (ethereum-lisp.snap-sync::snap-sync-healed-subtree-identifier
+                         reference :storage))
+                  (cons ethereum-lisp.snap-sync::+snap-sync-healed-storage-root-identifier-prefix+
+                        (ethereum-lisp.snap-sync::snap-sync-healed-subtree-identifier
+                         reference :storage-root))
+                  (cons ethereum-lisp.snap-sync::+snap-sync-account-subtree-dependencies-identifier-prefix+
+                        (ethereum-lisp.snap-sync::snap-sync-account-subtree-dependencies-identifier
+                         reference))))
+          (is (typep (cdr entry) 'byte-vector))
+          (is (equalp (concatenate 'vector (car entry) reference) (cdr entry))))
+        ;; The record key encoder is shared by every table; each identifier
+        ;; shape it accepts must encode exactly as the generic concatenation.
+        (dolist (identifier (list reference
+                                  (coerce reference 'simple-vector)
+                                  (make-byte-vector 0)
+                                  "snap-state-heal-checkpoint"
+                                  6202))
+          (dolist (kind '(:trie-node :metadata))
+            (is (equalp
+                 (concat-bytes
+                  (vector (ethereum-lisp.database::kv-chain-record-kind-prefix
+                           kind))
+                  (ethereum-lisp.database::kv-chain-record-identifier-bytes
+                   identifier))
+                 (ethereum-lisp.database::kv-chain-record-key
+                  kind identifier)))))
+        ;; Node-hash tables keep EQUALP semantics under the cheaper hash.
+        (let ((table
+                (ethereum-lisp.snap-sync::snap-sync-make-node-hash-table))
+              (hashes (loop repeat 512 collect (random-bytes 32))))
+          (dolist (hash hashes)
+            (setf (gethash hash table) (copy-seq hash)))
+          (is (= 512 (hash-table-count table)))
+          (dolist (hash hashes)
+            (is (equalp hash (gethash (copy-seq hash) table))))
+          (is (null (nth-value 1 (gethash (random-bytes 32) table))))
+          (is (= (ethereum-lisp.snap-sync::snap-sync-node-hash-key-hash
+                  reference)
+                 (ethereum-lisp.snap-sync::snap-sync-node-hash-key-hash
+                  (copy-seq reference)))))))))

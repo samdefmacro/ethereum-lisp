@@ -3217,6 +3217,79 @@ its bounded pivot tail will anchor the resumable import."
      :fetched-p (not (null fetched-p))
      :marker-state marker-state)))
 
+(defun snap-sync-node-hash-key-hash (key)
+  "Hash a trie-node reference for the healer's EQUALP node tables.
+
+Every key these tables hold is a 32-byte Keccak node hash, which is already
+uniformly distributed, so its first seven octets are a sufficient fixnum hash.
+SBCL's EQUALP hash walks all 32 elements generically and was a measurable
+share of the coordinator's per-node cost. The test stays EQUALP and two
+EQUALP octet vectors hash alike. A key that is not an octet vector falls back
+to the EQUALP hash, so it could miss an EQUALP octet key; every key the healer
+inserts is a reference already checked by SNAP-SYNC-HEAL-REFERENCE-P."
+  (if (and (byte-vector-p key) (>= (length key) 7))
+      (let ((hash 0))
+        (declare (type (unsigned-byte 56) hash) (type byte-vector key))
+        (dotimes (index 7 hash)
+          (setf hash (logior (ash hash 8) (aref key index)))))
+      #+sbcl (sb-int:psxhash key)
+      #-sbcl (sxhash key)))
+
+(defun snap-sync-node-hash-key= (left right)
+  (equalp left right))
+
+#+sbcl
+(sb-ext:define-hash-table-test
+    snap-sync-node-hash-key= snap-sync-node-hash-key-hash)
+
+(defun snap-sync-make-node-hash-table ()
+  "Return an EQUALP table for trie-node hash keys with a cheap hash."
+  #+sbcl (make-hash-table :test 'snap-sync-node-hash-key=)
+  #-sbcl (make-hash-table :test #'equalp))
+
+(defun snap-sync-heal-child-path (path index)
+  "Return PATH extended by the branch nibble INDEX as a fresh octet vector."
+  (let* ((path (ensure-byte-vector path))
+         (length (length path))
+         (child (make-byte-vector (1+ length))))
+    (declare (type byte-vector path child)
+             (type fixnum length))
+    (replace child path)
+    (setf (aref child length) index)
+    child))
+
+(defun snap-sync-heal-short-node-path (path compact)
+  "Return PATH extended by the hex-prefix path COMPACT, and whether it is a leaf.
+
+The nibbles are exactly those HEX-PREFIX-DECODE yields with any leaf terminator
+removed, decoded straight into one octet vector.  Going through the generic
+decoder built three intermediate simple-vectors per short node and handed a
+simple-vector path to every account leaf, which the key packer then converted
+back element by element.  COMPACT must be non-empty."
+  (let* ((path (ensure-byte-vector path))
+         (compact (ensure-byte-vector compact))
+         (flag (ash (aref compact 0) -4))
+         (odd-p (oddp flag))
+         (path-length (length path))
+         (result
+           (make-byte-vector
+            (+ path-length
+               (- (* 2 (length compact)) (if odd-p 1 2))))))
+    (declare (type byte-vector path compact result)
+             (type fixnum path-length))
+    (replace result path)
+    (let ((out path-length))
+      (declare (type fixnum out))
+      (when odd-p
+        (setf (aref result out) (logand (aref compact 0) #x0f))
+        (incf out))
+      (loop for index from 1 below (length compact)
+            for byte = (aref compact index)
+            do (setf (aref result out) (ash byte -4)
+                     (aref result (1+ out)) (logand byte #x0f))
+               (incf out 2)))
+    (values result (>= flag 2))))
+
 (defun snap-sync-copy-heal-work (work &key fetched-p)
   (snap-sync-make-heal-work
    (snap-sync-heal-work-kind work)
@@ -4575,11 +4648,26 @@ the returned encoded, presence, and decoded vectors retain input order."
   (snap-sync-heal-chain-record-batch
    database :trie-node references :decoder decoder))
 
+(defun snap-sync-prefixed-hash-identifier (prefix reference)
+  "Return PREFIX followed by the 32-byte REFERENCE as one fresh octet vector.
+
+The healer builds several of these per visited node.  A generic CONCATENATE
+into a simple-vector, later converted element by element into octets by the
+key encoder, was a measurable share of the per-node walk cost."
+  (let* ((prefix (ensure-byte-vector prefix))
+         (prefix-length (length prefix))
+         (identifier (make-byte-vector (+ prefix-length 32))))
+    (declare (type byte-vector prefix identifier reference)
+             (type fixnum prefix-length))
+    (replace identifier prefix)
+    (replace identifier reference :start1 prefix-length)
+    identifier))
+
 (defun snap-sync-incomplete-node-identifier (reference)
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
     (error "Snap incomplete-node identifier requires a 32-byte node hash"))
-  (concatenate
-   'vector +snap-sync-incomplete-node-identifier-prefix+ reference))
+  (snap-sync-prefixed-hash-identifier
+   +snap-sync-incomplete-node-identifier-prefix+ reference))
 
 (defun snap-sync-populate-incomplete-node-batch (batch reference)
   (kv-batch-put-chain-record
@@ -4813,8 +4901,7 @@ snapshot. The fourth return value reports durable marker presence."
     (reference &optional (kind :account))
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
     (error "Snap healed-subtree identifier requires a 32-byte node hash"))
-  (concatenate
-   'vector
+  (snap-sync-prefixed-hash-identifier
    (ecase kind
      (:account +snap-sync-healed-subtree-identifier-prefix+)
      (:storage +snap-sync-healed-storage-subtree-identifier-prefix+)
@@ -4824,9 +4911,8 @@ snapshot. The fourth return value reports durable marker presence."
 (defun snap-sync-account-subtree-dependencies-identifier (reference)
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
     (error "Snap account-subtree dependency proof requires a 32-byte hash"))
-  (concatenate
-   'vector +snap-sync-account-subtree-dependencies-identifier-prefix+
-   reference))
+  (snap-sync-prefixed-hash-identifier
+   +snap-sync-account-subtree-dependencies-identifier-prefix+ reference))
 
 (defun snap-sync-account-subtree-dependencies-value (dependencies)
   "Encode one bounded, non-empty account-subtree storage frontier."
@@ -6036,12 +6122,12 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; fetched nodes whose completion sentinel has not run. Loading the
            ;; complete durable namespace made every restart scan and allocate
            ;; once per retained node before useful healing could resume.
-           (incomplete-nodes (make-hash-table :test #'equalp))
+           (incomplete-nodes (snap-sync-make-node-hash-table))
            ;; A buffered marker delete is already authoritative to this
            ;; traversal even though RocksDB still exposes the old value until
            ;; the completion batch is applied. Keep that bounded override so
            ;; duplicate references cannot re-arm work in the interim.
-           (pending-complete-nodes (make-hash-table :test #'equalp))
+           (pending-complete-nodes (snap-sync-make-node-hash-table))
            (stack
              (cond
                (checkpoint-present-p
@@ -6083,7 +6169,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; Response nodes remain in this bounded decoded cache while their
            ;; writes accumulate to geth's 100-KiB batch threshold. No durable
            ;; frontier or subtree proof crosses that pending write prefix.
-           (fetched-node-cache (make-hash-table :test #'equalp))
+           (fetched-node-cache (snap-sync-make-node-hash-table))
            (pending-fetched-batch (make-kv-write-batch))
            (pending-fetched-bytes 0)
            (pending-fetched-count 0)
@@ -6518,10 +6604,15 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                 (let ((remaining items))
                   (dotimes (index 16)
                     (let ((reference (pop remaining)))
-                      (push-reference
-                       kind account-hash
-                       (concatenate 'vector path (vector index)) reference
-                       child-marker-state)))
+                      ;; PUSH-REFERENCE drops an empty child; decide that
+                      ;; before building its path, which most children of a
+                      ;; sparse branch never need.
+                      (unless (and (byte-vector-p reference)
+                                   (zerop (length reference)))
+                        (push-reference
+                         kind account-hash
+                         (snap-sync-heal-child-path path index) reference
+                         child-marker-state))))
                   (let ((value (first remaining)))
                     (when (and (byte-vector-p value) (plusp (length value)))
                       (process-value work path value)))))
@@ -6531,23 +6622,15 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                   (unless (and (byte-vector-p path-field)
                                (plusp (length path-field)))
                     (error "Snap healed trie short path is malformed"))
-                  (multiple-value-bind (segment leaf-p)
-                      (ethereum-lisp.trie.encoding:hex-prefix-decode path-field)
-                    (let* ((segment
-                             (if (and leaf-p
-                                      (ethereum-lisp.trie.encoding:has-terminator-p
-                                       segment))
-                                 (subseq segment 0 (1- (length segment)))
-                                 segment))
-                           (next-path
-                             (concatenate 'vector path segment)))
-                      (when (> (length next-path) 64)
-                        (error "Snap healed trie path exceeds 32 bytes"))
-                      (if leaf-p
-                          (process-value work next-path reference)
-                          (push-reference
-                           kind account-hash next-path reference
-                           child-marker-state))))))
+                  (multiple-value-bind (next-path leaf-p)
+                      (snap-sync-heal-short-node-path path path-field)
+                    (when (> (length next-path) 64)
+                      (error "Snap healed trie path exceeds 32 bytes"))
+                    (if leaf-p
+                        (process-value work next-path reference)
+                        (push-reference
+                         kind account-hash next-path reference
+                         child-marker-state)))))
                (otherwise
                 (error "Snap healing response has invalid trie node arity"))))
            ;; Report only after this node has exposed every immediate child and

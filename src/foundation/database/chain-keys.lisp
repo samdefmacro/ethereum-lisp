@@ -98,9 +98,20 @@ records so a version bump is all-or-nothing.")
     (car entry)))
 
 (defun kv-chain-record-key (kind identifier)
-  (concat-bytes
-   (vector (kv-chain-record-kind-prefix kind))
-   (kv-chain-record-identifier-bytes identifier)))
+  "Return the one-byte KIND prefix followed by IDENTIFIER's bytes.
+
+An octet-vector identifier, the common case on every hot read path, is copied
+straight into the fresh key instead of through an intermediate copy and a
+generic concatenation."
+  (let* ((prefix (kv-chain-record-kind-prefix kind))
+         (bytes (if (byte-vector-p identifier)
+                    identifier
+                    (kv-chain-record-identifier-bytes identifier)))
+         (key (make-byte-vector (1+ (length bytes)))))
+    (declare (type byte-vector bytes key))
+    (setf (aref key 0) prefix)
+    (replace key bytes :start1 1)
+    key))
 
 (defun kv-chain-height-hash-identifier (number hash)
   "Encode NUMBER then HASH so byte ordering is height ordering."
