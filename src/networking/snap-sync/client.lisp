@@ -181,26 +181,48 @@ that post-order completion sentinels seldom permit in production.")
   "Versioned value for an incomplete content-addressed trie node.")
 (defparameter +snap-sync-complete-node-scheme-identifier+
   "snap-complete-trie-node-scheme")
-(defparameter +snap-sync-complete-node-scheme-value+ #(6)
-  "Marks a trie store where an unmarked storage node proves its own closure.
+(defparameter +snap-sync-complete-node-scheme-value+ #(7)
+  "Marks a trie store where a present unmarked node proves its own closure.
 
-Three properties make that true by construction for a store born under this
-epoch, and only for its storage tries.  Every persisted record is either marked
-incomplete or named in the range's complete references, because
-SNAP-SYNC-INCOMPLETE-RECORD-HASHES takes the exact complement.  Those complete
-references can only name subtrees rebuilt whole in the same batch, because
-MPT-PROVED-RANGE-SUBTREES returns a node only when DIRTY-SUBTREE-P holds for
-every descendant and never returns a clean proof edge.  And a node travels with
-its marker, because KV-APPLY-BATCH-BUFFERED applies a batch atomically and a
-crash drops whole trailing batches rather than splitting one.
+Invariant I1: an account-path :TRIE-NODE record implies that every descendant
+trie node is durable AND that every non-empty code hash and non-empty storage
+root named by every leaf below it is durable.  I1 mentions no state root, which
+is the point -- the account trie on disk is a patchwork of ranges proved against
+different pivots, so any closure claim naming a root is void the moment the
+pivot moves, while a per-node-hash claim survives any number of rebases.
 
-Account nodes are deliberately excluded.  SNAP-SYNC-CLASSIFY-ACCOUNT-RANGE-
-SUBTREES puts a dependency-carrying account subtree into the same complete
-references, so an unmarked account node can still own code or storage that is
-not durable; that is the 03263d2f seam and it still requires the dependency
-proof.  Epoch five wrote identical markers but trusted neither kind, so its
-healer walked the whole trie: a Hoodi run visited 14,968,832 nodes and grew its
-frontier to 4,829,326 without converging, while geth healed 65,631 nodes.")
+The range phase makes I1 true at write time rather than reconstructing it
+afterwards.  SNAP-SYNC-COMPLETE-ACCOUNT-PAGE persists only the maximal
+reconstructed subtrees whose whole key range lies inside the delivered proved
+page and all of whose leaves passed a real durability check: a non-empty code
+hash must name a durable :CODE record, a non-empty storage root must carry this
+client's own whole-root closure proof.  The account spine, the boundary proof
+nodes, the range-straddling regions and the path to every open account are
+simply never written, so healing fetches and descends them.  That is geth's
+forwardAccountTask rule at sync.go:2453-2476 plus the stack trie's refusal to
+flush an unfinished boundary at gentrie.go:316-321, pinned commit
+38271784c2b31926563806da9a2e023b88f5e7a8, v1.17.6-unstable.
+
+Storage nodes keep the epoch-six argument: every persisted record is either
+marked incomplete or named in the range's complete references, because
+SNAP-SYNC-INCOMPLETE-RECORD-HASHES takes the exact complement; those complete
+references can only name subtrees rebuilt whole in the same batch; and a node
+travels with its marker, because KV-APPLY-BATCH-BUFFERED applies a batch
+atomically and a crash drops whole trailing batches rather than splitting one.
+
+Under this epoch the three mechanisms that existed to reconstruct account
+closure after the fact are disabled rather than merely unreachable -- the
+deferred-storage plan marker, range-plan promotion and the walk-free completion
+each open a persisted MPT on the state root and walk a spine such a store
+deliberately does not have.")
+(defparameter +snap-sync-account-walk-complete-node-scheme-value+ #(6)
+  "Recognized but never trusted marker from the account-walk epoch.
+
+Epoch six trusted storage-node presence and always walked account nodes, so its
+range phase wrote the account spine and every boundary proof node with no
+closure contract attached.  Those records stay on disk and stay valid content,
+but their absence of a marker proves nothing under I1, so such a datadir loses
+the skip and resyncs.")
 (defparameter +snap-sync-untrusted-absence-complete-node-scheme-value+ #(5)
   "Recognized but never trusted marker from the whole-trie-walk epoch.")
 (defparameter +snap-sync-unsafe-storage-complete-node-scheme-value+ #(4)
@@ -889,6 +911,8 @@ observational and not consensus-visible."
       ;; marker absence as proof after an upgrade.
       ((or
         (bytes=
+         value +snap-sync-account-walk-complete-node-scheme-value+)
+        (bytes=
          value +snap-sync-untrusted-absence-complete-node-scheme-value+)
         (bytes=
          value +snap-sync-unsafe-storage-complete-node-scheme-value+)
@@ -923,17 +947,24 @@ observational and not consensus-visible."
        (kv-apply-batch database batch))
      t)))
 
-(defparameter *snap-sync-account-closure-writes* nil
+(defparameter *snap-sync-account-closure-writes* t
   "Enable the closed-subtree account writer for a current-contract store.
 
 The writer and the healer rule it exists for are two halves of one contract and
-must be switched together.  While the healer still expands a present unmarked
-account node, withholding the account spine would only remove the compensating
-machinery -- the deferred-storage plan marker, range-plan promotion and the
-walk-free completion all walk a durable spine -- without supplying the presence
-skip that replaces it.  The closure epoch bump flips this default and takes the
-healer rule with it; until then production keeps the prebuffer-plus-marker
-writer and the tests that cover the new writer bind this to true.")
+are switched together by this one seam.  When true, a store under the current
+closure epoch gets the closed-subtree writer, the healer skips a present
+unmarked ACCOUNT node as well as a storage node, and the three mechanisms that
+reconstruct account closure after the fact -- the deferred-storage plan marker,
+range-plan promotion and the walk-free completion -- are disabled, because each
+walks a durable account spine that such a store deliberately does not have.
+When false, every current-epoch store behaves as epoch six did: the
+prebuffer-plus-marker writer, the compensating machinery, and an account walk.
+The skip is never taken without the writer, because account presence written
+by the legacy writer proves nothing about the code and storage below it.
+
+It is set process-globally rather than bound, because the production import
+prepares and completes pages on worker threads where a LET binding is
+invisible.")
 
 (defun snap-sync-closed-account-writes-p (database)
   "True when DATABASE's closure contract covers account-path trie nodes."
@@ -2656,8 +2687,20 @@ flushes this earlier WAL prefix before the cursor becomes durable.  A crash
 before that seam can expose no cursor and merely causes the page to be fetched
 again."
   (declare (ignorable write-lock))
-  (let ((batch (make-kv-write-batch))
-        (closed-writes-p (snap-sync-page-result-closed-writes-p result)))
+  (let* ((batch (make-kv-write-batch))
+         (closed-writes-p (snap-sync-page-result-closed-writes-p result))
+         ;; A closed-subtree page that closes nothing -- every node straddles
+         ;; its bounds or sits above an open account -- has nothing to write,
+         ;; and an empty buffered batch is a WAL append that carries no data.
+         (content-p
+           (or (snap-sync-page-result-account-records result)
+               (snap-sync-page-result-complete-node-hashes result)
+               (snap-sync-page-result-codes result)
+               (snap-sync-page-result-deferred-storage result)
+               (snap-sync-page-result-healed-subtrees result)
+               (and (not closed-writes-p)
+                    (or (snap-sync-page-result-incomplete-node-hashes result)
+                        (snap-sync-page-result-dependency-subtrees result))))))
     (snap-sync-populate-verified-trie-records-batch
      database batch (snap-sync-page-result-account-records result))
     ;; Range pages overlap at proof boundaries.  A later authenticated page can
@@ -2682,13 +2725,14 @@ again."
       (dolist (entry (snap-sync-page-result-dependency-subtrees result))
         (snap-sync-populate-account-subtree-dependencies-batch
          batch (car entry) (cdr entry))))
-    #+sbcl
-    (if write-lock
-        (sb-thread:with-mutex (write-lock)
+    (when content-p
+      #+sbcl
+      (if write-lock
+          (sb-thread:with-mutex (write-lock)
+            (kv-apply-batch-buffered database batch))
           (kv-apply-batch-buffered database batch))
-        (kv-apply-batch-buffered database batch))
-    #-sbcl
-    (kv-apply-batch-buffered database batch)
+      #-sbcl
+      (kv-apply-batch-buffered database batch))
     ;; The coordinator now needs only ordering metadata. Do not retain a large
     ;; page's reconstructed nodes and code while it waits behind other cursors.
     (setf (snap-sync-page-result-account-records result) '()
@@ -6118,6 +6162,12 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
              (and
               (snap-sync-progress-complete-node-scheme-p progress)
               (snap-sync-complete-node-scheme-present-p database)))
+           ;; Account presence is trusted only where the closed-subtree writer is
+           ;; the one that put it there. Checked once, like the scheme itself,
+           ;; so a traversal never changes its rule halfway through.
+           (closed-account-scheme-p
+             (and complete-node-scheme-p
+                  (snap-sync-closed-account-writes-p database)))
            ;; Retain only markers observed in the active DFS and markers for
            ;; fetched nodes whose completion sentinel has not run. Loading the
            ;; complete durable namespace made every restart scan and allocate
@@ -6693,15 +6743,43 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                 (process-object work object))
                ((and complete-node-scheme-p
                      hash-addressed-p
-                     (eq :storage (snap-sync-heal-work-kind work))
-                     (not (snap-sync-heal-work-fetched-p work)))
-                ;; Durably present, unmarked, and a storage node, so this
-                ;; epoch's construction already closes its descendants and
-                ;; expanding them only rediscovers closed state. Accounts are
-                ;; excluded: an unmarked account subtree may still name code
-                ;; or storage that is not durable, which only its dependency
-                ;; proof can settle. Any ARMED proof sentinel pushed above
-                ;; still publishes.
+                     (not (snap-sync-heal-work-fetched-p work))
+                     (or (eq :storage (snap-sync-heal-work-kind work))
+                         closed-account-scheme-p))
+                ;; Durably present and unmarked, so this epoch's construction
+                ;; already closes the node and expanding it only rediscovers
+                ;; closed state. For a storage node that is the epoch-six
+                ;; argument. For an account node it is invariant I1: the
+                ;; closed-subtree writer persists an account node only once its
+                ;; whole subtree, every code body and every storage root named
+                ;; beneath it are durable. The healer is the third writer: its
+                ;; fetched-node flush writes nodes top-down, a parent before
+                ;; its children, each with its incomplete marker in the same
+                ;; batch, and only the post-order :NODE-COMPLETE sentinel
+                ;; deletes the marker. So "unmarked" is half of the rule, and
+                ;; the MARKED-P branch above must stay ahead of this one: a
+                ;; present marked node is always processed, across a crash
+                ;; too (SNAP-EPOCH-SEVEN-HEALER-DESCENDS-A-MARKED-ACCOUNT-NODE-
+                ;; AFTER-A-CRASH). Any ARMED proof sentinel pushed above still
+                ;; publishes.
+                ;;
+                ;; The :TRIE-NODE table is kind-blind, so this rule is sound
+                ;; only because a hash reached along an account path cannot
+                ;; name a node some storage writer put. The two node sets are
+                ;; disjoint: a leaf is RLP([path, value]), so equal leaves have
+                ;; equal values; the shortest account leaf value is 70 bytes,
+                ;; RLP([0, 0, emptyRoot, emptyCodeHash]); the longest storage
+                ;; leaf value is 33 bytes, and SNAP-SYNC-STORAGE-TRIE-VALUE
+                ;; ENFORCES that ceiling at every ingestion point, the healed
+                ;; storage leaf included (PROCESS-VALUE above). No account node
+                ;; is ever inlined -- a leaf is >= 70 bytes, a branch with two
+                ;; hash children >= 66, an extension over a hash >= 34 -- so
+                ;; the induction through branches and extensions closes. Pinned
+                ;; by SNAP-ACCOUNT-AND-STORAGE-TRIE-NODES-CANNOT-COLLIDE.
+                ;;
+                ;; CLOSED-ACCOUNT-SCHEME-P is false under the legacy writer: an
+                ;; account node it wrote may still name code or storage that is
+                ;; not durable, which is the 03263d2f seam.
                 (incf skipped-subtrees))
                (t (process-object work object)))))
          (collect-missing (maximum &optional bounded-refill-p)

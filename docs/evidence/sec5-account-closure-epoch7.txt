@@ -337,3 +337,363 @@ Not verified
   Every existing datadir will have to resync when the epoch does advance; the
     revocation path keeps their content and drops the skip. That is free, since
     none has ever converged.
+
+================================================================================
+Phase two: the non-snap writers, read out of the tree
+================================================================================
+
+Phase one classified the non-snap writers in prose. Epoch seven makes account
+presence load-bearing, so each one is re-read here as a mechanism, with the
+question stated the way it has to be answered: for THIS caller, is the whole
+dirty set plus the code it names applied in ONE atomic batch -- in which case
+I1 holds iff the base state was already closed -- or in several, in which case
+order and crash behaviour decide it?
+
+The mechanism that makes the question sharp
+
+MPT-POPULATE-DIRTY-BATCH (src/foundation/trie/persistence.lisp:419-437) adds
+(MPT-DIRTY-NODES TRIE) and nothing else. MPT-PERSIST's own docstring at :444-449
+states the consequence: "For a trie opened from a persisted root, untouched hash
+subtrees are never resolved or rewritten." A dirty-node batch is therefore a
+closed subtree only when every hash child it names was ALREADY durable. That is
+the exact shape of an I1 violation for a non-snap writer, and no marker, proof
+or provenance bit distinguishes such a node from one the closed snap writer
+wrote: the :TRIE-NODE table is content-addressed and kind-blind.
+
+Callers, enumerated from the tree
+
+  src/storage/node-store/persistence/export/state.lisp:196
+    CHAIN-STORE-POPULATE-STATE-TRIE-RECORD-TO-KV. Iterates
+    CHAIN-STORE-STATE-PERSISTENCE-TRIES (account trie first, then the touched
+    accounts' storage tries -- src/runtime/state/roots.lisp:111-129) putting each
+    trie's dirty nodes into the CALLER's batch, then puts every code body of the
+    same block through NODE-STORE-CODE-SINK-PUT (:200-202) into that SAME batch
+    (src/storage/node-store/persistence/code-store.lisp:82-112). Three
+    lifecycles reach it, and all three build one batch and apply it once:
+      full / genesis export  export/orchestrator.lisp:1215 batch, :1250 apply
+      payload candidate      export/orchestrator.lisp:678  batch, :779-780 apply
+      forkchoice             export/orchestrator.lisp:990  batch, :1135-1137 apply
+    The payload-candidate and forkchoice applies choose buffered or synchronous;
+    both are atomic, so the choice is a durability question, not an atomicity
+    one.
+
+  src/storage/node-store/persistence/import/state.lisp:487
+    The schema-v4 migration, rewriting records already in the store.
+
+  src/foundation/trie/persistence.lisp:451
+    MPT-PERSIST, one batch of one trie's dirty nodes and NO code. Its only
+    callers in src/ are src/networking/snap-sync/backend.lisp:29 and :177 --
+    the snap/1 SERVER.
+
+(a) Genesis export: sound as it stands, for a reason worth pinning
+
+The scheme marker is stamped by its own batch inside
+SNAP-SYNC-ENABLE-COMPLETE-NODE-SCHEME-P (client.lisp:893-904), called from
+src/app/cli/devnet/persistence.lisp:539-552 deliberately BEFORE the export. Two
+batches, in that order. The review reads this as the marker certifying only
+"the store was empty at datadir creation", which is true and is exactly what
+makes it safe here:
+
+  - :897 stamps only when SNAP-SYNC-TRIE-NODE-STORE-EMPTY-P (:883-891) holds,
+    so a crash between the marker batch and the export batch leaves a marked
+    store with an EMPTY :TRIE-NODE table. I1 is vacuous there, and the next
+    start re-enters the same path.
+  - the export batch is a single atomic write carrying the whole materialized
+    trie AND the code it names. A crash loses all of it or none of it. A
+    partial genesis trie is not reachable through this path.
+
+So the smallest sound change at the genesis site is NO change. What is missing
+is that the soundness rests entirely on "one batch", and nothing in the tree
+says so: splitting the export for memory reasons would silently void I1 while
+every existing test stayed green. That is what the new regression pins.
+
+(b) Block commits over an incomplete state
+
+Mechanically the hazard is real: a dirty-only commit writes new parent nodes
+above hash children it assumes durable. What makes it unreachable is that
+execution needs the parent state, and the snap path refuses to execute until
+the import reports completion -- src/app/cli/devnet/dialer.lisp:2272-2275
+signals "Snap pivot state import returned before completion" and only then
+installs the forkchoice sync pivot (:2279-2292) and executes the bounded
+post-pivot tail (:2293-2325), each tail block required to return VALID.
+
+That is an orchestration argument about one call path, not a property of the
+writer, and epoch seven must not rest on it. Stated as an induction it is
+honest: genesis writes a complete state in one atomic batch, a snap sync
+publishes its root only through the healer's post-order contract, and every
+block commit preserves closure if its base had it. The base cases are the two
+this change is about; the step is the block commit.
+
+(c) The snap/1 server is the one that does not fit
+
+SNAP-SYNC-ROOT-TRIE (src/networking/snap-sync/backend.lisp:18-30) calls
+(MPT-PERSIST DATABASE TRIE) on (STATE-DB-STATE-TRIE STATE) -- the ACCOUNT trie
+alone. Not the touched storage tries, not the code. It is not a complete-state
+commit and does not have the atomic-batch-of-everything property the other
+three callers have, and peer-sync keeps it live while we are ourselves syncing.
+This is the writer that needs a change rather than a comment; it is recorded
+here before the fix so the reasoning survives the diff.
+
+================================================================================
+Phase two: the epoch
+================================================================================
+
+Status
+
+The closure epoch is advanced to seven. The closed-subtree account writer and
+the healer's account presence skip are switched on together, and the three
+mechanisms that reconstructed account closure after the fact are disabled for
+a store born under the epoch and kept for every other store. Local tests only;
+no live run.
+
+Revision
+
+Branch account-closure-epoch7-bump, on ba0a8659 (a324d868 plus the phase-two
+writer reading above).
+  473acd65  snap: advance the closure epoch to seven and trust closed account
+            presence
+  5a6eeaed  snap: a closed account page that closes nothing buffers nothing
+  3cf9a9fb  tests: pin the epoch-seven healer skip and re-express the legacy
+            shapes
+  fed3f07c  snap: pin that the account skip never trusts a marked node across
+            a crash
+  (followed by the docs commit carrying this section)
+
+What changed
+
++SNAP-SYNC-COMPLETE-NODE-SCHEME-VALUE+ is #(7). #(6) is recognized and never
+trusted (+SNAP-SYNC-ACCOUNT-WALK-COMPLETE-NODE-SCHEME-VALUE+), so an epoch-six
+datadir opens, keeps its content, is revoked by SNAP-SYNC-LOAD-PROGRESS like
+every earlier epoch, and resyncs. Without that entry an unrecognized marker is
+a storage failure and every existing datadir would refuse to open; the RED
+control below is exactly that.
+
+*SNAP-SYNC-ACCOUNT-CLOSURE-WRITES* defaults to true. It remains the one seam:
+the healer takes the account skip only when SNAP-SYNC-CLOSED-ACCOUNT-WRITES-P
+holds for the store, read once per traversal, so the skip can never be taken
+over account nodes the legacy writer put.
+
+INTEGRATE-PRESENT-WORK skips a durably present, unmarked, unfetched account
+node without descending. The leaf-length disjointness argument sits at the skip
+site: equal leaf encodings have equal values, account leaf values are >= 70
+bytes, storage leaf values <= 33 bytes and that ceiling is enforced at every
+ingestion point including the healed storage leaf, and no account node is ever
+inlined, so a hash reached along an account path names an account node.
+
+The writer count is three, not two as phase one recorded. The healer's own
+fetched-node flush in %SNAP-SYNC-HEAL-STATE also puts account-path :TRIE-NODE
+records; the snap-server-closure change found it (fc0bb2ea, evidence file
+sec5-snap-server-closure.txt, "the healer site"), measuring with the
+marker-blind batch audit a parent put one batch before its child. It writes
+top-down, each node with its incomplete marker in the same batch, and deletes
+the marker only at the node's post-order :NODE-COMPLETE sentinel, which drains
+deferred storage and flushes code first. So for this writer I1 holds only as
+"present AND unmarked", and that is the rule: INTEGRATE-PRESENT-WORK processes
+a marked node in the branch ahead of the presence skip, and the durable marker
+is read with the node on every local read under the scheme. This is the
+epoch-six storage rule, unchanged; the skip site now says why its order
+matters.
+
+SNAP-EPOCH-SEVEN-HEALER-DESCENDS-A-MARKED-ACCOUNT-NODE-AFTER-A-CRASH pins it
+across a crash. A 2,048-account trie (2,709 account nodes) is healed into an
+epoch-seven store whose source dies after three GetTrieNodes responses; the
+flush has left the root and three nodes below it, all four marked, and the
+rest absent. The healer is re-entered from the root, as after a pivot rebase
+(which deletes the heal checkpoint). Subject: it descends the marked root,
+fetches exactly the 2,705 missing nodes and completes over all 2,709. Control,
+in the test: the same store with the four markers deleted -- what a
+presence-only skip sees -- completes with zero fetched and four of 2,709
+nodes present, a false completion. RED (R7 below): with the durable marker
+read blinded, the subject arm fetches nothing and fails.
+
+One source fix fell out. SNAP-SYNC-BUFFER-ACCOUNT-PAGE-CONTENT applied an empty
+buffered batch for a closed-writer page that closes nothing (every node
+straddles its bounds or sits above an open account). The legacy writer never
+produced one, because it always had markers to write. It now skips the apply.
+SNAP-STATE-IMPORT-BATCHES-COMPLETE-STORAGE-TRIES has always required every
+buffered batch to be non-empty and went red on this before the fix.
+
+Step 5: the skip, measured (SNAP-STATE-HEALER-SKIPS-CLOSED-ACCOUNT-SUBTREES)
+
+Fixture: 1,024 accounts, every 64th with code and a storage slot; the account
+trie holds 1,382 nodes. Both stores receive it through the shipped import, then
+rebase to a root differing in one account. The stores differ only in the
+contract: one born under epoch seven, one that held a trie node first.
+
+  second generation      decoded   fetched   skip events   promoted
+  legacy store             1,156         4           221        222
+  epoch-seven store            4         4            31          0
+
+The closed arm decodes only what it fetched. The skip-event counter is not
+comparable across the arms and the test does not compare it: the legacy arm
+still promotes the range plan and skips on 222 shallow proofs deep in the trie,
+the closed arm skips 31 subtrees right below the changed path. "Skips strictly
+more" is asserted in nodes left undecoded (1,378 against 226).
+
+The first generation is where the cost moved. The legacy store completes its
+initial import through the walk-free completion with no trie request at all;
+the epoch-seven store fetches the 25 nodes its writer withheld (spine and page
+boundaries) and skips 198 subtrees. The same shows in the six-account resume
+test: one request, one node, six skipped, where the legacy store makes none.
+That is geth's cost for the same import -- the stack trie never flushes an
+unfinished boundary and healing fills the top of the trie over the wire.
+
+Step 7: the mid-range rebase (SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION)
+
+403 accounts, 553 account-trie nodes; each generation changes six accounts and
+fifteen nodes. Decoded nodes per heal:
+
+                                         first gen   second gen
+  epoch six, no mid-range rebase               28         (n/a)
+  epoch six, rebase after 20 of 48 pages      322            70
+  epoch seven, no mid-range rebase             21            21
+  epoch seven, rebase after 20 of 48 pages    197            21
+
+Before this change the reproduction arm decoded 322 to repair fifteen. Under
+epoch seven its first post-rebase generation still decodes 197 and fetches 64,
+because the spine, the page boundaries and the range-straddling regions of the
+twenty pages proved under the old root are absent by construction and have to
+come over the wire. From the second generation on it decodes 21 -- the control
+arm's order, and exactly the no-rebase control's own second generation. Epoch
+six never recovers: its second generation still decodes 70.
+
+The epoch-six arms keep their numbers (322, 28, 218 promoted, 169 and 61 skip
+events, 365 and 63 range proofs) as the record of the defect and as the
+positive control that the promotion path still runs. Without a mid-range
+rebase, epoch seven heals in 21 where epoch six with promotion took 28.
+
+Step 6: the non-snap writers
+(SNAP-EPOCH-SEVEN-DOES-NOT-TRUST-ACCOUNT-NODES-WRITTEN-BY-BLOCK-IMPORT)
+
+The test drives the shipped writers: NODE-STORE-EXPORT-TO-KV for genesis,
+COMMIT-STATE-DB-TO-CHAIN-STORE plus NODE-STORE-EXPORT-FORKCHOICE-TO-KV for two
+blocks. Genesis holds 300 accounts, twelve with code and storage; each block
+creates twenty contracts and writes a slot into an existing one. The epoch is
+stamped on the empty store immediately before the genesis export, where the
+devnet datadir stamps it. Every applied batch is audited for I1.
+
+  audit of the shipped writers: 526 account nodes inspected (412 of them
+    genesis, so the block commits were seen), 2,429 leaf checks, 280 code and
+    280 storage checks, no violation; SNAP-CLOSURE-STORE-VIOLATIONS empty.
+  a store that took the same nodes before the contract was offered: cannot
+    enter the epoch.
+
+So the marker certifies "empty at creation", and that is enough: after the
+stamp the genesis export is one atomic batch carrying the trie and its code,
+and each block commit is one batch of dirty nodes plus that block's code over
+a base already closed. The test establishes that for these two writers by
+audit, not by argument.
+
+Not covered by it, and needed for the argument to be complete: the snap/1
+server's SNAP-SYNC-ROOT-TRIE (src/networking/snap-sync/backend.lisp) calls
+MPT-PERSIST on the account trie alone, without its storage tries or code, into
+the database it serves from. On an epoch-seven store that can put a present,
+unmarked account node whose storage is not durable, which the healer would now
+skip. That writer is owned by another change and is not touched here.
+
+Step 8: the compensating mechanisms
+
+Disabled for an epoch-seven store, each observed:
+  plan marker   no marker after a same-root completed range (mid-range closed
+                arms; SNAP-STATE-IMPORT-PUBLISHES-PROVED-RANGE-SUBTREES closed
+                arm) although the three storage works are durable.
+  promotion     returns 0 and never marks the plan promoted (same tests;
+                SNAP-CLOSED-ACCOUNT-STORE-NEVER-PROMOTES-A-RANGE-PLAN).
+  walk-free     the resume test's closed arm heals over the wire instead
+  completion    (one request); SNAP-STATE-IMPORT-FINISHES-BYTE-CAPPED-STORAGE-
+                BEFORE-ACCOUNT-CURSOR now starts healing at the account root.
+
+Still exercised on a legacy store: the plan marker and promotion (16 subtrees)
+in the legacy arm of SNAP-STATE-IMPORT-PUBLISHES-PROVED-RANGE-SUBTREES, the
+walk-free completion (zero requests, zero decoded) in the legacy arm of
+SNAP-STATE-IMPORT-RESUMES-AND-INSTALLS-A-VERIFIED-PIVOT, promotion reaching its
+MPT walk in the legacy arm of SNAP-CLOSED-ACCOUNT-STORE-NEVER-PROMOTES-A-RANGE-
+PLAN, and 218 promoted subtrees in the epoch-six arms of the mid-range test.
+
+Re-expressed tests
+
+Four tests seeded a legacy writer's records into a store born under the epoch,
+which under epoch seven is a hand-made violation of I1. They now use
+SNAP-TEST-SEED-LEGACY-TRIE-STORE, a store holding a trie node before the
+contract is offered, which is how every datadir written by earlier code
+presents:
+  SNAP-STATE-HEALER-DOES-NOT-REUSE-ACCOUNT-NODE-MARKER-ABSENCE (as an epoch-six
+    datadir upgraded in place, #(6) marker included)
+  SNAP-STATE-HEALER-NEVER-CONFUSES-ACCOUNT-PRESENCE-WITH-DEPENDENCY-CLOSURE
+  SNAP-ACCOUNT-SUBTREE-PUBLICATION-WAITS-FOR-MISSING-DESCENDANTS
+  SNAP-CLOSED-ACCOUNT-STORE-NEVER-PROMOTES-A-RANGE-PLAN (legacy arm added; the
+    seam-off arm kept)
+Under the new code, each old shape went red exactly where it should: the
+reuse test's fetched counts diverged, the dependency-closure test fetched
+nothing (it skipped the present root and never found the missing storage), and
+the publication test never published its subtree proof.
+
+Three import tests pinned the legacy writer's behaviour and now assert the
+epoch-seven behaviour, keeping the legacy behaviour as a second arm where it
+still runs: SNAP-STATE-IMPORT-BATCHES-COMPLETE-STORAGE-TRIES (the storage batch
+strictly before the account batch, the straddling root fetched by the healer),
+SNAP-STATE-IMPORT-PUBLISHES-PROVED-RANGE-SUBTREES and
+SNAP-STATE-IMPORT-RESUMES-AND-INSTALLS-A-VERIFIED-PIVOT.
+SNAP-COMPLETE-NODE-SCHEME-NEVER-TRUSTS-A-LEGACY-TRIE-STORE gains the epoch-six
+arm; its malformed-marker arm moves from #(7) to #(8).
+
+RED controls
+
+  R1  #(6) left out of the untrusted list: the scheme test fails with
+      "Persisted snap complete-node scheme marker is malformed" -- the
+      hard-fail every existing datadir would hit on open.
+  R2  #(6) trusted as current: the reuse test and the scheme test both fail
+      at the store-is-outside-the-epoch assertion.
+  R3  the account skip switched off for the closed store's second generation
+      in the step-5 test: it decodes 1,376 and the processed comparison fails.
+  R4  step 6, inside the test: the same genesis export split into an
+      account-node batch followed by the rest yields 331 violations
+      (:MISSING-CODE and :MISSING-STORAGE) over the same 526 inspected nodes.
+  R5  step 7, inside the test: epoch six's second generation decodes 70,
+      above the 2 x 15 bound the epoch-seven arm must meet.
+  R6  the empty-batch fix: before it, the batch-shape test's non-empty
+      buffered-batch assertion failed on the second page's empty batch.
+  R7  SNAP-SYNC-HEAL-LOCAL-NODE-AND-INCOMPLETE-BATCH wrapped to report every
+      durable marker absent (a marker-blind skip): the crash test's subject
+      arm fails at its fetched = 2,709 - 4 assertion.
+
+Verification of record
+
+On fed3f07c (every code and test commit of this phase; the evidence commit
+that follows touches docs only):
+
+cl-workbench validation run cold-unit
+  1420 tests passed, 3 skipped.   Exit 0.
+cl-workbench validation run cold-integration
+  584 tests passed, 9 skipped.    Exit 0.
+cl-workbench validation run cold-e2e
+  36 + 32 tests passed.           Exit 0.
+
+No compile warning under /workspace/src in any of the three logs. The unit
+count is unchanged from phase one (no unit test added); integration moves from
+581 to 584, exactly the three tests added, each grepped as "ok" by name. The
+re-expressed and retargeted tests are each present as "ok" too.
+
+Two runs are recorded rather than discarded. The first cold-integration on
+fed3f07c failed one test, ETH-SYNC-THREE-SCRIPTED-PEERS-FAIL-OVER-WITHOUT-
+BLOCKING ("SLOW-STARTED"), an eth-sync timing test this change does not touch;
+it passed alone and in the full rerun above, and it passed on 3cf9a9fb. On
+3cf9a9fb cold-e2e exited 1 because its second worker exceeded the 900-second
+budget after 36 of the first worker's tests passed and every test the second
+worker finished was "ok"; it is green on fed3f07c. The machine was shared with
+other agents' builds in both cases.
+
+No PAX transcript names the closure epoch, the healer rule or the writers, so
+cold-docs is not implicated.
+
+Not verified
+
+  No live run. The first Hoodi run under epoch seven will resync from empty,
+    and its healing should now fetch the withheld spine once and converge after
+    each rebase; that is the claim a live run has to test.
+  The snap/1 server writer SNAP-SYNC-ROOT-TRIE is not covered by step 6 and is
+    owned by the snap-server-closure change.
+  The cross-thread crash seams for chunked storage and code are owned by the
+    same change.
+  No fixture at live contract density; the withheld fraction on Hoodi, and so
+    the size of the first post-rebase download, is still an extrapolation.

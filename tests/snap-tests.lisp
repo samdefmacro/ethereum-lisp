@@ -217,6 +217,33 @@
      (snap-test-call-backend
       backend ethereum-lisp.snap:+snap-message-get-trie-nodes+ request))))
 
+(defun snap-test-seed-legacy-trie-store (database &optional marker)
+  "Make DATABASE a legacy trie store that can never enter the closure epoch.
+
+A store already holding a trie node when the contract is first offered stays
+outside it, which is how a datadir written by any earlier code presents.  This
+is the only faithful way to exercise a writer shape the current epoch cannot
+produce: seeding a legacy writer's records into a store born under the epoch
+would violate invariant I1 by hand and then blame the healer for trusting it.
+MARKER, when given, is stamped as the persisted scheme value too, modelling a
+datadir upgraded from that earlier epoch.  Returns DATABASE."
+  (let ((batch (make-kv-write-batch)))
+    (ethereum-lisp.database:kv-batch-put-chain-record
+     batch :trie-node (snap-test-hash 253) #(1 2 3))
+    (when marker
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
+       marker))
+    (kv-apply-batch database batch))
+  (is (not (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+            database)))
+  (is (not (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+            database)))
+  (is (not (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
+            database)))
+  database)
+
 (deftest snap-bytecode-requests-use-geth-sized-hash-batches
   (:layer :unit :module :p2p)
   (let* ((codes
@@ -826,10 +853,17 @@
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (= 1 storage-calls))
       (is (= (length addresses) largest-request))
-      ;; One initial synchronous batch installs the complete-node scheme. Each
-      ;; of the two account pages then prebuffers its authenticated trie nodes,
-      ;; buffers storage/closure metadata, and publishes a separate cursor
-      ;; batch. The final traversal alone writes completion.
+      ;; One initial synchronous batch installs the complete-node scheme. The
+      ;; first account page then buffers all four inline storage tries with
+      ;; their whole-root closure proofs, and only AFTER that the closed
+      ;; account writer buffers the four account leaves -- each now names a
+      ;; durable storage root -- with their subtree proofs; a separate
+      ;; synchronous batch publishes each page's cursor. The account ROOT
+      ;; straddles the two pages, so it is withheld rather than written with a
+      ;; marker: healing fetches it (node plus marker), deletes the marker at
+      ;; its post-order sentinel, and the final batch writes completion. A
+      ;; memory database applies a buffered batch through KV-APPLY-BATCH, so
+      ;; each buffered batch is counted in both tallies.
       (let* ((apply-count
                (snap-counting-test-database-apply-count target-database))
              (batch-sizes
@@ -841,28 +875,43 @@
                 (copy-list
                  (snap-counting-test-database-batch-prefixes
                   target-database)))))
-        (unless (= 9 apply-count)
-          (error "Expected nine scheme/prebuffer/content/cursor/completion batches, got ~D (~S)"
+        (unless (= 8 apply-count)
+          (error "Expected eight scheme/storage/account/cursor/heal/completion batches, got ~D (~S)"
                  apply-count (list batch-sizes batch-prefixes)))
-        (is (= 9 apply-count))
-        ;; Each account-record WAL batch publishes trie nodes (#x19) and their
-        ;; same-batch incomplete metadata (#x0d) before the later metadata-only
-        ;; closure/cursor publications.
-        (is (every (lambda (prefix) (member prefix '(#x19 #x0d)))
-                   (second batch-prefixes)))
-        (is (find #x19 (second batch-prefixes)))
-        (is (find #x0d (second batch-prefixes)))
-        (is (every (lambda (prefix) (= #x0d prefix))
-                   (fifth batch-prefixes)))
-        (is (every (lambda (prefix) (member prefix '(#x19 #x0d)))
-                   (sixth batch-prefixes)))
-        (is (find #x19 (sixth batch-prefixes)))
-        (is (find #x0d (sixth batch-prefixes)))
-        (is (every (lambda (prefix) (= #x0d prefix))
-                   (eighth batch-prefixes))))
-      (is (= 5
+        (is (= 8 apply-count))
+        (is (equal '(1 12 12 1 1 2 1 4) batch-sizes))
+        (flet ((only (prefixes batch)
+                 (every (lambda (prefix) (member prefix prefixes)) batch)))
+          ;; The scheme marker, alone.
+          (is (only '(#x0d) (first batch-prefixes)))
+          ;; Storage nodes (#x19) with their closure metadata (#x0d), then the
+          ;; account leaves with theirs: the storage batch is strictly first.
+          (dolist (batch (list (second batch-prefixes) (third batch-prefixes)))
+            (is (only '(#x19 #x0d) batch))
+            (is (find #x19 batch))
+            (is (find #x0d batch)))
+          ;; Both pages' cursors. The second page closes nothing, so it
+          ;; buffers nothing rather than an empty batch.
+          (is (only '(#x0d) (fourth batch-prefixes)))
+          (is (only '(#x0d) (fifth batch-prefixes)))
+          ;; The withheld root, fetched by the healer with its marker, and the
+          ;; marker's post-order delete.
+          (is (only '(#x19 #x0d) (sixth batch-prefixes)))
+          (is (= 1 (count #x19 (sixth batch-prefixes))))
+          (is (only '(#x0d) (seventh batch-prefixes)))
+          ;; No account node is written before the storage it names: the only
+          ;; trie-node writes are the storage batch, the account batch and the
+          ;; healer's fetch.
+          (is (= 3 (count-if (lambda (batch) (find #x19 batch))
+                             batch-prefixes)))))
+      (is (= 4
              (snap-counting-test-database-buffered-apply-count
               target-database)))
+      (is (equal '(12 12 2 1)
+                 (reverse
+                  (copy-list
+                   (snap-counting-test-database-buffered-batch-sizes
+                    target-database)))))
       (is (every #'plusp
                  (snap-counting-test-database-buffered-batch-sizes
                   target-database)))
@@ -889,80 +938,120 @@
   ;; Range verification reconstructs every interior node. Once the same page's
   ;; external dependencies are durable, publish coarse subtree proofs with the
   ;; atomic cursor batch so a later pivot heals only changed/boundary regions.
-  (multiple-value-bind (source-state addresses)
-      (snap-test-partitioned-state)
-    (declare (ignore addresses))
-    (let* ((source-database (make-memory-key-value-database))
-           (target-database (make-memory-key-value-database))
-           (root (state-db-root source-state))
-           (backend
-             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
-              source-database source-state))
-           (source (snap-test-source backend))
-           (published 0)
-           (real-populate
-             (fdefinition
-              'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch))
-           (progress nil))
-      (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
-              1)
-            (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
-              1)
-            (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
-              1))
-        (unwind-protect
-             (progn
-               (setf
-                (fdefinition
-                 'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
-                (lambda (batch reference &optional (kind :account))
-                  (incf published)
-                  (funcall real-populate batch reference kind)))
-               (setf
-                progress
-                (ethereum-lisp.snap-sync:snap-sync-import-state
-                 target-database source
-                 :pivot-hash (make-hash32 (snap-test-hash 241))
-                 :pivot-number 42 :state-root root
-                 :target-hash (make-hash32 (snap-test-hash 242))
-                 :chain-id 560048
-                 :genesis-hash (make-hash32 (snap-test-hash 243))
-                 :authority-id (make-hash32 (snap-test-hash 244)))))
-          (setf
-           (fdefinition
-            'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
-           real-populate)))
-      (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
-      (is
-       (ethereum-lisp.snap-sync::snap-sync-progress-complete-node-scheme-p
-        progress))
-      (is (plusp published))
-      ;; The root and page-edge proof nodes are authenticated content, but
-      ;; they do not by themselves prove descendant closure. Fresh imports
-      ;; record that distinction so a later moving pivot cannot mistake mere
-      ;; hash presence for geth's complete-subtree invariant.
-      (is
-       (plusp
-        (hash-table-count
-         (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
-          target-database))))
-      (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
-              1)
-            (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
-              1)
-            (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
-              1))
+  ;;
+  ;; Two stores import the same partitioned state. One never entered the
+  ;; closure epoch (it held a trie node first), which is how every datadir
+  ;; written by earlier code presents: it keeps the prebuffer-plus-marker
+  ;; writer, the deferred-storage plan marker and range-plan promotion. The
+  ;; other is born under epoch seven: the same proofs are published, but the
+  ;; account nodes whose closure is not established are withheld rather than
+  ;; marked, and the plan marker and promotion are disabled because they walk
+  ;; an account spine such a store deliberately does not have.
+  (labels
+      ((import-into (target-database)
+         (multiple-value-bind (source-state addresses)
+             (snap-test-partitioned-state)
+           (declare (ignore addresses))
+           (let* ((source-database (make-memory-key-value-database))
+                  (root (state-db-root source-state))
+                  (backend
+                    (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+                     source-database source-state))
+                  (source (snap-test-source backend))
+                  (published 0)
+                  (real-populate
+                    (fdefinition
+                     'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch))
+                  (progress nil))
+             (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                     1)
+                   (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                     1)
+                   (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                     1))
+               (unwind-protect
+                    (progn
+                      (setf
+                       (fdefinition
+                        'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+                       (lambda (batch reference &optional (kind :account))
+                         (incf published)
+                         (funcall real-populate batch reference kind)))
+                      (setf
+                       progress
+                       (ethereum-lisp.snap-sync:snap-sync-import-state
+                        target-database source
+                        :pivot-hash (make-hash32 (snap-test-hash 241))
+                        :pivot-number 42 :state-root root
+                        :target-hash (make-hash32 (snap-test-hash 242))
+                        :chain-id 560048
+                        :genesis-hash (make-hash32 (snap-test-hash 243))
+                        :authority-id (make-hash32 (snap-test-hash 244)))))
+                 (setf
+                  (fdefinition
+                   'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
+                  real-populate)))
+             (values progress published root))))
+       (promote (database root)
+         (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                 1)
+               (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                 1)
+               (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                 1))
+           (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
+            database root)))
+       (promoted-p (database root)
+         (let ((ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
+                 1)
+               (ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
+                 1)
+               (ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
+                 1))
+           (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
+            database root)))
+       (incomplete-count (database)
+         (hash-table-count
+          (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes database))))
+    (let ((legacy (snap-test-seed-legacy-trie-store
+                   (make-memory-key-value-database)))
+          (closed (make-memory-key-value-database)))
+      (multiple-value-bind (progress published root) (import-into legacy)
+        (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
         (is
-         (plusp
-          (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
-           target-database root)))
+         (not
+          (ethereum-lisp.snap-sync::snap-sync-progress-complete-node-scheme-p
+           progress)))
+        (is (plusp published))
+        ;; The root and page-edge proof nodes are authenticated content, but
+        ;; they do not by themselves prove descendant closure. The legacy
+        ;; writer records that distinction as negative markers so a later
+        ;; moving pivot cannot mistake mere hash presence for geth's
+        ;; complete-subtree invariant.
+        (is (plusp (incomplete-count legacy)))
+        (is (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+             legacy root))
+        (is (plusp (promote legacy root)))
+        (is (promoted-p legacy root))
+        (is (zerop (promote legacy root))))
+      (multiple-value-bind (progress published root) (import-into closed)
+        (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
         (is
-         (ethereum-lisp.snap-sync::snap-sync-range-plan-promoted-p
-          target-database root))
-        (is
-         (zerop
-          (ethereum-lisp.snap-sync::snap-sync-promote-complete-range-plan
-           target-database root)))))))
+         (ethereum-lisp.snap-sync::snap-sync-progress-complete-node-scheme-p
+          progress))
+        (is (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p closed))
+        (is (plusp published))
+        ;; The same distinction, drawn by absence: an account node whose
+        ;; closure is not established was never written, so there is nothing
+        ;; to mark, and healing fetched and closed what was withheld.
+        (is (zerop (incomplete-count closed)))
+        ;; Every task completed under one root, which is exactly when the
+        ;; legacy writer publishes the plan marker. This store gets none, and
+        ;; promotion refuses rather than walk the spine.
+        (is (not (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+                  closed root)))
+        (is (zerop (promote closed root)))
+        (is (not (promoted-p closed root)))))))
 
 (deftest snap-proved-range-subtrees-publish-coarse-and-nested-layers
   (:layer :unit :module :p2p)
@@ -1598,7 +1687,8 @@
   ;; Match geth's account-task pending boundary: persist the authenticated
   ;; prefix, finish the trie through restart-safe partitioned StorageRanges,
   ;; and publish its range-derived subtree proofs before the account cursor
-  ;; advances. The final bounded closure walk remains fail closed.
+  ;; advances. The final bounded closure walk remains fail closed, and under
+  ;; epoch seven it is what fetches the account node the writer withheld.
   (let* ((source-state (make-state-db))
          (source-database (make-memory-key-value-database))
          (target-database (make-memory-key-value-database))
@@ -1829,10 +1919,19 @@
       ;; cursor. The final closure walk should need only a small boundary
       ;; repair, never the account trie or a full storage scan.
       (is (< trie-node-requests 16))
-      ;; The final account-page batch published a complete dependency plan.
-      ;; Healing starts directly at the deferred storage root; a one-item path
-      ;; set would prove that production fell back to the account trie root.
-      (is (not saw-account-heal-path-p))
+      ;; Epoch seven: the one account owes chunked storage when its page is
+      ;; written, so the closed writer withholds its leaf -- here the whole
+      ;; account trie -- and the store gets no dependency plan to seed healing
+      ;; from, because the plan exists only to reconstruct account closure
+      ;; after the fact. Healing therefore starts at the account root: a
+      ;; one-item path set proves it fetched the node the writer withheld.
+      ;; The plan-seeded start that a legacy store still takes is pinned by
+      ;; the epoch-six arms of SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION.
+      (is saw-account-heal-path-p)
+      (is (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
+           target-database))
+      (is (not (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+                target-database root)))
       (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p progress))
       (is (plusp (length heal-progress-events)))
       (let ((final (first heal-progress-events)))
@@ -3557,6 +3656,7 @@
         (previous-epoch (make-memory-key-value-database))
         (unsafe-storage-epoch (make-memory-key-value-database))
         (untrusted-absence-epoch (make-memory-key-value-database))
+        (account-walk-epoch (make-memory-key-value-database))
         (malformed (make-memory-key-value-database)))
     (is
      (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -3636,11 +3736,36 @@
      (not
       (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
        untrusted-absence-epoch)))
+    ;; Epoch six trusted storage-node presence but always walked account
+    ;; nodes, so its range phase wrote the account spine with no closure
+    ;; contract. Epoch seven trusts account presence, so an epoch-six datadir
+    ;; keeps its content and loses the skip -- and above all must not
+    ;; hard-fail on open, which is what an unrecognized marker does.
     (let ((batch (make-kv-write-batch)))
       (ethereum-lisp.database:kv-batch-put-chain-record
        batch :metadata
        ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
-       #(7))
+       ethereum-lisp.snap-sync::+snap-sync-account-walk-complete-node-scheme-value+)
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :trie-node (snap-test-hash 138) #(1 2 3))
+      (kv-apply-batch account-walk-epoch batch))
+    (is (bytes= #(6)
+                ethereum-lisp.snap-sync::+snap-sync-account-walk-complete-node-scheme-value+))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-complete-node-scheme-present-p
+       account-walk-epoch)))
+    (is
+     (not
+      (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+       account-walk-epoch)))
+    (is (bytes= #(7)
+                ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-value+))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.database:kv-batch-put-chain-record
+       batch :metadata
+       ethereum-lisp.snap-sync::+snap-sync-complete-node-scheme-identifier+
+       #(8))
       (kv-apply-batch malformed batch))
     (signals ethereum-lisp.validation:storage-error
       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
@@ -5516,119 +5641,159 @@
 
 (deftest snap-state-import-resumes-and-installs-a-verified-pivot
   (:layer :integration :module :p2p)
-  (let* ((source-state (make-state-db))
-         (source-database (make-memory-key-value-database))
-         (target-database (make-memory-key-value-database))
-         (addresses
-           (loop for index from 1 to 6
-                 collect
-                 (make-address
-                  (concatenate 'vector (make-byte-vector 19) (vector index)))))
-         (slot (make-hash32 (make-byte-vector 32 :initial-element 7)))
-         (code #(96 0 96 0)))
-    (loop for address in addresses
-          for index from 1
-          do (state-db-set-account
-              source-state address
-              (make-state-account :nonce index :balance (* index 100)))
-             (when (= index 2)
-               (state-db-set-code source-state address code))
-             (when (= index 3)
-               (state-db-set-storage source-state address slot 256)))
-    (let* ((root (state-db-root source-state))
-           (backend
-             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
-              source-database source-state))
-           (base-source (snap-test-source backend))
-           (trie-node-requests 0)
-           (heal-events '())
-           (source
-             (ethereum-lisp.snap-sync:make-snap-sync-source
-              :account-range
-              (ethereum-lisp.snap-sync:snap-sync-source-account-range
-               base-source)
-              :storage-ranges
-              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
-               base-source)
-              :bytecodes
-              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base-source)
-              :trie-nodes
-              (lambda (request)
-                (incf trie-node-requests)
-                (funcall
-                 (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
-                  base-source)
-                 request))))
-           (pivot-hash (make-hash32 (snap-test-hash 91)))
-           (genesis-hash (make-hash32 (snap-test-hash 92)))
-           (authority-id (make-hash32 (snap-test-hash 93)))
-           (first
-             (ethereum-lisp.snap-sync:snap-sync-import-state
-              target-database source
-              :pivot-hash pivot-hash :pivot-number 1234 :state-root root
-              :chain-id 560048 :genesis-hash genesis-hash
-              :authority-id authority-id :byte-limit 180 :max-pages 1)))
-      (is (not (ethereum-lisp.snap-sync:snap-sync-progress-completed-p first)))
-      (is (not (hash32= +empty-trie-hash+
-                        (ethereum-lisp.snap-sync:snap-sync-progress-partial-root
-                         first))))
-      (is (not (nth-value
-                1 (kv-get-chain-record target-database :state-history
-                                       (hash32-bytes pivot-hash)))))
-      (let ((completed
-              (ethereum-lisp.snap-sync:snap-sync-import-state
-               target-database source
-               :pivot-hash pivot-hash :pivot-number 1234 :state-root root
-               :chain-id 560048 :genesis-hash genesis-hash
-               :authority-id authority-id :byte-limit 180
-               :on-heal-progress
-               (lambda (event) (push event heal-events)))))
-        (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p completed))
-        ;; Complete same-root range, code, and storage proofs are already the
-        ;; trust boundary; do not re-read the whole authenticated trie.
-        (is (zerop trie-node-requests))
-        (is (= 1 (length heal-events)))
-        (is
-         (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
-          (first heal-events)))
-        (is
-         (zerop
-          (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
-           (first heal-events))))
-        (multiple-value-bind (persisted-root present-p)
-            (kv-get-chain-record target-database :state-history
-                                 (hash32-bytes pivot-hash))
-          (is present-p)
-          (is (bytes= persisted-root (hash32-bytes root))))
-        (let ((trie
-                (make-persisted-mpt
-                 root
-                 (lambda (hash)
-                   (trie-node-store-get target-database hash)))))
-          (dolist (address addresses)
-            (multiple-value-bind (record present-p)
-                (mpt-get trie (keccak-256 (address-bytes address)))
-              (is present-p)
-              (is (= (* 100 (1+ (position address addresses)))
-                     (state-account-balance
-                      (ethereum-lisp.state:decode-state-account-rlp record)))))))
-        (multiple-value-bind (persisted-code present-p)
-            (kv-get-chain-record target-database :code (keccak-256 code))
-          (is present-p)
-          (is (bytes= code persisted-code)))
-        (signals error
-          (ethereum-lisp.snap-sync:snap-sync-import-state
-           target-database source
-           :pivot-hash pivot-hash :pivot-number 1234 :state-root root
-           :chain-id 1 :genesis-hash genesis-hash
-           :authority-id authority-id :byte-limit 180))
-        (signals error
-          (ethereum-lisp.snap-sync:snap-sync-import-state
-           target-database source
-           :pivot-hash pivot-hash :pivot-number 1234 :state-root root
-           :target-hash (make-hash32 (snap-test-hash 94))
-           :chain-id 560048 :genesis-hash genesis-hash
-           :authority-id authority-id :byte-limit 180))))))
+  ;; The same resumed import into two stores. A store that never entered the
+  ;; closure epoch keeps the walk-free completion: complete same-root range,
+  ;; code and storage proofs are already the trust boundary, so it does not
+  ;; re-read the authenticated trie at all. A store born under epoch seven has
+  ;; no such completion -- the closed writer withheld the one account node that
+  ;; straddles the two pages -- so healing fetches exactly that node and skips
+  ;; every other one on presence, which is geth's cost for the same import.
+  (labels
+      ((resume (target-database)
+         (let* ((source-state (make-state-db))
+                (source-database (make-memory-key-value-database))
+                (addresses
+                  (loop for index from 1 to 6
+                        collect
+                        (make-address
+                         (concatenate 'vector (make-byte-vector 19)
+                                      (vector index)))))
+                (slot (make-hash32 (make-byte-vector 32 :initial-element 7)))
+                (code #(96 0 96 0)))
+           (loop for address in addresses
+                 for index from 1
+                 do (state-db-set-account
+                     source-state address
+                     (make-state-account :nonce index :balance (* index 100)))
+                    (when (= index 2)
+                      (state-db-set-code source-state address code))
+                    (when (= index 3)
+                      (state-db-set-storage source-state address slot 256)))
+           (let* ((root (state-db-root source-state))
+                  (backend
+                    (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+                     source-database source-state))
+                  (base-source (snap-test-source backend))
+                  (trie-node-requests 0)
+                  (heal-events '())
+                  (source
+                    (ethereum-lisp.snap-sync:make-snap-sync-source
+                     :account-range
+                     (ethereum-lisp.snap-sync:snap-sync-source-account-range
+                      base-source)
+                     :storage-ranges
+                     (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                      base-source)
+                     :bytecodes
+                     (ethereum-lisp.snap-sync:snap-sync-source-bytecodes
+                      base-source)
+                     :trie-nodes
+                     (lambda (request)
+                       (incf trie-node-requests)
+                       (funcall
+                        (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                         base-source)
+                        request))))
+                  (pivot-hash (make-hash32 (snap-test-hash 91)))
+                  (genesis-hash (make-hash32 (snap-test-hash 92)))
+                  (authority-id (make-hash32 (snap-test-hash 93)))
+                  (first
+                    (ethereum-lisp.snap-sync:snap-sync-import-state
+                     target-database source
+                     :pivot-hash pivot-hash :pivot-number 1234
+                     :state-root root
+                     :chain-id 560048 :genesis-hash genesis-hash
+                     :authority-id authority-id :byte-limit 180
+                     :max-pages 1)))
+             (is (not (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                       first)))
+             (is (not (hash32= +empty-trie-hash+
+                               (ethereum-lisp.snap-sync:snap-sync-progress-partial-root
+                                first))))
+             (is (not (nth-value
+                       1 (kv-get-chain-record target-database :state-history
+                                              (hash32-bytes pivot-hash)))))
+             (let ((completed
+                     (ethereum-lisp.snap-sync:snap-sync-import-state
+                      target-database source
+                      :pivot-hash pivot-hash :pivot-number 1234
+                      :state-root root
+                      :chain-id 560048 :genesis-hash genesis-hash
+                      :authority-id authority-id :byte-limit 180
+                      :on-heal-progress
+                      (lambda (event) (push event heal-events)))))
+               (is (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                    completed))
+               (is heal-events)
+               (is
+                (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                 (first heal-events)))
+               (multiple-value-bind (persisted-root present-p)
+                   (kv-get-chain-record target-database :state-history
+                                        (hash32-bytes pivot-hash))
+                 (is present-p)
+                 (is (bytes= persisted-root (hash32-bytes root))))
+               (let ((trie
+                       (make-persisted-mpt
+                        root
+                        (lambda (hash)
+                          (trie-node-store-get target-database hash)))))
+                 (dolist (address addresses)
+                   (multiple-value-bind (record present-p)
+                       (mpt-get trie (keccak-256 (address-bytes address)))
+                     (is present-p)
+                     (is (= (* 100 (1+ (position address addresses)))
+                            (state-account-balance
+                             (ethereum-lisp.state:decode-state-account-rlp
+                              record)))))))
+               (multiple-value-bind (persisted-code present-p)
+                   (kv-get-chain-record target-database :code
+                                        (keccak-256 code))
+                 (is present-p)
+                 (is (bytes= code persisted-code)))
+               (signals error
+                 (ethereum-lisp.snap-sync:snap-sync-import-state
+                  target-database source
+                  :pivot-hash pivot-hash :pivot-number 1234 :state-root root
+                  :chain-id 1 :genesis-hash genesis-hash
+                  :authority-id authority-id :byte-limit 180))
+               (signals error
+                 (ethereum-lisp.snap-sync:snap-sync-import-state
+                  target-database source
+                  :pivot-hash pivot-hash :pivot-number 1234 :state-root root
+                  :target-hash (make-hash32 (snap-test-hash 94))
+                  :chain-id 560048 :genesis-hash genesis-hash
+                  :authority-id authority-id :byte-limit 180))
+               (list :requests trie-node-requests
+                     :events (length heal-events)
+                     :counts (snap-test-heal-event-counts
+                              (first heal-events))
+                     :account-nodes
+                     (length
+                      (mpt-dirty-node-records
+                       (ethereum-lisp.state:state-db-state-trie
+                        (state-db-copy source-state))))))))))
+    (let ((legacy
+            (resume (snap-test-seed-legacy-trie-store
+                     (make-memory-key-value-database))))
+          (closed (resume (make-memory-key-value-database))))
+      (is (= 7 (getf legacy :account-nodes)))
+      (is (= 7 (getf closed :account-nodes)))
+      ;; Legacy: the walk-free completion publishes without one trie request
+      ;; and without decoding a node.
+      (is (zerop (getf legacy :requests)))
+      (is (= 1 (getf legacy :events)))
+      (is (zerop (getf (getf legacy :counts) :processed)))
+      ;; Epoch seven: one request, one node fetched and decoded -- the node the
+      ;; closed writer withheld -- and every other account node skipped on
+      ;; presence. Nothing present is ever re-read.
+      (is (= 1 (getf closed :requests)))
+      (let ((counts (getf closed :counts)))
+        (is (= 1 (getf counts :fetched)))
+        (is (= (getf counts :fetched) (getf counts :processed)))
+        (is (= 6 (getf counts :skipped)))
+        (is (= (getf closed :account-nodes)
+               (+ (getf counts :processed) (getf counts :skipped))))))))
 
 (deftest snap-state-import-rebases-ranges-and-heals-the-new-pivot-root
   (:layer :integration :module :p2p)
@@ -5806,7 +5971,23 @@ whole account trie is untouched, and only a handful of paths differ."
            base address
            (make-hash32 (snap-test-index-hash (+ 900 index)))
            (+ 7000 index))))
-      (values before before-root base (state-db-root base)))))
+      ;; A second pivot generation: six further accounts move the same way.
+      ;; Epoch seven withholds the account spine by construction, so the first
+      ;; post-rebase heal must fetch it; only the generation after that shows
+      ;; what the closed-account skip does to a routine pivot move.
+      (let ((later (state-db-copy base)))
+        (dolist (index '(59 131 227 271 347 397))
+          (let ((address (snap-test-address-from-integer index)))
+            (state-db-set-account
+             later address
+             (make-state-account :nonce 777 :balance (+ 515151 index)))
+            (state-db-set-code later address (vector 96 2 96 (mod index 251)))
+            (state-db-set-storage
+             later address
+             (make-hash32 (snap-test-index-hash (+ 1900 index)))
+             (+ 8000 index))))
+        (values before before-root base (state-db-root base)
+                later (state-db-root later))))))
 
 (defun snap-test-account-trie-node-hashes (state)
   "Return STATE's exact account-trie node hash set, and its root.
@@ -5846,9 +6027,32 @@ work that is durable but unreadable."
         (when close-iterator (funcall close-iterator))))
     count))
 
+(defun snap-test-heal-event-counts (event)
+  "Return the walk counters of a final heal progress EVENT as a plist."
+  (list
+   :promoted
+   (and event
+        (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
+         event))
+   :processed
+   (and event
+        (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
+         event))
+   :reused
+   (and event
+        (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes event))
+   :fetched
+   (and event
+        (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes event))
+   :skipped
+   (and event
+        (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
+         event))))
+
 (defun snap-test-mid-range-rebase-arm
     (before before-root after after-root
-     &key rebase-after-pages (byte-limit 350) (deferred-bound 8192))
+     &key rebase-after-pages (byte-limit 350) (deferred-bound 8192)
+       later later-root (rules :epoch-seven))
   "Import BEFORE-ROOT's ranges, rebase to AFTER-ROOT, heal, and measure.
 
 REBASE-AFTER-PAGES NIL downloads the whole range under BEFORE-ROOT before the
@@ -5857,10 +6061,19 @@ is the live case -- a Hoodi range download takes about two and a half hours and
 a pivot expires roughly every half hour.  Both arms end by healing the same
 AFTER-ROOT from the same two sources, so their walks are directly comparable.
 
+LATER and LATER-ROOT, when supplied, add a second pivot generation: once
+AFTER-ROOT is installed the progress is rebased again to LATER-ROOT and healed,
+and that walk is returned under :LATER.  RULES :EPOCH-SIX runs the whole arm
+with *SNAP-SYNC-ACCOUNT-CLOSURE-WRITES* false, which is exactly the epoch-six
+rule set on a fresh store: the prebuffer-plus-marker writer, the compensating
+machinery, and an account walk.  It is set process-globally because the import
+completes pages on worker threads where a binding is invisible.
+
 One-nibble publication depths keep this fixture small while exercising the same
 content-addressed proof path as the four-nibble public-network setting.  Every
 range phase is bounded by MAX-PAGES so a cursor that stops advancing fails the
 count assertion instead of hanging the run."
+  (check-type rules (member :epoch-seven :epoch-six))
   (let* ((before-source-database (make-memory-key-value-database))
          (after-source-database (make-memory-key-value-database))
          (target (make-memory-key-value-database))
@@ -5874,13 +6087,17 @@ count assertion instead of hanging the run."
              after-source-database after)))
          (before-pivot (make-hash32 (snap-test-hash 11)))
          (after-pivot (make-hash32 (snap-test-hash 12)))
+         (later-pivot (make-hash32 (snap-test-hash 15)))
          (genesis (make-hash32 (snap-test-hash 13)))
          (authority (make-hash32 (snap-test-hash 14)))
          (heal-events '())
+         (later-events '())
          (before-pages 0)
          (after-pages 0)
+         (later-pages 0)
          (range-account-proofs 0)
          (range-dependency-proofs 0)
+         (writes ethereum-lisp.snap-sync::*snap-sync-account-closure-writes*)
          (real-proof
            (fdefinition
             'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch))
@@ -5895,6 +6112,8 @@ count assertion instead of hanging the run."
            2))
     (unwind-protect
          (progn
+           (setf ethereum-lisp.snap-sync::*snap-sync-account-closure-writes*
+                 (eq rules :epoch-seven))
            (setf
             (fdefinition
              'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
@@ -5948,49 +6167,73 @@ count assertion instead of hanging the run."
                          (incf after-pages))
                        :on-heal-progress
                        (lambda (event) (push event heal-events))))
-                    (last-event (first heal-events)))
-               (list
-                :before-pages before-pages
-                :after-pages after-pages
-                :initial-completed-p
-                (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
-                 initial)
-                :marker-before marker-before
-                :raw-plan-before raw-plan-before
-                :segment-before segment-before
-                :marker-after
-                (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
-                 target after-root)
-                :range-account-proofs-at-rebase proofs-at-rebase
-                :range-account-proofs range-account-proofs
-                :range-dependency-proofs range-dependency-proofs
-                :completed-p
-                (ethereum-lisp.snap-sync:snap-sync-progress-completed-p final)
-                :promoted
-                (and last-event
-                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-promoted-subtrees
-                      last-event))
-                :processed
-                (and last-event
-                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-processed-nodes
-                      last-event))
-                :reused
-                (and last-event
-                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-reused-nodes
-                      last-event))
-                :fetched
-                (and last-event
-                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
-                      last-event))
-                :skipped
-                (and last-event
-                     (ethereum-lisp.snap-sync:snap-sync-heal-progress-skipped-subtrees
-                      last-event))
-                :installed-root
-                (nth-value
-                 0
-                 (kv-get-chain-record
-                  target :state-history (hash32-bytes after-pivot)))))))
+                    (installed-root
+                      (nth-value
+                       0
+                       (kv-get-chain-record
+                        target :state-history (hash32-bytes after-pivot))))
+                    (later-final
+                      (when later
+                        (let ((later-source
+                                (snap-test-source
+                                 (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+                                  (make-memory-key-value-database) later))))
+                          (ethereum-lisp.snap-sync:snap-sync-rebase-progress
+                           target :pivot-hash later-pivot :pivot-number 120
+                           :state-root later-root :target-hash later-pivot
+                           :chain-id 560048 :genesis-hash genesis
+                           :authority-id authority)
+                          (ethereum-lisp.snap-sync:snap-sync-import-state
+                           target later-source
+                           :pivot-hash later-pivot :pivot-number 120
+                           :state-root later-root :target-hash later-pivot
+                           :chain-id 560048 :genesis-hash genesis
+                           :authority-id authority :byte-limit byte-limit
+                           :max-pages 4000
+                           :on-progress
+                           (lambda (ignored)
+                             (declare (ignore ignored))
+                             (incf later-pages))
+                           :on-heal-progress
+                           (lambda (event) (push event later-events)))))))
+               (append
+                (list
+                 :before-pages before-pages
+                 :after-pages after-pages
+                 :initial-completed-p
+                 (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                  initial)
+                 :closed-writes-p
+                 (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
+                  target)
+                 :marker-before marker-before
+                 :raw-plan-before raw-plan-before
+                 :segment-before segment-before
+                 :marker-after
+                 (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
+                  target after-root)
+                 :range-account-proofs-at-rebase proofs-at-rebase
+                 :range-account-proofs range-account-proofs
+                 :range-dependency-proofs range-dependency-proofs
+                 :completed-p
+                 (ethereum-lisp.snap-sync:snap-sync-progress-completed-p final)
+                 :installed-root installed-root
+                 :later
+                 (when later
+                   (append
+                    (list
+                     :pages later-pages
+                     :completed-p
+                     (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                      later-final)
+                     :installed-root
+                     (nth-value
+                      0
+                      (kv-get-chain-record
+                       target :state-history (hash32-bytes later-pivot))))
+                    (snap-test-heal-event-counts (first later-events)))))
+                (snap-test-heal-event-counts (first heal-events))))))
+      (setf ethereum-lisp.snap-sync::*snap-sync-account-closure-writes* writes)
       (setf
        (fdefinition
         'ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch)
@@ -6006,112 +6249,193 @@ count assertion instead of hanging the run."
   ;; half hour, so a rebase DURING the range phase is certain; no earlier test
   ;; rebased there, which is why 05c13ad5, c4e9ec34 and 519e4c9b looked complete.
   ;;
-  ;; Both arms heal the same AFTER-ROOT from the same two sources.  They differ
-  ;; only in when the pivot moves: the control arm finishes the range phase
-  ;; first, the reproduction arm rebases after twenty of its forty-eight pages.
+  ;; Every arm heals the same AFTER-ROOT from the same two sources.  They differ
+  ;; in when the pivot moves -- a control arm finishes the range phase first, a
+  ;; reproduction arm rebases after twenty of its forty-eight pages -- and in
+  ;; the closure rules: epoch six (the account walk plus the compensating
+  ;; machinery) or epoch seven (the closed account writer plus the account
+  ;; presence skip).
   ;;
   ;; SNAP-SYNC-COMMIT-ACCOUNT-PAGES writes the deferred-storage plan marker only
   ;; when the tasks are complete AND the progress partial-root equals the state
   ;; root, and SNAP-SYNC-HEAL-REBASED-PROGRESS replaces partial-root with a
   ;; sticky synthetic witness that SNAP-SYNC-ACCOUNT-PAGE-NEXT-PROGRESS retains.
   ;; A mid-range rebase therefore loses the marker for both roots, and with it
-  ;; every reader of the plan.
-  (multiple-value-bind (before before-root after after-root)
+  ;; every reader of the plan.  Epoch seven stops needing the plan: a present
+  ;; unmarked account node is closed by construction (invariant I1), so the
+  ;; healer skips it whatever happened to the marker.
+  (multiple-value-bind (before before-root after after-root later later-root)
       (snap-test-mid-range-rebase-states)
     (is (not (hash32= before-root after-root)))
+    (is (not (hash32= after-root later-root)))
     (multiple-value-bind (before-nodes enumerated-before-root)
         (snap-test-account-trie-node-hashes before)
       (multiple-value-bind (after-nodes enumerated-after-root)
           (snap-test-account-trie-node-hashes after)
-        ;; The node enumerations belong to the roots the arms actually heal.
-        (is (hash32= before-root enumerated-before-root))
-        (is (hash32= after-root enumerated-after-root))
-        (let ((changed-account-nodes
-                (loop for hash being the hash-keys of after-nodes
-                      count (not (nth-value 1 (gethash hash before-nodes))))))
-          ;; The denominator: six of 403 accounts changed, which moves fifteen
-          ;; of the 553 account-trie nodes.  Everything else is already durable.
-          (is (= 553 (hash-table-count after-nodes)))
-          (is (= 15 changed-account-nodes))
-          (let ((control
-                  (snap-test-mid-range-rebase-arm
-                   before before-root after after-root
-                   :rebase-after-pages nil))
-                (reproduction
-                  (snap-test-mid-range-rebase-arm
-                   before before-root after after-root
-                   :rebase-after-pages 20)))
-            ;; Both arms install the same authorized root, so neither walk is
-            ;; cheap because it healed less.
-            (is (getf control :completed-p))
-            (is (getf reproduction :completed-p))
-            (is (bytes= (hash32-bytes after-root)
-                        (getf control :installed-root)))
-            (is (bytes= (hash32-bytes after-root)
-                        (getf reproduction :installed-root)))
-            (is (= 48 (getf control :before-pages)))
-            (is (zerop (getf control :after-pages)))
-            (is (getf control :initial-completed-p))
-            (is (= 20 (getf reproduction :before-pages)))
-            (is (= 29 (getf reproduction :after-pages)))
-            (is (not (getf reproduction :initial-completed-p)))
-            ;; Control: the marker is published with the last cursor, the plan
-            ;; is readable, and promotion converts it into the shallow
-            ;; whole-bucket :ACCOUNT proofs the healer can skip on.
-            (is (getf control :marker-before))
-            (is (= 3 (getf control :raw-plan-before)))
-            (is (= 3 (getf control :segment-before)))
-            (is (= 218 (getf control :promoted)))
-            ;; Reproduction: the same three storage works are durable, and
-            ;; unreadable.  SNAP-SYNC-DEFERRED-STORAGE-SEGMENT returns nothing
-            ;; without the marker, so the healer's seed frontier falls back to
-            ;; the state root in %SNAP-SYNC-HEAL-STATE, and
-            ;; SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN returns before it reads
-            ;; the plan at all.
-            (is (not (getf reproduction :marker-before)))
-            (is (not (getf reproduction :marker-after)))
-            (is (= 3 (getf reproduction :raw-plan-before)))
-            (is (zerop (getf reproduction :segment-before)))
-            (is (zerop (getf reproduction :promoted)))
-            ;; DEFECT ASSERTION.  This is the account-side closure failure.
-            ;; The healer decodes 322 nodes to repair fifteen, because a
-            ;; present but unmarked ACCOUNT node is expanded while a present
-            ;; unmarked STORAGE node is skipped (INTEGRATE-PRESENT-WORK in
-            ;; %SNAP-SYNC-HEAL-STATE).  Target once account-side closure lands:
-            ;; the reproduction arm's walk must fall to the control arm's
-            ;; order, so this equality and the ratio below both go red and the
-            ;; fix replaces 322 with a number near 28.
-            (is (= 322 (getf reproduction :processed)))
-            (is (= 28 (getf control :processed)))
-            ;; 21.5 walked per changed node after a mid-range rebase, against
-            ;; 1.9 without one, and 58% of the whole account trie re-walked.
-            (is (> (getf reproduction :processed)
-                   (* 11 changed-account-nodes)))
-            (is (< (getf control :processed) (* 2 changed-account-nodes)))
-            (is (> (getf reproduction :processed)
-                   (* 11 (getf control :processed))))
-            (is (> (getf reproduction :processed)
-                   (floor (hash-table-count after-nodes) 2)))
-            ;; The per-page range proofs are the only account-side skipping
-            ;; that survives a mid-range rebase, and they are published for
-            ;; whole buckets that fall inside one page, so they cannot cover
-            ;; the trie: 169 skips against a 322-node walk.
-            (is (= 169 (getf reproduction :skipped)))
-            (is (= 61 (getf control :skipped)))
-            (is (= 365 (getf control :range-account-proofs-at-rebase)))
-            (is (= 63 (getf reproduction :range-account-proofs-at-rebase)))
-            (is (= 2 (getf reproduction :range-dependency-proofs)))
-            ;; Narrowing the segment bound below the plan width changes none of
-            ;; it: the zero is the missing marker, not the 519e4c9b width.
-            (let ((narrow
+        (multiple-value-bind (later-nodes enumerated-later-root)
+            (snap-test-account-trie-node-hashes later)
+          ;; The node enumerations belong to the roots the arms actually heal.
+          (is (hash32= before-root enumerated-before-root))
+          (is (hash32= after-root enumerated-after-root))
+          (is (hash32= later-root enumerated-later-root))
+          (let ((changed-account-nodes
+                  (loop for hash being the hash-keys of after-nodes
+                        count (not (nth-value 1 (gethash hash before-nodes)))))
+                (later-changed-account-nodes
+                  (loop for hash being the hash-keys of later-nodes
+                        count (not (nth-value 1 (gethash hash after-nodes))))))
+            ;; The denominator: six of 403 accounts changed, which moves
+            ;; fifteen of the 553 account-trie nodes, and the second
+            ;; generation moves six more accounts and fifteen more nodes.
+            (is (= 553 (hash-table-count after-nodes)))
+            (is (= 15 changed-account-nodes))
+            (is (= 553 (hash-table-count later-nodes)))
+            (is (= 15 later-changed-account-nodes))
+            (let ((control
                     (snap-test-mid-range-rebase-arm
                      before before-root after after-root
-                     :rebase-after-pages 20 :deferred-bound 2)))
-              (is (> (getf narrow :raw-plan-before) 2))
-              (is (not (getf narrow :marker-before)))
-              (is (zerop (getf narrow :promoted)))
-              (is (= (getf reproduction :processed)
-                     (getf narrow :processed))))))))))
+                     :rebase-after-pages nil :rules :epoch-six))
+                  (reproduction
+                    (snap-test-mid-range-rebase-arm
+                     before before-root after after-root
+                     :rebase-after-pages 20 :rules :epoch-six
+                     :later later :later-root later-root))
+                  (closed-control
+                    (snap-test-mid-range-rebase-arm
+                     before before-root after after-root
+                     :rebase-after-pages nil
+                     :later later :later-root later-root))
+                  (closed
+                    (snap-test-mid-range-rebase-arm
+                     before before-root after after-root
+                     :rebase-after-pages 20
+                     :later later :later-root later-root)))
+              ;; Every arm installs the same authorized roots, so no walk is
+              ;; cheap because it healed less.
+              (dolist (arm (list control reproduction closed-control closed))
+                (is (getf arm :completed-p))
+                (is (bytes= (hash32-bytes after-root)
+                            (getf arm :installed-root))))
+              (dolist (arm (list reproduction closed-control closed))
+                (let ((next (getf arm :later)))
+                  (is (getf next :completed-p))
+                  (is (zerop (getf next :pages)))
+                  (is (bytes= (hash32-bytes later-root)
+                              (getf next :installed-root)))))
+              (is (not (getf control :closed-writes-p)))
+              (is (not (getf reproduction :closed-writes-p)))
+              (is (getf closed-control :closed-writes-p))
+              (is (getf closed :closed-writes-p))
+              (dolist (arm (list control closed-control))
+                (is (= 48 (getf arm :before-pages)))
+                (is (zerop (getf arm :after-pages)))
+                (is (getf arm :initial-completed-p)))
+              (dolist (arm (list reproduction closed))
+                (is (= 20 (getf arm :before-pages)))
+                (is (= 29 (getf arm :after-pages)))
+                (is (not (getf arm :initial-completed-p))))
+              ;; Epoch-six control: the marker is published with the last
+              ;; cursor, the plan is readable, and promotion converts it into
+              ;; the shallow whole-bucket :ACCOUNT proofs the healer can skip
+              ;; on.  This is the compensating machinery a legacy rule set
+              ;; still runs, and the positive control for every zero below.
+              (is (getf control :marker-before))
+              (is (= 3 (getf control :raw-plan-before)))
+              (is (= 3 (getf control :segment-before)))
+              (is (= 218 (getf control :promoted)))
+              ;; Epoch-six reproduction: the same three storage works are
+              ;; durable, and unreadable.  SNAP-SYNC-DEFERRED-STORAGE-SEGMENT
+              ;; returns nothing without the marker, so the healer's seed
+              ;; frontier falls back to the state root in %SNAP-SYNC-HEAL-STATE,
+              ;; and SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN returns before it
+              ;; reads the plan at all.
+              (is (not (getf reproduction :marker-before)))
+              (is (not (getf reproduction :marker-after)))
+              (is (= 3 (getf reproduction :raw-plan-before)))
+              (is (zerop (getf reproduction :segment-before)))
+              (is (zerop (getf reproduction :promoted)))
+              ;; The defect as it stood under epoch six: the healer decodes 322
+              ;; nodes to repair fifteen, because a present but unmarked
+              ;; ACCOUNT node is expanded while a present unmarked STORAGE node
+              ;; is skipped.  21.5 walked per changed node after a mid-range
+              ;; rebase, against 1.9 without one, and 58% of the whole account
+              ;; trie re-walked.
+              (is (= 322 (getf reproduction :processed)))
+              (is (= 28 (getf control :processed)))
+              (is (> (getf reproduction :processed)
+                     (* 11 changed-account-nodes)))
+              (is (< (getf control :processed) (* 2 changed-account-nodes)))
+              (is (> (getf reproduction :processed)
+                     (* 11 (getf control :processed))))
+              (is (> (getf reproduction :processed)
+                     (floor (hash-table-count after-nodes) 2)))
+              ;; The per-page range proofs are the only account-side skipping
+              ;; that survives a mid-range rebase under epoch six, and they are
+              ;; published for whole buckets that fall inside one page, so they
+              ;; cannot cover the trie: 169 skips against a 322-node walk.
+              (is (= 169 (getf reproduction :skipped)))
+              (is (= 61 (getf control :skipped)))
+              (is (= 365 (getf control :range-account-proofs-at-rebase)))
+              (is (= 63 (getf reproduction :range-account-proofs-at-rebase)))
+              (is (= 2 (getf reproduction :range-dependency-proofs)))
+              ;; RED arm for the epoch-seven assertion below: under epoch six
+              ;; the walk never recovers.  Even the generation AFTER the first
+              ;; post-rebase heal decodes 70 nodes to repair fifteen, because
+              ;; nothing on disk tells the healer an account subtree is closed.
+              (is (= 70 (getf (getf reproduction :later) :processed)))
+              (is (> (getf (getf reproduction :later) :processed)
+                     (* 2 later-changed-account-nodes)))
+              ;; Epoch seven: the compensating machinery is disabled, not
+              ;; merely unreachable.  The control arm completes every task with
+              ;; a same-root partial root and the three storage works durable,
+              ;; which is exactly when epoch six publishes the plan marker, and
+              ;; still no marker, no segment and no promotion.
+              (dolist (arm (list closed-control closed))
+                (is (not (getf arm :marker-before)))
+                (is (not (getf arm :marker-after)))
+                (is (= 3 (getf arm :raw-plan-before)))
+                (is (zerop (getf arm :segment-before)))
+                (is (zerop (getf arm :promoted)))
+                (is (zerop (getf arm :range-dependency-proofs))))
+              ;; Without a mid-range rebase, epoch seven heals in fewer nodes
+              ;; than epoch six did with promotion: 21 against 28.
+              (is (= 21 (getf closed-control :processed)))
+              (is (<= (getf closed-control :processed)
+                      (getf control :processed)))
+              ;; The first post-rebase generation must still fetch what the
+              ;; closed writer withheld -- the spine, the page boundaries and
+              ;; the range-straddling regions of twenty pages proved under a
+              ;; different root -- so it is cheaper than epoch six but not yet
+              ;; at the control arm's order: 197 decoded, 64 fetched.
+              (is (= 197 (getf closed :processed)))
+              (is (= 64 (getf closed :fetched)))
+              (is (< (getf closed :processed) (getf reproduction :processed)))
+              ;; THE TARGET.  From the second generation on, a mid-range rebase
+              ;; costs what a clean one does: the reproduction arm's walk falls
+              ;; from 322 to the control arm's order, 21 decoded to repair
+              ;; fifteen, exactly the no-rebase control's second generation.
+              (let ((next (getf closed :later)))
+                (is (= 21 (getf next :processed)))
+                (is (< (getf next :processed)
+                       (* 2 later-changed-account-nodes)))
+                (is (<= (getf next :processed) (getf control :processed)))
+                (is (= (getf next :processed)
+                       (getf (getf closed-control :later) :processed)))
+                (is (< (* 3 (getf next :processed))
+                       (getf (getf reproduction :later) :processed))))
+              ;; Narrowing the segment bound below the plan width changes none
+              ;; of the epoch-six result: the zero is the missing marker, not
+              ;; the 519e4c9b width.
+              (let ((narrow
+                      (snap-test-mid-range-rebase-arm
+                       before before-root after after-root
+                       :rebase-after-pages 20 :deferred-bound 2
+                       :rules :epoch-six)))
+                (is (> (getf narrow :raw-plan-before) 2))
+                (is (not (getf narrow :marker-before)))
+                (is (zerop (getf narrow :promoted)))
+                (is (= (getf reproduction :processed)
+                       (getf narrow :processed)))))))))))
 
 (deftest snap-mid-range-rebase-witness-blocks-every-plan-marker-reader
   (:layer :unit :module :p2p)
@@ -9828,9 +10152,12 @@ node is durable, so this count is how many plan roots are actually healed."
                :count 1 :completed-p t))))
       (is closure-group)
       (is omitted)
-      (is
-       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
-        target-database))
+      ;; An unmarked account parent above a missing child is a legacy-writer
+      ;; shape that the closure epoch cannot produce -- it would violate
+      ;; invariant I1 -- so the store stays outside the epoch, where the
+      ;; healer walks the account trie and the subtree proof is what it
+      ;; publishes.
+      (snap-test-seed-legacy-trie-store target-database)
       (let ((batch (make-kv-write-batch)))
         (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
          target-database batch (remove omitted account-records))
@@ -10006,8 +10333,18 @@ node is durable, so this count is how many plan roots are actually healed."
   (:layer :integration :module :p2p)
   ;; Account-node negative metadata is not a closure proof for the external
   ;; code and storage roots named by leaves.  Even when a synthetic tree has no
-  ;; such dependencies, epoch-three marker absence must stay conservative; the
-  ;; explicit dependency-carrying subtree proof is the only safe account skip.
+  ;; such dependencies, marker absence written by a pre-closure writer must stay
+  ;; conservative; the explicit dependency-carrying subtree proof is the only
+  ;; safe account skip for such a store.
+  ;;
+  ;; Epoch seven does skip a present unmarked account node, but only in a store
+  ;; whose account nodes the closed-subtree writer put there, which invariant
+  ;; I1 makes closed by construction.  These records come from the legacy
+  ;; writer with its markers later deleted, a shape epoch seven cannot produce,
+  ;; so the store here is an epoch-six datadir upgraded in place: it holds trie
+  ;; nodes and carries the #(6) marker, which is recognized and never trusted.
+  ;; Its skip-on-presence counterpart, on a store born under the epoch, is
+  ;; SNAP-STATE-HEALER-SKIPS-CLOSED-ACCOUNT-SUBTREES.
   (let ((first-state (make-state-db)))
     (loop for index from 1 to 2048
           do (state-db-set-account
@@ -10036,9 +10373,9 @@ node is durable, so this count is how many plan roots are actually healed."
            (genesis (make-hash32 (snap-test-hash 237)))
            (authority (make-hash32 (snap-test-hash 238))))
       (is (not (hash32= first-root second-root)))
-      (is
-       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
-        exact-database))
+      (snap-test-seed-legacy-trie-store
+       exact-database
+       ethereum-lisp.snap-sync::+snap-sync-account-walk-complete-node-scheme-value+)
       (dolist (database (list exact-database legacy-database))
         (let ((batch (make-kv-write-batch)))
           (ethereum-lisp.snap-sync::snap-sync-populate-verified-trie-records-batch
@@ -10103,6 +10440,18 @@ node is durable, so this count is how many plan roots are actually healed."
   ;; completion before bounded-tail execution opened a missing trie child.
   ;; Account-node presence cannot prove closure over the code and storage roots
   ;; named by its leaves, even when epoch-three negative metadata is absent.
+  ;;
+  ;; That holds for every account node a pre-closure writer put, and this is
+  ;; exactly such a store: the live shape comes from the legacy writer, which
+  ;; persisted the account trie before its storage.  Epoch seven cannot produce
+  ;; it -- the closed-subtree writer withholds an account node until the
+  ;; storage it names is durable -- and seeding it into a store born under the
+  ;; epoch would break invariant I1 by hand.  So the store holds a trie node
+  ;; before the contract is offered and stays outside the epoch, which is how
+  ;; every datadir written by earlier code presents.  What epoch seven itself
+  ;; does with the same live shape is pinned by
+  ;; SNAP-EPOCH-SEVEN-DOES-NOT-TRUST-ACCOUNT-NODES-WRITTEN-BY-BLOCK-IMPORT and
+  ;; the batch audit in SNAP-ACCOUNT-CLOSED-SUBTREE-FOLLOWS-ITS-DEPENDENCIES.
   (let* ((state (make-state-db))
          (address (snap-test-address-from-integer 9))
          (slot (make-hash32 (snap-test-index-hash 9)))
@@ -10131,9 +10480,7 @@ node is durable, so this count is how many plan roots are actually healed."
               (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
                :count 1 :completed-p t)))
            (fetched nil))
-      (is
-       (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
-        target-database))
+      (snap-test-seed-legacy-trie-store target-database)
       ;; Reproduce the unsafe live shape: every account node is present, none
       ;; carries an incomplete marker, and no storage node is present.  The
       ;; account trie still must be opened to discover its external dependency.

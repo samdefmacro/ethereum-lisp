@@ -1,7 +1,13 @@
 # Account-side closure in snap sync
 
-Why the healer cannot trust a present account node today, what invariant would
-let it, and how the range phase establishes that invariant at write time.
+Why the healer could not trust a present account node, what invariant lets it,
+and how the range phase establishes that invariant at write time.
+
+Status: in force as closure epoch seven (`#(7)`). The closed writer and the
+healer's account presence skip are switched together by
+`*SNAP-SYNC-ACCOUNT-CLOSURE-WRITES*`; an epoch-six datadir is recognized,
+never trusted, and resyncs. Measurements and RED controls are in
+`docs/evidence/sec5-account-closure-epoch7.txt`, "Phase two: the epoch".
 
 Reference client: go-ethereum `38271784c2b31926563806da9a2e023b88f5e7a8`,
 version `1.17.6-unstable`, vendored under `references/go-ethereum`. The syncer
@@ -155,13 +161,20 @@ Under a presence-based account rule, every writer of an account-path
   schema-v4 migration) writes one atomic batch of children-before-parents
   nodes for a trie fully materialized in memory, with every touched trie and
   the code in the same batch, so it upholds I1 for a complete state.
+  `SNAP-EPOCH-SEVEN-DOES-NOT-TRUST-ACCOUNT-NODES-WRITTEN-BY-BLOCK-IMPORT`
+  audits the genesis export and block commits batch by batch into an
+  epoch-seven store.
 - `SNAP-SYNC-POPULATE-VERIFIED-TRIE-RECORDS-BATCH` is the range writer of
   section 3.
 - The healer's fetched-node flush in `%SNAP-SYNC-HEAL-STATE` writes each
-  fetched node top-down, with its incomplete marker in the same batch, and
-  clears the marker at the node's post-order completion. A present account
-  node written there can stand above absent children, code or storage, so I1
-  holds for it only if the presence rule also reads that marker.
+  fetched node top-down, a parent in a batch before its children, each with
+  its incomplete marker in the same batch, and only the node's post-order
+  `:node-complete` sentinel deletes the marker. A present account node
+  written there can stand above absent children, code or storage, so the
+  presence rule is "present AND unmarked", exactly as the epoch-six storage
+  rule was: the healer processes a marked node before it considers the skip.
+  `SNAP-EPOCH-SEVEN-HEALER-DESCENDS-A-MARKED-ACCOUNT-NODE-AFTER-A-CRASH` pins
+  that across a crash.
 
 The snap/1 server used to be a fourth: it called `MPT-PERSIST` on the account
 trie it was about to serve, with no storage tries and no code, while live
