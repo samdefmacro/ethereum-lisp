@@ -814,6 +814,22 @@ characters, which covers the one-line and two-line spellings the tree uses."
             (push found sites)))
         (setf start (1+ found))))))
 
+(defun snap-closure-mpt-persist-call-sites (text)
+  "Return the offsets in TEXT where MPT-PERSIST is called, not defined.
+
+A call is the name directly after an open parenthesis or a package marker, so
+both (mpt-persist ...) and (ethereum-lisp.trie:mpt-persist ...) count while
+(defun mpt-persist ...) does not."
+  (let ((sites '())
+        (start 0))
+    (loop
+      (let ((found (search "mpt-persist " text :start2 start)))
+        (unless found (return (nreverse sites)))
+        (when (and (plusp found)
+                   (member (char text (1- found)) '(#\( #\:)))
+          (push found sites))
+        (setf start (1+ found))))))
+
 (deftest snap-account-trie-node-writers-are-all-classified
   (:layer :unit :module :p2p)
   ;; Under a presence-based account rule, every writer of an account-path
@@ -827,11 +843,16 @@ characters, which covers the one-line and two-line spellings the tree uses."
   ;;     One atomic batch holding MPT-DIRTY-NODES, which is documented as
   ;;     children before parents, for a trie that was fully materialized in
   ;;     memory first.  Its callers are the block/genesis state export (which
-  ;;     puts code into the same batch), the schema-v4 migration, and the
-  ;;     snap/1 SERVER, which persists the trie it is about to serve.  Each
-  ;;     commits a complete state, so the subtree half of I1 holds; the
-  ;;     external half holds because a validly executed state already has its
-  ;;     code and storage.  A crash loses the whole batch.
+  ;;     puts every touched trie AND the code into the same batch) and the
+  ;;     schema-v4 migration.  Each commits a complete state, so the subtree
+  ;;     half of I1 holds; the external half holds because a validly executed
+  ;;     state already has its code and storage.  A crash loses the whole
+  ;;     batch.  The snap/1 SERVER is no longer a caller: it used to
+  ;;     MPT-PERSIST the account trie alone -- no storage tries, no code --
+  ;;     while live during our own sync, and now serves without writing
+  ;;     (SNAP-SERVER-SERVING-AN-INCOMPLETE-STATE-WRITES-NO-TRIE-NODE).
+  ;;     MPT-PERSIST itself has no caller left in src/; a new one is a new
+  ;;     writer and must be classified here.
   ;;
   ;;   src/networking/snap-sync/client.lisp
   ;;   SNAP-SYNC-POPULATE-VERIFIED-TRIE-RECORDS-BATCH
@@ -839,12 +860,15 @@ characters, which covers the one-line and two-line spellings the tree uses."
   (let ((expected
           (list "src/foundation/trie/persistence.lisp"
                 "src/networking/snap-sync/client.lisp"))
-        (found '()))
+        (found '())
+        (persist-callers '()))
     (dolist (path (snap-closure-source-paths))
       (let ((text
               (with-open-file (stream path :external-format :utf-8)
                 (let ((buffer (make-string (file-length stream))))
                   (subseq buffer 0 (read-sequence buffer stream))))))
+        (when (snap-closure-mpt-persist-call-sites text)
+          (push (namestring path) persist-callers))
         (when (snap-closure-trie-node-put-sites text)
           (let* ((namestring (namestring path))
                  (marker (search "/src/" namestring)))
@@ -859,7 +883,145 @@ characters, which covers the one-line and two-line spellings the tree uses."
          "(kv-batch-put-chain-record batch :trie-node hash encoded)"))
     (is (null (snap-closure-trie-node-put-sites
                "(kv-batch-put-chain-record batch :metadata key value)")))
-    (is (equal expected found))))
+    (is (equal expected found))
+    ;; MPT-PERSIST writes one trie's dirty nodes with no code and no other
+    ;; trie, so any caller of it is an unclassified account-node writer.
+    (is (snap-closure-mpt-persist-call-sites "(mpt-persist database trie)"))
+    (is (null (snap-closure-mpt-persist-call-sites
+               "(defun mpt-persist (database trie)")))
+    (is (null persist-callers))))
+
+;;; ------------------------------------------------------------------
+;;; The snap/1 server reads; it never writes the state it serves
+;;; ------------------------------------------------------------------
+
+(defun snap-closure-serve-every-request-kind
+    (backend root code-hashes storage-account)
+  "Issue one request of each snap/1 kind for ROOT and return the answers.
+
+The result is a plist of the served item counts, so a caller can prove that the
+requests were really answered rather than refused as unavailable."
+  (let* ((accounts
+           (snap-test-call-backend
+            backend ethereum-lisp.snap:+snap-message-get-account-range+
+            (ethereum-lisp.snap:make-snap-get-account-range
+             21 root (make-byte-vector 32)
+             (make-array 32 :element-type '(unsigned-byte 8)
+                            :initial-element 255)
+             (* 1024 1024))))
+         (storage
+           (snap-test-call-backend
+            backend ethereum-lisp.snap:+snap-message-get-storage-ranges+
+            (ethereum-lisp.snap:make-snap-get-storage-ranges
+             22 root (list storage-account) #() #() (* 1024 1024))))
+         (codes
+           (snap-test-call-backend
+            backend ethereum-lisp.snap:+snap-message-get-bytecodes+
+            (ethereum-lisp.snap:make-snap-get-bytecodes
+             23 code-hashes (* 1024 1024))))
+         (nodes
+           (snap-test-call-backend
+            backend ethereum-lisp.snap:+snap-message-get-trie-nodes+
+            (ethereum-lisp.snap:make-snap-get-trie-nodes
+             24 root
+             (list (list #(0))
+                   (list storage-account #(0)))
+             (* 1024 1024)))))
+    (list :accounts
+          (length (ethereum-lisp.snap:snap-account-range-accounts accounts))
+          :slots
+          (length
+           (first (ethereum-lisp.snap:snap-storage-ranges-slots storage)))
+          :codes (length (ethereum-lisp.snap:snap-bytecodes-codes codes))
+          :nodes
+          (count-if #'plusp
+                    (ethereum-lisp.snap:snap-trie-nodes-nodes nodes)
+                    :key #'length))))
+
+(deftest snap-server-serving-an-incomplete-state-writes-no-trie-node
+  (:layer :unit :module :p2p)
+  ;; The snap/1 server used to call MPT-PERSIST on the ACCOUNT trie it was
+  ;; about to serve: one batch of that trie's dirty nodes, with neither the
+  ;; storage tries nor the code its leaves name.  Under I1 such a record claims
+  ;; that everything below and everything it names is durable, and the server
+  ;; is live while we are ourselves syncing into the same store.  A server
+  ;; reads; geth's handlers open the root read-only and answer empty when it
+  ;; is absent (eth/protocols/snap/handlers.go at
+  ;; 38271784c2b31926563806da9a2e023b88f5e7a8).
+  ;;
+  ;; The served state here lives only in memory: its code and storage were
+  ;; never made durable in DATABASE, which is exactly the incomplete state a
+  ;; persisted account node must not stand above.
+  ;;
+  ;; RED control, recorded in docs/evidence/sec5-snap-server-closure.txt: on
+  ;; the previous server this test fails -- the audit inspects the account
+  ;; nodes the server wrote and reports their missing code and storage, and the
+  ;; root is present in the store.
+  (multiple-value-bind (state addresses wide) (snap-closure-dependency-fixture)
+    (declare (ignore addresses))
+    (let* ((root (hash32-bytes (state-db-root state)))
+           ;; Read the fixture's records BEFORE serving: the old writer also
+           ;; marked the served trie's nodes clean, which would empty this list.
+           (tries (state-db-persistence-tries state))
+           (account-records (mpt-dirty-node-records (first tries)))
+           (storage-hashes
+             (loop for trie in (rest tries)
+                   append (mapcar #'car (mpt-dirty-node-records trie))))
+           (node-map (snap-closure-account-node-map account-records))
+           (code-hashes
+             (loop for value
+                     in (snap-closure-walk-account-subtree node-map root)
+                   for account = (ethereum-lisp.state:decode-state-account-rlp
+                                  value)
+                   unless (hash32= (state-account-code-hash account)
+                                   +empty-code-hash+)
+                     collect (hash32-bytes (state-account-code-hash account))))
+           (storage-account (keccak-256 (address-bytes wide)))
+           (database (make-memory-key-value-database))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              database state))
+           (served nil)
+           (audit
+             (snap-closure-audit-batches
+              database account-records
+              (lambda ()
+                (setf served
+                      (snap-closure-serve-every-request-kind
+                       backend root code-hashes storage-account))))))
+      ;; The requests were answered from the state, not refused as unknown.
+      (is (plusp (getf served :accounts)))
+      (is (plusp (getf served :slots)))
+      (is (plusp (getf served :codes)))
+      (is (= 2 (getf served :nodes)))
+      (is (plusp (length code-hashes)))
+      (is (plusp (length storage-hashes)))
+      ;; Nothing was written: no account node, no storage node.
+      (is (zerop (getf audit :inspected)))
+      (is (null (getf audit :violations)))
+      (is (notany (lambda (record)
+                    (nth-value 1 (trie-node-store-get database (car record))))
+                  account-records))
+      (is (notany (lambda (hash)
+                    (nth-value 1 (trie-node-store-get database hash)))
+                  storage-hashes))
+      (is (null (snap-closure-store-violations database node-map)))
+      ;; Positive control for the two absence checks: the old writer's exact
+      ;; write -- the account trie alone -- is caught by both of them.
+      (let* ((control (make-memory-key-value-database))
+             (control-audit
+               (snap-closure-audit-batches
+                control account-records
+                (lambda ()
+                  (let ((batch (make-kv-write-batch)))
+                    (dolist (record account-records)
+                      (ethereum-lisp.database:kv-batch-put-chain-record
+                       batch :trie-node (car record) (cdr record)))
+                    (kv-apply-batch control batch))))))
+        (is (plusp (getf control-audit :inspected)))
+        (is (getf control-audit :violations))
+        (is (nth-value 1 (trie-node-store-get control root)))
+        (is (snap-closure-store-violations control node-map))))))
 
 ;;; ------------------------------------------------------------------
 ;;; Crash injection at the two batch seams
