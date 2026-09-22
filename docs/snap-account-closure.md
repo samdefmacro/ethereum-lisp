@@ -99,11 +99,16 @@ Absence from the page's deferred-storage list is *not* accepted as evidence.
 Completed partition cursors prove authenticated key-space coverage, not that
 every node was materialized; this codebase already says so at the two sites
 that demand the root proof (`SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P` and
-`SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN`), and only a complete single-response
-group or the healer's post-order sentinel publishes one. A chunked contract
-therefore stays open until the healer publishes its root, which is geth
-clearing `needHeal` only when the reassembled root both matches and is present
-(`sync.go:2272-2282`).
+`SNAP-SYNC-PROMOTE-COMPLETE-RANGE-PLAN`). Three sites publish one: a complete
+single-response group; `SNAP-SYNC-PUBLISH-STORAGE-ROOT-CLOSURE`, once a chunked
+contract's sixteen cursors have all completed, tile the keyspace, and a walk
+from its root down to the range-derived `:storage` subtree proofs finds every
+node present and hash-correct; and the healer's post-order sentinel. A chunked
+contract therefore stays open until its whole root is proved present, which is
+geth clearing `needHeal` only when the reassembled root both matches and is
+present (`sync.go:2272-2282`). The closure step runs before the owning account
+page resumes, so on the production path a chunked contract's account leaf is
+normally closed when its page completes (`docs/evidence/sec5-marker-population.txt`).
 
 ## 4. Why the ordering holds
 

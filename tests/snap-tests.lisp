@@ -1919,15 +1919,22 @@ datadir upgraded from that earlier epoch.  Returns DATABASE."
       ;; cursor. The final closure walk should need only a small boundary
       ;; repair, never the account trie or a full storage scan.
       (is (< trie-node-requests 16))
-      ;; Epoch seven: the one account owes chunked storage when its page is
-      ;; written, so the closed writer withholds its leaf -- here the whole
-      ;; account trie -- and the store gets no dependency plan to seed healing
-      ;; from, because the plan exists only to reconstruct account closure
-      ;; after the fact. Healing therefore starts at the account root: a
-      ;; one-item path set proves it fetched the node the writer withheld.
-      ;; The plan-seeded start that a legacy store still takes is pinned by
-      ;; the epoch-six arms of SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION.
-      (is saw-account-heal-path-p)
+      ;; Epoch seven: the one account owns chunked storage. Its last cursor
+      ;; completes before its page resumes, and the partitioned-storage
+      ;; closure step publishes the whole-root proof then, so the closed
+      ;; writer finds the storage durable and persists the leaf -- here the
+      ;; whole account trie. Healing therefore never asks for an account
+      ;; path and fetches nothing. The store still gets no dependency plan,
+      ;; which exists only to reconstruct account closure after the fact.
+      ;; With the closure step stubbed out the writer withholds the leaf and
+      ;; healing starts by fetching the account root through a one-item path
+      ;; set (docs/evidence/sec5-marker-population.txt). The plan-seeded start
+      ;; that a legacy store still takes is pinned by the epoch-six arms of
+      ;; SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION.
+      (is (not saw-account-heal-path-p))
+      (is (zerop trie-node-requests))
+      (is (nth-value 1 (ethereum-lisp.trie:trie-node-store-get
+                        target-database (hash32-bytes root))))
       (is (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
            target-database))
       (is (not (ethereum-lisp.snap-sync::snap-sync-deferred-storage-plan-present-p
@@ -6405,10 +6412,17 @@ count assertion instead of hanging the run."
               ;; The first post-rebase generation must still fetch what the
               ;; closed writer withheld -- the spine, the page boundaries and
               ;; the range-straddling regions of twenty pages proved under a
-              ;; different root -- so it is cheaper than epoch six but not yet
-              ;; at the control arm's order: 197 decoded, 64 fetched.
-              (is (= 197 (getf closed :processed)))
-              (is (= 64 (getf closed :fetched)))
+              ;; different root -- and now decodes nothing else: 59 decoded,
+              ;; all 59 fetched.  Before the partitioned-storage closure step
+              ;; it decoded 197 and fetched 64: the three byte-capped
+              ;; contracts' partition pages left 133 present, closed nodes
+              ;; marked at heal entry, and without their root proofs the
+              ;; contracts' account leaves stayed open.  With the step stubbed
+              ;; out this arm returns to exactly 197 and 64
+              ;; (docs/evidence/sec5-marker-population.txt).
+              (is (= 59 (getf closed :processed)))
+              (is (= 59 (getf closed :fetched)))
+              (is (= (getf closed :processed) (getf closed :fetched)))
               (is (< (getf closed :processed) (getf reproduction :processed)))
               ;; THE TARGET.  From the second generation on, a mid-range rebase
               ;; costs what a clean one does: the reproduction arm's walk falls

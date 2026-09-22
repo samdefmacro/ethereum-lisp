@@ -459,8 +459,10 @@ persisted=~D withheld=~D~%"
   (:layer :unit :module :p2p)
   ;; geth clears needHeal for a chunked contract only when the reassembled root
   ;; both matches and is present on disk (sync.go:2272-2282).  Our equivalent
-  ;; evidence is the whole-root closure proof, which only a complete
-  ;; single-response group or the healer's post-order sentinel publishes.
+  ;; evidence is the whole-root closure proof, which a complete single-response
+  ;; group, the closure step after a chunked contract's last cursor, or the
+  ;; healer's post-order sentinel publishes.  This page is completed without
+  ;; filling the chunked contract, so no closure step has run for it.
   ;; Completed partition cursors are NOT closure -- this file says so at
   ;; SNAP-SYNC-RANGE-PLAN-FULLY-DURABLE-P -- so a predicate that reads the
   ;; deferred-storage list instead of the proof would pass this test's control

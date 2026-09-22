@@ -1,0 +1,246 @@
+Section 5 marker population: where the healer's stale markers come from
+
+Status
+
+Measured and fixed locally. On a fresh epoch-seven store every incomplete
+marker that survives the range phase is written by a StorageRanges partition
+of a byte-capped contract, and every one is stale. The range phase now
+publishes a chunked trie's whole-root proof and clears those markers when its
+last cursor completes and completeness is provable. No live run.
+
+Revision
+
+Branch marker-population, on 75b0b7a7.
+  24b42bdb  tests: attribute every snap incomplete marker to the site that
+            wrote it
+  c8501639  snap: close a partitioned storage trie when its last cursor
+            completes
+  5d635dfa  tests: a byte-capped contract's account is closed before healing
+            starts
+  (followed by the docs commit carrying this file)
+
+Question
+
+Live Hoodi, revision 75b0b7a7, fresh datadir, closure epoch seven: after the
+range phase the healer reported knownIncompleteNodes 372,561 against
+processedNodes 366,592 and fetchedNodes 28,665. Every account page logged
+incompleteNodes=0, so the account-page creator found by
+sec5-heal-stale-marker-trace.txt is gone. What marks ~340,000 present nodes?
+
+Method
+
+tests/snap-marker-population-tests.lisp wraps every site that can write a
+marker and binds the site name for its thread: the first byte-capped storage
+page (SNAP-SYNC-POPULATE-VERIFIED-STORAGE-GROUP, partial arm), a whole
+single-response group (same function, complete arm), a partition page
+(SNAP-SYNC-BUILD-STORAGE-PAGE-BATCH, both importers), the legacy account
+prebuffer (SNAP-SYNC-PREPARE-ACCOUNT-PAGE-RANGE), the account page
+(SNAP-SYNC-BUFFER-ACCOUNT-PAGE-CONTENT), the healer (%SNAP-SYNC-HEAL-STATE) and
+the new closure step. SNAP-SYNC-POPULATE-INCOMPLETE-NODE-BATCH and
+SNAP-SYNC-DELETE-INCOMPLETE-NODE-BATCH count puts and deletes per site and
+remember each marked hash's last writer. At SNAP-SYNC-HEAL-STATE entry the
+durable marker set is read and each marker is judged against the store as it
+stands then: STALE when the node and its whole trie-node closure are present,
+GENUINE when anything beneath it is absent. The owning trie is read off the
+completed store; :CURSOR-SET means a StorageRanges cursor set exists for that
+exact root.
+
+Fixture: 300 accounts, every fifth a contract with code and one to six slots
+(answered whole by one response), plus two contracts of 2,500 slots that the
+byte cap partitions. Byte limit 30,000 (8,000 for the rebase arms, so the
+account range has pages to rebase between). Production publication depths
+(four and five nibbles). Fresh memory store, so the closed account writer and
+the account presence skip are on.
+
+Table: markers at heal entry, closure step disabled (the range phase at
+75b0b7a7)
+
+  arm                                created           surviving   verdict
+  (a) whole single-response groups   0                 0           -
+  (b) byte-capped, single source     first page 1,162  1,153       all stale
+                                     partitions 3,138  3,112       all stale
+  (c) byte-capped, multi source      first page 1,309  1,300       all stale
+      (SNAP-SYNC-IMPORT-STATE-MULTI) partitions 2,991  2,965       all stale
+  (d) mid-range rebase after 3 of    first page   320  311         all stale
+      the account pages, one big     partitions 4,072  3,964       all stale
+      contract's root moved          (4 of these sit on the pre-rebase
+                                     root's changed path, unreachable now)
+  account page / prebuffer           0                 0           -
+  healer (fetched nodes)             8 / 21 / 31       0 at the end
+
+In (d) 2,143 of the survivors belong to the moved contract's NEW root: its
+content arrived under the old root's cursor set and is shared by content
+address, so nothing under the new root ever named it complete.
+
+Every survivor at heal entry, in all four arms, is a stale storage-partition
+marker. None is genuine, none is on the account side.
+
+Why they survive
+
+A partition page marks every record not inside a subtree it proves whole
+(SNAP-SYNC-INCOMPLETE-RECORD-HASHES over MPT-PROVED-RANGE-SUBTREES), and that
+proof is only ever issued for subtrees whose pointer path is at least four
+nibbles deep. So the top four levels of every chunked trie are always marked,
+and for a trie of a few thousand slots, whose leaves sit at depth three or
+four, nearly all of it is. The page that wrote a spine node cannot clear it,
+because the node straddles the page; no later page names it complete, because
+it straddles that page too. Nothing else on the range path deletes a storage
+marker. The healer then processes every one (present and marked is never
+skipped), which is the live walk: at 215 nodes/s, hours.
+
+Decision per site
+
+  first byte-capped page, partition pages: stale markers on complete content,
+    the spine above proved subtrees. Completeness is provable at write time,
+    so the range phase now closes the trie (below).
+  whole single-response group: writes no marker, publishes the root proof.
+    Unchanged.
+  account prebuffer and account page: write markers only for a legacy store.
+    Unchanged; the account-side rules were not touched.
+  healer fetched-node flush: genuine until the node's post-order sentinel,
+    because its children may be absent. Unchanged.
+  mid-range rebase: carries no marker of its own. A root that moves before its
+    cursor set completes never gets the step (markers stay, fail-closed); the
+    new root's cursor set downloads it again and its closure walk clears the
+    shared nodes' markers, each after verifying that node's closure.
+
+geth's rule (eth/protocols/snap/sync.go:2272-2282 at
+38271784c2b31926563806da9a2e023b88f5e7a8, v1.17.6-unstable): when every
+storage subtask of a chunked contract is done, needHeal is cleared only if the
+reassembled root matches and is present. The local equivalent follows.
+
+The change
+
+SNAP-SYNC-PUBLISH-STORAGE-ROOT-CLOSURE, called by SNAP-SYNC-FILL-STORAGE-ROOT
+(now a wrapper over the renamed %SNAP-SYNC-FILL-STORAGE-ROOT-RANGES) after the
+cursors complete, and by SNAP-SYNC-MULTI-FILL-STORAGE-ROOT before a waiter
+returns to its account page. It publishes the :STORAGE-ROOT proof and deletes
+the markers of the nodes it walked, in one buffered batch, only when:
+
+  - the store is under the current closure contract (a legacy store returns
+    :LEGACY-STORE and keeps its behaviour);
+  - all sixteen cursors of the set keyed by (account, STORAGE-ROOT) are
+    completed and their ranges tile [0, 2^256-1]; a set is keyed by its storage
+    root and every page is verified against that key, so there is no second
+    root to mix in;
+  - a walk from STORAGE-ROOT, stopping only at this client's own :STORAGE
+    subtree proofs, finds every node present and matching its hash, and every
+    storage leaf within the uint256 ceiling. Marker absence is not trusted by
+    the walk: an unmarked node is descended like a marked one.
+
+Content addressing makes the walk the proof that matters: a node written under
+another root or another trie is used only because its hash is the one this
+root names, and nodes are never deleted from the table. Any refusal writes
+nothing. The walk is bounded by *SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES*
+(1,048,576); past it the step refuses and the healer walks the trie as before.
+
+A consequence on the account side, through the unchanged predicate
+
+The closed account writer already treats a storage root as closed iff its
+:STORAGE-ROOT proof is durable. Because the multi-source waiter publishes it
+before returning to the account page, a chunked contract's account leaf is
+now normally closed when its page completes, and its path is written instead
+of withheld. The ordering is the existing one: the proof batch is buffered
+after the completing storage batch and before the account batch on the same
+WAL, and the account cursor's synchronous apply fsyncs the prefix.
+
+Table: the same arms with the step on
+
+  arm              at heal entry   healer marked walk   healer processed
+  (b) single       4,265 -> 0      4,273 -> 2           4,273 -> 2
+  (c) multi        4,265 -> 0      (not asserted)       -> 17
+  (d) rebase       4,275 -> 0      4,306 -> 25          4,285 -> 21
+
+The closure step deleted exactly 4,265 markers in (b), the number RED leaves
+behind. No published whole-root proof names a trie with an absent node at heal
+entry in any arm (audited over every :STORAGE-ROOT proof in the store).
+
+Pinned tests that moved, each keeping its old number as a RED or control
+
+  SNAP-MID-RANGE-REBASE-ZEROES-RANGE-PLAN-PROMOTION, epoch-seven reproduction
+    arm, first post-rebase generation: 197 decoded / 64 fetched -> 59 / 59. It
+    now decodes only what it fetches. With the step stubbed out it returns to
+    exactly 197 and 64, and the 133 extra decoded nodes are the 133 stale
+    markers present at heal entry. The epoch-six arms (322, 28, 218 promoted,
+    70) and the second generation (21) are unchanged.
+  SNAP-CLOSED-ACCOUNT-WRITER-AT-PAGE-DENSITY-AND-AFTER-A-MID-RANGE-REBASE:
+    the no-rebase closed arm withheld 17 of 2,647 account nodes (3 open
+    chunked contracts plus spine) and now withholds 10, all page straddle,
+    with no open account; its healer processes 10 nodes where the closure-off
+    arm processes 111 (17 fetched). The new closure-off arm keeps 3 open
+    verdicts, 17 withheld and a positive withheld-open-storage count (10), so
+    the attribution control is kept.
+    Rebase subject: 64 expanded / 64 fetched -> 59 / 59, touched 366 -> 352;
+    the legacy arm is unchanged (257 expanded, 50 fetched, 417 touched).
+    docs/evidence/sec5-closure-density-measurement.txt predates this and its
+    closed-arm tables still show the chunked contracts open.
+  SNAP-STATE-IMPORT-FINISHES-BYTE-CAPPED-STORAGE-BEFORE-ACCOUNT-CURSOR: its one
+    account owns a 96-slot chunked trie. It asserted that healing fetched the
+    account root the writer withheld; now the root proof exists when the page
+    completes, the whole account trie is persisted, and healing makes zero
+    TrieNodes requests. With the step stubbed it fails at
+    (NOT SAW-ACCOUNT-HEAL-PATH-P), the old behaviour. This one went red in the
+    first cold-integration run on c8501639 (593 passed, 1 failed) and was
+    retargeted in 5d635dfa.
+  SNAP-CHUNKED-STORAGE-ACCOUNT-IS-EXCLUDED-FROM-THE-CLOSED-ACCOUNT-TRIE: its
+    page completes without filling the chunked contract, so no closure step
+    runs; unchanged, comment corrected.
+
+Tests added (tests/snap-marker-population-tests.lisp)
+
+  snap-storage-root-closure-refuses-without-full-coverage-under-one-root  unit
+  snap-partitioned-storage-closure-leaves-the-healer-no-stale-marker  integration
+
+RED controls
+
+  R1  Step stubbed out (the range phase as it stood): the integration test's
+      RED arms leave 4,265 and 4,275 markers at heal entry, every one a stale
+      partition marker of a chunked trie; the subject arms leave 0.
+  R2  Coverage gap: task 0 rewritten to start at hash 1, still completed.
+      :CURSORS-OPEN; marker count and proof unchanged. Completed flags alone
+      would have passed.
+  R3  Open cursor: task 0 rewritten with a next origin. :CURSORS-OPEN,
+      untouched.
+  R4  A partition whose content never became durable: every cursor completed,
+      one walked node deleted from the trie table. :MISSING-NODE, untouched.
+  R5  Partitions proved against a different root: the contract's root moved by
+      one slot and the completed cursor set carried to the new root.
+      :MISSING-NODE for the new root; neither root's proof written, markers
+      untouched.
+  R6  The closure oracle used to audit every published proof: a trie with one
+      node deleted is reported not closed.
+  R7  Mid-range, density and byte-capped retargets above: stubbing the step
+      restores 197/64, 17 withheld with 3 open verdicts, and the account-root
+      heal fetch.
+
+Verification of record
+
+On 5d635dfa (every code and test commit; the docs commit that follows
+touches this file only):
+
+cl-workbench validation run cold-unit
+  1424 tests passed, 3 skipped.   Exit 0.
+cl-workbench validation run cold-integration
+  594 tests passed, 9 skipped.    Exit 0.
+
+No compile warning under /workspace/src in either log. The two new tests are
+each present as "ok" by name (one unit, one integration), as are the four
+retargeted tests. The first cold-integration run, on c8501639, exited 1 with
+593 passed and 1 failed (the byte-capped retarget above), so each layer moved
+by exactly the one test added to it. No PAX transcript names the storage
+closure, so cold-docs is not implicated; no CLI or runtime path changed, so
+cold-e2e was not run.
+
+Not verified
+
+  No live run. The claim a Hoodi run has to test: knownIncompleteNodes near
+    zero at heal entry, the healer's processedNodes close to fetchedNodes, and
+    the account side withholding only page straddle.
+  The walk's cost on RocksDB for a real giant contract: bounded by the region
+    above the four-nibble depth plus page seams (tens of thousands of nodes),
+    measured only on the memory backend.
+  A crash between the completing storage batch and the closure batch: the
+    closure batch is separate and buffered, so a crash can only lose it and
+    leave the markers, which the healer walks as before. Not crash-injected.
+  The live distribution of chunked-trie sizes, so the 340,000 is attributed by
+    mechanism and order of magnitude, not reproduced count for count.
