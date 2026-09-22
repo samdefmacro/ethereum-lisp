@@ -1,0 +1,66 @@
+Section 5 exact linux/amd64 runtime artifact evidence
+
+Recorded at: 2026-09-23T00:40:00Z
+Branch: sec5-public-bootstrap-sync
+Revision: aac5f762e0fe8b0c171b44375c0d9cf695727b94
+Image: ethereum-lisp-runtime:sec5-aac5f762-amd64
+Local image ID:
+  sha256:a905d933b3347308196faa91f5a9f6e6110182dabefb7dac48242087fccbb59b
+Platform: linux/amd64
+OCI revision label: aac5f762e0fe8b0c171b44375c0d9cf695727b94
+Local image size: 72075006 bytes
+
+Revision under test
+
+aac5f762 supersedes the cceee42f image (sec5-cceee42f-amd64-runtime.txt) by
+one commit: the storage root closure step looks up a walked trie's incomplete
+markers in +KV-GET-MANY-MAX-KEYS+ groups instead of one native multi-get,
+which failed every page carrying a chunked contract wider than 4,096 nodes on
+the live chain (sec5-cceee42f-hoodi-run.txt). Nothing else in src/ changed.
+
+Exact-revision gates
+
+cl-workbench validation run cold-all on aac5f762, exit 0, no `not ok` line,
+no compile warning under /workspace/src (log kept in the session scratchpad
+as final3-cold-all.log):
+
+  1428 tests passed, 3 skipped.   (unit)
+  595 tests passed, 9 skipped.    (integration)
+  33 tests passed.                (e2e)
+  36 tests passed.                (e2e)
+
+Against the cceee42f record (1427 / 595 / 33 / 36): +1 unit, the regression
+SNAP-STORAGE-ROOT-CLOSURE-PUBLISHES-A-TRIE-WIDER-THAN-ONE-MULTI-GET, whose RED
+control against the cceee42f publisher is recorded in the commit message.
+
+Build and revision fence
+
+The checkout was on the branch at aac5f762 and clean before the build, and
+remained clean through build, export and smoke:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-aac5f762-amd64
+  scripts/dev.sh runtime-export ethereum-lisp-runtime:sec5-aac5f762-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-aac5f762-amd64.tar
+
+Exported artifact
+
+  /private/tmp/ethereum-lisp-runtime-sec5-aac5f762-amd64.tar
+  72100352 bytes
+  sha256 132c9b023d3ded01801be1ec40c81dd560939f0ea929a2ecc6a2efd05c3ae5ab
+
+Runtime smoke
+
+cl-workbench validation run runtime-smoke ethereum-lisp-runtime:sec5-aac5f762-amd64
+passed seven of seven, exit 0:
+
+  ok - --hoodi built its genesis from the packaged allocation
+  ok - eth_chainId = 0x539
+  ok - web3_clientVersion = {"jsonrpc":"2.0","id":1,"result":"ethereum-lisp/0.1.0/CL/0xaac5f762"}
+  ok - unauthenticated engine_exchangeCapabilities rejected with 401
+  ok - authenticated engine_exchangeCapabilities answered
+  ok - engine_getClientVersionV1 identifies aac5f762e0fe8b0c171b44375c0d9cf695727b94 as 0xaac5f762
+  ok - eth_syncing on the Engine port answered
+  PASS: runtime image ethereum-lisp-runtime:sec5-aac5f762-amd64 serves public RPC and an authenticated Engine API
+
+The live run itself is recorded separately.
