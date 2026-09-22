@@ -196,6 +196,10 @@ Opening configures the process-wide default Env (INCREASE-PARALLELISM sizes its
 pools), and releasing those pools must not interleave with an open that is
 about to rely on them.")
 
+(defvar *rocksdb-ever-opened-p* nil
+  "True once this process has opened a RocksDB database, and so has created and
+sized the default Env's background pools.")
+
 (defvar *rocksdb-open-database-count* 0
   "RocksDB databases this process has opened and not yet closed, under
 *ROCKSDB-LIFECYCLE-LOCK*. The shared background pools may be released only
@@ -434,6 +438,7 @@ pools, so it must not interleave with a release that empties them."
             path
             :create-if-missing-p create-if-missing-p
             :async-read-io-p async-read-io-p)
+      (setf *rocksdb-ever-opened-p* t)
       (incf *rocksdb-open-database-count*))))
 
 (define-condition rocksdb-database-closed-error (error)
@@ -563,7 +568,9 @@ The pinned thread pool names each worker it starts with pthread_setname_np
   "Empty the default Env's background pools when no database is open.
 
 Return :RELEASED, :OPEN when a database is still open (nothing is changed),
-or NIL when the library was never loaded (there are no pools).
+or NIL when this process never opened a database. The last case matters: the
+default Env is created lazily, and creating it only to empty it would register
+the very exit-time static this exists to leave idle.
 
 Why this exists. The pools are Env::Default()'s, not the database's, so
 closing every database leaves their threads parked. At exit(3) the static
@@ -577,7 +584,7 @@ runs under *ROCKSDB-LIFECYCLE-LOCK* and only at a zero open count.
 
 The workers exit asynchronously. Where thread names are visible this waits up
 to WAIT-SECONDS for the last \"rocksdb:*\" thread to go."
-  (unless *rocksdb-library-loaded-p*
+  (unless *rocksdb-ever-opened-p*
     (return-from release-rocksdb-background-threads nil))
   (progn
     (sb-thread:with-recursive-lock (*rocksdb-lifecycle-lock*)
