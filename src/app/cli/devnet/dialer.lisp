@@ -2118,6 +2118,12 @@ must prove the new state root before either record can authorize publication."
                   "knownIncompleteNodes"
                   (ethereum-lisp.snap-sync:snap-sync-heal-progress-known-incomplete-nodes
                    heal-progress)
+                  "localReadBatches"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-local-read-batches
+                   heal-progress)
+                  "localReadWorks"
+                  (ethereum-lisp.snap-sync:snap-sync-heal-progress-local-read-works
+                   heal-progress)
                   "dynamicUsageBytes" dynamic-usage
                   "bytesConsed" bytes-consed
                   "gcRunMs" gc-run-ms

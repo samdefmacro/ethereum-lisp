@@ -296,6 +296,18 @@ An account-subtree proof can replace its popped candidate with sixty-four
 storage dependencies, for a net increase of sixty-three works. That dominates
 the seventeen-work net increase from a sixteen-child branch carrying both
 subtree and node-completion sentinels.")
+(defconstant +snap-sync-heal-live-overflow-read-width+
+  (floor +snap-sync-heal-checkpoint-max-works+
+         +snap-sync-heal-max-net-expansion-per-work+)
+  "Local read width kept while the live frontier is at or near its bound.
+
+Above +SNAP-SYNC-HEAL-LIVE-FRONTIER-MAX-WORKS+ the expansion room is zero, and
+shrinking the batch to one work does not restore the bound: blocked post-order
+sentinels, not batch width, are what the frontier accumulates while any
+missing work is pending, and a single work can still add sixty-three.  Width
+one only made every node pay its own healed-subtree, dependency and trie-node
+MultiGets serially.  This width caps one batch's worst-case overshoot at one
+durable checkpoint's worth of works (8,190) instead.")
 (defparameter *snap-sync-heal-pipeline-refill-work-quantum* 4096
   "Maximum local works examined by one live-pipeline refill.
 
@@ -432,6 +444,7 @@ state completion.")
                       response-bytes promoted-subtrees skipped-subtrees
                       frontier-works deferred-storage-works remote-works
                       known-incomplete-nodes
+                      local-read-batches local-read-works
                       completed-p)))
   "One cumulative, observational snapshot of final TrieNodes healing.
 
@@ -445,7 +458,9 @@ current healer invocation. FRONTIER-WORKS is the currently discovered local,
 deferred-storage, and remote work; it can grow as decoded nodes reveal children
 and therefore is not a remaining-work denominator. KNOWN-INCOMPLETE-NODES is
 the conservative durable-marker population and may include content from an
-older pivot that the current root never reaches. These counters are
+older pivot that the current root never reaches. LOCAL-READ-BATCHES counts
+ordered local trie-node reads and LOCAL-READ-WORKS the works they carried, so
+their ratio is the mean local read width. These counters are
 observational and not consensus-visible."
   (processed-nodes 0)
   (reused-nodes 0)
@@ -458,12 +473,15 @@ observational and not consensus-visible."
   (deferred-storage-works 0)
   (remote-works 0)
   (known-incomplete-nodes 0)
+  (local-read-batches 0)
+  (local-read-works 0)
   (completed-p nil))
 
 (defun snap-sync-report-heal-progress
     (callback processed-nodes reused-nodes fetched-nodes request-count
      response-bytes promoted-subtrees skipped-subtrees frontier-works
-     deferred-storage-works remote-works known-incomplete-nodes completed-p)
+     deferred-storage-works remote-works known-incomplete-nodes completed-p
+     &key (local-read-batches 0) (local-read-works 0))
   (when callback
     (funcall
      callback
@@ -479,6 +497,8 @@ observational and not consensus-visible."
       :deferred-storage-works deferred-storage-works
       :remote-works remote-works
       :known-incomplete-nodes known-incomplete-nodes
+      :local-read-batches local-read-batches
+      :local-read-works local-read-works
       :completed-p completed-p))))
 
 (defun snap-sync-require-hash32 (value label)
@@ -3197,6 +3217,79 @@ its bounded pivot tail will anchor the resumable import."
      :fetched-p (not (null fetched-p))
      :marker-state marker-state)))
 
+(defun snap-sync-node-hash-key-hash (key)
+  "Hash a trie-node reference for the healer's EQUALP node tables.
+
+Every key these tables hold is a 32-byte Keccak node hash, which is already
+uniformly distributed, so its first seven octets are a sufficient fixnum hash.
+SBCL's EQUALP hash walks all 32 elements generically and was a measurable
+share of the coordinator's per-node cost. The test stays EQUALP and two
+EQUALP octet vectors hash alike. A key that is not an octet vector falls back
+to the EQUALP hash, so it could miss an EQUALP octet key; every key the healer
+inserts is a reference already checked by SNAP-SYNC-HEAL-REFERENCE-P."
+  (if (and (byte-vector-p key) (>= (length key) 7))
+      (let ((hash 0))
+        (declare (type (unsigned-byte 56) hash) (type byte-vector key))
+        (dotimes (index 7 hash)
+          (setf hash (logior (ash hash 8) (aref key index)))))
+      #+sbcl (sb-int:psxhash key)
+      #-sbcl (sxhash key)))
+
+(defun snap-sync-node-hash-key= (left right)
+  (equalp left right))
+
+#+sbcl
+(sb-ext:define-hash-table-test
+    snap-sync-node-hash-key= snap-sync-node-hash-key-hash)
+
+(defun snap-sync-make-node-hash-table ()
+  "Return an EQUALP table for trie-node hash keys with a cheap hash."
+  #+sbcl (make-hash-table :test 'snap-sync-node-hash-key=)
+  #-sbcl (make-hash-table :test #'equalp))
+
+(defun snap-sync-heal-child-path (path index)
+  "Return PATH extended by the branch nibble INDEX as a fresh octet vector."
+  (let* ((path (ensure-byte-vector path))
+         (length (length path))
+         (child (make-byte-vector (1+ length))))
+    (declare (type byte-vector path child)
+             (type fixnum length))
+    (replace child path)
+    (setf (aref child length) index)
+    child))
+
+(defun snap-sync-heal-short-node-path (path compact)
+  "Return PATH extended by the hex-prefix path COMPACT, and whether it is a leaf.
+
+The nibbles are exactly those HEX-PREFIX-DECODE yields with any leaf terminator
+removed, decoded straight into one octet vector.  Going through the generic
+decoder built three intermediate simple-vectors per short node and handed a
+simple-vector path to every account leaf, which the key packer then converted
+back element by element.  COMPACT must be non-empty."
+  (let* ((path (ensure-byte-vector path))
+         (compact (ensure-byte-vector compact))
+         (flag (ash (aref compact 0) -4))
+         (odd-p (oddp flag))
+         (path-length (length path))
+         (result
+           (make-byte-vector
+            (+ path-length
+               (- (* 2 (length compact)) (if odd-p 1 2))))))
+    (declare (type byte-vector path compact result)
+             (type fixnum path-length))
+    (replace result path)
+    (let ((out path-length))
+      (declare (type fixnum out))
+      (when odd-p
+        (setf (aref result out) (logand (aref compact 0) #x0f))
+        (incf out))
+      (loop for index from 1 below (length compact)
+            for byte = (aref compact index)
+            do (setf (aref result out) (ash byte -4)
+                     (aref result (1+ out)) (logand byte #x0f))
+               (incf out 2)))
+    (values result (>= flag 2))))
+
 (defun snap-sync-copy-heal-work (work &key fetched-p)
   (snap-sync-make-heal-work
    (snap-sync-heal-work-kind work)
@@ -3346,7 +3439,8 @@ frontier concurrently."
           paths-per-source)))
 
 (defun snap-sync-heal-local-read-limit
-    (stack-count missing-count missing-limit checkpoint-room)
+    (stack-count missing-count missing-limit checkpoint-room
+     &optional (live-overflow-width +snap-sync-heal-live-overflow-read-width+))
   "Bound one local read batch by progress and worst-case trie expansion.
 
 Each popped external reference can expose either sixty-four account-subtree
@@ -3354,20 +3448,30 @@ storage dependencies, or sixteen children plus both completion sentinels. The
 former increases the frontier by sixty-three works and is the whole-class
 bound. Stay within the durable checkpoint bound throughout its normal
 soft-target region, and use the separate live bound for a larger resumed
-frontier so remote batching does not collapse at 8,192 works."
+frontier so remote batching does not collapse at 8,192 works.
+
+In the live region the width never falls below LIVE-OVERFLOW-WIDTH. A frontier
+already past the live bound has no expansion room, and the former floor of one
+turned a 909,342-work Hoodi frontier into one-node batches for the rest of the
+walk without shrinking it. The bounded pipeline refill passes one, because its
+own loop guard is what returns a saturated generation to the event loop."
   (unless (and (integerp stack-count) (not (minusp stack-count))
                (integerp missing-count) (not (minusp missing-count))
                (integerp missing-limit) (> missing-limit missing-count)
-               (integerp checkpoint-room) (plusp checkpoint-room))
+               (integerp checkpoint-room) (plusp checkpoint-room)
+               (integerp live-overflow-width)
+               (<= 1 live-overflow-width
+                   +snap-sync-heal-live-overflow-read-width+))
     (error "Invalid snap heal local read limits"))
-  (let* ((frontier-limit
+  (let* ((checkpoint-region-p
+           (<= stack-count +snap-sync-heal-checkpoint-frontier-target+))
+         (frontier-limit
            ;; Below the ordinary checkpoint target, retain enough room for the
            ;; next batch's worst-case expansion to stay immediately durable.
            ;; A restored or transiently larger frontier instead drains under
            ;; the separately bounded live limit; applying the checkpoint cap
            ;; there is the one-path/request failure this split prevents.
-           (if (<= stack-count
-                   +snap-sync-heal-checkpoint-frontier-target+)
+           (if checkpoint-region-p
                +snap-sync-heal-checkpoint-max-works+
                +snap-sync-heal-live-frontier-max-works+))
          (expansion-room
@@ -3377,7 +3481,8 @@ frontier so remote batching does not collapse at 8,192 works."
     (min +snap-sync-heal-local-reads-per-batch+
          (- missing-limit missing-count)
          checkpoint-room
-         (max 1 expansion-room))))
+         (max (if checkpoint-region-p 1 live-overflow-width)
+              expansion-room))))
 
 (defun snap-sync-heal-defer-dependencies-p
     (deferred-storage-count dependency-count)
@@ -4543,11 +4648,26 @@ the returned encoded, presence, and decoded vectors retain input order."
   (snap-sync-heal-chain-record-batch
    database :trie-node references :decoder decoder))
 
+(defun snap-sync-prefixed-hash-identifier (prefix reference)
+  "Return PREFIX followed by the 32-byte REFERENCE as one fresh octet vector.
+
+The healer builds several of these per visited node.  A generic CONCATENATE
+into a simple-vector, later converted element by element into octets by the
+key encoder, was a measurable share of the per-node walk cost."
+  (let* ((prefix (ensure-byte-vector prefix))
+         (prefix-length (length prefix))
+         (identifier (make-byte-vector (+ prefix-length 32))))
+    (declare (type byte-vector prefix identifier reference)
+             (type fixnum prefix-length))
+    (replace identifier prefix)
+    (replace identifier reference :start1 prefix-length)
+    identifier))
+
 (defun snap-sync-incomplete-node-identifier (reference)
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
     (error "Snap incomplete-node identifier requires a 32-byte node hash"))
-  (concatenate
-   'vector +snap-sync-incomplete-node-identifier-prefix+ reference))
+  (snap-sync-prefixed-hash-identifier
+   +snap-sync-incomplete-node-identifier-prefix+ reference))
 
 (defun snap-sync-populate-incomplete-node-batch (batch reference)
   (kv-batch-put-chain-record
@@ -4781,8 +4901,7 @@ snapshot. The fourth return value reports durable marker presence."
     (reference &optional (kind :account))
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
     (error "Snap healed-subtree identifier requires a 32-byte node hash"))
-  (concatenate
-   'vector
+  (snap-sync-prefixed-hash-identifier
    (ecase kind
      (:account +snap-sync-healed-subtree-identifier-prefix+)
      (:storage +snap-sync-healed-storage-subtree-identifier-prefix+)
@@ -4792,9 +4911,8 @@ snapshot. The fourth return value reports durable marker presence."
 (defun snap-sync-account-subtree-dependencies-identifier (reference)
   (unless (and (byte-vector-p reference) (= 32 (length reference)))
     (error "Snap account-subtree dependency proof requires a 32-byte hash"))
-  (concatenate
-   'vector +snap-sync-account-subtree-dependencies-identifier-prefix+
-   reference))
+  (snap-sync-prefixed-hash-identifier
+   +snap-sync-account-subtree-dependencies-identifier-prefix+ reference))
 
 (defun snap-sync-account-subtree-dependencies-value (dependencies)
   "Encode one bounded, non-empty account-subtree storage frontier."
@@ -6004,12 +6122,12 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; fetched nodes whose completion sentinel has not run. Loading the
            ;; complete durable namespace made every restart scan and allocate
            ;; once per retained node before useful healing could resume.
-           (incomplete-nodes (make-hash-table :test #'equalp))
+           (incomplete-nodes (snap-sync-make-node-hash-table))
            ;; A buffered marker delete is already authoritative to this
            ;; traversal even though RocksDB still exposes the old value until
            ;; the completion batch is applied. Keep that bounded override so
            ;; duplicate references cannot re-arm work in the interim.
-           (pending-complete-nodes (make-hash-table :test #'equalp))
+           (pending-complete-nodes (snap-sync-make-node-hash-table))
            (stack
              (cond
                (checkpoint-present-p
@@ -6051,7 +6169,7 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; Response nodes remain in this bounded decoded cache while their
            ;; writes accumulate to geth's 100-KiB batch threshold. No durable
            ;; frontier or subtree proof crosses that pending write prefix.
-           (fetched-node-cache (make-hash-table :test #'equalp))
+           (fetched-node-cache (snap-sync-make-node-hash-table))
            (pending-fetched-batch (make-kv-write-batch))
            (pending-fetched-bytes 0)
            (pending-fetched-count 0)
@@ -6089,6 +6207,10 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                  (snap-sync-heal-checkpoint-response-bytes checkpoint)
                  0))
            (skipped-subtrees 0)
+           ;; Observational only: the ordered local reads and the works they
+           ;; carried, whose ratio is the mean local read width.
+           (local-read-batches 0)
+           (local-read-works 0)
            (last-checkpoint-processed-nodes processed-nodes)
            ;; Geth-style feedback state. PENDING counts delivered top-level
            ;; nodes not yet integrated by PROCESS-OBJECT; RATE is nodes/second.
@@ -6159,7 +6281,9 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
               skipped-subtrees
               (+ stack-count deferred-storage-count remote-work-count)
               deferred-storage-count remote-work-count
-              (hash-table-count incomplete-nodes) nil)))
+              (hash-table-count incomplete-nodes) nil
+              :local-read-batches local-read-batches
+              :local-read-works local-read-works)))
          (record-processing-rate (started-at processed-before)
            (let ((fills (- processed-nodes processed-before)))
              (when (plusp fills)
@@ -6196,6 +6320,8 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                   (cached-references '())
                   (uncached-indices '())
                   (uncached-references '()))
+             (incf local-read-batches)
+             (incf local-read-works count)
              (dotimes (index count)
                (let ((reference (aref references index)))
                  (multiple-value-bind (object cached-p)
@@ -6478,10 +6604,15 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                 (let ((remaining items))
                   (dotimes (index 16)
                     (let ((reference (pop remaining)))
-                      (push-reference
-                       kind account-hash
-                       (concatenate 'vector path (vector index)) reference
-                       child-marker-state)))
+                      ;; PUSH-REFERENCE drops an empty child; decide that
+                      ;; before building its path, which most children of a
+                      ;; sparse branch never need.
+                      (unless (and (byte-vector-p reference)
+                                   (zerop (length reference)))
+                        (push-reference
+                         kind account-hash
+                         (snap-sync-heal-child-path path index) reference
+                         child-marker-state))))
                   (let ((value (first remaining)))
                     (when (and (byte-vector-p value) (plusp (length value)))
                       (process-value work path value)))))
@@ -6491,23 +6622,15 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                   (unless (and (byte-vector-p path-field)
                                (plusp (length path-field)))
                     (error "Snap healed trie short path is malformed"))
-                  (multiple-value-bind (segment leaf-p)
-                      (ethereum-lisp.trie.encoding:hex-prefix-decode path-field)
-                    (let* ((segment
-                             (if (and leaf-p
-                                      (ethereum-lisp.trie.encoding:has-terminator-p
-                                       segment))
-                                 (subseq segment 0 (1- (length segment)))
-                                 segment))
-                           (next-path
-                             (concatenate 'vector path segment)))
-                      (when (> (length next-path) 64)
-                        (error "Snap healed trie path exceeds 32 bytes"))
-                      (if leaf-p
-                          (process-value work next-path reference)
-                          (push-reference
-                           kind account-hash next-path reference
-                           child-marker-state))))))
+                  (multiple-value-bind (next-path leaf-p)
+                      (snap-sync-heal-short-node-path path path-field)
+                    (when (> (length next-path) 64)
+                      (error "Snap healed trie path exceeds 32 bytes"))
+                    (if leaf-p
+                        (process-value work next-path reference)
+                        (push-reference
+                         kind account-hash next-path reference
+                         child-marker-state)))))
                (otherwise
                 (error "Snap healing response has invalid trie node arity"))))
            ;; Report only after this node has exposed every immediate child and
@@ -6634,7 +6757,10 @@ for more missing hashes."
                              (snap-sync-heal-local-read-limit
                               (+ stack-count deferred-storage-count
                                  remote-work-count missing-count)
-                              missing-count missing-limit checkpoint-room)
+                              missing-count missing-limit checkpoint-room
+                              (if bounded-refill-p
+                                  1
+                                  +snap-sync-heal-live-overflow-read-width+))
                              (if bounded-refill-p
                                  (max
                                   1
@@ -6951,7 +7077,9 @@ for more missing hashes."
                                 remaining-remote-work-count)
                              deferred-storage-count
                              remaining-remote-work-count
-                             (hash-table-count incomplete-nodes) nil))
+                             (hash-table-count incomplete-nodes) nil
+                             :local-read-batches local-read-batches
+                             :local-read-works local-read-works))
                           (values (nreverse unmatched) nil fills))
                       (ethereum-lisp.validation:storage-error (condition)
                         (error condition))
@@ -7257,7 +7385,9 @@ for more missing hashes."
       (snap-sync-report-heal-progress
        on-heal-progress processed-nodes reused-nodes fetched-nodes
        request-count response-bytes promoted-subtrees skipped-subtrees
-       0 0 0 (hash-table-count incomplete-nodes) t)
+       0 0 0 (hash-table-count incomplete-nodes) t
+       :local-read-batches local-read-batches
+       :local-read-works local-read-works)
       completed))))))
 
 (defun snap-sync-heal-state
