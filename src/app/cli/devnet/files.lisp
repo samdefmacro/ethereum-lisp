@@ -400,8 +400,56 @@ the lock."
          (ethereum-lisp.database:make-rocksdb-key-value-database
           path :create-if-missing-p nil)))))
 
+(defun devnet-cli-close-kv-database-cache (cache &key (stream *error-output*))
+  "Close every distinct handle in CACHE exactly once, then release RocksDB's
+shared background pools. Return an alist of (cache-key . outcome).
+
+The entries stay in CACHE: a thread the shutdown failed to join that reaches
+for a handle afterwards must get the closed handle, which signals, rather than
+a miss, which would open a fresh one behind the shutdown's back.
+
+Each close is contained, so one failing handle cannot leave the others open,
+and a handle that could not be closed is reported on STREAM rather than
+silently left to the exit-time teardown."
+  (let ((entries '())
+        (outcomes '()))
+    (maphash (lambda (key database)
+               (unless (find database entries :key #'cdr :test #'eq)
+                 (push (cons key database) entries)))
+             cache)
+    (dolist (entry (nreverse entries))
+      (let ((outcome
+              (handler-case (ethereum-lisp.database:kv-close (cdr entry))
+                (error (condition)
+                  (ignore-errors
+                   (format stream "Devnet store ~A failed to close: ~A~%"
+                           (car entry) condition))
+                  :error))))
+        (when (eq outcome :busy)
+          (ignore-errors
+           (format stream
+                   "Devnet store ~A was still in use at shutdown; left open.~%"
+                   (car entry))))
+        (push (cons (car entry) outcome) outcomes)))
+    (handler-case (ethereum-lisp.database:release-rocksdb-background-threads)
+      (error (condition)
+        (ignore-errors
+         (format stream "RocksDB background pools were not released: ~A~%"
+                 condition))))
+    (nreverse outcomes)))
+
 (defun call-with-devnet-cli-kv-database-cache (thunk)
-  "Run THUNK with node-lifetime caching of open key-value database handles."
+  "Run THUNK with node-lifetime caching of open key-value database handles,
+and close every handle it opened when THUNK exits, normally or not.
+
+The close is the last thing the node does with its store. Every exit path of
+the serving node reaches it only after START-DEVNET-NODE's cleanup has joined
+(or, past its bounds, abandoned) every worker, and after the shutdown export
+and the devnet.shutdown event. SIGTERM and SIGINT only request shutdown from
+the signal handler; the close runs here, on the main thread, as the unwind of
+the ordinary return. A worker the shutdown abandoned is still safe: the RocksDB
+backend waits for callers already inside the handle and makes every later one
+signal (see CLOSE-ROCKSDB-KEY-VALUE-DATABASE)."
   (unless (functionp thunk)
     (error "Devnet key-value database cache thunk must be a function"))
   ;; Assigned rather than dynamically bound, for the reason spelled out in
@@ -409,11 +457,13 @@ the lock."
   ;; threads, and a LET binding is thread-local in SBCL, so those threads would
   ;; read the global NIL and silently reopen the log on every write. The
   ;; previous value is restored so callers stay scoped.
-  (let ((previous *devnet-cli-kv-database-cache*))
-    (setf *devnet-cli-kv-database-cache* (make-hash-table :test 'equal))
+  (let ((previous *devnet-cli-kv-database-cache*)
+        (cache (make-hash-table :test 'equal)))
+    (setf *devnet-cli-kv-database-cache* cache)
     (unwind-protect
          (funcall thunk)
-      (setf *devnet-cli-kv-database-cache* previous))))
+      (unwind-protect (devnet-cli-close-kv-database-cache cache)
+        (setf *devnet-cli-kv-database-cache* previous)))))
 
 (defun devnet-cli-same-output-path-p (left right)
   ;; Conservatively reject case-only differences as well: the usual macOS
