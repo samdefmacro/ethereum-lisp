@@ -337,6 +337,20 @@ The remote event loop must return to completed peer responses even when a
 mostly local trie would otherwise scan millions of reusable nodes while trying
 to fill every vacant remote slot. Four geth-sized request widths retain large
 ordered MultiGets without letting local discovery monopolize the coordinator.")
+(defparameter *snap-sync-heal-carried-completions-per-batch* 4096
+  "Post-order sentinels one local read batch may carry past.
+
+A :NODE-COMPLETE or :COMPLETE sentinel popped after the batch already holds a
+lookup used to close the batch, so over a subtree in which every node is marked
+the width fell to the fan-out of one node.  The batch now carries such a
+sentinel and keeps popping; the stack beneath it is sibling work.  Once the
+batch is integrated, SNAP-SYNC-HEAL-RESTORE-CARRIED-COMPLETIONS puts the
+carried sentinels back BELOW every work that integration exposed, so none can
+run before a descendant it waits for.  A batch carries only while its
+worst-case expansion still fits one durable checkpoint, so a large frontier
+keeps the previous depth-first rule.  This bound keeps one batch from carrying
+a long run of restored blocked sentinels back and forth.  Zero is the previous
+rule, which is how the tests run their control arm.")
 (defconstant +snap-sync-heal-checkpoint-max-bytes+ (* 4 1024 1024))
 (defconstant +snap-sync-heal-checkpoint-max-items+ (* 128 1024))
 (defconstant +snap-sync-heal-checkpoint-node-interval+ (* 128 2048)
@@ -3500,7 +3514,16 @@ In the live region the width never falls below LIVE-OVERFLOW-WIDTH. A frontier
 already past the live bound has no expansion room, and the former floor of one
 turned a 909,342-work Hoodi frontier into one-node batches for the rest of the
 walk without shrinking it. The bounded pipeline refill passes one, because its
-own loop guard is what returns a saturated generation to the event loop."
+own loop guard is what returns a saturated generation to the event loop.
+
+CHECKPOINT-ROOM, the processed nodes left before the next durable checkpoint
+falls due, binds only while STACK-COUNT is at or below
++SNAP-SYNC-HEAL-CHECKPOINT-MAX-WORKS+.  A larger frontier cannot be written as
+a checkpoint, so nothing moves the checkpoint forward and the room stays at
+one: on Hoodi (75b0b7a7) every batch read one node from the 262,144th
+processed node to the end of the walk.  A frontier that can drain into the
+checkpoint region still checkpoints on the same schedule, because the room
+binds again there."
   (unless (and (integerp stack-count) (not (minusp stack-count))
                (integerp missing-count) (not (minusp missing-count))
                (integerp missing-limit) (> missing-limit missing-count)
@@ -3526,9 +3549,37 @@ own loop guard is what returns a saturated generation to the event loop."
             +snap-sync-heal-max-net-expansion-per-work+)))
     (min +snap-sync-heal-local-reads-per-batch+
          (- missing-limit missing-count)
-         checkpoint-room
+         (if (> stack-count +snap-sync-heal-checkpoint-max-works+)
+             +snap-sync-heal-local-reads-per-batch+
+             checkpoint-room)
          (max (if checkpoint-region-p 1 live-overflow-width)
               expansion-room))))
+
+(defun snap-sync-heal-restore-carried-completions (stack batch-floor carried)
+  "Return STACK with the CARRIED post-order sentinels put back on BATCH-FLOOR.
+
+BATCH-FLOOR is the stack as it stood when the local read batch stopped
+popping, and STACK is BATCH-FLOOR with every work the batch's integration
+pushed in front of it.  CARRIED holds the sentinels the batch popped past, most
+recent first.  They go back in their original order directly on BATCH-FLOOR,
+so every work integration exposed stays above them.  A carried sentinel's
+trie descendants were all above it when the batch reached it, so each one is
+now either resolved, above the sentinel again, or missing -- and a pass with
+missing work blocks every sentinel it reaches.  A deferred storage root
+reaches STACK only above the sentinel being examined.  So no sentinel runs
+before a descendant it waits for.  Integration only pushes, so BATCH-FLOOR is
+a tail of STACK."
+  (if (null carried)
+      stack
+      (let ((restored (revappend carried batch-floor)))
+        (if (eq stack batch-floor)
+            restored
+            (loop for cell on stack
+                  when (eq (cdr cell) batch-floor)
+                    do (setf (cdr cell) restored)
+                       (return stack)
+                  finally
+                     (error "Snap healer frontier lost its batch floor"))))))
 
 (defun snap-sync-heal-defer-dependencies-p
     (deferred-storage-count dependency-count)
@@ -6394,6 +6445,13 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; Retain those barriers separately, then restore them behind fetched
            ;; work before any durable checkpoint can publish the frontier.
            (blocked-completions '())
+           ;; Read once, like the schemes above, so the pipeline refill and the
+           ;; main loop batch under one rule whichever thread binds it.
+           (carried-completion-limit
+             (let ((limit *snap-sync-heal-carried-completions-per-batch*))
+               (unless (and (integerp limit) (not (minusp limit)))
+                 (error "Snap heal carried-completion bound is invalid"))
+               limit))
            (active-sources (remove-duplicates (copy-list sources) :test #'eq))
            (retired-sources '())
            (retired-source-errors '())
@@ -6485,6 +6543,33 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
            ;; STACK-POP removed this work from the combined frontier count.
            (incf stack-count)
            work)
+         (carry-completion (work carried carried-count lookup-count)
+           ;; Return the new CARRIED list, or NIL when the batch must close on
+           ;; WORK as it used to.  Carrying turns the batch from one node's
+           ;; children into a slice across sibling subtrees, so it widens the
+           ;; frontier as well as the read.  Carry only while the worst case
+           ;; after integration -- this frontier plus sixty-three works for
+           ;; each lookup, including the one carrying makes room for -- still
+           ;; fits one durable checkpoint.  Beyond that the walk closes at
+           ;; sentinels and stays depth first as before, so carrying never
+           ;; pushes the frontier past the size a checkpoint can record; once a
+           ;; checkpoint falls due, such a frontier holds every read at width
+           ;; one until it drains.
+           (unless (completion-work-p work)
+             (error "Snap completion carry received ordinary trie work"))
+           (when (and (< carried-count carried-completion-limit)
+                      (<= (+ stack-count deferred-storage-count
+                             (* +snap-sync-heal-max-net-expansion-per-work+
+                                (1+ lookup-count)))
+                          +snap-sync-heal-checkpoint-max-works+))
+             ;; Like a blocked completion, a carried one stays in the combined
+             ;; frontier count while it is off STACK.
+             (incf stack-count)
+             (cons work carried)))
+         (restore-carried-completions (batch-floor carried)
+           (setf stack
+                 (snap-sync-heal-restore-carried-completions
+                  stack batch-floor carried)))
          (restore-blocked-completions ()
            (when blocked-completions
              ;; Existing and freshly fetched work must expose all descendants
@@ -7040,7 +7125,10 @@ for more missing hashes."
                                    examined-count))
                                  +snap-sync-heal-local-reads-per-batch+)))
                           (lookups '())
-                          (lookup-count 0))
+                          (lookup-count 0)
+                          (carried '())
+                          (carried-count 0)
+                          (batch-floor nil))
                      ;; Inline references are already local values. Once a
                      ;; hash batch begins, preserve its exact ordering until
                      ;; the batched local read resolves every popped work.
@@ -7059,6 +7147,13 @@ for more missing hashes."
                               (cond
                                 ((or missing (plusp remote-work-count))
                                  (block-completion work))
+                                ((and lookups
+                                      (let ((more
+                                              (carry-completion
+                                               work carried carried-count lookup-count)))
+                                        (when more
+                                          (setf carried more)
+                                          (incf carried-count)))))
                                 ((or lookups deferred-storage)
                                  (stack-push work)
                                  (unless lookups
@@ -7070,6 +7165,13 @@ for more missing hashes."
                               (cond
                                 ((or missing (plusp remote-work-count))
                                  (block-completion work))
+                                ((and lookups
+                                      (let ((more
+                                              (carry-completion
+                                               work carried carried-count lookup-count)))
+                                        (when more
+                                          (setf carried more)
+                                          (incf carried-count)))))
                                 ((or lookups deferred-storage)
                                  (stack-push work)
                                  (unless lookups
@@ -7089,6 +7191,9 @@ for more missing hashes."
                              (t
                               (push work lookups)
                               (incf lookup-count))))
+                     ;; Carried sentinels return on this floor, beneath whatever
+                     ;; integrating the batch exposes.
+                     (setf batch-floor stack)
                      (when lookups
                        (let* ((ordered (coerce (nreverse lookups) 'vector))
                               (candidate-works
@@ -7181,7 +7286,8 @@ for more missing hashes."
                                         work (aref decoded index))
                                        (progn
                                          (push work missing)
-                                         (incf missing-count))))))))))))
+                                         (incf missing-count))))))))))
+                     (restore-carried-completions batch-floor carried)))
              (record-processing-rate pass-started-at processed-before)
              (adjust-healer-throttle)
              (drain-deferred-storage)
@@ -7461,7 +7567,10 @@ for more missing hashes."
                           missing-count missing-limit
                           checkpoint-room))
                        (lookups '())
-                       (lookup-count 0))
+                       (lookup-count 0)
+                       (carried '())
+                       (carried-count 0)
+                       (batch-floor nil))
                   ;; Inline references are already local values. Process them
                   ;; immediately until an external hash batch begins; once it
                   ;; does, stop before the next inline item so a durable
@@ -7480,6 +7589,13 @@ for more missing hashes."
                               (cond
                                 ((or missing (plusp remote-work-count))
                                  (block-completion work))
+                                ((and lookups
+                                      (let ((more
+                                              (carry-completion
+                                               work carried carried-count lookup-count)))
+                                        (when more
+                                          (setf carried more)
+                                          (incf carried-count)))))
                                 ((or lookups deferred-storage)
                                  (stack-push work)
                                  (unless lookups
@@ -7491,6 +7607,13 @@ for more missing hashes."
                               (cond
                                 ((or missing (plusp remote-work-count))
                                  (block-completion work))
+                                ((and lookups
+                                      (let ((more
+                                              (carry-completion
+                                               work carried carried-count lookup-count)))
+                                        (when more
+                                          (setf carried more)
+                                          (incf carried-count)))))
                                 ((or lookups deferred-storage)
                                  (stack-push work)
                                  (unless lookups
@@ -7516,6 +7639,9 @@ for more missing hashes."
                              (t
                               (push work lookups)
                               (incf lookup-count))))
+                  ;; Carried sentinels return on this floor, beneath whatever
+                  ;; integrating the batch exposes.
+                  (setf batch-floor stack)
                   (when lookups
                     (let* ((ordered (coerce (nreverse lookups) 'vector))
                            (candidate-works
@@ -7610,7 +7736,8 @@ for more missing hashes."
                                      work (aref decoded index))
                                     (progn
                                       (push work missing)
-                                      (incf missing-count))))))))))))
+                                      (incf missing-count))))))))))
+                  (restore-carried-completions batch-floor carried)))
           (record-processing-rate pass-started-at processed-before)
           (adjust-healer-throttle)
           (drain-deferred-storage)
