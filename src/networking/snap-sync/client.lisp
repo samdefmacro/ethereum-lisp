@@ -6629,9 +6629,16 @@ SNAP-SYNC-HEAL-YIELDED without publishing completion."
                 ;; argument. For an account node it is invariant I1: the
                 ;; closed-subtree writer persists an account node only once its
                 ;; whole subtree, every code body and every storage root named
-                ;; beneath it are durable, and the healer's own fetched nodes
-                ;; carry a marker until their post-order sentinel has seen the
-                ;; same. Any ARMED proof sentinel pushed above still publishes.
+                ;; beneath it are durable. The healer is the third writer: its
+                ;; fetched-node flush writes nodes top-down, a parent before
+                ;; its children, each with its incomplete marker in the same
+                ;; batch, and only the post-order :NODE-COMPLETE sentinel
+                ;; deletes the marker. So "unmarked" is half of the rule, and
+                ;; the MARKED-P branch above must stay ahead of this one: a
+                ;; present marked node is always processed, across a crash
+                ;; too (SNAP-EPOCH-SEVEN-HEALER-DESCENDS-A-MARKED-ACCOUNT-NODE-
+                ;; AFTER-A-CRASH). Any ARMED proof sentinel pushed above still
+                ;; publishes.
                 ;;
                 ;; The :TRIE-NODE table is kind-blind, so this rule is sound
                 ;; only because a hash reached along an account path cannot

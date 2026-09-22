@@ -1523,3 +1523,160 @@ is only ever used as a positive control."
       (is (null (snap-closure-store-violations target node-map)))
       (dolist (root roots)
         (is (nth-value 1 (trie-node-store-get target (hash32-bytes root))))))))
+
+;;; ------------------------------------------------------------------
+;;; Epoch seven -- the healer's own writer
+;;; ------------------------------------------------------------------
+
+(defun snap-closure-crashed-heal (fail-after &key drop-markers)
+  "Heal a 2,048-account trie into an epoch-seven store that crashes mid-heal.
+
+The source serves FAIL-AFTER GetTrieNodes requests and then fails, which is
+what a dead process leaves: the healer's fetched-node flush has written the
+top of the trie, each node with its incomplete marker, and the children below
+are absent.  DROP-MARKERS then deletes those markers, which is the store a
+presence-only account skip would effectively see.  The healer is re-entered
+with a healthy source.  Returns a plist of what the crash left and how the
+re-entry ended."
+  (let ((state (make-state-db)))
+    (loop for index from 1 to 2048
+          do (state-db-set-account
+              state (snap-test-address-from-integer index)
+              (make-state-account :nonce index :balance (+ 5 index))))
+    (let* ((root (state-db-root state))
+           (records
+             (mpt-dirty-node-records
+              (first (state-db-persistence-tries (state-db-copy state)))))
+           (base
+             (snap-test-source
+              (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+               (make-memory-key-value-database) state)))
+           (calls 0)
+           (failing
+             (ethereum-lisp.snap-sync:make-snap-sync-source
+              :account-range
+              (ethereum-lisp.snap-sync:snap-sync-source-account-range base)
+              :storage-ranges
+              (ethereum-lisp.snap-sync:snap-sync-source-storage-ranges base)
+              :bytecodes
+              (ethereum-lisp.snap-sync:snap-sync-source-bytecodes base)
+              :trie-nodes
+              (lambda (request)
+                (when (> (incf calls) fail-after)
+                  (error "Injected crash in the healer's source"))
+                (funcall (ethereum-lisp.snap-sync:snap-sync-source-trie-nodes
+                          base)
+                         request))))
+           (database (make-memory-key-value-database))
+           (progress
+             (ethereum-lisp.snap-sync::snap-sync-make-progress
+              :pivot-hash (make-hash32 (snap-test-hash 91))
+              :pivot-number 7001 :state-root root
+              :partial-root +empty-trie-hash+
+              :target-hash (make-hash32 (snap-test-hash 92))
+              :chain-id 560048
+              :genesis-hash (make-hash32 (snap-test-hash 93))
+              :authority-id (make-hash32 (snap-test-hash 94))
+              :completed-p nil :complete-node-scheme-p t
+              :tasks
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 1 :completed-p t))))
+      (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p
+           database))
+      (is (ethereum-lisp.snap-sync::snap-sync-closed-account-writes-p
+           database))
+      (signals error
+        (ethereum-lisp.snap-sync::snap-sync-heal-state
+         database (list failing) progress 350))
+      (let* ((present-after-crash
+               (count-if (lambda (record)
+                           (nth-value 1 (trie-node-store-get
+                                         database (car record))))
+                         records))
+             (marked-after-crash
+               (hash-table-count
+                (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
+                 database)))
+             (root-marked-p
+               (nth-value
+                1 (gethash (hash32-bytes root)
+                           (ethereum-lisp.snap-sync::snap-sync-load-incomplete-nodes
+                            database)))))
+        ;; Re-enter from the root, not from a resumed frontier: a pivot rebase
+        ;; deletes the heal checkpoint (SNAP-SYNC-POPULATE-REBASED-PROGRESS-
+        ;; BATCH), and a resumed frontier would start below the marked nodes
+        ;; and never ask the question this test is about.
+        (let ((batch (make-kv-write-batch)))
+          (ethereum-lisp.snap-sync::snap-sync-delete-heal-checkpoint-batch batch)
+          (when drop-markers
+            (ethereum-lisp.snap-sync::snap-sync-delete-incomplete-records-batch
+             batch (mapcar #'car records)))
+          (kv-apply-batch database batch))
+        (let* ((fetched nil)
+               (outcome
+                 (handler-case
+                     (ethereum-lisp.snap-sync::snap-sync-heal-state
+                      database (list base) progress 350
+                      :on-heal-progress
+                      (lambda (event)
+                        (when (ethereum-lisp.snap-sync:snap-sync-heal-progress-completed-p
+                               event)
+                          (setf fetched
+                                (ethereum-lisp.snap-sync:snap-sync-heal-progress-fetched-nodes
+                                 event)))))
+                   (error (condition) condition))))
+          (list :records (length records)
+                :present-after-crash present-after-crash
+                :marked-after-crash marked-after-crash
+                :root-present-after-crash
+                (nth-value 1 (trie-node-store-get database (hash32-bytes root)))
+                :root-marked-p root-marked-p
+                :completed-p
+                (and (not (typep outcome 'condition))
+                     (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                      outcome))
+                :fetched fetched
+                :present-at-end
+                (count-if (lambda (record)
+                            (nth-value 1 (trie-node-store-get
+                                          database (car record))))
+                          records)))))))
+
+(deftest snap-epoch-seven-healer-descends-a-marked-account-node-after-a-crash
+  (:layer :integration :module :p2p)
+  ;; The healer is itself a writer of account-path trie nodes (the third,
+  ;; after the range writer and MPT-POPULATE-DIRTY-BATCH; found by the
+  ;; snap-server-closure change at fc0bb2ea).  Its fetched-node flush writes
+  ;; nodes TOP-DOWN, a parent in a batch before its children, each with its
+  ;; incomplete marker in the same batch, and only the node's post-order
+  ;; sentinel deletes that marker.  So between the flush and the sentinel an
+  ;; account node is present while its subtree is not: I1 holds for it only
+  ;; because presence is read together with the marker.  INTEGRATE-PRESENT-WORK
+  ;; processes a marked node before it considers the presence skip, and this
+  ;; pins that order across a crash.
+  (let ((crashed (snap-closure-crashed-heal 3))
+        (unmarked (snap-closure-crashed-heal 3 :drop-markers t)))
+    ;; The crash left exactly the dangerous shape: the root and a few nodes
+    ;; below it present, every one of them marked, the rest of the trie absent.
+    (dolist (arm (list crashed unmarked))
+      (is (getf arm :root-present-after-crash))
+      (is (getf arm :root-marked-p))
+      (is (plusp (getf arm :present-after-crash)))
+      (is (= (getf arm :present-after-crash) (getf arm :marked-after-crash)))
+      (is (< (getf arm :present-after-crash) (getf arm :records))))
+    ;; Subject: the re-entered healer descends into the marked root, fetches
+    ;; the rest, and completes over the whole trie.
+    (is (getf crashed :completed-p))
+    (is (= (- (getf crashed :records) (getf crashed :present-after-crash))
+           (getf crashed :fetched)))
+    (is (= (getf crashed :records) (getf crashed :present-at-end)))
+    ;; Control: the same store with its markers gone is what a presence-only
+    ;; skip sees.  The healer skips the present root, fetches nothing, and
+    ;; publishes completion over a trie of which it holds four nodes: a false
+    ;; completion.  This arm is what makes the subject's green meaningful --
+    ;; the marker, and nothing else, is what sends the healer down.
+    (is (getf unmarked :completed-p))
+    (is (zerop (getf unmarked :fetched)))
+    (is (= (getf unmarked :present-after-crash)
+           (getf unmarked :present-at-end)))
+    (is (< (getf unmarked :present-at-end) (getf unmarked :records)))))
