@@ -139,8 +139,10 @@
     (is (search "404" response))))
 
 (deftest websocket-origin-policy
-  ;; No configured origins means no restriction.
-  (is (funcall (ws "WEBSOCKET-ORIGIN-ALLOWED-P") "http://evil.example" nil))
+  ;; No configured origins means geth's default, http://localhost and this
+  ;; host -- not "anything", which it meant before.
+  (is (not (funcall (ws "WEBSOCKET-ORIGIN-ALLOWED-P") "http://evil.example" nil)))
+  (is (funcall (ws "WEBSOCKET-ORIGIN-ALLOWED-P") "http://localhost:3000" nil))
   (is (funcall (ws "WEBSOCKET-ORIGIN-ALLOWED-P") "http://ok.example"
                '("http://ok.example")))
   (is (not (funcall (ws "WEBSOCKET-ORIGIN-ALLOWED-P") "http://evil.example"

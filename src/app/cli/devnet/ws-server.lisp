@@ -3,9 +3,10 @@
 ;;;; The WebSocket JSON-RPC endpoint.
 ;;;;
 ;;;; --ws and its friends were parsed and discarded. This is what they promised:
-;;;; the same public JSON-RPC surface the HTTP listener serves, plus the two
-;;;; methods that only exist over a connection that stays open --
-;;;; eth_subscribe and eth_unsubscribe.
+;;;; the same public JSON-RPC surface the HTTP listener serves (filtered by
+;;;; --ws.api rather than --http.api), plus the two methods that only exist over
+;;;; a connection that stays open -- eth_subscribe and eth_unsubscribe, which
+;;;; the router dispatches as connection methods (DEVNET-WS-CONNECTION-CONTEXT).
 ;;;;
 ;;;; THE SUBSCRIPTION REGISTRY IS PER CONNECTION, AND SO IS THE THREAD. One
 ;;;; thread per client, owning that client's registry and cursor, is what makes
@@ -35,6 +36,25 @@ target: without it a client that never sends the blank line can grow our heap.")
 worst-case latency between a block being imported and a newHeads subscriber
 hearing about it. Matched to the pump's read gate so an idle connection wakes
 once per second rather than twice.")
+
+(defparameter *devnet-ws-max-connections* 128
+  "How many WebSocket connections are served at once. Our policy (geth sets no
+bound): each one is a thread and a poll of the store guard per second. The next
+client is answered HTTP 503 on the accept thread and closed, before a session
+thread exists.")
+
+(defparameter *devnet-ws-write-timeout-seconds* 10
+  "How long one frame write may wait for a client that is not reading. geth's
+defaultWriteTimeout (rpc/json.go:42 at 38271784). Past it the connection ends,
+so a stalled reader cannot hold its thread and its connection slot forever.")
+
+(defparameter *devnet-ws-ping-interval-seconds* 30
+  "Idle time after which the server pings. geth's wsPingInterval
+(rpc/websocket.go:38).")
+
+(defparameter *devnet-ws-pong-timeout-seconds* 30
+  "How long a pinged client has to answer before the connection ends. geth's
+wsPongTimeout (rpc/websocket.go:40).")
 
 (defun devnet-ws-read-handshake (stream timeout-seconds)
   "Read the HTTP upgrade request from STREAM, returning it as a string.
@@ -104,68 +124,51 @@ decoding it by hand costs nothing and avoids depending on a bivalent stream."
                 headers))))
     (values method target (nreverse headers))))
 
-(defun devnet-ws-message-handler (node registry)
-  "A function from one JSON-RPC request string to its response string.
+(defun devnet-node-ws-method-filter (node)
+  "The --ws.api method filter, or the public HTTP filter for a node built
+without one (programmatic callers that predate --ws.api)."
+  (or (devnet-node-ws-allowed-method-p node)
+      (engine-rpc-http-service-allowed-method-p
+       (devnet-node-public-service node))))
 
-eth_subscribe and eth_unsubscribe are answered HERE rather than through the
-router, because they are the two methods whose meaning depends on which
-connection asked: their result is an entry in this connection's registry, and
-the router has no notion of a connection at all."
-  (let* ((service (devnet-node-public-service node))
-         (context (engine-rpc-http-service-rpc-context service))
-         (allowed-p (engine-rpc-http-service-allowed-method-p service)))
+(defun devnet-ws-connection-context (node registry)
+  "The RPC context one WebSocket connection answers through.
+
+A copy of the public service's context with two differences. Its method filter
+is --ws.api's (DEVNET-NODE-WS-METHOD-FILTER), not --http.api's. And
+eth_subscribe / eth_unsubscribe are connection methods over REGISTRY: they
+exist only on a connection that stays open, touch only its own registry, and
+so run without the store guard. Going through the router rather than around it
+gives them everything the router enforces for every other method: the method
+filter, JSON-RPC notifications (no response), batches (a subscribe inside a
+batch works, as it does in geth), and the batch limits."
+  (rpc-context-rebind
+   (engine-rpc-http-service-rpc-context (devnet-node-public-service node))
+   :allowed-method-p (devnet-node-ws-method-filter node)
+   :connection-method-function
+   (lambda (method)
+     (cond
+       ((string= method "eth_subscribe")
+        (lambda (params) (eth-rpc-handle-eth-subscribe params registry)))
+       ((string= method "eth_unsubscribe")
+        ;; T and +JSON-FALSE+ are what the writer renders as true and false.
+        (lambda (params)
+          (if (eth-rpc-handle-eth-unsubscribe params registry) t +json-false+)))))))
+
+(defun devnet-ws-message-handler (node registry)
+  "A function from one JSON-RPC message string to its response string, or NIL
+when nothing is owed (a notification, or a batch of them)."
+  (let ((context (devnet-ws-connection-context node registry)))
     (lambda (text)
       (handler-case
-          (let* ((request (parse-json text))
-                 (method (and (json-object-p request)
-                              (json-object-field request "method")))
-                 (id (and (json-object-p request)
-                          (json-object-field request "id")))
-                 (params (and (json-object-p request)
-                              (json-object-field request "params"))))
-            (cond
-              ((and (stringp method)
-                    (member method '("eth_subscribe" "eth_unsubscribe")
-                            :test #'string=))
-               ;; Subscriptions ride the eth namespace, so a node that has not
-               ;; enabled eth over --ws.api must not answer them either.
-               (if (not (funcall allowed-p method))
-                   (devnet-ws-error-json id -32601 "Method not found")
-                   (handler-case
-                       (let* ((arguments (and params (json-array-values params)))
-                              (result
-                                (if (string= method "eth_subscribe")
-                                    (eth-rpc-handle-eth-subscribe
-                                     arguments registry)
-                                    ;; T and +JSON-FALSE+ are what the writer
-                                    ;; renders as true and false; a keyword of
-                                    ;; our own invention would not encode.
-                                    (if (eth-rpc-handle-eth-unsubscribe
-                                         arguments registry)
-                                        t
-                                        +json-false+))))
-                         (json-encode (list (cons "jsonrpc" "2.0")
-                                            (cons "id" id)
-                                            (cons "result" result))))
-                     (error (condition)
-                       ;; A bad subscription name or filter is the client's
-                       ;; mistake, and it deserves to see which.
-                       (devnet-ws-error-json id -32602
-                                             (princ-to-string condition))))))
-              (t
-               ;; Everything else is the ordinary public surface.
-               ;;
-               ;; NO STORE GUARD HERE, and that is not an oversight. The RPC
-               ;; context already carries the node's guard and takes it per
-               ;; request -- the same guard, and the mutex is NOT recursive, so
-               ;; wrapping this call in one is not belt and braces, it is an
-               ;; immediate `Recursive lock attempt` on every request.
-               (rpc-handle-request-json text context))))
+          (let ((response (rpc-handle-request-json text context)))
+            (and (plusp (length response)) response))
         (error (condition)
           (devnet-ws-log node "ws.request_failed" condition)
           ;; NIL, not a keyword: the writer renders NIL as JSON null, and a
           ;; response whose id cannot be encoded is no response at all.
           (devnet-ws-error-json nil -32603 "Internal error"))))))
+
 
 (defun devnet-ws-error-json (id code message)
   "A JSON-RPC error response, built here rather than borrowed from the router.
@@ -224,8 +227,16 @@ because the write can block on a slow client and the guard must not."
                         stream)
                        (finish-output stream)
                        (when accepted-p
+                         ;; Writes past this point go to the descriptor with a
+                         ;; deadline (WEBSOCKET-WRITE-FRAME), which needs it
+                         ;; non-blocking; reads stay readiness-gated.
+                         (setf (sb-bsd-sockets:non-blocking-mode socket) t)
                          (let* ((registry (make-eth-rpc-subscription-registry))
-                                (connection (make-websocket-connection stream)))
+                                (connection
+                                  (make-websocket-connection
+                                   stream
+                                   :write-timeout-seconds
+                                   *devnet-ws-write-timeout-seconds*)))
                            (websocket-pump
                             connection
                             (devnet-ws-message-handler node registry)
@@ -235,7 +246,11 @@ because the write can block on a slow client and the guard must not."
                             :pending-notifications
                             (devnet-ws-notification-source node registry)
                             :poll-timeout-seconds
-                            +devnet-ws-poll-interval-seconds+))))))))
+                            +devnet-ws-poll-interval-seconds+
+                            :ping-interval-seconds
+                            *devnet-ws-ping-interval-seconds*
+                            :pong-timeout-seconds
+                            *devnet-ws-pong-timeout-seconds*))))))))
            ;; A client that hangs up mid-frame, or sends something malformed,
            ;; ends that connection and nothing else.
            (error (condition)
@@ -251,6 +266,38 @@ because the write can block on a slow client and the guard must not."
   (let ((port (devnet-node-ws-port node)))
     (when (and port (devnet-node-ws-enabled-p node))
       (values (or (devnet-node-ws-host node) "127.0.0.1") port))))
+
+(defun devnet-ws-live-session-count (sessions sessions-lock)
+  #+sbcl
+  (call-with-devnet-mutex
+   sessions-lock
+   (lambda () (count-if #'sb-thread:thread-alive-p sessions)))
+  #-sbcl
+  (progn sessions sessions-lock 0))
+
+(defun devnet-ws-refuse-connection (socket)
+  "Answer a connection over *DEVNET-WS-MAX-CONNECTIONS* with HTTP 503 and
+close it, on the accept thread: a fresh socket's send buffer takes the short
+reply without blocking, and no session thread is ever started for it."
+  #+sbcl
+  (ignore-errors
+   (let ((stream (sb-bsd-sockets:socket-make-stream
+                  socket :output t :element-type '(unsigned-byte 8)
+                         :buffering :full)))
+     (unwind-protect
+          (progn
+            (write-sequence
+             (coerce (ascii-to-bytes
+                      (websocket-http-error 503 "Service Unavailable"
+                                            "too many WebSocket connections"))
+                     '(vector (unsigned-byte 8)))
+             stream)
+            (finish-output stream))
+       (close stream))))
+  #+sbcl
+  (ignore-errors (sb-bsd-sockets:socket-close socket))
+  #-sbcl
+  (progn socket nil))
 
 (defun devnet-start-ws-server-thread (node shutdown-controller error-callback)
   "Start the WebSocket endpoint, returning (VALUES THREAD SESSIONS-FUNCTION).
@@ -283,6 +330,12 @@ Returns NIL when --ws is off, so a node that does not ask for it pays nothing."
                                  listener
                                  :timeout-seconds
                                  +devnet-ws-accept-timeout-seconds+)))
+                    (when (and socket
+                               (>= (devnet-ws-live-session-count
+                                    sessions sessions-lock)
+                                   *devnet-ws-max-connections*))
+                      (devnet-ws-refuse-connection socket)
+                      (setf socket nil))
                     (when socket
                       ;; The accept loop never serves on its own thread, for the
                       ;; same reason the RLPx one does not: one slow client

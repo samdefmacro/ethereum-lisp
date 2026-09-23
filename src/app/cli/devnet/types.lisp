@@ -151,7 +151,8 @@ the established pool instead of relearning it from the cold minimum."
                       ws-host
                       ws-port
                       ws-origins
-                      ws-rpc-prefix)))
+                      ws-rpc-prefix
+                      ws-allowed-method-p)))
   genesis-path
   store
   config
@@ -222,14 +223,15 @@ the established pool instead of relearning it from the cold minimum."
   ;; A port with --metrics off binds nothing; see DEVNET-NODE-METRICS-ENDPOINT.
   metrics-host
   metrics-port
-  ;; The WebSocket endpoint. Off unless --ws; it carries the same public method
-  ;; filter as the HTTP listener plus eth_subscribe, which only means anything
-  ;; on a connection that stays open.
+  ;; The WebSocket endpoint. Off unless --ws; it serves the public surface under
+  ;; its own --ws.api filter (WS-ALLOWED-METHOD-P) plus eth_subscribe, which
+  ;; only means anything on a connection that stays open.
   ws-enabled-p
   ws-host
   ws-port
   ws-origins
   ws-rpc-prefix
+  ws-allowed-method-p
   ;; Whether a peer session is currently catching up. Guarded by the peer-table
   ;; mutex, and the reason it exists is in DEVNET-NODE-CLAIM-SYNC.
   (syncing-p nil)
@@ -288,6 +290,11 @@ the established pool instead of relearning it from the cold minimum."
   ;; wholesale at every store-guard release. Readers take it without any lock;
   ;; see DEVNET-NODE-PUBLISH-SYNC-VIEW. NIL until the first publication.
   (sync-view nil)
+  ;; The public read view (NODE-STORE-PUBLISH-READ-VIEW): the recent canonical
+  ;; chain as immutable data, republished at every store-guard release so the
+  ;; public RPC can answer block, receipt and head reads without waiting for
+  ;; the guard. NIL until the first publication; readers then use the guard.
+  (read-view nil)
   ;; EIP-778 sequence and the exact pairs it describes. The responder updates
   ;; these under the peer-table lock, so a changed endpoint/fork id increments
   ;; monotonically even across a chain reorg whose head number decreases.

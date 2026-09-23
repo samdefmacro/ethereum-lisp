@@ -73,7 +73,9 @@
        ws-host
        ws-port
        ws-origins
-       ws-rpc-prefix)
+       ws-rpc-prefix
+       ;; --ws.api's method filter; NIL means the public HTTP filter.
+       ws-allowed-method-p)
   (unless (or (and genesis-path (stringp genesis-path))
               (and genesis-json (stringp genesis-json))
               genesis-preset)
@@ -187,7 +189,8 @@
          (initial-store (make-engine-payload-memory-store))
          ;; The blocking guard and its give-up-instead companion share one
          ;; mutex, so they have to be taken from one call. Every release
-         ;; republishes eth_syncing's view, which must never wait for the guard.
+         ;; republishes eth_syncing's view and the public read view,
+         ;; which must never wait for the guard.
          (store-guard-pair
            (multiple-value-list
             (make-devnet-store-guard-function
@@ -195,7 +198,7 @@
              (lambda ()
                (let ((node (first node-box)))
                  (when node
-                   (devnet-node-publish-sync-view node)))))))
+                   (devnet-node-publish-guarded-views node)))))))
          (store-guard-function (first store-guard-pair))
          (store-guard-try-function (second store-guard-pair))
          ;; Engine requests take the same mutex through the priority guard, so a
@@ -287,6 +290,8 @@
             (lambda (method)
               (not (member method '("eth_syncing" "engine_getBlobsV3")
                            :test #'string=)))
+            :read-view-function (devnet-node-read-view-function node-box)
+            :read-view-method-p #'devnet-public-read-view-method-p
             :get-blobs-v3-function get-blobs-v3-function
             :rpc-prefix
             (devnet-endpoint-config-rpc-prefix public-endpoint-config)
@@ -389,7 +394,8 @@
      :ws-host ws-host
      :ws-port ws-port
      :ws-origins (and ws-origins (copy-list ws-origins))
-     :ws-rpc-prefix ws-rpc-prefix))
+     :ws-rpc-prefix ws-rpc-prefix
+     :ws-allowed-method-p ws-allowed-method-p))
     ;; Seed the operator's --peer values as static candidates. They are already
     ;; validated at parse time; ignore-errors is for a peer supplied
     ;; programmatically by a test, which must not break node construction.
@@ -400,10 +406,10 @@
           (devnet-node-dial-registry node)
           (node-id-to-hex (nth-value 0 (parse-enode-url enode)))
           enode)))
-      ;; No worker runs yet, so the store is quiescent: seed eth_syncing's view
-      ;; so a restored head is reported even if the guard is busy from the start.
-      (handler-case (devnet-node-publish-sync-view node)
-        (serious-condition () nil))
+      ;; No worker runs yet, so the store is quiescent: seed the published
+      ;; views so a restored head is reported even if the guard is busy from the
+      ;; start.
+      (devnet-node-publish-guarded-views node)
       node)))
 
 (defun devnet-cli-loopback-host-p (host)

@@ -32,6 +32,11 @@
                    shutdown-controller on-listeners-ready http-concurrency))
   #-sbcl
   (error "Devnet split listener serving requires SBCL threads")
+  ;; An empty guard hold: its release republishes the views public RPC reads
+  ;; without the guard, so whatever the caller did to the store before serving
+  ;; is what the first request sees.
+  #+sbcl
+  (call-with-devnet-node-store-guard node (lambda () nil))
   #+sbcl
   (let* ((shutdown-controller
            (or shutdown-controller (make-devnet-shutdown-controller)))

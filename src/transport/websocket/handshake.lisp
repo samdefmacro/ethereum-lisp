@@ -90,18 +90,99 @@ still be answered with an ordinary HTTP response instead of a protocol error."
        (websocket-header-contains-token-p
         (websocket-header-value headers "Connection") "Upgrade")))
 
-(defun websocket-origin-allowed-p (origin allowed-origins)
-  "Whether ORIGIN may open a connection.
+(defun websocket-origin-scheme-p (text)
+  "Whether TEXT is a URL scheme as Go's url.Parse accepts one."
+  (and (plusp (length text))
+       (alpha-char-p (char text 0))
+       (every (lambda (char)
+                (or (alphanumericp char) (find char "+-.")))
+              text)))
 
-NIL ALLOWED-ORIGINS means no restriction, which is what --ws.origins absent
-means. A request with no Origin at all is not a browser and is allowed: the
-header is a browser's declaration about itself, and its absence carries no
-claim to check. That is the same reading geth takes."
-  (or (null allowed-origins)
-      (null origin)
-      (string= origin "")
-      (and (member origin allowed-origins :test #'string-equal) t)
-      (and (member "*" allowed-origins :test #'string=) t)))
+(defun websocket-split-host-port (host-port)
+  "(VALUES HOSTNAME PORT) the way Go's URL.Hostname and URL.Port split them."
+  (let ((host-port (subseq host-port (1+ (or (position #\@ host-port) -1)))))
+    (if (and (plusp (length host-port)) (char= #\[ (char host-port 0)))
+        (let ((close (position #\] host-port)))
+          (if close
+              (values (subseq host-port 1 close)
+                      (if (and (< (1+ close) (length host-port))
+                               (char= #\: (char host-port (1+ close))))
+                          (subseq host-port (+ 2 close))
+                          ""))
+              (values host-port "")))
+        (let ((colon (position #\: host-port :from-end t)))
+          (if (and colon
+                   (every #'digit-char-p (subseq host-port (1+ colon))))
+              (values (subseq host-port 0 colon) (subseq host-port (1+ colon)))
+              (values host-port ""))))))
+
+(defun websocket-parse-origin (origin)
+  "(VALUES SCHEME HOSTNAME PORT) of ORIGIN, or NIL when it does not parse.
+
+A port of geth's parseOriginURL (rpc/websocket.go:167-190 at 38271784): with
+\"://\" the parts are the URL's scheme, hostname and port; without it, Go reads
+\"host:port\" as scheme and opaque, which geth then uses as hostname and port,
+and anything else as a bare hostname. Go refuses a first segment that has a
+colon but is not a scheme (\"12.34.56.78:80\"), so that is NIL here too."
+  (let* ((origin (string-downcase origin))
+         (separator (search "://" origin)))
+    (if separator
+        (let* ((rest (subseq origin (+ 3 separator)))
+               (host-port (subseq rest 0 (or (position-if (lambda (char)
+                                                            (find char "/?#"))
+                                                          rest)
+                                             (length rest)))))
+          (multiple-value-bind (hostname port)
+              (websocket-split-host-port host-port)
+            (values (subseq origin 0 separator) hostname port)))
+        (let ((colon (position #\: origin)))
+          (cond
+            ((null colon) (values "" origin ""))
+            ((websocket-origin-scheme-p (subseq origin 0 colon))
+             (values "" (subseq origin 0 colon) (subseq origin (1+ colon))))
+            (t nil))))))
+
+(defun websocket-origin-rule-allows-p (rule origin)
+  "Whether allowed-origin RULE admits the browser ORIGIN (geth's
+ruleAllowsOrigin, rpc/websocket.go:139-165): every part the rule names --
+scheme, hostname, port -- must match exactly; a part it leaves out matches
+anything."
+  (multiple-value-bind (rule-scheme rule-host rule-port)
+      (websocket-parse-origin rule)
+    (multiple-value-bind (scheme host port) (websocket-parse-origin origin)
+      (and rule-host host
+           (or (string= rule-scheme "") (string= rule-scheme scheme))
+           (or (string= rule-host "") (string= rule-host host))
+           (or (string= rule-port "") (string= rule-port port))))))
+
+(defun websocket-default-allowed-origins ()
+  "What geth allows when no origin is configured (rpc/websocket.go:84-89):
+http://localhost and http://HOSTNAME."
+  (let ((hostname (ignore-errors (machine-instance))))
+    (if (and hostname (plusp (length hostname)))
+        (list "http://localhost"
+              (concatenate 'string "http://" (string-downcase hostname)))
+        (list "http://localhost"))))
+
+(defun websocket-origin-allowed-p (origin allowed-origins)
+  "Whether ORIGIN may open a connection, as geth's wsHandshakeValidator decides
+(rpc/websocket.go:71-113 at 38271784).
+
+ORIGIN is NIL when the request carried no Origin header: that is not a browser,
+the header's absence makes no claim to check, and it is allowed. A present
+header, even an empty one, is checked. \"*\" allows every origin. With no
+configured origin the allow list is geth's default, http://localhost and
+http://HOSTNAME -- not \"anything\", which is what this used to mean."
+  (cond
+    ((null origin) t)
+    ((member "*" allowed-origins :test #'string=) t)
+    (t
+     (let ((rules (or (remove "" allowed-origins :test #'string=)
+                      (websocket-default-allowed-origins))))
+       (and (some (lambda (rule) (websocket-origin-rule-allows-p rule origin))
+                  rules)
+            t)))))
+
 
 (defun websocket-handshake-response (method target headers
                                      &key allowed-origins (rpc-prefix "/"))

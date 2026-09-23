@@ -8,9 +8,10 @@
 (defun engine-rpc-handle-eth-new-filter (params store &key now)
   (let* ((method "eth_newFilter")
          (filter (eth-rpc-log-filter-object params method)))
-    (eth-rpc-log-filter-addresses filter method)
-    (eth-rpc-log-filter-topics filter method)
-    (eth-rpc-log-filter-blocks filter store method)
+    (eth-rpc-log-filter-check-query-limit
+     (prog1 (eth-rpc-log-filter-addresses filter method)
+       (eth-rpc-log-filter-topics filter method)))
+    (eth-rpc-log-filter-block-source filter store method)
     (let* ((block-hash-p
              (json-object-field-present-p filter "blockHash"))
            (from-block (json-object-field filter "fromBlock"))

@@ -1,7 +1,19 @@
 (in-package #:ethereum-lisp.rpc)
 
-(defconstant +rpc-batch-request-limit+ 1000)
-(defconstant +rpc-batch-response-max-size+ 25000000)
+(defparameter *rpc-batch-request-limit* 1000
+  "The most items one JSON-RPC batch may carry. geth's BatchRequestLimit default
+(node/defaults.go:68 at 38271784): a larger batch is refused whole, before any
+item runs, with one -32600 \"batch too large\" error carrying the first call's
+id (rpc/handler.go:209, :284-296).")
+
+(defparameter *rpc-batch-response-max-size* 25000000
+  "The most response bytes one batch may produce. geth's BatchResponseMaxSize
+default (node/defaults.go:69). Items run in order and their encoded responses
+are counted as they are produced; once the total passes the limit no further
+item runs, and every remaining call is answered -32003 \"response too large\"
+(rpc/handler.go:262-268, :150-162). geth counts each response's result or
+error bytes, we count the whole encoded response object: at most ~40 bytes more
+per item.")
 
 (defstruct (rpc-context
             (:constructor %make-rpc-context
@@ -9,6 +21,7 @@
                       new-payload-persistence-function
                       forkchoice-persistence-function request-guard-function
                       request-guard-predicate
+                      read-view-function read-view-method-p
                       payload-improvement-notification-function
                       network-id coinbase
                       allowed-method-p allow-unprotected-transactions-p
@@ -26,6 +39,20 @@
   forkchoice-persistence-function
   request-guard-function
   request-guard-predicate
+  ;; READ-VIEW-FUNCTION, when set, answers READ-VIEW-METHOD-P requests without
+  ;; the request guard: it is called with a function of one store argument and
+  ;; with the context's own STORE, and returns (VALUES RESULT ANSWERED-P),
+  ;; running that function against an immutable view published from STORE.
+  ;; ANSWERED-P false means no such view could answer and the request takes the
+  ;; guarded path. See RPC-HANDLE-REQUEST.
+  read-view-function
+  read-view-method-p
+  ;; CONNECTION-METHOD-FUNCTION, when set, maps a method name to a handler of
+  ;; its params for methods whose meaning belongs to one transport connection
+  ;; (eth_subscribe on a WebSocket). Such methods are dispatched before the
+  ;; store-backed surface and without the request guard: they touch only the
+  ;; connection's own state. Set per connection with RPC-CONTEXT-REBIND.
+  (connection-method-function nil)
   payload-improvement-notification-function
   network-id
   coinbase
@@ -52,6 +79,8 @@
                        forkchoice-persistence-function
                        request-guard-function
                        request-guard-predicate
+                       read-view-function
+                       read-view-method-p
                        payload-improvement-notification-function
                        network-id
                        coinbase
@@ -90,6 +119,11 @@
              (not (functionp request-guard-predicate)))
     (block-validation-fail
      "JSON-RPC request guard predicate must be a function"))
+  (when (and read-view-function (not (functionp read-view-function)))
+    (block-validation-fail "JSON-RPC read view must be a function"))
+  (when (and read-view-method-p (not (functionp read-view-method-p)))
+    (block-validation-fail
+     "JSON-RPC read view method predicate must be a function"))
   (when (and payload-improvement-notification-function
              (not (functionp payload-improvement-notification-function)))
     (block-validation-fail
@@ -109,6 +143,8 @@
    :forkchoice-persistence-function forkchoice-persistence-function
    :request-guard-function request-guard-function
    :request-guard-predicate request-guard-predicate
+   :read-view-function read-view-function
+   :read-view-method-p read-view-method-p
    :payload-improvement-notification-function
    payload-improvement-notification-function
    :network-id network-id
@@ -140,7 +176,9 @@
 (defun rpc-context-rebind
     (context &key (store nil store-p)
                   (config nil config-p)
-                  (network-id nil network-id-p))
+                  (network-id nil network-id-p)
+                  (allowed-method-p nil allowed-method-p-p)
+                  (connection-method-function nil connection-method-function-p))
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
   (let ((copy (copy-rpc-context context))
@@ -153,6 +191,13 @@
       (setf (rpc-context-config copy) config))
     (when network-id-p
       (setf (rpc-context-network-id copy) network-id))
+    (when allowed-method-p-p
+      (unless (functionp allowed-method-p)
+        (block-validation-fail "JSON-RPC method filter must be a function"))
+      (setf (rpc-context-allowed-method-p copy) allowed-method-p))
+    (when connection-method-function-p
+      (setf (rpc-context-connection-method-function copy)
+            connection-method-function))
     (when reset-gas-oracle-p
       (setf (rpc-context-gas-oracle-state copy)
             (make-eth-rpc-gas-oracle-state)))
@@ -194,9 +239,16 @@
    :gas-limit-target (rpc-context-gas-limit-target context)
    :gas-oracle-state (rpc-context-gas-oracle-state context)))
 
+(defun rpc-connection-method-handler (context method)
+  (let ((function (rpc-context-connection-method-function context)))
+    (and function (stringp method) (funcall function method))))
+
 (defun rpc-dispatch-method (id method params context)
   (if (funcall (rpc-context-allowed-method-p context) method)
-      (or (engine-rpc-handle-engine-method
+      (or (let ((handler (rpc-connection-method-handler context method)))
+            (and handler
+                 (json-rpc-response id :result (funcall handler params))))
+          (engine-rpc-handle-engine-method
            id method params
            (rpc-context-store context)
            (rpc-context-config context)
@@ -283,6 +335,43 @@
            id
            :error (json-rpc-error-object -32603 "Internal error")))))))
 
+(defun rpc-response-internal-error-p (response)
+  "Whether RESPONSE, as built by JSON-RPC-RESPONSE, is a -32603 internal error."
+  (let ((error (and (consp response)
+                    (cdr (assoc "error" response :test #'equal)))))
+    (and (consp error)
+         (eql -32603 (cdr (assoc "code" error :test #'equal))))))
+
+(defun rpc-handle-request-from-read-view (request context method)
+  "Answer REQUEST from CONTEXT's published read view, without the guard.
+
+Returns (VALUES RESPONSE ANSWERED-P). A view miss sends the request down the
+guarded path, so the live store stays the authority for everything the view
+does not hold; so does an internal error (-32603), which is how a handler that
+reached for something only the live store has would surface. Every other
+error is the request's own (bad parameters, a refused range or result budget)
+and is final: re-running it under the guard would give the same answer and
+spend the guard on a request that was already refused. Notifications are never
+tried here, because their response is NIL whether or not the view answered."
+  (let ((read-view (rpc-context-read-view-function context))
+        (method-p (rpc-context-read-view-method-p context)))
+    (when (and read-view method-p
+               (stringp method)
+               (not (json-rpc-notification-p request))
+               (funcall method-p method))
+      (multiple-value-bind (response answered-p)
+          (funcall read-view
+                   (lambda (view)
+                     (let ((view-context (copy-rpc-context context)))
+                       (setf (rpc-context-store view-context) view)
+                       (rpc-handle-request-without-guard
+                        request view-context)))
+                   (rpc-context-store context))
+        (when (and answered-p response
+                   (not (rpc-response-internal-error-p response)))
+          (values response t))))))
+
+
 (defun rpc-handle-request (request context)
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
@@ -292,17 +381,20 @@
              (guard (rpc-context-request-guard-function context))
              (predicate (rpc-context-request-guard-predicate context))
              (method
-               (and predicate
-                    (json-object-p request)
+               (and (json-object-p request)
                     (json-object-field-present-p request "method")
                     (json-object-field request "method")))
              (guard-required-p
-               (or (null predicate)
-                   (not (stringp method))
-                   (funcall predicate method))))
-        (if (and guard guard-required-p)
-            (funcall guard thunk)
-            (funcall thunk)))
+               (and (not (rpc-connection-method-handler context method))
+                    (or (null predicate)
+                        (not (stringp method))
+                        (funcall predicate method)))))
+        (multiple-value-bind (view-response view-answered-p)
+            (rpc-handle-request-from-read-view request context method)
+          (cond
+            (view-answered-p view-response)
+            ((and guard guard-required-p) (funcall guard thunk))
+            (t (funcall thunk)))))
     (error (condition)
       (declare (ignore condition))
       (unless (json-rpc-notification-p request)
@@ -311,15 +403,29 @@
               (json-object-field request "id"))
          :error (json-rpc-error-object -32603 "Internal error"))))))
 
+
+(defun rpc-batch-call-p (item)
+  "Whether batch ITEM is a call: an object with a method and an id."
+  (and (json-object-p item)
+       (json-object-field-present-p item "method")
+       (not (json-rpc-notification-p item))))
+
+(defun rpc-batch-too-large-response (items)
+  "geth's answer to an oversized batch: a one-element batch holding -32600
+\"batch too large\" with the id of the first call in ITEMS (null if none).
+Nothing in ITEMS runs."
+  (let ((first-call (find-if #'rpc-batch-call-p items)))
+    (list (json-rpc-response
+           (and first-call (json-object-field first-call "id"))
+           :error (json-rpc-error-object -32600 "batch too large")))))
+
 (defun rpc-handle-request-value (request context)
   (cond
     ((json-object-p request)
      (rpc-handle-request request context))
     ((and (listp request) request)
-     (if (> (length request) +rpc-batch-request-limit+)
-         (json-rpc-response
-          nil
-          :error (json-rpc-error-object -32600 "Batch request too large"))
+     (if (> (length request) *rpc-batch-request-limit*)
+         (rpc-batch-too-large-response request)
          (loop for item in request
                for response = (if (json-object-p item)
                                   (rpc-handle-request item context)

@@ -604,15 +604,21 @@ reorg handler (`src/application/services/canonical-chain.lisp:109`) and
 (`src/api/public/transactions/receipts.lisp:35`) — so the mechanism exists and
 the subscription path simply does not use it.
 
-**RPC-25 — Log topic limits are geth-compatible; range work remains locally bounded.**
+**RPC-25 — Log topic and address limits are geth-compatible; range work is streamed and budgeted.**
 Verdict PARTIAL. Severity performance.
 `eth_getLogs`, `eth_newFilter`, and log subscriptions share enforcement of
 geth's `maxTopics = 4` and `maxSubTopics = 1000`, including exact `-32000`
-`exceed max topics` errors. The earlier audit also missed the existing local
-5,000-block range-delta guard. That guard remains as a resource-safety policy and
-is not claimed as geth parity. Within the bound, range processing is still
-synchronous and materializes known blocks; streaming plus request
-deadline/cancellation remains the open part of this finding.
+`exceed max topics` errors, and (rpc-hardening branch) geth's `LogQueryLimit`
+of 1,000 addresses with its `-32000` `exceed max addresses or topics per search
+position` (`eth/filters/api.go:451-454`, `filter_system.go:301-304` at
+38271784), checked after the whole filter has parsed as geth does. The local
+5,000-block range-delta guard remains a resource-safety policy, not geth parity.
+The range is now validated first and streamed block by block rather than
+collected into a list (`eth_newFilter` no longer loads the range just to
+validate it), and a result bound of 10,000 logs (our policy; geth has none)
+stops the scan at the block that crosses it with EIP-1474 `-32005`. A request
+deadline/cancellation for a slow in-bound scan remains open.
+
 
 **RPC-26 — Unknown log-filter `blockHash` returns an explicit error.**
 Verdict RESOLVED. Severity cosmetic.
@@ -725,22 +731,27 @@ from both the request guard and its predicate, require status 200 and error code
 uses a two-item batch and proves that the other item still succeeds. Before the
 whole-boundary repair, that test instead received the non-JSON HTTP 400 body.
 
-**RPC-35 — No batch item limit and no batch response size limit.**
-Verdict MISSING. Severity performance (denial of service).
-Ours: `rpc-handle-request-value` iterates the array with no bound
-(`src/api/rpc/router.lisp:238-250`). Reference: geth defaults
-`BatchRequestLimit` to 1000 and `BatchResponseMaxSize` to 25,000,000 bytes
-(`node/defaults.go:68-69`, enforced at `rpc/handler.go:263-266`). Consequence: a
-5 MB body — which the parser does allow, matching geth's `HTTPBodyLimit` — can
-carry tens of thousands of `eth_getLogs` calls whose combined response is
-unbounded. The CLI already accepts `--rpc.batch-request-limit` and
-`--rpc.batch-response-max-size` and ignores both. The rest of JSON-RPC 2.0 is
-handled correctly: notifications are omitted from batch results and produce an
-empty body when alone (`router.lisp:188-189`, `src/api/rpc/json.lisp:12-16`), an
-empty array is an invalid request, a non-object batch element yields a per-element
-invalid-request object, and the error codes for parse (`-32700`), invalid request
-(`-32600`), method not found (`-32601`), invalid params (`-32602`) and internal
-(`-32603`) all match.
+**RPC-35 — Batch item and response limits follow geth.**
+Verdict RESOLVED (rpc-hardening branch). Severity performance (denial of service).
+`*rpc-batch-request-limit*` (1000) and `*rpc-batch-response-max-size*`
+(25,000,000) are geth's `node/defaults.go:68-69` values. An oversized batch is
+refused whole, before any item runs, as a one-element batch holding `-32600`
+`batch too large` with the first call's id (`rpc/handler.go:209`, `:284-296`).
+Items otherwise run in order and each encoded response is counted as it is
+produced; once past the limit no further item runs and every remaining call gets
+`-32003` `response too large` with its own id (`:262-268`, `:150-162`). geth
+counts result/error bytes and we count whole response objects (at most ~40
+bytes more per item). Before this the size was checked only after every item
+had run and the whole array had been encoded, and the answer was then replaced
+wholesale. The CLI still accepts `--rpc.batch-request-limit` and
+`--rpc.batch-response-max-size` and ignores both (RPC-37's flag problem). The
+rest of JSON-RPC 2.0 is handled correctly: notifications are omitted from batch
+results and produce an empty body when alone, an empty array is an invalid
+request, a non-object batch element yields a per-element invalid-request
+object, and the error codes for parse (`-32700`), invalid request (`-32600`),
+method not found (`-32601`), invalid params (`-32602`) and internal (`-32603`)
+all match.
+
 
 **RPC-36 — Every HTTP response closes the connection; no keep-alive, chunked encoding, or gzip.**
 Verdict DIVERGENT. Severity performance.
@@ -792,15 +803,26 @@ uncapped EVM execution, per RPC-16 — are reachable on a default-open port. The
 same file's docstring explains at length why `admin_` was excluded from that
 predicate; the reasoning applies to `debug_` and was not extended to it.
 
-**RPC-40 — The WebSocket implementation is sound.**
-Verdict (no gap). Recorded because it is the transport least likely to be
-audited again. Masking is enforced asymmetrically and documented as a protocol
-error rather than a leniency (`src/transport/websocket/frames.lisp:9-15`),
-assembled messages are bounded at 16 MB against a 64-bit length field
-(`:50-54`), control-frame payloads are bounded at the RFC's 125 bytes (`:45-48`),
-ping, pong and close opcodes are all present (`:38-43`), and origins are checked
-at handshake. geth's limit is 32 MB (`rpc/websocket.go:259`); ours being lower is
-a policy choice, not a gap.
+**RPC-40 — WebSocket hardening.**
+Verdict RESOLVED (rpc-hardening branch); the original "no gap" verdict was
+wrong on two counts. Masking was documented but never enforced: the decoder
+accepted unmasked client frames. It now refuses them on the server side
+(RFC 6455 section 5.1) and the session answers any protocol error with a Close
+carrying its status. Origins were matched by exact string, and no
+`--ws.origins` meant any page could connect; they now follow geth's
+`wsHandshakeValidator`/`ruleAllowsOrigin` (`rpc/websocket.go:71-190` at
+38271784, vectors from `node/rpcstack_test.go` TestWebsocketOrigins), including
+the default of `http://localhost` and `http://HOSTNAME`. `--ws.api` was parsed
+and ignored (the WebSocket used `--http.api`'s filter); it is now its own
+filter, with the conservative public default when absent. eth_subscribe and
+eth_unsubscribe run through the router as per-connection methods, so batches,
+notifications and the method filter apply to them. Connections are capped (128,
+our policy; HTTP 503 before a session thread exists), subscriptions per
+connection are capped (256, our policy), frame writes carry geth's 10 s write
+deadline (`rpc/json.go:42`), and idle connections get geth's 30 s ping / 30 s
+pong keepalive (`rpc/websocket.go:38-40`). Assembled messages stay bounded at
+16 MB (geth 32 MB) and control frames at 125 bytes.
+
 
 ## Remediation plan
 
@@ -854,11 +876,10 @@ that would prove it fixed. "Hive" refers to the `ethereum/hive` suites; the
    reorg and asserts both the `removed: true` logs and the replacement logs
    arrive.
 8. **PARTIAL — Cap calls and bound log queries (S).** RPC-16, RPC-25,
-   RPC-35. `maxTopics` and `maxSubTopics` now match geth and the pre-existing
-   local block-range guard remains covered. Still wire call, batch, and response
-   limits, then replace synchronous block-list materialization with streaming
-   plus a request deadline/cancellation policy before considering the range
-   behavior complete.
+   RPC-35. `maxTopics`, `maxSubTopics` and the 1,000-address `LogQueryLimit`
+   match geth, batch item and response limits follow geth (RPC-35), and log
+   ranges are streamed under a result budget. Still wire the call gas cap and
+   EVM timeout flags and a request deadline/cancellation policy for range scans.
 9. **Reject flags we do not implement (S).** RPC-37, and the ignored options
    named in RPC-16 and RPC-35 that step 8 does not wire. Depends on step 8, so
     that only genuinely unimplemented flags remain. Verify in

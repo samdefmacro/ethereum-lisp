@@ -89,6 +89,8 @@
        forkchoice-persistence-function
        request-guard-function
        request-guard-predicate
+       read-view-function
+       read-view-method-p
        payload-improvement-notification-function
        get-blobs-v3-function
        (allowed-method-p #'engine-rpc-any-method-p)
@@ -195,6 +197,8 @@
     :forkchoice-persistence-function forkchoice-persistence-function
     :request-guard-function request-guard-function
     :request-guard-predicate request-guard-predicate
+    :read-view-function read-view-function
+    :read-view-method-p read-view-method-p
     :payload-improvement-notification-function
     payload-improvement-notification-function
     :get-blobs-v3-function get-blobs-v3-function

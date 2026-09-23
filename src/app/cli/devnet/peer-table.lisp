@@ -375,6 +375,67 @@ reads committed state; readers take the slot without any lock."
       (setf (devnet-node-sync-view node)
             (list :current current :highest highest :targets-p targets-p)))))
 
+(defun devnet-node-publish-read-view (node)
+  "Publish the public read view of NODE's guarded store. Guard held.
+
+A failure clears the view rather than leaving an old one behind, so public
+reads fall back to the guard instead of answering from a view that has stopped
+following the chain."
+  (let ((view (handler-case
+                  (node-store-publish-read-view (devnet-node-store node)
+                                                (devnet-node-read-view node))
+                (serious-condition () nil))))
+    ;; Readers on other threads take the slot without a lock: the view must be
+    ;; fully written before the pointer to it is.
+    #+sbcl (sb-thread:barrier (:write))
+    (setf (devnet-node-read-view node) view)))
+
+(defun devnet-node-publish-guarded-views (node)
+  "Everything the store-guard release hook republishes, each independently."
+  (handler-case (devnet-node-publish-sync-view node)
+    (serious-condition () nil))
+  (devnet-node-publish-read-view node))
+
+(defparameter *devnet-public-read-view-methods*
+  '("web3_clientVersion" "web3_sha3" "net_version" "net_listening"
+    "net_peerCount" "rpc_modules" "eth_chainId" "eth_protocolVersion"
+    "eth_accounts" "eth_coinbase" "eth_mining" "eth_hashrate" "eth_blockNumber"
+    "eth_getBlockByNumber" "eth_getBlockByHash" "eth_getHeaderByNumber"
+    "eth_getHeaderByHash" "eth_getBlockTransactionCountByNumber"
+    "eth_getBlockTransactionCountByHash" "eth_getUncleCountByBlockNumber"
+    "eth_getUncleCountByBlockHash" "eth_getUncleByBlockNumberAndIndex"
+    "eth_getUncleByBlockHashAndIndex" "eth_getBlockReceipts"
+    "eth_getTransactionReceipt" "eth_getTransactionByHash"
+    "eth_getTransactionByBlockNumberAndIndex"
+    "eth_getTransactionByBlockHashAndIndex" "eth_getRawTransactionByHash"
+    "eth_getRawTransactionByBlockNumberAndIndex"
+    "eth_getRawTransactionByBlockHashAndIndex" "eth_getLogs")
+  "Public methods tried against the published read view before the guard.
+
+Each either needs no store at all or reads only canonical blocks, receipts and
+the head. A request the view cannot answer completely still takes the guard,
+so listing a method here can cost at most one wasted attempt, never a wrong
+answer. State reads (balance, code, storage, calls) are not listed: the view
+holds no state.")
+
+(defun devnet-public-read-view-method-p (method)
+  (and (member method *devnet-public-read-view-methods* :test #'string=) t))
+
+(defun devnet-node-read-view-function (node-box)
+  "The public RPC's way into NODE's published read view.
+
+Returns a function of a one-argument FUNCTION and the caller's STORE that runs
+FUNCTION against the current view and returns (VALUES RESULT ANSWERED-P);
+ANSWERED-P is false before the first publication, when the view was built from
+a different store object, and whenever the view misses. The view is read from
+the node once per request, so one request never mixes two views."
+  (lambda (function store)
+    (let* ((node (first node-box))
+           (view (and node (devnet-node-read-view node))))
+      (if view
+          (node-store-read-view-attempt function view store)
+          (values nil nil)))))
+
 (defun devnet-node-forkchoice-targets-pending-p (node)
   "Whether NODE's store holds a forkchoice sync target right now, lock-free.
 

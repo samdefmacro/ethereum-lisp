@@ -64,6 +64,10 @@
 (defpackage #:ethereum-lisp.node-store
   (:use #:cl
         #:ethereum-lisp.validation
+        #:ethereum-lisp.types
+        #:ethereum-lisp.transactions
+        #:ethereum-lisp.receipts
+        #:ethereum-lisp.chain-store.model
         #:ethereum-lisp.blocks
         #:ethereum-lisp.txpool.index
         #:ethereum-lisp.chain-store.state
@@ -74,7 +78,12 @@
    #:engine-payload-store-snapshot
    #:engine-payload-store-restore
    #:chain-store-atomic-commit
-   #:engine-payload-store-put-block))
+   #:engine-payload-store-put-block
+   #:node-store-read-view
+   #:node-store-read-view-p
+   #:node-store-read-view-head-number
+   #:node-store-publish-read-view
+   #:node-store-read-view-attempt))
 
 (defpackage #:ethereum-lisp.canonical-chain
   (:use #:cl

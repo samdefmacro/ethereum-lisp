@@ -1,0 +1,169 @@
+Section 7 leftovers: public reads off the store guard, response work budgets,
+and WebSocket hardening
+
+Status
+
+IMPLEMENTED AND VERIFIED IN THE WARM IMAGE with targeted tests, each with a
+RED control against the pre-change definitions and an in-budget positive
+control. Targeted cold lanes: see "Verification of record". cold-all was NOT
+run on this branch (the coordinator runs it once at the end). Nothing was
+deployed or run live.
+
+Revision: branch rpc-hardening over f1f079f6 (sec5-public-bootstrap-sync):
+6043c88b, 75a07323 (read view), 6d0dbad7 (work budgets), 0ec0eb5c
+(WebSocket), and the commit adding this file. Reference client: geth
+38271784 (1.17.6-unstable, references/go-ethereum).
+
+================================================================================
+1. Immutable public reads off the store guard
+================================================================================
+
+Live boundary: on the 8e95b990 Hoodi run public eth_blockNumber waited 10-30 s
+behind the node store guard (block execution, forward batches, Engine holds).
+
+Why not read the live store without the guard: its read paths fill read-through
+caches (canonical index, block table, transaction locations) and its tables are
+plain unsynchronized hash tables; transactions memoize hash and sender in place.
+
+Change:
+- src/storage/node-store/read-view.lisp: NODE-STORE-PUBLISH-READ-VIEW builds an
+  immutable view under the guard: head number/hash, safe/finalized numbers (or
+  :UNAVAILABLE), the last 128 canonical blocks head-first, reusing the previous
+  view's entries along unchanged ancestry (a release with the same head, safe
+  and finalized returns the previous view itself). The view implements the
+  chain-store read protocol (head, tags, canonical hash, block by number/hash,
+  canonical-block-p, transaction location) for what it holds and THROWS a miss
+  for anything else: blocks older than the window, numbers above the head,
+  unknown hashes, CHAIN-STORE-COMPONENT and TXPOOL-COMPONENT (so every state,
+  txpool or direct memory-store access). Readers get a private per-entry block
+  copy (made once, compare-and-swap) and an EQUAL tx-hash index.
+- The view records its source store; a context answering for another store
+  object gets no answer from it (test harnesses swap stores).
+- src/app/cli/devnet: the store-guard release hook (which already published
+  eth_syncing's view) now also publishes the read view, clearing it on error;
+  serving starts with an empty guard hold so pre-serve store work is visible.
+- src/api/rpc/router.lisp: a fixed list of methods
+  (*DEVNET-PUBLIC-READ-VIEW-METHODS*: web3_*, net_*, rpc_modules, eth_chainId,
+  eth_blockNumber, block/header/uncle/receipt/transaction getters, eth_getLogs)
+  is tried against the view first on the PUBLIC service only (the Engine port is
+  unchanged). A miss or a -32603 falls back to the guarded live store; other
+  errors are final (re-running a refused request would give the same refusal).
+- Consistency: the view is published at the release, the one point where the
+  store is committed and readable, so it is what a guarded reader saw just
+  before the current hold; one request reads one view.
+
+RED/GREEN (tests/rpc-read-view-tests.lisp; another thread holds the guard):
+- PUBLIC-READS-ARE-ANSWERED-WHILE-THE-STORE-GUARD-IS-HELD: 14 reads (head,
+  chain id, blocks by number/hash/tag, header, receipts, receipt, tx by hash and
+  by index, getLogs) answer in 0-1 ms each and EQUAL the guarded live answers.
+  RED with the view disabled: eth_blockNumber "waited for the guard" (2 s).
+- READS-OUTSIDE-THE-VIEW-STILL-WAIT-FOR-THE-GUARD-AND-THEN-ANSWER (control):
+  eth_getBalance, a block above the head and an unknown receipt time out while
+  held and answer from the live store after release.
+- THE-READ-VIEW-SHOWS-COMMITTED-HOLDS-ONLY: a hold that extended the chain is
+  invisible (0x6) until it releases (0x7).
+- READ-VIEW-PUBLICATION-REUSES-THE-WINDOW-AND-MATCHES-THE-LIVE-INDEX.
+- Two existing persistence tests asserted that public eth_blockNumber WAITS
+  for a failing publication hold. One now disables the view (it observes the
+  contention itself); the other asserts the stronger property: it answers
+  during the hold with the committed head 0x0.
+- The first regression run caught the stale-view case (smoke gate "Restored
+  eth_blockNumber mismatch: expected 0x2b got 0x0"): fixed by the source-store
+  check, the empty hold at serve start, and running the smoke gate's database
+  import under the guard.
+
+Not done: state reads (eth_getBalance/Code/StorageAt/call) still take the
+guard; the view holds no state.
+
+================================================================================
+2. Work budgets before large responses
+================================================================================
+
+- Batches (geth rpc/handler.go, node/defaults.go:68-69): items run in order,
+  each response is encoded and counted as produced; past 25,000,000 bytes no
+  further item runs and each remaining call gets -32003 "response too large"
+  with its id. Before: every item ran, the whole array was encoded, then
+  replaced with one error. Over 1,000 items: a one-element batch with -32600
+  "batch too large" and the first call's id (before: a bare object, id null).
+- eth_getLogs/eth_newFilter/log subscriptions: geth's LogQueryLimit (1,000
+  addresses, -32000 "exceed max addresses or topics per search position"),
+  checked after the whole filter parsed. Ranges are validated then streamed
+  (no list of up to 5,000 blocks; eth_newFilter no longer loads the range to
+  validate it). Result bound 10,000 logs (our policy, geth has none): EIP-1474
+  -32005 at the block that crosses it.
+- eth_simulateV1 already had geth's call/block/gas budgets; unchanged.
+
+RED/GREEN (tests/rpc-work-budget-tests.lisp): all four red against the
+f1f079f6 definitions (whole batch ran, 6 of 6 items executed, no -32003, no
+-32005, no address refusal); green now, each with its positive control
+(at-limit batch runs every item; 2-log bound answers both logs; 1,000
+addresses answer).
+
+Not done: debug_traceBlock* still replays each transaction's prefix
+(quadratic in block size); the --rpc.* budget flags are still accepted and
+ignored; no per-request deadline/cancellation for a slow in-bound log scan.
+
+================================================================================
+3. WebSocket
+================================================================================
+
+- Masking: the decoder accepted unmasked client frames (the code comment said
+  otherwise). Server-side decode now requires the mask; the pump answers any
+  protocol error with Close carrying its status (1002).
+- Origins: port of geth wsHandshakeValidator/ruleAllowsOrigin
+  (rpc/websocket.go:71-190); default list http://localhost and http://HOSTNAME
+  (before: exact-string match, and no --ws.origins admitted every page). Tested
+  with geth's node/rpcstack_test.go TestWebsocketOrigins vectors.
+- --ws.api: parsed and ignored before (the WebSocket used --http.api); now its
+  own filter, the conservative public default when absent. BEHAVIOUR CHANGE:
+  a node relying on --http.api to widen WebSocket methods must pass --ws.api.
+- eth_subscribe/eth_unsubscribe are per-connection router methods: they work
+  inside batches, get no reply as notifications, obey the filter, skip the
+  store guard.
+- Caps (our policy): 128 connections (HTTP 503 before a session thread
+  exists), 256 subscriptions per connection (-32000).
+- Deadlines: 10 s frame-write deadline (geth rpc/json.go:42) through the
+  non-blocking descriptor -- measured: SBCL 2.2.9's stream :TIMEOUT 1 did not
+  end a blocked FINISH-OUTPUT within 60 s; 30 s ping / 30 s pong keepalive
+  (rpc/websocket.go:38-40).
+
+RED/GREEN (tests/websocket-hardening-tests.lisp, shipped server on loopback):
+origin vectors, origin e2e, batch/notification, --ws.api, unmasked close,
+connection cap, keepalive and subscription cap were each red against the
+previous definition of the function they exercise and green now. The write
+deadline test has no runnable red case (the old write never returns); its
+positive control drains the peer and completes.
+
+Not done: each connection's notification poll still takes the store guard once
+a second (it could read the view); no idle-connection timeout beyond the
+keepalive.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+Warm image (cl-workbench repl, restarted after each struct change), 0ec0eb5c:
+- Every registered test whose name contains RPC, PUBLIC, WEBSOCKET, WS-,
+  SYNCING, GUARD, ARCHITECTURE, PACKAGE, ADMIN, RECEIPT, LOG, FILTER,
+  DEVNET-NODE, BATCH, HTTP, READ-VIEW, PERSISTENCE, SMOKE, SUBSCRI, OPTION,
+  CLI- or BUDGET: 652 passed, 8 skipped, 0 failed (includes the package-graph
+  architecture tests and DEVNET-SMOKE-GATE-SCRIPT-WRITES-READY-AND-LOG-FILES).
+- Image build: no compiler warning under /workspace/src from these changes
+  (the one src STYLE-WARNING, PRECOMPILE-P in runtime/evm/interpreter/call.lisp,
+  predates the branch).
+
+Cold, targeted (cl-workbench validation run, fresh image, 0ec0eb5c + docs):
+- cold-unit --match READ-VIEW PUBLIC-READS READS-OUTSIDE WEBSOCKET
+  RPC-OVERSIZED RPC-BATCH ETH-GET-LOGS ETH-LOG-FILTERS ETH-SUBSCRIBE:
+  24 passed, exit 0, no STYLE-WARNING.
+- cold-integration --match WEBSOCKET LIVE-PERSISTENCE SMOKE READ-VIEW:
+  23 passed, exit 0.
+- cold-e2e --match WS RPC SERVE: 6 + 12 passed, exit 0.
+
+Not verified
+- cold-all (left to the coordinator), Hive rpc-compat on this branch, and any
+  live run: whether public reads stay fast on Hoodi and what the per-release
+  publish costs on a busy node (the common release returns the previous view
+  after two index lookups; a new head copies nothing but walks back to the
+  last known entry).
+
