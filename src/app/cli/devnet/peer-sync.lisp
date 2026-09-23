@@ -583,31 +583,50 @@ bodies were never admitted after the downloader stopped at the bad block."
       node block :peer-id peer-id :require-valid-p require-valid-p
       :invalid-head-hash invalid-head-hash))))
 
-(defun devnet-peer-sync-import-batch
-    (node blocks peer-id &key invalid-head-hash)
-  "Execute and durably commit one verified peer response as one transaction.
+(defparameter *devnet-peer-sync-batch-guard-seconds* 1
+  "How long one guard hold of the forward batch importer may run. Our policy.
 
-All blocks execute oldest-first inside a common outer rollback frame. Only the
-last candidate invokes the durable exporter: it walks newly executed ancestry
-back to the existing durable boundary, so every candidate and the final resume
-cursor enter one synchronized WAL batch. A failure in execution or durability
-rolls the whole in-memory response batch back."
-  (when (null blocks)
-    (return-from devnet-peer-sync-import-batch 0))
+A downloader response is up to 192 blocks, and executing them all under one
+hold kept every Engine request past the consensus client's 30 second deadline
+on Hoodi. The importer commits the blocks it has executed and releases the
+guard once this much time has passed, or at once when an Engine request is
+waiting; the checks happen between blocks, so a single block is never split.")
+
+(defun devnet-peer-sync-import-batch-chunk
+    (node blocks peer-id invalid-head-hash)
+  "Execute and durably commit a prefix of BLOCKS in one guard hold.
+
+Blocks run oldest-first inside a common outer rollback frame. Before each block
+the importer decides whether it is the last of this hold: the final block of
+BLOCKS, or any block once an Engine request waits or the hold has used its
+budget. A hold always executes at least its first block, so every hold makes
+progress. Only that last candidate invokes the durable exporter: it walks newly
+executed ancestry back to the existing durable boundary, so every candidate of
+the hold and the resume cursor enter one synchronized WAL batch. A failure in
+execution or durability rolls the whole hold back. Returns the blocks still to
+import."
   (call-with-devnet-node-store-guard
    node
    (lambda ()
      (let ((store (devnet-node-store node))
            (durability-function
              (devnet-node-candidate-persistence-function node))
+           (deadline
+             (+ (get-internal-real-time)
+                (* *devnet-peer-sync-batch-guard-seconds*
+                   internal-time-units-per-second)))
            (invalid-status nil)
-           (invalid-block nil))
+           (invalid-block nil)
+           (remaining nil))
        (chain-store-atomic-commit
         store
         (lambda ()
           (loop for tail on blocks
                 for block = (car tail)
-                for last-p = (null (cdr tail))
+                for last-p = (or (null (cdr tail))
+                                 (devnet-node-store-guard-priority-pending-p
+                                  node)
+                                 (>= (get-internal-real-time) deadline))
                 do
                    (multiple-value-bind (status candidate receipts)
                        (devnet-peer-sync-import-block-without-guard
@@ -630,7 +649,10 @@ rolls the whole in-memory response batch back."
                                   :payload-status status))
                        (setf invalid-status status
                              invalid-block block)
-                       (loop-finish))))))
+                       (loop-finish)))
+                   (when last-p
+                     (setf remaining (cdr tail))
+                     (loop-finish)))))
        (when invalid-status
          (error
           'devnet-peer-sync-invalid
@@ -640,7 +662,28 @@ rolls the whole in-memory response batch back."
            (hash32-to-hex (block-hash invalid-block))
            (payload-status-status invalid-status)
            (payload-status-validation-error invalid-status))))
-       (length blocks)))))
+       remaining))))
+
+(defun devnet-peer-sync-import-batch
+    (node blocks peer-id &key invalid-head-hash)
+  "Execute and durably commit one verified peer response, oldest first.
+
+The response is committed in one or more consecutive guard holds (see
+DEVNET-PEER-SYNC-IMPORT-BATCH-CHUNK). Each hold is atomic: it publishes whole
+executed candidates plus their durable cursor, or rolls back to the previous
+hold's boundary. Between holds the importer releases NODE's store guard and
+first lets any waiting Engine request in, so Engine latency is bounded by
+about one block execution rather than by the response size. Every committed
+candidate is noncanonical; only Engine forkchoice publishes a canonical view.
+Returns the number of blocks imported."
+  (let ((remaining blocks))
+    (loop while remaining
+          do (setf remaining
+                   (devnet-peer-sync-import-batch-chunk
+                    node remaining peer-id invalid-head-hash))
+             (when remaining
+               (devnet-node-yield-store-guard-to-priority node)))
+    (length blocks)))
 
 (defun devnet-peer-sync-status (node)
   "Return STATUS, HEAD-NUMBER, CHAIN-CONTEXT, and canonical HEAD-HASH.

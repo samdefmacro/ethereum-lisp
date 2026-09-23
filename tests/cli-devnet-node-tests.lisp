@@ -1270,6 +1270,59 @@ really reopens the directory instead of observing the first handle's memory."
       (is (null (chain-store-known-block store (block-hash block))))
       (is (not (chain-store-state-available-p store (block-hash block)))))))
 
+(deftest devnet-peer-range-batch-rolls-back-only-the-failing-guard-hold
+  (:layer :unit :module :p2p)
+  ;; With a zero hold budget every block is its own guard hold.  A failure in
+  ;; the second hold must roll back that hold alone: the first block stays a
+  ;; whole, durable executed candidate with its cursor, and nothing of the
+  ;; failing block or its successors is visible.  Positive control: the
+  ;; single-hold case is DEVNET-PEER-RANGE-BATCH-FAILURE-ROLLS-BACK-EARLIER-BLOCKS.
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (blocks
+           (eth-sync-produce-empty-blocks
+            (ethereum-lisp.cli::devnet-node-genesis-block node)
+            (ethereum-lisp.cli::devnet-node-config node) 3))
+         (peer-id
+           (secp256k1-private-key-public-key
+            #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee))
+         (name 'ethereum-lisp.block-import:import-p2p-block-candidate)
+         (original (fdefinition name))
+         (durable '())
+         (calls 0))
+    (setf (ethereum-lisp.cli::devnet-node-candidate-persistence-function node)
+          (lambda (seen-store candidate &key progress &allow-other-keys)
+            (declare (ignore seen-store))
+            (push (cons candidate progress) durable)))
+    (let ((ethereum-lisp.cli::*devnet-peer-sync-batch-guard-seconds* 0))
+      (devnet-peer-sync-call-with-function-overrides
+       (list
+        (cons
+         name
+         (lambda (seen-store block config &rest arguments)
+           (incf calls)
+           (when (= 2 calls)
+             (error "injected second-hold failure"))
+           (apply original seen-store block config arguments))))
+       (lambda ()
+         (signals error
+           (ethereum-lisp.cli::devnet-peer-sync-import-batch
+            node blocks peer-id)))))
+    (is (= 2 calls))
+    (is (= 1 (length durable)))
+    (is (hash32= (block-hash (first blocks))
+                 (block-hash (car (first durable)))))
+    (is (= 1
+           (ethereum-lisp.node-store.persistence:node-store-peer-sync-progress-last-number
+            (cdr (first durable)))))
+    (is (chain-store-state-available-p store (block-hash (first blocks))))
+    (dolist (block (rest blocks))
+      (is (null (chain-store-known-block store (block-hash block))))
+      (is (not (chain-store-state-available-p store (block-hash block)))))))
+
 (defparameter +devnet-peer-sync-storage-writer-key+
   #x45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8)
 
@@ -1442,8 +1495,8 @@ transfer that leaves the contract untouched."
   ;; WHOLE response.  Here each block execution is slowed to DELAY seconds and
   ;; a forkchoiceUpdated arrives while the first block runs.  RED control: with
   ;; the whole batch under one guard hold the call waits for all BLOCK-COUNT
-  ;; executions (about 1.75 s); it must instead get in after at most the block
-  ;; in flight plus the one the importer had already committed to.
+  ;; executions (measured 2.03 s); it must instead get in once the block in
+  ;; flight and at most one more have committed (measured 0.50 s).
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
             :genesis-json *eth-sync-paris-genesis-json*

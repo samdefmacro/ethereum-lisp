@@ -1562,7 +1562,31 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
            ;; Preserve coverage of the production wiring before replacing the
            ;; guard with a test-visible mutex for deterministic contention.
            (is (eq original-node-store-guard original-public-guard))
-           (is (eq original-node-store-guard original-engine-guard))
+           ;; The Engine service takes the SAME mutex through its priority
+           ;; guard, which lets long holders see it waiting.  Inside it the
+           ;; node's give-up-instead companion, tried from ANOTHER thread
+           ;; (a same-thread try is a recursive-lock error), must find the
+           ;; mutex held.
+           (is (not (eq original-node-store-guard original-engine-guard)))
+           (is (eq :held
+                   (funcall
+                    original-engine-guard
+                    (lambda ()
+                      (sb-thread:join-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          ;; Unhandled, a condition here would kill the
+                          ;; whole sbcl --script run.
+                          (handler-case
+                              (multiple-value-bind (result ran-p)
+                                  (funcall
+                                   (ethereum-lisp.cli::devnet-node-store-guard-try-function
+                                    node)
+                                   (lambda () :free))
+                                (if ran-p result :held))
+                            (serious-condition (condition) condition)))
+                        :name "devnet-engine-guard-shares-store-mutex")
+                       :timeout 10 :default :timeout)))))
            (setf
             (ethereum-lisp.cli::devnet-node-store-guard-function node)
             test-store-guard
