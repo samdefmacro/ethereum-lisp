@@ -1,0 +1,215 @@
+Section 5: the six-second newPayload quantum and the guard waits at the head
+
+Status
+
+Branch newpayload-six-second, from 58b8c38b (aee866f7 + docs). Two patterns
+in the aee866f7 Hoodi telemetry (2026-09-23 19:13-19:20Z):
+
+  (A) npExecuteMs is bimodal: 52-548 ms, or a near-constant 6,000-6,260 ms
+      with only 8-76 trie-node DB reads.
+  (B) handlerMs far above execute+persist: VALID answers with no execution
+      at all took 7.4-25.3 s, and forkchoiceUpdatedV3 up to 25.6 s.
+
+(B) is found, reproduced and fixed: background store-guard takers re-took the
+unfair SBCL mutex ahead of a waiting Engine request, and the gap filler
+imports the CL's own blocks one hold at a time. (A) is NOT reproduced
+locally. The Engine request log now splits every phase into GC, own CPU and
+time off the CPU, so the next deployed run names it. Not deployed, no live
+run, no cold-all (the coordinator runs it once at the end).
+
+Revision
+
+  82b217e6  engine: split request time into GC, CPU and waits, and name the
+            store-guard holds a request waited behind
+  6fe683b0  node: background store-guard takers defer to a waiting Engine
+            request
+  (next)    test: an Engine request behind a gap fill waits for one block and
+            names it
+
+================================================================================
+1. New telemetry (what the next run will say)
+================================================================================
+
+engine.rpc.http.request, every request:
+  handlerGcMs      collector run time inside the handler (process-wide)
+  handlerGcCount   collections completed inside the handler
+  handlerCpuMs     the handler thread's own CPU (CLOCK_THREAD_CPUTIME_ID)
+  heapMb           Lisp heap (dynamic usage) after the handler
+  guardWaitMs      time an Engine request waited for the store guard
+  guardWaitedFor   every hold that ended during that wait, oldest first, as
+                   label:holdMs[+releaseHookMs]; the label is the Engine
+                   method, sync-gap-fill, forward-batch-import, or the
+                   holder's thread name (payload improvement, peer sessions,
+                   txpool maintenance ...)
+  peerWaitMs       time blocked in a synchronous peer request
+                   (DEVNET-PEER-REQUEST-QUEUE-SUBMIT-JOB)
+engine_newPayload*, in addition:
+  npExecuteGcMs npExecuteGcCount npExecuteCpuMs
+  npPersistGcMs npPersistGcCount npPersistCpuMs
+node.store_guard.long_hold (new event): any single hold >= 1,000 ms, with
+  holder, holdMs, releaseHookMs, engineWaiting.
+
+How to read a 6-second npExecuteMs (each signature measured in the warm
+image with the same fields, tmp harness, 1-second cases):
+
+  cause                         xMs   xGcMs  xGcCount  xCpuMs
+  full GC on this thread          64     64        1       64
+  mutex held by another thread  1009      0        0        0
+  stop-the-world wait (another  1008      6        1        6
+    thread in WITHOUT-GCING)
+  own CPU                       1000      0        0      999
+
+So for the live 6 s: GcMs ~6000 means a collection; GcCount >= 1 with small
+GcMs and CpuMs means waiting for the world to stop; GcCount 0 and CpuMs ~0
+means blocked (lock or disk; npTrieNodeReads separates disk); CpuMs ~6000
+means work. peerWaitMs > 0 would mean a peer request on the Engine path
+(none exists in the code: the import runs on the HTTP thread and calls only
+chain-store functions).
+
+================================================================================
+2. (B) Guard waits: found, reproduced, fixed
+================================================================================
+
+Mechanism. SBCL mutexes are not fair (a holder that releases and re-grabs
+usually beats the woken waiter). Only two long holders looked at the
+Engine-priority signal: the forward batch importer and the payload builder
+(e313f198; its signal does fire: the Engine service's request guard is the
+priority guard). Every other taker ignored it, among them the gap filler
+(DEVNET-PEER-FILL-SYNC-GAPS), which imports blocks through
+DEVNET-PEER-SYNC-IMPORT-BLOCK, one guard hold per block, back to back, plus
+a known-block probe hold per hash. In the Hoodi window there were 144
+peer.sync.gap_filled events. The gap filler fetches and imports the very
+blocks the CL is delivering, so the CL's newPayload then finds its block
+already imported and answers VALID with no execution, after waiting behind
+the filler's holds: exactly the 7.4 / 8.3 / 25.3 s "no execute field"
+answers. With (A) making a block cost ~6 s, 25.3 s is about four holds.
+
+Reproduction (integration test DEVNET-ENGINE-REQUEST-BEHIND-A-GAP-FILL-
+WAITS-FOR-ONE-BLOCK-AND-NAMES-IT): a devnet node, twelve 8-transaction
+blocks, a thread importing them through the node's real gap-fill import
+path (each import slowed by 100 ms), and newPayload for the first block sent
+through the node's Engine rpc-context once it is in:
+
+  before (deferral bounded to 0 s)   VALID, no execution, handler 1,165 ms
+     guardWaitMs 1164  guardWaitedFor "sync-gap-fill:120 sync-gap-fill:114
+     ... (10 holds)"
+  after                               VALID, no execution, handler 121 ms
+     guardWaitMs 119   guardWaitedFor "sync-gap-fill:119"
+
+Fix. Plain guard takers (GUARD) now stay off the mutex while an Engine
+request waits, bounded by the existing *DEVNET-STORE-GUARD-PRIORITY-YIELD-
+SECONDS* (2 s) so a stream of Engine requests cannot starve them; TRY treats
+a waiting Engine request as a held guard. The Engine priority guard is
+unchanged: waiters count themselves until they own the mutex, holders that
+check the signal still step aside, and nothing about which operation runs
+under the guard changed. Unit RED/GREEN
+(DEVNET-STORE-GUARD-BACKGROUND-TAKERS-DEFER-TO-A-WAITING-ENGINE-REQUEST):
+an Engine request behind twenty back-to-back 50 ms holds waited 607-1,153 ms
+with the deferral at 0 s (control) and 52-60 ms with it.
+
+What this does not bound: a single long hold. The gap filler's block import
+still holds the guard for one whole block execution (so (A) passes straight
+into Engine latency), and SNAP serving (DEVNET-PEER-SNAP-BACKEND) holds it
+for one whole account/storage/trie-node response, up to the 2 MiB soft
+limit, with no time budget (geth bounds trie-node serving at 5 s). The
+deferral only stops a serving peer from starting a new request while an
+Engine request waits. node.store_guard.long_hold will show whether either
+matters live. SNAP serving code was not changed (fleet rule).
+
+forkchoiceUpdated 25.6 s: its handlerMs includes its guard wait, which was
+not logged before. guardWaitMs/guardWaitedFor on the fcU line now separate
+the wait from its own work; not otherwise analysed here.
+
+================================================================================
+3. (A) The 6-second quantum: not reproduced locally
+================================================================================
+
+Ruled out by reading the code: a peer request on the Engine path (none; the
+6,000 ms figure in peer.snap.progress is the SNAP QoS timeout, 2 s minimum
+RTT x 3, used only by SNAP client requests), a sleep or timeout in execution
+(none in src/runtime, src/application, src/storage), and a long lock inside
+execution (the direct-store cache mutexes are held for single table
+operations).
+
+GC calibration (arm64 warm image, SBCL 2.2.9, 6 GiB dynamic space as in the
+runtime image, which gives a 322 MB nursery and 64 MB generation triggers):
+  full GC, 256 MB live, byte-vector heavy            49 ms
+  full GC, 1 GB live, byte-vector heavy              210 ms
+  full GC, 1 GB live, pointer-dense (structs, conses) 451-467 ms
+  head-shaped churn (60 MB garbage per block, a 2 x 16,384-entry node cache
+  and a 2 x 512 block cache rotating) over 1.5 GB pointer-dense live data,
+  300 blocks: 55 collections, 441 ms total, no pause >= 100 ms
+A plain generational copy of a plausibly shaped heap does not produce a
+periodic 6 s pause on this hardware; it would take roughly 13 GB of
+pointer-dense live data at this rate, above the 6 GiB dynamic space. A
+devnet RocksDB node following 80 blocks over 20,000 accounts kept a flat
+live heap (100 -> 103 MB after full GCs), so Engine following does not by
+itself accumulate a large live set.
+
+What still points at GC on the live host:
+  - 34b7ff97 disabled in-phase full collections because a Hoodi full GC
+    outlasted the CL's 5-second Engine upcheck;
+  - the healing audit recorded gcRunMs 11.5e6 over ~11 h (about 29% of wall
+    time), and the memory-fault trace 8.6e6 ms over runs that consed 14 TB,
+    about 190 ms per 322 MB nursery collection, 50x the 4 ms measured
+    locally;
+  - d203fee6 at the head ran at 101.7% CPU and 10.32 GiB of 12 GiB.
+  6 s every ~20 s is also ~30% of wall time. If the next run shows
+  npExecuteGcMs ~6000 with heapMb near the 6,144 MB dynamic space, the heap
+  is near full and every collection escalates; the next step is then to
+  find what the head node retains (heapMb over time plus a one-off
+  sb-vm::instance-usage sample), not to tune the collector blind.
+
+================================================================================
+4. Verification of record (targeted)
+================================================================================
+
+cl-workbench doctor --strict: passed.
+
+RED/GREEN
+  DEVNET-STORE-GUARD-BACKGROUND-TAKERS-DEFER-TO-A-WAITING-ENGINE-REQUEST
+    control (deferral 0 s) worst of 3 >= 400 ms (single runs 607-1153),
+    fixed worst of 3 <= 250 ms (52-60)
+  DEVNET-ENGINE-REQUEST-BEHIND-A-GAP-FILL-WAITS-FOR-ONE-BLOCK-AND-NAMES-IT
+    control 1,165 ms behind 10 holds, fixed 121 ms behind 1
+  DEVNET-STORE-GUARD-NAMES-THE-HOLDS-AN-ENGINE-REQUEST-WAITED-BEHIND
+    GREEN; mutation (DEVNET-STORE-GUARD-NOTE-PRIORITY-WAIT a no-op) -> RED
+    "Assertion failed: (AND WAITED ...)"; free-guard and short-hold controls
+    in the test
+  TELEMETRY-RUNTIME-FIELDS-TELL-GC-CPU-AND-WAITING-APART (forced GC, sleep
+    and busy-loop controls), TELEMETRY-WAIT-ACCOUNTING-SUMS-KINDS-AND-NAMES-
+    WHAT-WAS-WAITED-FOR, and DEVNET-NEW-PAYLOAD-READS-THE-NODES-ITS-PARENT-
+    WROTE-FROM-CACHE now also asserts the npExecute/npPersist GC and CPU
+    fields.
+
+Warm image, run-tests :match ("STORE-GUARD" "GUARD" "HTTP-SERVICE"
+  "ENGINE-RPC-HTTP" "TELEMETRY" "ADMIN" "READ-VIEW" "NEW-PAYLOAD"
+  "PAYLOAD-BUILDING" "PAYLOAD-IMPROVEMENT" "PRIORITY"
+  "DEVNET-LIVE-PERSISTENCE" "OPS-RECOVERY" "RPC-LATENCY" "PEER-REQUEST"
+  "GAP" "BATCH" "ENGINE-TIMEOUT" "FORWARD" "RESTART-BEHIND" "SYNC-VIEW"
+  "ETH-SYNCING"): 215 passed, 2 failed. PHASE-A-SMOKE-GATE-DRIFT-MAP-FAILS-
+  ON-MATERIALIZABLE-GAPS failed because its `sbcl --script` child recompiled
+  the just-edited sources and printed the compile transcript to the stdout
+  the test expects empty (the documented edited-tree trap; it passed on
+  rerun once the FASLs were current). The control of the new deferral test
+  fell under 400 ms once under suite load; it now takes the worst of three.
+Cold: see section 5.
+Fresh compile-file of every changed source: no WARNING or STYLE-WARNING.
+
+================================================================================
+5. Cold runs
+================================================================================
+
+(filled in below)
+
+Not verified
+
+- The live cause of (A). Nothing here was deployed; the new fields are the
+  measurement. The GC reading in section 3 is an inference from earlier
+  runs.
+- Whether the deferral removes the live 7-25 s waits entirely: it removes
+  the multi-hold starvation; a single hold still costs one block execution.
+- SNAP serving hold lengths on Hoodi (node.store_guard.long_hold will show
+  them); forkchoiceUpdated's own work.
+- EEST blockchain fixtures were not rerun: no execution, root or receipt
+  code changed.
