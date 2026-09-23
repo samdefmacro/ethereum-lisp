@@ -19,6 +19,13 @@
   "How many random bytes a subscription id carries. geth uses 16; a client that
 logs or indexes ids will not care, but matching the width costs nothing.")
 
+(defconstant +eth-rpc-max-subscriptions-per-connection+ 256
+  "How many subscriptions one connection may hold. Our policy (geth sets no
+bound): every connection's subscriptions are polled under the store guard once a
+second, so an unbounded registry is unbounded guard time bought with one
+socket. The next eth_subscribe is refused with -32000 before anything is
+parsed or registered.")
+
 (defconstant +eth-rpc-subscription-head-catchup-limit+ 128
   "How far back a newHeads cursor will walk to find the head it last reported.
 
@@ -75,6 +82,9 @@ filter is an error on the subscribe call -- where the client can see it -- and
 not a silent absence of notifications later."
   (unless (and (listp params) (plusp (length params)))
     (invalid-parameters-fail "eth_subscribe requires a subscription name"))
+  (when (>= (eth-rpc-subscription-count registry)
+            +eth-rpc-max-subscriptions-per-connection+)
+    (engine-rpc-fail -32000 "too many subscriptions on this connection"))
   (let* ((name (first params))
          (kind (progn
                  (unless (stringp name)

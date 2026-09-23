@@ -24,25 +24,83 @@ Our policy: also the upper bound on how long a notification waits behind an idle
 connection, and on noticing shutdown.")
 
 (defstruct (websocket-connection
-            (:constructor %make-websocket-connection (stream)))
+            (:constructor %make-websocket-connection
+                (stream &key write-timeout-seconds)))
   "A connection that has completed its handshake.
 
 BUFFER holds bytes read but not yet forming a whole frame; FRAGMENTS holds the
-payloads of a message still being delivered across continuation frames."
+payloads of a message still being delivered across continuation frames.
+
+WRITE-TIMEOUT-SECONDS, when set, bounds every frame write: the stream's
+descriptor must then be non-blocking, and a client that stops reading for that
+long fails the write instead of pinning this thread (and its connection slot)
+forever. LAST-WRITE and PONG-DEADLINE are internal-real-time stamps for the
+pump's keepalive."
   stream
   (buffer (make-byte-vector 0))
   (fragments '())
   (fragment-opcode nil)
-  (closed-p nil))
+  (closed-p nil)
+  (write-timeout-seconds nil)
+  (last-write (get-internal-real-time))
+  (pong-deadline nil))
 
-(defun make-websocket-connection (stream)
-  (%make-websocket-connection stream))
+(defun make-websocket-connection (stream &key write-timeout-seconds)
+  (%make-websocket-connection stream
+                              :write-timeout-seconds write-timeout-seconds))
+
+(define-condition websocket-write-timeout (error)
+  ((seconds :initarg :seconds :reader websocket-write-timeout-seconds))
+  (:report (lambda (condition stream)
+             (format stream "WebSocket peer accepted no data for ~A s"
+                     (websocket-write-timeout-seconds condition)))))
+
+(defun websocket-seconds-until (deadline)
+  (max 0 (/ (- deadline (get-internal-real-time))
+            internal-time-units-per-second)))
+
+(defun websocket-write-octets-with-deadline (stream octets seconds)
+  "Write OCTETS to STREAM's non-blocking descriptor within SECONDS in total.
+
+A blocking write to a peer that has stopped reading never returns, and neither
+SBCL's stream timeout nor the socket API bounds it (measured on SBCL 2.2.9: a
+1 s stream :TIMEOUT did not end a blocked FINISH-OUTPUT in 60 s). So the bytes
+go straight to the descriptor, which returns EAGAIN when the peer's window is
+full, and the wait for writability carries the deadline."
+  #+sbcl
+  (let* ((fd (sb-sys:fd-stream-fd stream))
+         (octets (coerce octets '(simple-array (unsigned-byte 8) (*))))
+         (deadline (+ (get-internal-real-time)
+                      (round (* seconds internal-time-units-per-second))))
+         (offset 0)
+         (length (length octets)))
+    (finish-output stream)
+    (loop while (< offset length)
+          do (multiple-value-bind (written errno)
+                 (sb-unix:unix-write fd octets offset (- length offset))
+               (cond
+                 ((and written (plusp written)) (incf offset written))
+                 ((or (eql errno sb-unix:eagain) (eql errno sb-unix:ewouldblock)
+                      (eql errno sb-unix:eintr))
+                  (unless (sb-sys:wait-until-fd-usable
+                           fd :output (websocket-seconds-until deadline) nil)
+                    (error 'websocket-write-timeout :seconds seconds)))
+                 (t (error "WebSocket write failed (errno ~A)" errno))))))
+  #-sbcl
+  (progn seconds
+         (write-sequence octets stream)
+         (finish-output stream)))
 
 (defun websocket-write-frame (connection frame-bytes)
   "Write one already-encoded frame. The pump is the only caller, by design."
-  (let ((stream (websocket-connection-stream connection)))
-    (write-sequence (coerce frame-bytes '(vector (unsigned-byte 8))) stream)
-    (finish-output stream)))
+  (let ((stream (websocket-connection-stream connection))
+        (timeout (websocket-connection-write-timeout-seconds connection)))
+    (if timeout
+        (websocket-write-octets-with-deadline stream frame-bytes timeout)
+        (progn
+          (write-sequence (coerce frame-bytes '(vector (unsigned-byte 8))) stream)
+          (finish-output stream)))
+    (setf (websocket-connection-last-write connection) (get-internal-real-time))))
 
 (defun websocket-send-text (connection string)
   (websocket-write-frame connection (websocket-text-frame string)))
@@ -87,7 +145,9 @@ until it sends 4036 more -- which, for a request/response protocol, is never."
       (websocket-decode-frame (websocket-connection-buffer connection)
                               :max-payload-bytes
                               (or max-payload-bytes
-                                  +websocket-default-max-message-bytes+))
+                                  +websocket-default-max-message-bytes+)
+                              ;; This end is always the server.
+                              :require-masked-p t)
     (when frame
       (setf (websocket-connection-buffer connection)
             (subseq (websocket-connection-buffer connection) next))
@@ -145,7 +205,10 @@ conclude we are gone."
                               (websocket-pong-frame
                                (websocket-frame-payload frame)))
        t)
-      ((= opcode +websocket-opcode-pong+) t)
+      ((= opcode +websocket-opcode-pong+)
+       ;; The answer to our keepalive ping (WEBSOCKET-PUMP): the peer is alive.
+       (setf (websocket-connection-pong-deadline connection) nil)
+       t)
       ((or (= opcode +websocket-opcode-text+)
            (= opcode +websocket-opcode-binary+)
            (= opcode +websocket-opcode-continuation+))
@@ -173,37 +236,92 @@ conclude we are gone."
   #-sbcl
   (progn timeout-seconds (listen stream)))
 
+(defun websocket-keepalive (connection ping-interval-seconds pong-timeout-seconds)
+  "Ping an idle peer and give up on one that stops answering.
+
+geth's shape (rpc/websocket.go:38-40, pingLoop at :371-398 at 38271784): after
+PING-INTERVAL-SECONDS without a write, send a ping and expect the pong within
+PONG-TIMEOUT-SECONDS. Returns :PONG-TIMEOUT when that deadline has passed."
+  (let ((now (get-internal-real-time))
+        (deadline (websocket-connection-pong-deadline connection)))
+    (cond
+      ((and deadline (> now deadline)) :pong-timeout)
+      ((and (null deadline)
+            (>= (- now (websocket-connection-last-write connection))
+                (* ping-interval-seconds internal-time-units-per-second)))
+       (websocket-write-frame
+        connection
+        (websocket-encode-frame +websocket-opcode-ping+ (make-byte-vector 0)))
+       (setf (websocket-connection-pong-deadline connection)
+             (+ (get-internal-real-time)
+                (round (* pong-timeout-seconds internal-time-units-per-second))))
+       nil))))
+
+(defun websocket-close-reason (message)
+  "MESSAGE cut to what fits a Close frame beside its two status bytes."
+  (let ((reason (or message "")))
+    (loop while (> (length (string-to-utf8-bytes reason))
+                   (- +websocket-max-control-payload+ 2))
+          do (setf reason (subseq reason 0 (1- (length reason)))))
+    reason))
+
 (defun websocket-pump (connection on-message
                        &key stop-p pending-notifications max-message-bytes
                             (poll-timeout-seconds +websocket-poll-timeout-seconds+)
+                            ping-interval-seconds pong-timeout-seconds
                             max-iterations)
   "Serve CONNECTION until it closes or STOP-P says to stop.
 
 ON-MESSAGE receives each complete text message and returns the string to send
 back, or NIL to send nothing. PENDING-NOTIFICATIONS, when supplied, is called
-each pass and returns a list of strings to push. MAX-ITERATIONS bounds the loop
-for tests; NIL means run until the connection ends."
+each pass and returns a list of strings to push. PING-INTERVAL-SECONDS and
+PONG-TIMEOUT-SECONDS, when both given, turn on the keepalive
+(WEBSOCKET-KEEPALIVE); they are checked once per pass, so POLL-TIMEOUT-SECONDS
+is their resolution. MAX-ITERATIONS bounds the loop for tests; NIL means run
+until the connection ends.
+
+A frame that breaks the protocol (unmasked, reserved bits, oversized) is
+answered with a Close carrying its status, and the pump returns
+:PROTOCOL-ERROR, as RFC 6455 section 7.1.7 asks of an endpoint that must fail
+the connection."
   (let ((iterations 0))
-    (loop
-      (when (and stop-p (funcall stop-p))
-        (websocket-send-close connection :status 1001 :reason "going away")
-        (return :stopped))
-      (when (and max-iterations (>= iterations max-iterations))
-        (return :max-iterations))
-      (incf iterations)
-      ;; Read whatever is there before pushing, so a client's unsubscribe takes
-      ;; effect before the next batch of notifications rather than after it.
-      (when (websocket-stream-readable-p
-             (websocket-connection-stream connection) poll-timeout-seconds)
-        (unless (websocket-fill-buffer connection)
-          (return :eof))
+    (handler-case
         (loop
-          (let ((frame (websocket-take-frame
-                        connection :max-payload-bytes max-message-bytes)))
-            (unless frame (return))
-            (unless (websocket-handle-frame connection frame on-message
-                                            :max-message-bytes max-message-bytes)
-              (return-from websocket-pump :closed)))))
-      (when pending-notifications
-        (dolist (notification (funcall pending-notifications))
-          (websocket-send-text connection notification))))))
+          (when (and stop-p (funcall stop-p))
+            (websocket-send-close connection :status 1001 :reason "going away")
+            (return :stopped))
+          (when (and max-iterations (>= iterations max-iterations))
+            (return :max-iterations))
+          (incf iterations)
+          ;; Read whatever is there before pushing, so a client's unsubscribe
+          ;; takes effect before the next batch of notifications, not after.
+          (when (websocket-stream-readable-p
+                 (websocket-connection-stream connection) poll-timeout-seconds)
+            (unless (websocket-fill-buffer connection)
+              (return :eof))
+            (loop
+              (let ((frame (websocket-take-frame
+                            connection :max-payload-bytes max-message-bytes)))
+                (unless frame (return))
+                (unless (websocket-handle-frame
+                         connection frame on-message
+                         :max-message-bytes max-message-bytes)
+                  (return-from websocket-pump :closed)))))
+          (when pending-notifications
+            (dolist (notification (funcall pending-notifications))
+              (websocket-send-text connection notification)))
+          (when (and ping-interval-seconds pong-timeout-seconds
+                     (eq :pong-timeout
+                         (websocket-keepalive connection ping-interval-seconds
+                                              pong-timeout-seconds)))
+            (websocket-send-close connection :status 1001
+                                             :reason "pong timeout")
+            (return :pong-timeout)))
+      (websocket-protocol-error (condition)
+        (websocket-send-close
+         connection
+         :status (websocket-protocol-error-status condition)
+         :reason (websocket-close-reason
+                  (websocket-protocol-error-message condition)))
+        :protocol-error))))
+

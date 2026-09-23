@@ -73,7 +73,9 @@
        ws-host
        ws-port
        ws-origins
-       ws-rpc-prefix)
+       ws-rpc-prefix
+       ;; --ws.api's method filter; NIL means the public HTTP filter.
+       ws-allowed-method-p)
   (unless (or (and genesis-path (stringp genesis-path))
               (and genesis-json (stringp genesis-json))
               genesis-preset)
@@ -391,7 +393,8 @@
      :ws-host ws-host
      :ws-port ws-port
      :ws-origins (and ws-origins (copy-list ws-origins))
-     :ws-rpc-prefix ws-rpc-prefix))
+     :ws-rpc-prefix ws-rpc-prefix
+     :ws-allowed-method-p ws-allowed-method-p))
     ;; Seed the operator's --peer values as static candidates. They are already
     ;; validated at parse time; ignore-errors is for a peer supplied
     ;; programmatically by a test, which must not break node construction.

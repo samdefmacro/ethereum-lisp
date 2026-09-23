@@ -55,6 +55,7 @@
   ;; Ethereum: it is handed a request handler and a notification source.
   (:import-from #:ethereum-lisp.websocket
                 #:websocket-handshake-response
+                #:websocket-http-error
                 #:make-websocket-connection
                 #:websocket-pump)
   ;; The WebSocket endpoint answers ordinary methods through the same router
@@ -64,7 +65,10 @@
   (:import-from #:ethereum-lisp.rpc
                 ;; The -JSON variant: string in, string out. The -STRING one
                 ;; returns a parsed object, which a frame cannot carry.
-                #:rpc-handle-request-json)
+                #:rpc-handle-request-json
+                ;; Each WebSocket connection answers through its own copy of
+                ;; the public context: --ws.api filter, subscription methods.
+                #:rpc-context-rebind)
   (:import-from #:ethereum-lisp.json
                 #:json-array-values
                 #:json-object-p

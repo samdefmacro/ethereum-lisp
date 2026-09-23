@@ -47,6 +47,12 @@ per item.")
   ;; guarded path. See RPC-HANDLE-REQUEST.
   read-view-function
   read-view-method-p
+  ;; CONNECTION-METHOD-FUNCTION, when set, maps a method name to a handler of
+  ;; its params for methods whose meaning belongs to one transport connection
+  ;; (eth_subscribe on a WebSocket). Such methods are dispatched before the
+  ;; store-backed surface and without the request guard: they touch only the
+  ;; connection's own state. Set per connection with RPC-CONTEXT-REBIND.
+  (connection-method-function nil)
   payload-improvement-notification-function
   network-id
   coinbase
@@ -170,7 +176,9 @@ per item.")
 (defun rpc-context-rebind
     (context &key (store nil store-p)
                   (config nil config-p)
-                  (network-id nil network-id-p))
+                  (network-id nil network-id-p)
+                  (allowed-method-p nil allowed-method-p-p)
+                  (connection-method-function nil connection-method-function-p))
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
   (let ((copy (copy-rpc-context context))
@@ -183,6 +191,13 @@ per item.")
       (setf (rpc-context-config copy) config))
     (when network-id-p
       (setf (rpc-context-network-id copy) network-id))
+    (when allowed-method-p-p
+      (unless (functionp allowed-method-p)
+        (block-validation-fail "JSON-RPC method filter must be a function"))
+      (setf (rpc-context-allowed-method-p copy) allowed-method-p))
+    (when connection-method-function-p
+      (setf (rpc-context-connection-method-function copy)
+            connection-method-function))
     (when reset-gas-oracle-p
       (setf (rpc-context-gas-oracle-state copy)
             (make-eth-rpc-gas-oracle-state)))
@@ -224,9 +239,16 @@ per item.")
    :gas-limit-target (rpc-context-gas-limit-target context)
    :gas-oracle-state (rpc-context-gas-oracle-state context)))
 
+(defun rpc-connection-method-handler (context method)
+  (let ((function (rpc-context-connection-method-function context)))
+    (and function (stringp method) (funcall function method))))
+
 (defun rpc-dispatch-method (id method params context)
   (if (funcall (rpc-context-allowed-method-p context) method)
-      (or (engine-rpc-handle-engine-method
+      (or (let ((handler (rpc-connection-method-handler context method)))
+            (and handler
+                 (json-rpc-response id :result (funcall handler params))))
+          (engine-rpc-handle-engine-method
            id method params
            (rpc-context-store context)
            (rpc-context-config context)
@@ -363,9 +385,10 @@ tried here, because their response is NIL whether or not the view answered."
                     (json-object-field-present-p request "method")
                     (json-object-field request "method")))
              (guard-required-p
-               (or (null predicate)
-                   (not (stringp method))
-                   (funcall predicate method))))
+               (and (not (rpc-connection-method-handler context method))
+                    (or (null predicate)
+                        (not (stringp method))
+                        (funcall predicate method)))))
         (multiple-value-bind (view-response view-answered-p)
             (rpc-handle-request-from-read-view request context method)
           (cond

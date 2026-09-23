@@ -81,6 +81,7 @@
         (ws-host nil)
         (ws-port nil)
         (ws-origins nil)
+        (ws-api-modules nil)
         (ws-rpc-prefix nil)
         (help-p nil))
     (labels ((next-value (option)
@@ -145,6 +146,9 @@
                 (setf ws-host (next-value option)))
                ((string= option "--ws.port")
                 (setf ws-port (next-parsed-value option #'devnet-cli-parse-port)))
+               ((string= option "--ws.api")
+                (setf ws-api-modules
+                      (next-parsed-value option #'devnet-cli-parse-http-api-list)))
                ((string= option "--ws.origins")
                 (setf ws-origins
                       (next-transformed-value option
@@ -490,6 +494,7 @@
           :ws-host ws-host
           :ws-port ws-port
           :ws-origins ws-origins
+          :ws-api-modules ws-api-modules
           :ws-rpc-prefix ws-rpc-prefix
           :node-key node-key
           :ignored-options (nreverse ignored-options)

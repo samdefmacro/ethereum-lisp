@@ -124,6 +124,10 @@
    :ws-port (getf options :ws-port)
    :ws-origins (getf options :ws-origins)
    :ws-rpc-prefix (getf options :ws-rpc-prefix)
+   ;; Its own filter, as in geth: --ws.api, not --http.api, and the
+   ;; conservative public default when it is absent.
+   :ws-allowed-method-p
+   (devnet-cli-public-api-method-filter (getf options :ws-api-modules))
    :public-allowed-method-p
    (devnet-cli-public-api-method-filter (getf options :http-api-modules))
    :telemetry-sink telemetry-sink))

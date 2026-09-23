@@ -88,7 +88,8 @@ masks."
   payload)
 
 (defun websocket-decode-frame
-    (bytes &key (start 0) (max-payload-bytes +websocket-default-max-message-bytes+))
+    (bytes &key (start 0) (max-payload-bytes +websocket-default-max-message-bytes+)
+                require-masked-p)
   "Decode one frame from BYTES at START.
 
 Returns (VALUES FRAME NEXT-INDEX), or NIL when BYTES does not yet hold a whole
@@ -97,7 +98,12 @@ for a frame that can never be valid however many bytes arrive.
 
 MAX-PAYLOAD-BYTES is checked against the ANNOUNCED length, before anything is
 allocated. Checking after would mean honouring the announcement first, which is
-the whole attack."
+the whole attack.
+
+REQUIRE-MASKED-P is how a SERVER reads: RFC 6455 section 5.1 says a server
+MUST close the connection on an unmasked client frame, so one is a protocol
+error (status 1002) the moment its header is seen. The codec itself stays
+symmetric so a test can decode what a server sends."
   (let ((available (- (length bytes) start)))
     (when (< available 2)
       (return-from websocket-decode-frame nil))
@@ -114,6 +120,8 @@ the whole attack."
       ;; speaking a protocol we did not agree to.
       (unless (zerop reserved)
         (websocket-fail 1002 "reserved bits set without a negotiated extension"))
+      (when (and require-masked-p (not masked-p))
+        (websocket-fail 1002 "client frames must be masked"))
       (cond
         ((= length-field 126)
          (when (< (- (length bytes) cursor) 2)

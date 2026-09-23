@@ -501,6 +501,7 @@
      (:file "admin-rpc-tests")
      (:file "rpc-read-view-tests")
      (:file "rpc-work-budget-tests")
+     (:file "websocket-hardening-tests")
      (:file "txpool-mining-order-tests")
      (:file "rpc-log-bloom-tests")
      (:file "engine-invalid-payload-tests")
