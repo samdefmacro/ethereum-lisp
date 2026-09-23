@@ -91,7 +91,8 @@ not a silent absence of notifications later."
          (unless (json-object-p options)
            (invalid-parameters-fail "eth_subscribe logs filter must be an object"))
          (setf addresses (eth-rpc-log-filter-addresses options "eth_subscribe")
-               topic-filters (eth-rpc-log-filter-topics options "eth_subscribe"))))
+               topic-filters (eth-rpc-log-filter-topics options "eth_subscribe"))
+         (eth-rpc-log-filter-check-query-limit addresses)))
       (:new-pending-transactions
        ;; geth's second argument: true means send whole transactions instead of
        ;; just their hashes.

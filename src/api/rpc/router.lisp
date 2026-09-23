@@ -1,7 +1,19 @@
 (in-package #:ethereum-lisp.rpc)
 
-(defconstant +rpc-batch-request-limit+ 1000)
-(defconstant +rpc-batch-response-max-size+ 25000000)
+(defparameter *rpc-batch-request-limit* 1000
+  "The most items one JSON-RPC batch may carry. geth's BatchRequestLimit default
+(node/defaults.go:68 at 38271784): a larger batch is refused whole, before any
+item runs, with one -32600 \"batch too large\" error carrying the first call's
+id (rpc/handler.go:209, :284-296).")
+
+(defparameter *rpc-batch-response-max-size* 25000000
+  "The most response bytes one batch may produce. geth's BatchResponseMaxSize
+default (node/defaults.go:69). Items run in order and their encoded responses
+are counted as they are produced; once the total passes the limit no further
+item runs, and every remaining call is answered -32003 \"response too large\"
+(rpc/handler.go:262-268, :150-162). geth counts each response's result or
+error bytes, we count the whole encoded response object: at most ~40 bytes more
+per item.")
 
 (defstruct (rpc-context
             (:constructor %make-rpc-context
@@ -301,20 +313,24 @@
            id
            :error (json-rpc-error-object -32603 "Internal error")))))))
 
-(defun rpc-response-error-p (response)
-  "Whether RESPONSE, as built by JSON-RPC-RESPONSE, carries an error."
-  (and (consp response)
-       (assoc "error" response :test #'equal)
-       t))
+(defun rpc-response-internal-error-p (response)
+  "Whether RESPONSE, as built by JSON-RPC-RESPONSE, is a -32603 internal error."
+  (let ((error (and (consp response)
+                    (cdr (assoc "error" response :test #'equal)))))
+    (and (consp error)
+         (eql -32603 (cdr (assoc "code" error :test #'equal))))))
 
 (defun rpc-handle-request-from-read-view (request context method)
   "Answer REQUEST from CONTEXT's published read view, without the guard.
 
-Returns (VALUES RESPONSE ANSWERED-P). Only a successful answer counts: a view
-miss, and also any error response, sends the request down the guarded path, so
-the live store stays the authority for every error and for everything the view
-does not hold. Notifications are never tried here, because their response is
-NIL whether or not the view answered."
+Returns (VALUES RESPONSE ANSWERED-P). A view miss sends the request down the
+guarded path, so the live store stays the authority for everything the view
+does not hold; so does an internal error (-32603), which is how a handler that
+reached for something only the live store has would surface. Every other
+error is the request's own (bad parameters, a refused range or result budget)
+and is final: re-running it under the guard would give the same answer and
+spend the guard on a request that was already refused. Notifications are never
+tried here, because their response is NIL whether or not the view answered."
   (let ((read-view (rpc-context-read-view-function context))
         (method-p (rpc-context-read-view-method-p context)))
     (when (and read-view method-p
@@ -329,8 +345,10 @@ NIL whether or not the view answered."
                        (rpc-handle-request-without-guard
                         request view-context)))
                    (rpc-context-store context))
-        (when (and answered-p response (not (rpc-response-error-p response)))
+        (when (and answered-p response
+                   (not (rpc-response-internal-error-p response)))
           (values response t))))))
+
 
 (defun rpc-handle-request (request context)
   (unless (typep context 'rpc-context)
@@ -363,15 +381,28 @@ NIL whether or not the view answered."
          :error (json-rpc-error-object -32603 "Internal error"))))))
 
 
+(defun rpc-batch-call-p (item)
+  "Whether batch ITEM is a call: an object with a method and an id."
+  (and (json-object-p item)
+       (json-object-field-present-p item "method")
+       (not (json-rpc-notification-p item))))
+
+(defun rpc-batch-too-large-response (items)
+  "geth's answer to an oversized batch: a one-element batch holding -32600
+\"batch too large\" with the id of the first call in ITEMS (null if none).
+Nothing in ITEMS runs."
+  (let ((first-call (find-if #'rpc-batch-call-p items)))
+    (list (json-rpc-response
+           (and first-call (json-object-field first-call "id"))
+           :error (json-rpc-error-object -32600 "batch too large")))))
+
 (defun rpc-handle-request-value (request context)
   (cond
     ((json-object-p request)
      (rpc-handle-request request context))
     ((and (listp request) request)
-     (if (> (length request) +rpc-batch-request-limit+)
-         (json-rpc-response
-          nil
-          :error (json-rpc-error-object -32600 "Batch request too large"))
+     (if (> (length request) *rpc-batch-request-limit*)
+         (rpc-batch-too-large-response request)
          (loop for item in request
                for response = (if (json-object-p item)
                                   (rpc-handle-request item context)
