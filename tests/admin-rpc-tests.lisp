@@ -488,6 +488,37 @@ DURING is answered while that second hold is in progress."
     (is (string= "0x3" (cdr (assoc "currentBlock" during :test #'string=))))
     (is (string= "0x5" (cdr (assoc "highestBlock" during :test #'string=))))))
 
+(deftest devnet-store-guard-release-hook-runs-on-every-release-and-never-fails-the-hold
+  ;; The eth_syncing view is published from this hook, so every way of taking
+  ;; the guard must run it -- including a hold that unwinds -- and a hook that
+  ;; fails must leave the guarded operation's own result intact.
+  (let* ((calls 0)
+         (fail-p nil))
+    (destructuring-bind (guard try priority pending)
+        (multiple-value-list
+         (ethereum-lisp.cli::make-devnet-store-guard-function
+          :release-hook (lambda ()
+                          (incf calls)
+                          (when fail-p (error "hook failure")))))
+      (declare (ignore pending))
+      (is (eq :held (funcall guard (lambda () :held))))
+      (is (= 1 calls))
+      (is (equal '(:tried t)
+                 (multiple-value-list (funcall try (lambda () :tried)))))
+      (is (= 2 calls))
+      (is (eq :engine (funcall priority (lambda () :engine))))
+      (is (= 3 calls))
+      (is (eq :unwound
+              (block unwind
+                (funcall guard (lambda () (return-from unwind :unwound))))))
+      (is (= 4 calls))
+      (setf fail-p t)
+      (is (eq :still-held (funcall guard (lambda () :still-held))))
+      (is (= 5 calls))))
+  ;; Without a hook (the dial guard) results still pass straight through.
+  (let ((guard (ethereum-lisp.cli::make-devnet-store-guard-function)))
+    (is (eq :plain (funcall guard (lambda () :plain))))))
+
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with
   ;; three peers and net_peerCount with zero is worse than one answering neither.

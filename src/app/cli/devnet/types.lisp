@@ -289,6 +289,11 @@ the established pool instead of relearning it from the cold minimum."
   ;; never has to WAIT for the store guard to learn our fork id. See
   ;; DEVNET-NODE-CHAIN-CONTEXT for why waiting there is not an option.
   (chain-context-cache nil)
+  ;; What eth_syncing needs from the guarded store, as one immutable plist
+  ;; (:CURRENT head-number :HIGHEST in-memory-target :TARGETS-P bool) replaced
+  ;; wholesale at every store-guard release. Readers take it without any lock;
+  ;; see DEVNET-NODE-PUBLISH-SYNC-VIEW. NIL until the first publication.
+  (sync-view nil)
   ;; EIP-778 sequence and the exact pairs it describes. The responder updates
   ;; these under the peer-table lock, so a changed endpoint/fork id increments
   ;; monotonically even across a chain reorg whose head number decreases.
@@ -308,22 +313,43 @@ the established pool instead of relearning it from the cold minimum."
   #-sbcl
   (progn mutex (funcall thunk)))
 
-(defun make-devnet-store-guard-try-function (mutex)
+(defun call-with-devnet-store-guard-release-hook (release-hook thunk)
+  "Call THUNK, then RELEASE-HOOK while the caller still owns the guard.
+
+The hook runs however THUNK exits: after a normal return the store holds what
+THUNK committed, and after a non-local exit CHAIN-STORE-ATOMIC-COMMIT has
+already rolled THUNK's transaction back, so either way the hook sees committed
+state. A failing hook must never turn a successful guarded operation into an
+error, so its conditions are dropped here."
+  (if release-hook
+      (unwind-protect (funcall thunk)
+        (handler-case (funcall release-hook)
+          (serious-condition () nil)))
+      (funcall thunk)))
+
+(defun make-devnet-store-guard-try-function (mutex &key release-hook)
   "A companion to a store-guard function that gives up instead of waiting.
 
 Returns a function of a thunk yielding (VALUES RESULT RAN-P): the thunk runs
 under MUTEX when it is free right now, and does not run at all when it is
-held."
+held. RELEASE-HOOK is as for MAKE-DEVNET-STORE-GUARD-FUNCTION."
   #+sbcl
   (lambda (thunk)
     (if (sb-thread:grab-mutex mutex :waitp nil)
-        (unwind-protect (values (funcall thunk) t)
+        (unwind-protect
+             (values (call-with-devnet-store-guard-release-hook
+                      release-hook thunk)
+                     t)
           (sb-thread:release-mutex mutex))
         (values nil nil)))
   #-sbcl
-  (progn mutex (lambda (thunk) (values (funcall thunk) t))))
+  (progn
+    mutex
+    (lambda (thunk)
+      (values (call-with-devnet-store-guard-release-hook release-hook thunk)
+              t))))
 
-(defun make-devnet-store-guard-function ()
+(defun make-devnet-store-guard-function (&key release-hook)
   "Return (VALUES GUARD TRY PRIORITY-GUARD PRIORITY-PENDING-P) over one mutex.
 
 GUARD blocks until the mutex is free; TRY gives up instead of waiting. Two
@@ -337,15 +363,23 @@ mutex, and stay off it until the waiter got in. The count drops as soon as the
 waiter owns the mutex, not when it finishes, so a holder that stepped aside
 never spins through the Engine request's own work. SBCL mutexes are not fair;
 without this signal a holder that re-acquires in a loop can keep a waiting
-Engine request out indefinitely."
+Engine request out indefinitely.
+
+RELEASE-HOOK, when given, is a function of no arguments that all three run
+just before they release the mutex, still owning it. It is how state that only
+the guard may read gets published for readers that must never wait for the
+guard (eth_syncing): the guard is almost always held on a busy node, but it is
+released between holds, and that boundary is the one place where the store is
+both readable and committed. It must be cheap; it runs on every release."
   #+sbcl
   (let ((mutex (sb-thread:make-mutex :name "ethereum-lisp-node-store"))
         ;; A cons so SB-EXT:ATOMIC-INCF can update its fixnum CAR.
         (priority-waiters (list 0)))
     (values (lambda (thunk)
               (sb-thread:with-mutex (mutex)
-                (funcall thunk)))
-            (make-devnet-store-guard-try-function mutex)
+                (call-with-devnet-store-guard-release-hook release-hook thunk)))
+            (make-devnet-store-guard-try-function
+             mutex :release-hook release-hook)
             (lambda (thunk)
               (let ((counted-p t))
                 (sb-ext:atomic-incf (car priority-waiters))
@@ -353,16 +387,19 @@ Engine request out indefinitely."
                      (sb-thread:with-mutex (mutex)
                        (setf counted-p nil)
                        (sb-ext:atomic-decf (car priority-waiters))
-                       (funcall thunk))
+                       (call-with-devnet-store-guard-release-hook
+                        release-hook thunk))
                   ;; Unwound while still waiting (an interrupt or timeout).
                   (when counted-p
                     (sb-ext:atomic-decf (car priority-waiters))))))
             (lambda ()
               (plusp (car priority-waiters)))))
   #-sbcl
-  (values (lambda (thunk) (funcall thunk))
-          (lambda (thunk) (values (funcall thunk) t))
-          (lambda (thunk) (funcall thunk))
+  (values (lambda (thunk)
+            (call-with-devnet-store-guard-release-hook release-hook thunk))
+          (make-devnet-store-guard-try-function nil :release-hook release-hook)
+          (lambda (thunk)
+            (call-with-devnet-store-guard-release-hook release-hook thunk))
           (lambda () nil)))
 
 (defun devnet-node-store-guard-priority-pending-p (node)

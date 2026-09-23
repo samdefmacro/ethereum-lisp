@@ -185,8 +185,16 @@
          (effective-network-id (or network-id (chain-config-chain-id config)))
          (initial-store (make-engine-payload-memory-store))
          ;; The blocking guard and its give-up-instead companion share one
-         ;; mutex, so they have to be taken from one call.
-         (store-guard-pair (multiple-value-list (make-devnet-store-guard-function)))
+         ;; mutex, so they have to be taken from one call. Every release
+         ;; republishes eth_syncing's view, which must never wait for the guard.
+         (store-guard-pair
+           (multiple-value-list
+            (make-devnet-store-guard-function
+             :release-hook
+             (lambda ()
+               (let ((node (first node-box)))
+                 (when node
+                   (devnet-node-publish-sync-view node)))))))
          (store-guard-function (first store-guard-pair))
          (store-guard-try-function (second store-guard-pair))
          ;; Engine requests take the same mutex through the priority guard, so a
@@ -391,6 +399,10 @@
           (devnet-node-dial-registry node)
           (node-id-to-hex (nth-value 0 (parse-enode-url enode)))
           enode)))
+      ;; No worker runs yet, so the store is quiescent: seed eth_syncing's view
+      ;; so a restored head is reported even if the guard is busy from the start.
+      (handler-case (devnet-node-publish-sync-view node)
+        (serious-condition () nil))
       node)))
 
 (defun devnet-cli-loopback-host-p (host)

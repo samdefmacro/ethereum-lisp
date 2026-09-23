@@ -320,19 +320,14 @@ concurrent immutable read of the atomically published skeleton record."
         (when present-p
           (node-store-snap-skeleton-progress-target-number progress))))))
 
-(defun devnet-node-sync-highest-block (node)
-  "Return the highest known live-sync block and whether forkchoice work exists.
+(defun devnet-node-memory-sync-highest-block (node)
+  "Return the highest in-memory sync target and whether forkchoice work exists.
 
-The ordinary Engine candidate remains in REMOTE-BLOCKS while its ancestry is
-unknown.  SNAP bootstrap moves that target into the durable skeleton before it
-downloads state, so looking only at REMOTE-BLOCKS makes ETH_SYNCING turn false
-for the entire AccountRange/healer phase.  The skeleton target came from
-Engine forkchoice and is validated against the persistence authority; it is
-therefore a stronger source than a peer-advertised head."
+The guarded half of DEVNET-NODE-SYNC-HIGHEST-BLOCK: the cached remote blocks
+and the pending forkchoice targets. Call it with NODE's store guard held."
   (let* ((store (devnet-node-store node))
          (remote-highest
-           (engine-payload-store-remote-block-highest-number store))
-         (snap-highest (devnet-node-durable-snap-highest-block node)))
+           (engine-payload-store-remote-block-highest-number store)))
     (multiple-value-bind (targets target-highest)
         (engine-payload-store-forkchoice-sync-targets store)
       (dolist (target targets)
@@ -343,10 +338,74 @@ therefore a stronger source than a peer-advertised head."
                     (if target-highest
                         (max target-highest number)
                         number))))))
-      (let ((heights
-              (remove nil (list remote-highest snap-highest target-highest))))
+      (let ((heights (remove nil (list remote-highest target-highest))))
         (values (and heights (reduce #'max heights))
                 (not (null targets)))))))
+
+(defun devnet-node-sync-highest-block (node)
+  "Return the highest known live-sync block and whether forkchoice work exists.
+
+The ordinary Engine candidate remains in REMOTE-BLOCKS while its ancestry is
+unknown.  SNAP bootstrap moves that target into the durable skeleton before it
+downloads state, so looking only at REMOTE-BLOCKS makes ETH_SYNCING turn false
+for the entire AccountRange/healer phase.  The skeleton target came from
+Engine forkchoice and is validated against the persistence authority; it is
+therefore a stronger source than a peer-advertised head."
+  (let ((snap-highest (devnet-node-durable-snap-highest-block node)))
+    (multiple-value-bind (memory-highest forkchoice-target-p)
+        (devnet-node-memory-sync-highest-block node)
+      (let ((heights (remove nil (list memory-highest snap-highest))))
+        (values (and heights (reduce #'max heights))
+                forkchoice-target-p)))))
+
+(defun devnet-node-publish-sync-view (node)
+  "Publish what eth_syncing needs from NODE's guarded store. Guard held.
+
+Runs as the store guard's release hook (MAKE-DEVNET-NODE), so the published
+view is never older than the current guard hold. Before this existed,
+eth_syncing refreshed only when a try-lock happened to find the guard free; on
+a caught-up Hoodi node (2026-09-23, revision 8e95b990) block execution, batch
+import and Engine requests kept the guard held back to back, every try-lock
+missed, and eth_syncing answered the pivot-era snapshot for 20+ minutes while
+eth_blockNumber followed the chain. Publishing happens under the guard, so it
+reads committed state; readers take the slot without any lock."
+  (let ((current (chain-store-head-number (devnet-node-store node))))
+    (multiple-value-bind (highest targets-p)
+        (devnet-node-memory-sync-highest-block node)
+      (setf (devnet-node-sync-view node)
+            (list :current current :highest highest :targets-p targets-p)))))
+
+(defun devnet-node-forkchoice-targets-pending-p (node)
+  "Whether NODE's store holds a forkchoice sync target right now, lock-free.
+
+Only the table's entry count is read, never its contents, so this is safe
+while another thread owns the store guard and mutates the table. It closes the
+one gap the published view has: a guard owner may have inserted a target in
+the hold that is still in progress, and a published FALSE cannot know that."
+  (let ((chain (ethereum-lisp.chain-store.state:chain-store-component
+                (devnet-node-store node))))
+    (and chain
+         (plusp
+          (hash-table-count
+           (ethereum-lisp.chain-store.state:memory-chain-store-forkchoice-sync-targets
+            chain))))))
+
+(defun devnet-sync-view-answer (view targets-pending-p durable-highest)
+  "The eth_syncing result for a published VIEW (or NIL before the first one).
+
+TARGETS-PENDING-P is the live lock-free forkchoice-target check and
+DURABLE-HIGHEST the durable SNAP skeleton target, both read at call time. A
+head at or beyond every known target answers :FALSE; there is no stale
+snapshot to fall back to."
+  (let* ((current (or (getf view :current) 0))
+         (heights (remove nil (list (getf view :highest) durable-highest)))
+         (highest (and heights (reduce #'max heights))))
+    (if (or targets-pending-p (and highest (> highest current)))
+        (list (cons "startingBlock" (quantity-to-hex current))
+              (cons "currentBlock" (quantity-to-hex current))
+              (cons "highestBlock"
+                    (quantity-to-hex (max current (or highest current)))))
+        :false)))
 
 (defun devnet-node-admin-backend (node-box)
   "How the admin RPC namespace reaches this node's peering state.
@@ -358,100 +417,27 @@ the box is filled immediately after, and every closure reads it at call time, so
 none can capture a half-built node.
 
 Peer reads take the peer-table mutex, never the store guard. The syncing closure
-refreshes a cached snapshot only when it can acquire the store guard without
-waiting."
-  (let ((syncing-snapshot
-          '(("startingBlock" . "0x0")
-            ("currentBlock" . "0x0")
-            ("highestBlock" . "0x0")))
-        (syncing-current 0)
-        (syncing-highest nil)
-        (syncing-lock
-          #+sbcl (sb-thread:make-mutex
-                  :name "ethereum-lisp-rpc-syncing-snapshot")
-          #-sbcl nil))
-    (flet ((node () (first node-box)))
+never waits for the store guard either: it republishes the sync view when the
+guard happens to be free and otherwise answers from the view the last guard
+release published (DEVNET-NODE-PUBLISH-SYNC-VIEW), plus two lock-free reads."
+  (flet ((node () (first node-box)))
     (make-admin-backend
      :syncing
      (lambda ()
-       (let ((node (node))
-             (refresh-missed-p nil))
+       (let ((node (node)))
          (when node
-           (multiple-value-bind (refresh refreshed-p)
-               (call-with-devnet-node-store-guard-if-free
-                node
-                (lambda ()
-                  (let* ((store (devnet-node-store node))
-                         (current (chain-store-head-number store)))
-                    (multiple-value-bind (highest forkchoice-target-p)
-                        (devnet-node-sync-highest-block node)
-                      (let* ((syncing-p
-                               (or forkchoice-target-p
-                                   (and highest (> highest current))))
-                             (effective-highest
-                               (and syncing-p
-                                    (max current (or highest current)))))
-                        (list
-                         :snapshot
-                         (if syncing-p
-                             (list
-                              (cons "startingBlock" (quantity-to-hex current))
-                              (cons "currentBlock" (quantity-to-hex current))
-                              (cons "highestBlock"
-                                    (quantity-to-hex effective-highest)))
-                             :false)
-                         :current current
-                         :highest effective-highest))))))
-             (setf refresh-missed-p (not refreshed-p))
-             (when refreshed-p
-               #+sbcl
-               (sb-thread:with-mutex (syncing-lock)
-                 (setf syncing-snapshot (getf refresh :snapshot)
-                       syncing-current (getf refresh :current)
-                       syncing-highest (getf refresh :highest)))
-               #-sbcl
-               (setf syncing-snapshot (getf refresh :snapshot)
-                     syncing-current (getf refresh :current)
-                     syncing-highest (getf refresh :highest))))
-           ;; The guarded refresh above remains the authority for the mutable
-           ;; head and remote-block list.  Overlay only the independently
-           ;; validated durable skeleton point read: long state imports may
-           ;; keep the guard busy for their whole AccountRange/healer phase.
-           (let ((durable-highest
-                   (handler-case
-                       (devnet-node-durable-snap-highest-block node)
-                     (serious-condition () nil))))
-             (flet ((answer ()
-                      (cond
-                        ((and durable-highest
-                              (> durable-highest syncing-current))
-                         (let ((highest
-                                 (max durable-highest
-                                      (or syncing-highest durable-highest))))
-                           (list
-                            (cons "startingBlock"
-                                  (quantity-to-hex syncing-current))
-                            (cons "currentBlock"
-                                  (quantity-to-hex syncing-current))
-                            (cons "highestBlock" (quantity-to-hex highest)))))
-                        ;; A failed try-lock cannot prove that a cached FALSE is
-                        ;; still current: the guard owner may just have inserted
-                        ;; a forkchoice target. Conservatively report progress
-                        ;; at the last known head until a refresh succeeds.
-                        ((and refresh-missed-p (eq syncing-snapshot :false))
-                         (list
-                          (cons "startingBlock"
-                                (quantity-to-hex syncing-current))
-                          (cons "currentBlock"
-                                (quantity-to-hex syncing-current))
-                          (cons "highestBlock"
-                                (quantity-to-hex
-                                 (or syncing-highest syncing-current)))))
-                        (t syncing-snapshot))))
-               #+sbcl
-               (sb-thread:with-mutex (syncing-lock) (answer))
-               #-sbcl
-               (answer))))))
+           (call-with-devnet-node-store-guard-if-free
+            node
+            (lambda () (devnet-node-publish-sync-view node)))
+           (devnet-sync-view-answer
+            (devnet-node-sync-view node)
+            (handler-case (devnet-node-forkchoice-targets-pending-p node)
+              (serious-condition () nil))
+            ;; The durable skeleton is a direct database point read: long state
+            ;; imports keep the guard busy for their whole AccountRange/healer
+            ;; phase, and this target must stay visible throughout.
+            (handler-case (devnet-node-durable-snap-highest-block node)
+              (serious-condition () nil))))))
      :listening-p
      (lambda () (and (node) (devnet-node-p2p-port (node)) t))
      :peer-count
@@ -549,4 +535,4 @@ waiting."
            (ignore-errors
              (sb-bsd-sockets:socket-close
               (devnet-peer-entry-socket entry))))
-         (if (or entry removed-static-p) t nil)))))))
+         (if (or entry removed-static-p) t nil))))))
