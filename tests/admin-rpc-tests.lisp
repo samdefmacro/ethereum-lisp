@@ -391,6 +391,103 @@ rather than a node's peering state."
                                   :validate t
                                   :if-does-not-exist :ignore))))
 
+(defun admin-test-extend-canonical-chain (store parent count)
+  "Canonically append COUNT empty blocks after PARENT; return the new tip."
+  (loop repeat count
+        do (let ((block
+                   (make-block
+                    :header
+                    (make-block-header
+                     :parent-hash (block-hash parent)
+                     :number (1+ (block-header-number (block-header parent)))
+                     :timestamp (1+ (block-header-timestamp
+                                     (block-header parent)))
+                     :gas-limit 30000000))))
+             (engine-payload-store-put-block
+              store block :state-available-p t :canonicalize-p t)
+             (setf parent block)))
+  parent)
+
+(defun admin-test-syncing-under-sustained-guard-contention (advance-to)
+  "Return (VALUES BEFORE DURING) eth_syncing answers around a busy store guard.
+
+A remote block at height 5 is the only sync target. BEFORE is answered with the
+guard free. Another thread then takes the guard, advances the canonical head to
+ADVANCE-TO, releases, and immediately takes the guard again and keeps it: the
+live Hoodi pattern, where block execution, batch import and Engine handlers
+hold the guard back to back and eth_syncing's try-lock never finds it free.
+DURING is answered while that second hold is in progress."
+  #-sbcl
+  (progn advance-to (skip-test "Store-guard contention probe requires SBCL threads"))
+  #+sbcl
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (genesis (ethereum-lisp.cli:devnet-node-genesis-block node))
+         (backend (ethereum-lisp.cli::devnet-node-admin-backend (list node)))
+         (syncing (ethereum-lisp.public-api::admin-backend-syncing backend))
+         (entered (sb-thread:make-semaphore :count 0))
+         (release (sb-thread:make-semaphore :count 0))
+         (before nil)
+         (during nil)
+         (holder nil))
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store
+     (make-block
+      :header (make-block-header :parent-hash (zero-hash32) :number 5
+                                 :timestamp 5 :gas-limit 30000000)))
+    (setf before (funcall syncing))
+    (setf holder
+          (sb-thread:make-thread
+           (lambda ()
+             (handler-case
+                 (progn
+                   (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                    node
+                    (lambda ()
+                      (admin-test-extend-canonical-chain
+                       store genesis advance-to)))
+                   (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                    node
+                    (lambda ()
+                      (sb-thread:signal-semaphore entered)
+                      (sb-thread:wait-on-semaphore release))))
+               (serious-condition (condition)
+                 (sb-thread:signal-semaphore entered)
+                 condition)))))
+    (unwind-protect
+         (progn
+           (sb-thread:wait-on-semaphore entered)
+           (is (= advance-to (chain-store-head-number store)))
+           (setf during (funcall syncing)))
+      (sb-thread:signal-semaphore release)
+      (sb-thread:join-thread holder))
+    (values before during)))
+
+(deftest eth-syncing-turns-false-when-the-head-passes-the-target-under-guard-contention
+  ;; Hoodi 2026-09-23 (revision 8e95b990): after the node caught up, the head
+  ;; followed the chain but eth_syncing kept answering the pivot-era snapshot
+  ;; for 20+ minutes, because every try-lock refresh found the store guard
+  ;; busy and fell back to the last cached answer.
+  (multiple-value-bind (before during)
+      (admin-test-syncing-under-sustained-guard-contention 6)
+    (is (listp before))
+    (is (string= "0x0" (cdr (assoc "currentBlock" before :test #'string=))))
+    (is (string= "0x5" (cdr (assoc "highestBlock" before :test #'string=))))
+    (is (eq :false during))))
+
+(deftest eth-syncing-under-guard-contention-reports-the-published-head-below-target
+  ;; Positive control for the test above: a head still below the target keeps
+  ;; reporting syncing, and currentBlock follows the head rather than the
+  ;; snapshot taken before the contention began.
+  (multiple-value-bind (before during)
+      (admin-test-syncing-under-sustained-guard-contention 3)
+    (is (listp before))
+    (is (listp during))
+    (is (string= "0x3" (cdr (assoc "currentBlock" during :test #'string=))))
+    (is (string= "0x5" (cdr (assoc "highestBlock" during :test #'string=))))))
+
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with
   ;; three peers and net_peerCount with zero is worse than one answering neither.
