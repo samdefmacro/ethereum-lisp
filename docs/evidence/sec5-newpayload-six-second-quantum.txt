@@ -23,7 +23,7 @@ Revision
             store-guard holds a request waited behind
   6fe683b0  node: background store-guard takers defer to a waiting Engine
             request
-  (next)    test: an Engine request behind a gap fill waits for one block and
+  3a803a55  test: an Engine request behind a gap fill waits for one block and
             names it
 
 ================================================================================
@@ -200,7 +200,19 @@ Fresh compile-file of every changed source: no WARNING or STYLE-WARNING.
 5. Cold runs
 ================================================================================
 
-(filled in below)
+cl-workbench validation run cold-unit --match TELEMETRY --match DEVNET-STORE-GUARD
+  --match ADMIN --match ENGINE-RPC --match HTTP --match NEW-PAYLOAD
+  --match RPC-READ-VIEW --match PAYLOAD-BUILDING
+    137 tests passed, EXIT=0 (includes the three store-guard tests and both
+    telemetry tests)
+cl-workbench validation run cold-integration --match DEVNET-ENGINE-REQUEST-BEHIND
+  --match DEVNET-NEW-PAYLOAD-READS --match DEVNET-LIVE-PERSISTENCE
+  --match PAYLOAD-BUILDING --match FORWARD --match GAP --match RESTART-BEHIND
+  --match DEVNET-PEER-SYNC --match ENGINE-RPC --match STORE-GUARD
+    36 tests passed, EXIT=0
+cl-workbench validation run cold-e2e --match OPS-RECOVERY --match ENGINE
+  --match RPC
+    1 + 8 tests passed, EXIT=0
 
 Not verified
 
