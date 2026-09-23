@@ -2792,21 +2792,33 @@ state."
            (lambda ()
              (unwind-protect
                   (handler-case
-                      (loop until
-                            (devnet-shutdown-requested-p shutdown-controller)
-                            do
-                               ;; Take the notifier lock before every pass.  A
-                               ;; peer update racing this consume either becomes
-                               ;; visible to this pass or remains pending for an
-                               ;; immediate follow-up pass.
-                               (devnet-node-consume-sync-notification node)
-                               (funcall pass-function node)
-                               (unless
-                                   (devnet-shutdown-requested-p
-                                    shutdown-controller)
-                                 (devnet-node-wait-for-sync-notification
-                                  node shutdown-controller
-                                  poll-interval-seconds)))
+                      ;; Snap work observes the stop at its batch boundaries
+                      ;; and unwinds with SNAP-SYNC-STOPPED, so this join
+                      ;; returns in about one batch instead of waiting out a
+                      ;; heal walk that no peer interrupts.
+                      (let ((ethereum-lisp.snap-sync:*snap-sync-stop-p*
+                              (lambda ()
+                                (devnet-shutdown-requested-p
+                                 shutdown-controller))))
+                        (loop until
+                              (devnet-shutdown-requested-p shutdown-controller)
+                              do
+                                 ;; Take the notifier lock before every pass.  A
+                                 ;; peer update racing this consume either becomes
+                                 ;; visible to this pass or remains pending for an
+                                 ;; immediate follow-up pass.
+                                 (devnet-node-consume-sync-notification node)
+                                 (funcall pass-function node)
+                                 (unless
+                                     (devnet-shutdown-requested-p
+                                      shutdown-controller)
+                                   (devnet-node-wait-for-sync-notification
+                                    node shutdown-controller
+                                    poll-interval-seconds))))
+                    ;; A requested stop, not a failure: durable snap state is
+                    ;; crash-safe and the next run resumes from it.
+                    (ethereum-lisp.snap-sync:snap-sync-stopped ()
+                      nil)
                     (serious-condition (condition)
                       (funcall error-callback condition)
                       (devnet-shutdown-request shutdown-controller)))

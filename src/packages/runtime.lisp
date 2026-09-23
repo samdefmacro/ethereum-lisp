@@ -451,6 +451,8 @@
    #:snap-sync-sources-exhausted-phase
    #:snap-sync-sources-exhausted-failures
    #:snap-sync-heal-yielded
+   #:*snap-sync-stop-p*
+   #:snap-sync-stopped
    #:snap-sync-account-task
    #:snap-sync-account-task-start
    #:snap-sync-account-task-limit

@@ -1122,18 +1122,24 @@ Only an error escaping the loop itself is fail-stop."
        (lambda ()
          (call-with-devnet-mutex sessions-lock (lambda () (copy-list sessions))))))))
 
-(defun devnet-join-peer-sessions (session-threads-function &key (timeout 5))
+(defun devnet-join-peer-sessions
+    (session-threads-function &key (timeout 5) deadline (label "session"))
   "Join every session thread, bounded, terminating any that will not stop.
 
 Every join here carries a timeout: an unbounded join on a thread blocked in a
-socket read is how a shutdown becomes a hang."
+socket read is how a shutdown becomes a hang. With DEADLINE (an
+internal-real-time from DEVNET-SHUTDOWN-JOIN-DEADLINE) every session shares
+what is left of it instead of each receiving TIMEOUT, and a session that
+outlasts it is abandoned under LABEL."
   #-sbcl
-  (declare (ignore session-threads-function timeout))
+  (declare (ignore session-threads-function timeout deadline label))
   #-sbcl
   nil
   #+sbcl
   (dolist (thread (funcall session-threads-function))
-    (when (sb-thread:thread-alive-p thread)
+    (when (and deadline (sb-thread:thread-alive-p thread))
+      (devnet-join-worker-by-deadline thread deadline label))
+    (when (and (not deadline) (sb-thread:thread-alive-p thread))
       (when (eq :timeout
                 (sb-thread:join-thread thread :timeout timeout
                                               :default :timeout))

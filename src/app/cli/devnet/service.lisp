@@ -149,7 +149,10 @@
        shutdown-controller
        (lambda (condition)
          (setf p2p-error condition))))
-    (let ((result nil))
+    (let ((result nil)
+          ;; Fixed by the first join that needs it, so every later join shares
+          ;; what is left of it instead of adding a bound of its own.
+          (join-deadline nil))
       (unwind-protect
            (setf result
                  (if public-listener
@@ -185,24 +188,20 @@
                        ;; If the Engine listener still has fewer connections,
                        ;; shut both listeners down instead of waiting forever.
                        (when (eq :timeout
-                                 (sb-thread:join-thread
-                                  engine-thread :timeout 1 :default :timeout))
+                                 (nth-value
+                                  1 (sb-thread:join-thread
+                                     engine-thread :timeout 1 :default nil)))
+                         ;; A synthetic or broken accept backend may ignore
+                         ;; listener closure.  Node shutdown must still be
+                         ;; bounded once all registered sockets are closed, and
+                         ;; this join shares the workers' deadline below.
                          (devnet-shutdown-request shutdown-controller)
-                         (when (eq :timeout
-                                   (sb-thread:join-thread
-                                    engine-thread
-                                    :timeout 5
-                                    :default :timeout))
-                           ;; A synthetic or broken accept backend may ignore
-                           ;; listener closure.  Node shutdown must still be
-                           ;; bounded once all registered sockets are closed.
-                           (ignore-errors
-                            (sb-thread:terminate-thread engine-thread))
-                           (ignore-errors
-                            (sb-thread:join-thread
-                             engine-thread
-                             :timeout 5
-                             :default :timeout))))
+                         (devnet-join-worker-by-deadline
+                          engine-thread
+                          (or join-deadline
+                              (setf join-deadline
+                                    (devnet-shutdown-join-deadline)))
+                          "engine-rpc"))
                        (devnet-shutdown-request shutdown-controller)
                        (cond
                          (public-error (error public-error))
@@ -235,105 +234,44 @@
                        (error (condition)
                          (devnet-shutdown-request shutdown-controller)
                          (error condition)))))
-        (when rejournal-thread
-          (devnet-shutdown-request shutdown-controller)
-          (sb-thread:join-thread rejournal-thread))
-        (when txpool-maintenance-thread
-          (devnet-shutdown-request shutdown-controller)
-          (sb-thread:join-thread txpool-maintenance-thread))
-        (when payload-improvement-thread
-          (devnet-shutdown-request shutdown-controller)
-          (sb-thread:join-thread payload-improvement-thread))
-        (when dev-period-thread
-          (devnet-shutdown-request shutdown-controller)
-          (sb-thread:join-thread dev-period-thread))
-        (when sync-coordinator-thread
-          (devnet-shutdown-request shutdown-controller)
-          (when (eq :timeout
-                    (sb-thread:join-thread sync-coordinator-thread
-                                           :timeout 15 :default :timeout))
-            (ignore-errors
-             (sb-thread:terminate-thread sync-coordinator-thread))
-            (ignore-errors
-             (sb-thread:join-thread sync-coordinator-thread
-                                    :timeout 5 :default :timeout))))
-        (when dialer-thread
-          ;; Peer sockets are registered closeables, so the shutdown request
-          ;; closes them and the sessions unblock on their own; the bounds are
-          ;; for the case where one does not. The outbound session join belongs
-          ;; HERE, not in the p2p arm: a node started with --peer and no --port
-          ;; has no listener thread at all, and folding it in there would leave
-          ;; these threads never joined.
-          (devnet-shutdown-request shutdown-controller)
-          (when (eq :timeout
-                    (sb-thread:join-thread dialer-thread
-                                           :timeout 5 :default :timeout))
-            (ignore-errors (sb-thread:terminate-thread dialer-thread))
-            (ignore-errors (sb-thread:join-thread dialer-thread
-                                                  :timeout 5
-                                                  :default :timeout)))
-          (when dialer-sessions
-            (devnet-join-peer-sessions dialer-sessions)))
-        (when discovery-thread
-          ;; Same as peer-sync: a worker blocked in a UDP receive or a dial will
-          ;; not wake from the shutdown request, so bound the join then terminate.
-          (devnet-shutdown-request shutdown-controller)
-          (when (eq :timeout
-                    (sb-thread:join-thread discovery-thread
-                                           :timeout 5 :default :timeout))
-            (ignore-errors (sb-thread:terminate-thread discovery-thread))
-            (ignore-errors (sb-thread:join-thread discovery-thread
-                                                  :timeout 5
-                                                  :default :timeout))))
-        (when discovery-server-thread
-          ;; Its socket is a registered closeable, so the shutdown request wakes
-          ;; a blocked receive; the bound is for the case where it does not.
-          (devnet-shutdown-request shutdown-controller)
-          (when (eq :timeout
-                    (sb-thread:join-thread discovery-server-thread
-                                           :timeout 5 :default :timeout))
-            (ignore-errors (sb-thread:terminate-thread discovery-server-thread))
-            (ignore-errors (sb-thread:join-thread discovery-server-thread
-                                                  :timeout 5
-                                                  :default :timeout))))
-        (when p2p-thread
-          ;; The shutdown request closed the listener and every registered peer
-          ;; socket, so both the accept loop and the sessions unblock on their
-          ;; own; the bounds are for the case where one does not.
-          (devnet-shutdown-request shutdown-controller)
-          (when (eq :timeout
-                    (sb-thread:join-thread p2p-thread
-                                           :timeout 5 :default :timeout))
-            (ignore-errors (sb-thread:terminate-thread p2p-thread))
-            (ignore-errors (sb-thread:join-thread p2p-thread
-                                                  :timeout 5
-                                                  :default :timeout)))
-          (when p2p-sessions
-            (devnet-join-peer-sessions p2p-sessions)))
-        (when metrics-thread
-          ;; Its socket is a registered closeable and its accept is readiness
-          ;; gated, so it wakes on its own; the bound is for the case where a
-          ;; scrape is mid-flight.
-          (devnet-shutdown-request shutdown-controller)
-          (when (eq :timeout
-                    (sb-thread:join-thread metrics-thread
-                                           :timeout 5 :default :timeout))
-            (ignore-errors (sb-thread:terminate-thread metrics-thread))
-            (ignore-errors (sb-thread:join-thread metrics-thread
-                                                  :timeout 5
-                                                  :default :timeout))))
-        (when ws-thread
-          ;; The listener and every accepted socket are registered closeables,
-          ;; so both the accept loop and each session wake on their own.
-          (devnet-shutdown-request shutdown-controller)
-          (when (eq :timeout
-                    (sb-thread:join-thread ws-thread :timeout 5
-                                                     :default :timeout))
-            (ignore-errors (sb-thread:terminate-thread ws-thread))
-            (ignore-errors (sb-thread:join-thread ws-thread :timeout 5
-                                                            :default :timeout)))
-          (when ws-sessions
-            (devnet-join-peer-sessions ws-sessions))))
+        ;; Every worker join below shares ONE deadline. The supervisor's grace
+        ;; period is a single budget, and per-join bounds that each look short
+        ;; add up past it: the Hoodi stop that motivated this spent 15 s on the
+        ;; coordinator alone and was SIGKILLed before the store close. A worker
+        ;; that outlasts the deadline is terminated and abandoned, and the
+        ;; shutdown goes on to the export and the store close regardless.
+        ;;
+        ;; The order is unchanged. The coordinator observes the stop at its
+        ;; snap batch boundaries (*SNAP-SYNC-STOP-P*). Peer sockets are
+        ;; registered closeables, so the shutdown request has already closed
+        ;; them and the sessions unblock on their own. The outbound session
+        ;; join belongs with the dialer, not the p2p arm: a node started with
+        ;; --peer and no --port has no listener thread at all.
+        (let ((deadline
+                (or join-deadline
+                    (setf join-deadline (devnet-shutdown-join-deadline)))))
+          (flet ((join-worker (thread label)
+                   (when thread
+                     (devnet-shutdown-request shutdown-controller)
+                     (devnet-join-worker-by-deadline thread deadline label)))
+                 (join-sessions (sessions label)
+                   (when sessions
+                     (devnet-join-peer-sessions
+                      sessions :deadline deadline :label label))))
+            (join-worker rejournal-thread "rejournal")
+            (join-worker txpool-maintenance-thread "txpool-maintenance")
+            (join-worker payload-improvement-thread "payload-improvement")
+            (join-worker dev-period-thread "dev-period")
+            (join-worker sync-coordinator-thread "sync-coordinator")
+            (join-worker dialer-thread "dialer")
+            (join-sessions dialer-sessions "dialer-session")
+            (join-worker discovery-thread "discovery")
+            (join-worker discovery-server-thread "discovery-server")
+            (join-worker p2p-thread "p2p-listener")
+            (join-sessions p2p-sessions "p2p-session")
+            (join-worker metrics-thread "metrics")
+            (join-worker ws-thread "websocket")
+            (join-sessions ws-sessions "websocket-session"))))
       (when ws-error
         (error ws-error))
       (when metrics-error

@@ -11,6 +11,7 @@
          '("tests/cli-devnet-node-tests.lisp"
            "tests/cli-devnet-live-persistence-tests.lisp"
            "tests/cli-devnet-kv-cache-tests.lisp"
+           "tests/cli-devnet-shutdown-deadline-tests.lisp"
            "tests/cli-devnet-main-tests.lisp"
            "tests/cli-db-tests.lisp"
            "tests/cli-devnet-txpool-period-tests.lisp"
