@@ -19,5 +19,7 @@
            ("tests/cli-script-tests.lisp" :e2e
             :launches-processes t)
            ("tests/cli-serve-mode-tests.lisp" :e2e
+            :launches-processes t :requires-local-sockets t)
+           ("tests/ops-recovery-tests.lisp" :e2e
             :launches-processes t :requires-local-sockets t)))
   (apply #'load-cli-test-file entry))

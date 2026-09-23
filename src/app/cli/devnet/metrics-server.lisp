@@ -187,6 +187,112 @@ that gets a connection reset reports the target as down rather than as answered.
    :sink (devnet-node-telemetry-sink node)
    :fields `(("error" . ,(princ-to-string condition)))))
 
+;;;; Operator gauges.
+;;;;
+;;;; What an operator watching a sync needs besides event counts: how far the
+;;;; head is behind the consensus client, which SNAP pivot is being built, who
+;;;; we are connected to, how big the database is, and what the process costs.
+;;;; A scrape must never wait for the store guard -- block import and the SNAP
+;;;; phases hold it for seconds at a time -- so every value here is a lock-free
+;;;; read: the sync view the guard publishes on each release, RocksDB point
+;;;; reads, the peer table's own mutex, file sizes, and the runtime's counters.
+;;;; Each group is computed on its own; one that fails is left out of the
+;;;; scrape rather than failing it.
+
+(defun devnet-metrics-sync-gauges (node)
+  "Sync target, lag, SNAP pivot and SNAP completion, from lock-free reads."
+  (let* ((view (devnet-node-sync-view node))
+         (current (or (getf view :current) 0))
+         (durable (ignore-errors (devnet-node-durable-snap-highest-block node)))
+         (target (reduce #'max (remove nil (list current (getf view :highest)
+                                                 durable))))
+         (store (devnet-node-store node))
+         (progress
+           (and (database-engine-payload-store-p store)
+                (ignore-errors
+                 (ethereum-lisp.snap-sync:snap-sync-read-progress
+                  (database-engine-payload-store-database store))))))
+    `(("ethereum_lisp_sync_head_number" . ,current)
+      ("ethereum_lisp_sync_target_number" . ,target)
+      ("ethereum_lisp_sync_lag_blocks" . ,(- target current))
+      ("ethereum_lisp_snap_pivot_number"
+       . ,(or (and progress
+                   (ethereum-lisp.snap-sync:snap-sync-progress-pivot-number
+                    progress))
+              0))
+      ("ethereum_lisp_snap_state_complete"
+       . ,(if (and progress
+                   (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
+                    progress))
+              1 0)))))
+
+(defun devnet-metrics-peer-gauges (node)
+  "Peer counts by direction and by capability, under the peer-table mutex."
+  (call-with-devnet-peer-table
+   node
+   (lambda ()
+     (let ((entries (devnet-peer-table-entries (devnet-node-peer-table node))))
+       `(("ethereum_lisp_peers_inbound"
+          . ,(count :inbound entries :key #'devnet-peer-entry-direction))
+         ("ethereum_lisp_peers_outbound"
+          . ,(count :outbound entries :key #'devnet-peer-entry-direction))
+         ("ethereum_lisp_peers_eth"
+          . ,(count-if #'devnet-peer-entry-eth-version entries))
+         ("ethereum_lisp_peers_snap"
+          . ,(count-if #'devnet-peer-entry-snap-version entries)))))))
+
+(defun devnet-metrics-path-bytes (path)
+  "Bytes under PATH: a file's size, or the sum of a directory's files.
+
+RocksDB keeps its files flat in one directory. A file that compaction deletes
+between the listing and the size read counts as zero."
+  (flet ((file-bytes (file)
+           (or (ignore-errors
+                #+sbcl (sb-posix:stat-size (sb-posix:stat (namestring file)))
+                #-sbcl (with-open-file (in file :element-type '(unsigned-byte 8))
+                         (file-length in)))
+               0)))
+    (let ((directory (probe-file (uiop:ensure-directory-pathname path))))
+      (if (and directory (uiop:directory-exists-p directory))
+          (reduce #'+ (uiop:directory-files directory) :key #'file-bytes)
+          (if (probe-file path) (file-bytes path) 0)))))
+
+(defun devnet-metrics-database-gauges (node)
+  "The database's size on disk, when the node has one."
+  (let ((path (devnet-node-database-path node)))
+    (when path
+      `(("ethereum_lisp_database_bytes" . ,(devnet-metrics-path-bytes path))))))
+
+(defun devnet-metrics-resident-bytes ()
+  "The process's resident set size from /proc/self/status, or NIL off Linux."
+  (with-open-file (in "/proc/self/status" :if-does-not-exist nil)
+    (when in
+      (loop for line = (read-line in nil nil)
+            while line
+            when (and (> (length line) 6) (string= "VmRSS:" line :end2 6))
+              return (* 1024 (parse-integer line :start 6 :junk-allowed t))))))
+
+(defun devnet-metrics-process-gauges ()
+  "Resident set, Lisp heap in use, total allocation and total GC time."
+  (multiple-value-bind (heap consed gc-ms) (devnet-runtime-heap-snapshot)
+    `(("ethereum_lisp_process_resident_bytes"
+       . ,(or (ignore-errors (devnet-metrics-resident-bytes)) 0))
+      ("ethereum_lisp_heap_used_bytes" . ,(or heap 0))
+      ("ethereum_lisp_heap_allocated_bytes_total" . ,(or consed 0))
+      ("ethereum_lisp_gc_ms_total" . ,(or gc-ms 0)))))
+
+(defun devnet-node-operator-gauges (node)
+  "Every operator gauge group, each one omitted if computing it failed."
+  (loop for group in (list (lambda () (devnet-metrics-sync-gauges node))
+                           (lambda () (devnet-metrics-peer-gauges node))
+                           (lambda () (devnet-metrics-database-gauges node))
+                           #'devnet-metrics-process-gauges
+                           (lambda ()
+                             (let ((sink (devnet-node-rpc-latency-sink node)))
+                               (and sink (devnet-rpc-latency-gauges sink)))))
+        append (handler-case (funcall group)
+                 (error () nil))))
+
 (defun devnet-node-metrics-endpoint (node)
   "(VALUES HOST PORT) for the metrics endpoint, or NIL when it is off.
 

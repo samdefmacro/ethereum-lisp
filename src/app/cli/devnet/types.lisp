@@ -505,7 +505,105 @@ kept in step by hand."
       ("ethereum_lisp_chain_finalized_number"
        . ,(if finalized (block-header-number (block-header finalized)) 0))
       ("ethereum_lisp_peer_count"
-       . ,(devnet-peer-table-count (devnet-node-peer-table node))))))
+       . ,(devnet-peer-table-count (devnet-node-peer-table node)))
+      ,@(devnet-node-operator-gauges node))))
+
+;;;; RPC latency, recorded from the telemetry the HTTP handler already emits.
+;;;;
+;;;; Every served request ends in one `engine.rpc.http.request` event carrying
+;;;; the JSON-RPC method names and `handlerMs`, the time from the end of the
+;;;; request read to the response: guard wait, execution and encoding. A sink
+;;;; layered under the counting sink keeps last, maximum, sum and count per
+;;;; method family, so the metrics endpoint can say how long newPayload,
+;;;; forkchoiceUpdated and getPayload take without any new instrumentation in
+;;;; the Engine code.
+
+(defparameter *devnet-rpc-latency-families*
+  '("engine_new_payload" "engine_forkchoice_updated" "engine_get_payload"
+    "engine_other" "rpc" "rpc_batch")
+  "Every family the latency sink reports, in report order. Each is always
+reported, zero until its first request, so a dashboard never sees a series
+appear and vanish.")
+
+(defstruct (devnet-rpc-latency-sink
+            (:constructor make-devnet-rpc-latency-sink (&key delegate)))
+  "A telemetry sink that records RPC handler latency, then passes events on."
+  delegate
+  (table (make-hash-table :test #'equal))
+  #+sbcl (lock (sb-thread:make-mutex :name "devnet rpc latency sink")))
+
+(defun devnet-rpc-latency-family (methods)
+  "The latency family of METHODS, the comma-joined `rpcMethods` field."
+  (flet ((prefix-p (prefix)
+           (and (>= (length methods) (length prefix))
+                (string= prefix methods :end2 (length prefix)))))
+    (cond ((find #\, methods) "rpc_batch")
+          ((prefix-p "engine_newPayload") "engine_new_payload")
+          ((prefix-p "engine_forkchoiceUpdated") "engine_forkchoice_updated")
+          ((and (prefix-p "engine_getPayload")
+                (not (prefix-p "engine_getPayloadBodies")))
+           "engine_get_payload")
+          ((prefix-p "engine_") "engine_other")
+          (t "rpc"))))
+
+(defun devnet-rpc-latency-record (sink methods milliseconds)
+  "Record one request of METHODS that took MILLISECONDS in its handler."
+  (let ((family (devnet-rpc-latency-family methods)))
+    (flet ((update ()
+             (let ((entry (or (gethash family (devnet-rpc-latency-sink-table sink))
+                              (setf (gethash family
+                                             (devnet-rpc-latency-sink-table sink))
+                                    (list :last 0 :max 0 :sum 0 :count 0)))))
+               (setf (getf entry :last) milliseconds
+                     (getf entry :max) (max milliseconds (getf entry :max))
+                     (getf entry :sum) (+ milliseconds (getf entry :sum))
+                     (getf entry :count) (1+ (getf entry :count)))
+               (setf (gethash family (devnet-rpc-latency-sink-table sink))
+                     entry))))
+      #+sbcl (sb-thread:with-mutex ((devnet-rpc-latency-sink-lock sink))
+               (update))
+      #-sbcl (update))))
+
+(defmethod telemetry-emit
+    ((sink devnet-rpc-latency-sink) (event telemetry-event))
+  (when (equal "engine.rpc.http.request" (telemetry-event-name event))
+    (let* ((fields (telemetry-event-fields event))
+           (methods (cdr (assoc "rpcMethods" fields :test #'equal)))
+           (milliseconds (cdr (assoc "handlerMs" fields :test #'equal))))
+      (when (and (stringp methods) (integerp milliseconds))
+        (devnet-rpc-latency-record sink methods (max 0 milliseconds)))))
+  (let ((delegate (devnet-rpc-latency-sink-delegate sink)))
+    (when delegate (telemetry-emit delegate event)))
+  event)
+
+(defun devnet-rpc-latency-gauges (sink)
+  "The latency gauges of SINK, every family, as (NAME . INTEGER) pairs."
+  (let ((snapshot
+          (flet ((copy ()
+                   (loop for family in *devnet-rpc-latency-families*
+                         collect (cons family
+                                       (copy-list
+                                        (gethash family
+                                                 (devnet-rpc-latency-sink-table
+                                                  sink)))))))
+            #+sbcl (sb-thread:with-mutex ((devnet-rpc-latency-sink-lock sink))
+                     (copy))
+            #-sbcl (copy))))
+    (loop for (family . entry) in snapshot
+          append (loop for (key suffix) in '((:last "last_ms") (:max "max_ms")
+                                             (:sum "ms_total")
+                                             (:count "requests_total"))
+                       collect (cons (format nil "ethereum_lisp_~A_~A"
+                                             family suffix)
+                                     (or (getf entry key) 0))))))
+
+(defun devnet-node-rpc-latency-sink (node)
+  "NODE's latency sink, or NIL when --metrics is off."
+  (let ((sink (devnet-node-telemetry-sink node)))
+    (when (counting-telemetry-sink-p sink)
+      (let ((delegate (counting-telemetry-sink-delegate sink)))
+        (when (devnet-rpc-latency-sink-p delegate)
+          delegate)))))
 
 (defun devnet-node-enode (node)
   "Our own enode URL, or NIL when we are not listening.
