@@ -1,0 +1,53 @@
+Section 5 Hive at aee866f7: rpc-compat 234/234, devp2p 47/48 (required surface complete),
+Engine 401/403 (two failures carried over)
+
+All three suites ran back to back on the Hoodi host in one window with the
+live EL hoodi-el-sec5-aee866f7 stopped for it (docker stop --time 120 at
+2026-09-23T19:19:41Z: 15 s, exit 0, RocksDB "Shutdown complete"; the second
+clean stop on this gate) and Lighthouse left running, through
+scripts/hoodi-hive-gate.sh from the worktree detached at aee866f7, revision
+fence HOODI_HIVE_REVISION=aee866f7, runner image
+ethereum-lisp-sec5-hive-runner:docker27-amd64, runtime
+ethereum-lisp-runtime:sec5-aee866f7-amd64
+(staged tar sha256 ab52095f1204474e21e9c7a4e3eca959374a00bf32132dbea035609d5c4874c5),
+source tar sha256 2f3f6ebadba4d2339561bb5b686e5f395e56821ff1b9879bcc52793396c1496a,
+Hive binary sha256 cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308.
+
+rpc-compat, run 1, stamp 20260923T191957Z
+
+  hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c :: ethereum/rpc-compat :: 234/234 passed
+  execution-apis e5d1bb60e6c064e4b15080da07b4370d0baadf92
+  runner exit 0, OOMKilled=false, 19:20:10Z -> 19:22:39Z
+  local copy /private/tmp/sec5-hive-evidence/aee866f7-rpc-compat-full-r1-20260923T191957Z
+
+Engine, run 1, stamp 20260923T192423Z
+
+  hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c :: ethereum/engine :: 401/403 passed
+  engine-api 128/129, engine-auth 8/8, engine-exchange-capabilities 5/5,
+  engine-withdrawals 35/35, engine-cancun 225/226
+  runner exit 0, OOMKilled=false, 19:24:35Z -> 21:12:06Z (1 h 48 min)
+  FAILED engine-api     Invalid Missing Ancestor Syncing ReOrg, Transaction GasPrice,
+                        EmptyTxs=False, CanonicalReOrg=True, Invalid P9 (Paris)
+  FAILED engine-cancun  Blob Transaction Ordering, Multiple Clients (Cancun)
+  local copy /private/tmp/sec5-hive-evidence/aee866f7-engine-full-r1-20260923T192423Z
+
+  At d203fee6 the same suite failed the "Incomplete Transactions,
+  CanonicalReOrg=False" variant of the Missing Ancestor family and the same
+  blob ordering case (sec5-d203fee6-hive-engine.txt). aee866f7 carries the
+  gossip-gate fix of 747ca812 (sec5-engine-regressions-d203fee6.txt), so
+  that fix was not the whole cause of the blob case, and the Missing
+  Ancestor family fails a different variant each run, which points at a
+  timing-dependent defect on the client's side rather than only the
+  harness race that record describes for the first variant. Both are under
+  investigation again (sec5-engine-regressions-aee866f7.txt when it lands);
+  the suite is rerun on the fixed revision.
+
+devp2p, run 1, stamp 20260923T211428Z
+
+  hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c :: devp2p :: 47/48 passed
+  discv4 16/16, discv5 0/1 (expected: not implemented, fail-closed refusal),
+  eth 25/25, snap 6/6; HIVE_EXPECTED_TESTS=48
+  runner exit 0, OOMKilled=false, 21:14:40Z -> 21:20:11Z
+  local copy /private/tmp/sec5-hive-evidence/aee866f7-devp2p-full-r1-20260923T211428Z
+
+Each local copy carries a manifest.sha256 written by the broker's collect.
