@@ -1422,6 +1422,99 @@ transfer that leaves the contract untouched."
     (is (string= +payload-status-invalid+
                  (payload-status-status durable-status)))))
 
+(defun devnet-engine-priority-fcu-request (head-hash)
+  "An engine_forkchoiceUpdatedV1 request naming HEAD-HASH, with no attributes."
+  (let ((zero (hash32-to-hex (zero-hash32))))
+    (list (cons "jsonrpc" "2.0")
+          (cons "id" 91)
+          (cons "method" "engine_forkchoiceUpdatedV1")
+          (cons "params"
+                (list (list (cons "headBlockHash" (hash32-to-hex head-hash))
+                            (cons "safeBlockHash" zero)
+                            (cons "finalizedBlockHash" zero)))))))
+
+(deftest devnet-engine-request-is-not-held-behind-a-forward-batch
+  (:layer :integration :module :p2p)
+  ;; Hoodi aac5f762 (2026-09-23): while the forward downloader executed
+  ;; 192-block responses, every Engine request from Lighthouse missed its
+  ;; 30 second deadline.  The Engine service and the batch importer share the
+  ;; node store guard, and the importer used to hold it across executing the
+  ;; WHOLE response.  Here each block execution is slowed to DELAY seconds and
+  ;; a forkchoiceUpdated arrives while the first block runs.  RED control: with
+  ;; the whole batch under one guard hold the call waits for all BLOCK-COUNT
+  ;; executions (about 1.75 s); it must instead get in after at most the block
+  ;; in flight plus the one the importer had already committed to.
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (genesis-block (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (block-count 8)
+         (delay 0.25)
+         (blocks
+           (eth-sync-produce-empty-blocks
+            genesis-block (ethereum-lisp.cli::devnet-node-config node)
+            block-count))
+         (name 'ethereum-lisp.block-import:import-p2p-block-candidate)
+         (original (fdefinition name))
+         (started (sb-thread:make-semaphore))
+         (durable-candidates '())
+         (imported nil)
+         (importer-error nil)
+         (waited nil)
+         (response nil))
+    (setf (ethereum-lisp.cli::devnet-node-candidate-persistence-function node)
+          (lambda (seen-store candidate &rest arguments)
+            (declare (ignore seen-store arguments))
+            (push candidate durable-candidates)))
+    (devnet-peer-sync-call-with-function-overrides
+     (list
+      (cons name
+            (lambda (&rest arguments)
+              (sb-thread:signal-semaphore started)
+              (sleep delay)
+              (apply original arguments))))
+     (lambda ()
+       (let ((importer
+               (sb-thread:make-thread
+                (lambda ()
+                  ;; An unhandled condition here would kill the whole
+                  ;; sbcl --script run instead of failing this test.
+                  (handler-case
+                      (setf imported
+                            (ethereum-lisp.cli::devnet-peer-sync-import-batch
+                             node blocks nil))
+                    (serious-condition (condition)
+                      (setf importer-error condition))))
+                :name "devnet-engine-priority-importer")))
+         (unwind-protect
+              (progn
+                (is (sb-thread:wait-on-semaphore started :timeout 10))
+                (let ((began (get-internal-real-time)))
+                  (setf response
+                        (ethereum-lisp.rpc:rpc-handle-request
+                         (devnet-engine-priority-fcu-request
+                          (block-hash genesis-block))
+                         (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                          (ethereum-lisp.cli::devnet-node-service node))))
+                  (setf waited (/ (- (get-internal-real-time) began)
+                                  internal-time-units-per-second))))
+           (sb-thread:join-thread importer :timeout 60 :default nil)))))
+    (is (null (cdr (assoc "error" response :test #'string=))))
+    (unless (and waited (< waited (* 3 delay)))
+      (error "Engine request waited ~,3F s behind a ~D-block batch" waited
+             block-count))
+    ;; The batch still completes, and every durable boundary is a whole
+    ;; executed candidate: the one the Engine request cut, then the tail.
+    (is (null importer-error))
+    (is (eql block-count imported))
+    (is (<= 2 (length durable-candidates)))
+    (is (hash32= (block-hash (car (last blocks)))
+                 (block-hash (first durable-candidates))))
+    (dolist (block blocks)
+      (is (chain-store-state-available-p store (block-hash block))))))
+
 (defun devnet-peer-sync-durable-resume-case
     (database-path db-engine &key before-restart)
   "Exercise peer candidate and cursor durability for one database backend."
