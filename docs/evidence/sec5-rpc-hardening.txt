@@ -142,4 +142,28 @@ keepalive.
 4. Verification of record
 ================================================================================
 
-VERIFICATION-PLACEHOLDER
+Warm image (cl-workbench repl, restarted after each struct change), 0ec0eb5c:
+- Every registered test whose name contains RPC, PUBLIC, WEBSOCKET, WS-,
+  SYNCING, GUARD, ARCHITECTURE, PACKAGE, ADMIN, RECEIPT, LOG, FILTER,
+  DEVNET-NODE, BATCH, HTTP, READ-VIEW, PERSISTENCE, SMOKE, SUBSCRI, OPTION,
+  CLI- or BUDGET: 652 passed, 8 skipped, 0 failed (includes the package-graph
+  architecture tests and DEVNET-SMOKE-GATE-SCRIPT-WRITES-READY-AND-LOG-FILES).
+- Image build: no compiler warning under /workspace/src from these changes
+  (the one src STYLE-WARNING, PRECOMPILE-P in runtime/evm/interpreter/call.lisp,
+  predates the branch).
+
+Cold, targeted (cl-workbench validation run, fresh image, 0ec0eb5c + docs):
+- cold-unit --match READ-VIEW PUBLIC-READS READS-OUTSIDE WEBSOCKET
+  RPC-OVERSIZED RPC-BATCH ETH-GET-LOGS ETH-LOG-FILTERS ETH-SUBSCRIBE:
+  24 passed, exit 0, no STYLE-WARNING.
+- cold-integration --match WEBSOCKET LIVE-PERSISTENCE SMOKE READ-VIEW:
+  23 passed, exit 0.
+- cold-e2e --match WS RPC SERVE: 6 + 12 passed, exit 0.
+
+Not verified
+- cold-all (left to the coordinator), Hive rpc-compat on this branch, and any
+  live run: whether public reads stay fast on Hoodi and what the per-release
+  publish costs on a busy node (the common release returns the previous view
+  after two index lookups; a new head copies nothing but walks back to the
+  last known entry).
+
