@@ -124,6 +124,10 @@
    #:+eth-backfill-batch-size+
    #:+eth-backfill-max-headers+
    #:eth-sync-backfill-peer-error
+   #:eth-sync-peer-transport-error
+   #:eth-sync-peer-transport-error-operation
+   #:eth-sync-peer-transport-error-cause
+   #:call-with-eth-sync-peer-transport
    #:eth-sync-collect-backfill-headers
    #:eth-sync-import-headers-with-bodies
    #:eth-sync-fill-gap

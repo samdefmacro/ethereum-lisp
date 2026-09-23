@@ -4670,6 +4670,190 @@ transfer that leaves the contract untouched."
     (is (= 1 (count "peer.sync.gap_peer_failed" logs
                     :key #'first :test #'string=)))))
 
+(defun devnet-gap-fill-test-connection-reset (operation)
+  "The condition SBCL signals when a peer resets a socket under OPERATION."
+  (make-condition
+   'sb-int:simple-stream-error
+   :stream *standard-output*
+   :format-control "couldn't ~A #<SB-SYS:FD-STREAM for \"socket peer\">: ~A"
+   :format-arguments (list operation "Connection reset by peer")))
+
+(deftest devnet-coordinator-pass-survives-a-peer-reset-during-gap-fill
+  (:layer :unit :module :p2p)
+  ;; Hoodi 2026-09-23: after the pivot was installed, the coordinator's hash
+  ;; gap fill ran on an inbound session's writer, the peer reset the socket,
+  ;; and the session job handed SB-INT:SIMPLE-STREAM-ERROR back to the
+  ;; coordinator thread, whose fatal boundary shut the node down (exit 1).
+  ;; This drives the same pass through real request queues serviced by
+  ;; session-like writer threads. A signal escaping the pass is exactly what
+  ;; the coordinator thread turns into its error callback and a shutdown.
+  #+sbcl
+  (let* ((node
+           (ethereum-lisp.cli:make-devnet-node
+            :genesis-json *eth-sync-paris-genesis-json*
+            :port 0 :public-port 0))
+         (target-hash
+           (make-hash32 (make-byte-vector 32 :initial-element 21)))
+         (reset-queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (live-queue (ethereum-lisp.cli::make-devnet-peer-request-queue))
+         (reset-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "reset-gap-peer" :peer :reset-peer
+            :request-queue reset-queue))
+         (live-entry
+           (ethereum-lisp.cli::make-devnet-peer-entry
+            :id-hex "live-gap-peer" :peer :live-peer
+            :request-queue live-queue))
+         (session-failures (list))
+         (session-lock (sb-thread:make-mutex :name "gap-reset-test"))
+         (header-requests '())
+         (logs '())
+         (mode :peer-reset)
+         (stop nil)
+         (writers '())
+         (original-fill-gap
+           (fdefinition 'ethereum-lisp.eth-sync:eth-sync-fill-gap))
+         (original-import
+           (fdefinition 'ethereum-lisp.cli::devnet-peer-sync-import-block)))
+    (labels ((writer (queue label)
+               ;; A session thread in miniature: it is the sole runner of its
+               ;; queue's jobs, and a job failure ends the session.
+               (sb-thread:make-thread
+                (lambda ()
+                  (handler-case
+                      (loop until stop
+                            do (let ((job
+                                       (funcall
+                                        (ethereum-lisp.cli::devnet-peer-pending-request
+                                         queue))))
+                                 (if job
+                                     (handler-case (funcall job)
+                                       (serious-condition (condition)
+                                         (sb-thread:with-mutex (session-lock)
+                                           (push (cons label condition)
+                                                 session-failures))
+                                         (ethereum-lisp.cli::devnet-peer-request-queue-close
+                                          queue)
+                                         (return)))
+                                     (sleep 0.005))))
+                    (serious-condition (condition)
+                      (sb-thread:with-mutex (session-lock)
+                        (push (cons :writer-crash condition)
+                              session-failures)))))
+                :name (format nil "gap-reset-test-~(~A~)" label)))
+             (run-pass ()
+               (handler-case
+                   (list :returned
+                         (ethereum-lisp.cli::devnet-node-sync-coordinator-pass
+                          node))
+                 (serious-condition (condition)
+                   (list :escaped condition)))))
+      (unwind-protect
+           (progn
+             (push (writer reset-queue :reset) writers)
+             (push (writer live-queue :live) writers)
+             (devnet-peer-sync-call-with-function-overrides
+              (list
+               (cons 'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+                     (lambda (seen-node)
+                       (is (eq node seen-node))
+                       (list target-hash)))
+               (cons 'ethereum-lisp.cli::devnet-node-active-snap-target
+                     (lambda (seen-node target)
+                       (declare (ignore seen-node))
+                       target))
+               (cons 'ethereum-lisp.cli::devnet-node-snap-target-required-p
+                     (lambda (seen-node target)
+                       (declare (ignore seen-node target))
+                       nil))
+               (cons 'ethereum-lisp.cli::devnet-node-sync-targets
+                     (lambda (seen-node)
+                       (declare (ignore seen-node))
+                       nil))
+               (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+                     (lambda (seen-node &key snap-only-p)
+                       (is (eq node seen-node))
+                       (is (null snap-only-p))
+                       (list reset-entry live-entry)))
+               (cons 'ethereum-lisp.eth-sync:eth-peer-get-block-headers
+                     (lambda (peer &rest arguments)
+                       (declare (ignore arguments))
+                       (push peer header-requests)
+                       (ecase peer
+                         (:reset-peer
+                          (error (devnet-gap-fill-test-connection-reset
+                                  "read from")))
+                         ;; The surviving peer answers; an empty answer is
+                         ;; its own typed branch miss, local to the target.
+                         (:live-peer nil))))
+               (cons 'ethereum-lisp.eth-sync:eth-sync-fill-gap
+                     (lambda (peer hash known-hash-p import-block &rest rest)
+                       (ecase mode
+                         (:peer-reset
+                          (apply original-fill-gap
+                                 peer hash known-hash-p import-block rest))
+                         (:local-failure
+                          (funcall import-block :block)))))
+               (cons 'ethereum-lisp.cli::devnet-peer-sync-import-block
+                     (lambda (&rest arguments)
+                       (ecase mode
+                         (:peer-reset (apply original-import arguments))
+                         (:local-failure
+                          (error (devnet-gap-fill-test-connection-reset
+                                  "write to"))))))
+               (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+                     (lambda (seen-node name &rest fields)
+                       (declare (ignore seen-node))
+                       (push (cons name fields) logs))))
+              (lambda ()
+                (let ((outcome (run-pass)))
+                  ;; Behaviour first: the pass returns, the next peer is asked.
+                  (unless (eq :returned (first outcome))
+                    (error "a peer reset escaped the coordinator pass: ~A"
+                           (second outcome)))
+                  (is (equal '(:reset-peer :live-peer)
+                             (reverse header-requests)))
+                  (is (= 1 (count "peer.sync.gap_peer_failed" logs
+                                  :key #'first :test #'string=)))
+                  (is (equal "reset-gap-peer"
+                             (second
+                              (member "peer"
+                                      (rest
+                                       (find "peer.sync.gap_peer_failed" logs
+                                             :key #'first :test #'string=))
+                                      :test #'equal))))
+                  ;; The dead session still ends: its writer received the
+                  ;; failure and closed the queue, as session teardown does.
+                  (wait-for-test-condition
+                   "reset session teardown" 2d0
+                   (lambda ()
+                     (sb-thread:with-mutex (session-lock)
+                       (assoc :reset session-failures))))
+                  (is (null (assoc :live session-failures)))
+                  (is (null (assoc :writer-crash session-failures)))
+                  (is (typep (cdr (assoc :reset session-failures))
+                             'ethereum-lisp.eth-sync::eth-sync-peer-transport-error))
+                  (is (typep
+                       (ethereum-lisp.eth-sync::eth-sync-peer-transport-error-cause
+                        (cdr (assoc :reset session-failures)))
+                       'stream-error)))
+                ;; Positive control: a stream error from LOCAL work inside
+                ;; the same queued job (a store write failing under the
+                ;; import callback) is not a peer failure, and still reaches
+                ;; the coordinator's fatal boundary unchanged.
+                (setf mode :local-failure)
+                (let ((outcome (run-pass)))
+                  (is (eq :escaped (first outcome)))
+                  (is (typep (second outcome) 'stream-error))))))
+        (setf stop t)
+        (ethereum-lisp.cli::devnet-peer-request-queue-close reset-queue)
+        (ethereum-lisp.cli::devnet-peer-request-queue-close live-queue)
+        (dolist (thread writers)
+          (sb-thread:join-thread thread :timeout 5 :default nil)))
+      (is (eq :local-failure mode))))
+  #-sbcl
+  (is t))
+
 (deftest devnet-multi-sync-hash-backfills-a-same-height-reorg-parent
   (:layer :unit :module :p2p)
   (let* ((node

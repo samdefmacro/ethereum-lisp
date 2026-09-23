@@ -524,6 +524,110 @@ BODY-LIMIT simulates geth's soft response-byte limit by returning only a prefix.
                                         hashes)))))))))
       (rlpx-disconnect () nil))))
 
+(defun eth-sync-gap-fill-against-a-hanging-up-peer (mode)
+  "Run ETH-SYNC-FILL-GAP against a loopback peer that hangs up mid-request.
+
+MODE :EOF lets the peer read our GetBlockHeaders and then close in order; MODE
+:RESET closes without reading it, so the kernel answers with a reset. Returns
+the condition the gap fill signalled (NIL if none), the number of blocks the
+import callback saw, and any server-side failure."
+  (let* ((config (eth-sync-test-config))
+         (server-static
+          #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (client-static
+          #x49a7b37aa6f6645917e7b807e9d1c00d4fa71f18343b0d4122a4d2df64dd6fee)
+         (server-static-pub (secp256k1-private-key-public-key server-static))
+         (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                  :type :stream :protocol :tcp))
+         (signalled nil)
+         (imported 0)
+         (server-error nil))
+    (flet ((hello (client-id)
+             (make-devp2p-hello
+              :client-id client-id
+              :capabilities (list (make-devp2p-capability "eth" 68))
+              :node-id server-static-pub))
+           (status ()
+             (eth-build-status config *eth-sync-test-genesis* 3 0
+                               *eth-sync-test-best* 0)))
+      (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+      (unwind-protect
+           (progn
+             (sb-bsd-sockets:socket-bind
+              listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+             (sb-bsd-sockets:socket-listen listener 1)
+             (let* ((port (nth-value 1 (sb-bsd-sockets:socket-name listener)))
+                    (server-thread
+                      (sb-thread:make-thread
+                       (lambda ()
+                         (handler-case
+                             (let* ((socket (sb-bsd-sockets:socket-accept
+                                             listener))
+                                    (stream (p2p-binary-socket-stream socket))
+                                    (connection
+                                      (rlpx-accept-stream stream server-static))
+                                    (peer (eth-peer-connect
+                                           connection (hello "srv") (status))))
+                               (ecase mode
+                                 (:eof
+                                  (eth-peer-read peer))
+                                 (:reset
+                                  ;; Leave the request unread in the kernel
+                                  ;; buffer: closing over unread bytes is a
+                                  ;; reset, not an orderly FIN.
+                                  (sleep 0.3)))
+                               (sb-bsd-sockets:socket-close socket))
+                           (error (condition) (setf server-error condition))))
+                       :name "eth-gap-fill-hang-up-server")))
+               (let* ((client-socket (make-instance 'sb-bsd-sockets:inet-socket
+                                                    :type :stream :protocol :tcp)))
+                 (unwind-protect
+                      (progn
+                        (sb-bsd-sockets:socket-connect
+                         client-socket
+                         (sb-bsd-sockets:make-inet-address "127.0.0.1") port)
+                        (let* ((stream (p2p-binary-socket-stream client-socket))
+                               (connection (rlpx-connect-stream
+                                            stream client-static
+                                            server-static-pub))
+                               (peer (eth-peer-connect connection (hello "cli")
+                                                       (status))))
+                          (handler-case
+                              (ethereum-lisp.eth-sync:eth-sync-fill-gap
+                               peer (make-byte-vector 32 :initial-element 7)
+                               (lambda (hash) (declare (ignore hash)) nil)
+                               (lambda (block)
+                                 (declare (ignore block))
+                                 (incf imported)))
+                            (serious-condition (condition)
+                              (setf signalled condition)))))
+                   (ignore-errors (sb-bsd-sockets:socket-close client-socket))))
+               (sb-thread:join-thread server-thread :timeout 10 :default nil)))
+        (ignore-errors (sb-bsd-sockets:socket-close listener))))
+    (values signalled imported server-error)))
+
+(deftest eth-sync-gap-fill-names-a-peer-hang-up-as-a-transport-failure
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; A peer that resets or closes the socket under a backfill request is that
+  ;; peer's failure. Before this, the raw SB-INT:SIMPLE-STREAM-ERROR (or an
+  ;; untyped end-of-RLPx-stream error) left the gap fill looking like any local
+  ;; failure, and the coordinator shut the node down on it (Hoodi 2026-09-23).
+  (dolist (mode '(:eof :reset))
+    (multiple-value-bind (condition imported server-error)
+        (eth-sync-gap-fill-against-a-hanging-up-peer mode)
+      (is (null server-error))
+      (is (= 0 imported))
+      (is condition)
+      ;; Behaviour first: what escapes is not the bare transport condition.
+      (is (not (typep condition 'stream-error)))
+      (is (typep condition
+                 'ethereum-lisp.eth-sync::eth-sync-peer-transport-error))
+      (let ((cause (ethereum-lisp.eth-sync::eth-sync-peer-transport-error-cause
+                    condition)))
+        (is (typep cause 'stream-error))
+        (when (eq mode :eof)
+          (is (typep cause 'ethereum-lisp.p2p::rlpx-stream-ended)))))))
+
 (deftest eth-sync-downloads-a-chain-in-order-over-a-socket
   (:layer :integration :module :p2p :requires-local-sockets t)
   (let* ((config (eth-sync-test-config))

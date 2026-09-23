@@ -7,12 +7,27 @@
 ;;;; test). The initiator sends auth and reads ack; the recipient reads auth and
 ;;;; sends ack; both derive the session and can then read and write frames.
 
+(define-condition rlpx-stream-ended (stream-error)
+  ((filled :initarg :filled :reader rlpx-stream-ended-filled)
+   (expected :initarg :expected :reader rlpx-stream-ended-expected))
+  (:report
+   (lambda (condition stream)
+     (format stream "RLPx stream ended after ~D of ~D bytes"
+             (rlpx-stream-ended-filled condition)
+             (rlpx-stream-ended-expected condition))))
+  (:documentation
+   "The remote end closed the connection in the middle of an RLPx read.
+
+A STREAM-ERROR, like the reset and broken-pipe errors SBCL signals for the same
+socket, so a caller can classify every way a peer hangs up by one type."))
+
 (defun rlpx-read-exactly (stream count)
-  "Read exactly COUNT octets from STREAM or error if it ends first."
+  "Read exactly COUNT octets from STREAM or signal RLPX-STREAM-ENDED if it ends
+first."
   (let ((buffer (make-byte-vector count)))
     (let ((filled (read-sequence buffer stream)))
       (unless (= filled count)
-        (error "RLPx stream ended after ~D of ~D bytes" filled count))
+        (error 'rlpx-stream-ended :stream stream :filled filled :expected count))
       buffer)))
 
 (defun rlpx-read-handshake-packet (stream)

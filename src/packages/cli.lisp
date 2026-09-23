@@ -20,6 +20,7 @@
   (:import-from #:ethereum-lisp.eth-sync
                 #:eth-peer-protocol-error
                 #:eth-sync-multi-peer-error
+                #:eth-sync-peer-transport-error
                 #:eth-sync-multi-peer-fail
                 #:eth-peer-set-sync-notification-function)
   (:import-from #:ethereum-lisp.txpool
