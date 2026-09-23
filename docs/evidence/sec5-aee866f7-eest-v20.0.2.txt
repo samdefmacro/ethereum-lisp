@@ -1,0 +1,274 @@
+Section 5 exact-revision current-fork EEST evidence
+
+Recorded: 2026-09-23T16:45:10Z
+Implementation revision: aee866f7c7527f8da9f6e08a2311401006771eea (Merge
+  restart-behind catch-up: a synced head forward-syncs up to 8192 blocks, known
+  blocks are never re-buffered)
+Checked-out revision: c04d7ab42b0d98c8de220648fb10d193d122e9e2
+Source branch: sec5-public-bootstrap-sync (this record is committed on
+  eest-aee866f7, branched from c04d7ab4)
+
+Revision boundary
+
+c04d7ab4 is aee866f7 plus one documentation commit (c04d7ab4, "archive the
+aee866f7 amd64 runtime record and its cold-all"), which adds only
+docs/evidence/sec5-aee866f7-amd64-runtime.txt. `git diff aee866f7 c04d7ab4
+--stat -- src` is EMPTY; the whole aee866f7..c04d7ab4 diff is that one
+document. The application source, tests, build inputs and fixture adapter under
+test are therefore byte-identical to aee866f7.
+
+Every gate ran from a linked worktree on branch eest-aee866f7 at exactly
+c04d7ab42b0d98c8de220648fb10d193d122e9e2. The runner re-asserted `git rev-parse
+HEAD` and an empty `git --no-optional-locks status --porcelain` immediately
+before and immediately after each of the eight gates and before and after the
+complete sequence; all eighteen assertions held. The only untracked bytes in the
+checkout were the ignored `.eest-fixtures-sec5-d203fee6/` corpus directory,
+which `/.eest-fixtures*/` excludes.
+
+What changed since the d203fee6 record (verified at 9f8f336e): six
+implementation merges (cab507ee, e313f198, e0b76c48, 747ca812, 34f2e8ae,
+aee866f7) touching 43 files under src/ (+2126/-385), plus tests and three
+scripts (devnet-smoke-gate-options.lisp, hoodi-hive-gate-remote.sh,
+ops-crash-worker.lisp). None of tests/fixture-runner*, tests/test-framework.lisp,
+tests/run-tests.lisp, scripts/fetch-eest-fixtures.sh, scripts/dev.sh or
+Dockerfile* changed between 9f8f336e and c04d7ab4. Because src/ changed, the
+counts below were re-established by execution here, not carried forward.
+
+Corpus identity
+
+- baseline: stable-v20.0.2
+- release: tests@v20.0.2
+- upstream commit: abbe05777ab83fb94ce18c425daaa7ab79e779c1
+- archive: fixtures.tar.gz (540,487,005 bytes)
+- pinned SHA-256 (scripts/fetch-eest-fixtures.sh):
+  1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788
+- observed SHA-256 (re-hashed on the control plane immediately before this
+  sequence):
+  1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788
+- extract dir: tests-v20.0.2
+- fixture root, host:
+  <checkout>/.eest-fixtures-sec5-d203fee6/tests-v20.0.2
+- fixture root, container: /fixtures/execution-spec-tests (read-only bind)
+
+The corpus was reused, not re-fetched: it is the tree fetched for the d203fee6
+record in this same checkout with
+
+  scripts/dev.sh eest-fixtures stable-v20.0.2 .eest-fixtures-sec5-d203fee6
+
+(exit 0, 2026-09-23T14:32:12Z to 14:36:03Z, downloaded from the pinned release
+URL by the reviewed narrow-container broker, which refuses to extract an
+archive whose digest does not match the pin). The cold broker bind-mounts
+whatever ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT names, read-only, so no second
+destination was needed. The archive in that directory was re-hashed before this
+run and still matches the pin; the gates see the tree only through a read-only
+bind and cannot have modified it.
+
+Execution boundary
+
+`cl-workbench doctor --strict` passed from the checkout root before any
+application tooling (exit 0; runtime image
+common-lisp-workbench-runtime:0.13.0-dev, fingerprint
+0592588f919a465e091360d5eca17a52bbe3c398a580a0808160a87810c422c2). Every gate
+ran through `cl-workbench validation run cold-integration`, which delegates to
+the `scripts/dev.sh cold-test integration` cold broker: network none, read-only
+rootfs and workspace, all capabilities dropped, no-new-privileges, no Docker
+socket, tmpfs for the only writable paths. No host Lisp or other application
+toolchain was used. Cold image
+ethereum-lisp-sbcl-test:go1.24-bookworm-b8aaea74d911 (the same build-input tag
+as the d203fee6 and 3305307d records; local image id
+sha256:57977373ff0af5a2b816cc6a172b279b7f27e322fec204c0402c58d353bda0dc).
+
+Selectors, identical for all eight gates:
+
+  ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<checkout>/.eest-fixtures-sec5-d203fee6/tests-v20.0.2
+  ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS=auto
+  ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS=London,Shanghai,Cancun,Prague,Osaka
+  ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS=auto
+  ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS=Shanghai,Cancun,Prague,Osaka
+
+Exact commands
+
+Each gate selected exactly one top-level test and ran in its own retained
+container, one at a time, with stdout and stderr redirected to a file (never
+piped, so neither the failing-test record nor the exit status could be masked):
+
+  COLD_TEST_CONTAINER=ethereum-lisp-cold-eest-aee866f7-<slug> \
+    cl-workbench validation run cold-integration --match <test> > <log> 2>&1
+
+The eight `<test>` values, in run order:
+
+  phase-a-eest-state-conformance-is-non-vacuous
+  phase-a-eest-blockchain-conformance-is-non-vacuous
+  phase-a-eest-blockchain-rlp-conformance-is-non-vacuous
+  optional-phase-a-eest-state-test-root-vectors-execute
+  optional-phase-a-eest-blockchain-replay-executes
+  optional-phase-a-eest-engine-late-payload-replay-executes
+  optional-phase-a-eest-engine-payload-rejection-executes
+  optional-phase-a-eest-blockchain-rlp-replay-executes
+
+Results
+
+All eight gates passed. Each reported `1 test passed.` with an `ok <TEST>`
+line and no `not ok` line — one selected, one passed, zero failed, zero
+skipped — and each command and its retained container exited 0 with
+OOMKilled=false and Running=false.
+
+  slug                  test result   cmd exit  container exit  OOM    wall
+  state-manifest        1 passed      0         0               false   60s
+  blockchain-manifest   1 passed      0         0               false   65s
+  rlp-manifest          1 passed      0         0               false   70s
+  state                 1 passed      0         0               false   94s
+  blockchain            1 passed      0         0               false   84s
+  engine-late           1 passed      0         0               false  107s
+  engine-reject         1 passed      0         0               false   65s
+  rlp                   1 passed      0         0               false  119s
+
+Sequence wall time 2026-09-23T16:34:05Z through 2026-09-23T16:45:10Z, 665s.
+The per-gate wall times include a cache-hit cold-image build and a full cold
+compile and load of the system and suite.
+
+Passing top-level fixture executors, which stream and validate the complete
+selected valid and invalid inventory rather than sampling one vector:
+
+- OPTIONAL-PHASE-A-EEST-STATE-TEST-ROOT-VECTORS-EXECUTE
+- OPTIONAL-PHASE-A-EEST-BLOCKCHAIN-REPLAY-EXECUTES
+- OPTIONAL-PHASE-A-EEST-ENGINE-LATE-PAYLOAD-REPLAY-EXECUTES
+- OPTIONAL-PHASE-A-EEST-ENGINE-PAYLOAD-REJECTION-EXECUTES
+- OPTIONAL-PHASE-A-EEST-BLOCKCHAIN-RLP-REPLAY-EXECUTES
+
+Passing non-vacuity manifest gates:
+
+- PHASE-A-EEST-STATE-CONFORMANCE-IS-NON-VACUOUS
+- PHASE-A-EEST-BLOCKCHAIN-CONFORMANCE-IS-NON-VACUOUS
+- PHASE-A-EEST-BLOCKCHAIN-RLP-CONFORMANCE-IS-NON-VACUOUS
+
+Count manifest, verbatim
+
+manifest-lines: 6
+EEST-CONFORMANCE state_tests: discovered=15393 inScope=15393 selected=15393 skipped=0 expectedSkipped=0 unexpectedSkipped=0 forks=[London:1748 Shanghai:1904 Cancun:2686 Prague:4222 Osaka:4833] formats=[state_test:15393] validity=[invalid:771 valid:14622]
+EEST-CONFORMANCE state_tests: outcomes=[executed:15393] unopenedFiles=[featureTreeNotCovered:6205 fileTooLarge:39 for_berlin:174 for_byzantium:86 for_cancuntopragueattime15k:2 for_constantinoplefix:114 for_frontier:39 for_homestead:42 for_istanbul:120 for_paris:175 for_shanghaitocancunattime15k:3 for_spuriousdragon:49 for_tangerinewhistle:45]
+EEST-CONFORMANCE blockchain_replay: discovered=11961 inScope=11961 selected=11382 skipped=579 expectedSkipped=579 unexpectedSkipped=0 forks=[Shanghai:2392 Cancun:3542 Prague:2587 Osaka:2861] formats=[blockchain_test_engine:11382] validity=[invalid:790 valid:10592]
+EEST-CONFORMANCE blockchain_replay: outcomes=[executed:10592 executedRejection:790 multiPayloadChain:579] unopenedFiles=[featureTreeNotCovered:6167 fileTooLarge:132 for_bpo1tobpo2attime15k:2 for_bpo2tobpo3attime15k:2 for_bpo3tobpo4attime15k:2 for_cancuntopragueattime15k:10 for_osakatobpo1attime15k:3 for_paris:191 for_paristoshanghaiattime15k:1 for_praguetoosakaattime15k:8 for_shanghaitocancunattime15k:12]
+EEST-CONFORMANCE blockchain_rlp: discovered=10893 inScope=10893 selected=10257 skipped=636 expectedSkipped=636 unexpectedSkipped=0 forks=[Shanghai:2372 Cancun:2913 Prague:2353 Osaka:2619] formats=[blockchain_test:10257] validity=[invalid:634 valid:9623]
+EEST-CONFORMANCE blockchain_rlp: outcomes=[executed:9623 executedRejection:634 multiBlockChain:515 requestsNotInBlockRlp:121] unopenedFiles=[featureTreeNotCovered:6167 fileTooLarge:151 for_berlin:187 for_bpo1tobpo2attime15k:2 for_bpo2tobpo3attime15k:2 for_bpo3tobpo4attime15k:2 for_byzantium:96 for_cancuntopragueattime15k:10 for_constantinoplefix:127 for_frontier:43 for_homestead:46 for_istanbul:133 for_london:187 for_osakatobpo1attime15k:3 for_paris:191 for_paristoshanghaiattime15k:1 for_praguetoosakaattime15k:8 for_shanghaitocancunattime15k:12 for_spuriousdragon:59 for_tangerinewhistle:56]
+
+Skips and their classification
+
+`unexpectedSkipped` counts in-scope records that did not execute and whose
+category is not a reviewed structural exclusion for the family
+(tests/fixture-runner-conformance-manifest.lisp,
+`phase-a-eest-expected-skip-categories`). All three families reported
+unexpectedSkipped=0.
+
+- state_tests: 0 skipped of 15,393 in scope. Nothing excluded.
+- blockchain_replay: 579 skipped of 11,961 in scope, all
+  `multiPayloadChain` — named multi-payload chains, the family's single
+  reviewed expected category. 11,382 selected, 10,592 valid executed and 790
+  invalid executed as rejections.
+- blockchain_rlp: 636 skipped of 10,893 in scope, all in the family's two
+  reviewed categories: 515 `multiBlockChain` and 121 `requestsNotInBlockRlp`
+  (fixtures whose execution requests are not serialized in block RLP). 10,257
+  selected, 9,623 valid executed and 634 invalid executed as rejections.
+
+`unopenedFiles` counts fixture FILES that discovery never opened because they
+fall outside the configured fork claim or the size bound; they are not in-scope
+skips and are reported per reason rather than summed.
+
+Comparison with the previous record
+
+The six manifest lines, extracted from this run's three manifest-gate logs, are
+byte-for-byte identical (compared mechanically as a set, no differing byte) to
+docs/evidence/sec5-d203fee6-eest-v20.0.2.txt and
+docs/evidence/sec5-3305307d-eest-v20.0.2.txt. Selected inventory is unchanged
+at 15,393 state cases, 11,382 Engine blockchain-replay cases, and 10,257 RLP
+blockchain-replay cases across London through Osaka, with the same 579 and 636
+reviewed exclusions and zero unexpected skips. The six merges since d203fee6
+introduced no regression and no new skip in this surface.
+
+Retained containers
+
+Eight retained containers, all
+`ethereum-lisp-cold-eest-aee866f7-<slug>`, each exited 0 with OOMKilled=false.
+Their full ids, captured from `docker inspect` immediately after each gate:
+
+- state-manifest:
+  ff72dec0166f068dc27509ffdff29ce341317000231bfaa0dc990e1f350d1056
+  (2026-09-23T16:34:10Z to 16:35:05Z)
+- blockchain-manifest:
+  15f2c9184e74af996b3c0ad42e3f7e76dda192b87269eba2198389cb205b2f54
+  (16:35:07Z to 16:36:10Z)
+- rlp-manifest:
+  147cc8ccc966749bb06fda62e753dd1d23aa6b65e806c65fa50d1acd1cd491cc
+  (16:36:12Z to 16:37:20Z)
+- state:
+  f6268507602cae5898bf6ff7f00dca860e14d50385913988ff198f37c6c56db7
+  (16:37:21Z to 16:38:54Z)
+- blockchain:
+  9090fa3f26786256f5a592a5beece6fcd1d8b5b45b66ec2da65ac540ba8381e1
+  (16:38:56Z to 16:40:18Z)
+- engine-late:
+  e7bfcbc2400d47ed48d64bce567b326da509f6a78d58ee7e6a7d7f60762bc76e
+  (16:40:20Z to 16:42:05Z)
+- engine-reject:
+  93045170adeb1c6e936e4a0d4aa558c495f477a5494dced4da7d5289215d9bb0
+  (16:42:06Z to 16:43:10Z)
+- rlp:
+  c306b47de1f65e6961d7cdeeb391a0e6b3c1c16412fec55a3e68486cc0b3f8b4
+  (16:43:12Z to 16:45:09Z)
+
+Run logs
+
+Captured in the session scratchpad `<scratchpad>/eest-aee866f7/logs/`, one per
+gate, plus the sequence transcript. These are session-scoped rather than
+durable; their digests pin the bytes this record was written from.
+
+- eest-aee866f7-state-manifest.log:
+  f57628cbebd050ee268005aba9bc309dd0ee1df767961d94e433bfea0e910cc1
+- eest-aee866f7-blockchain-manifest.log:
+  e3d2f2fc670bbf3989d95759991f76f1c8a5b9c42b005dbcf48c9f143feb0d49
+- eest-aee866f7-rlp-manifest.log:
+  6af7d44572b70b6bbd1398832ff0e1a241e06a085f4561fff28c1c45eb1964d1
+- eest-aee866f7-state.log:
+  e55ee5cce6c96cee8ef1c3f123973f3579b039a4f39e98d6b418395f4cc1ef7c
+- eest-aee866f7-blockchain.log:
+  455dd11469ce26fcf96b0bcf8ac69a47c91ffe172efbf4ef15d3e7f1f6cfe836
+- eest-aee866f7-engine-late.log:
+  7a9af44cea30f7f5cbd3df6415a55e4026b01d460b35ab8f1e7f1770ccd8bf85
+- eest-aee866f7-engine-reject.log:
+  6f37713b4d70726a141e26742d95859fa5946520bb3764bbd5c83c2423394279
+- eest-aee866f7-rlp.log:
+  67264ab6c8ae1d6d02299f314e29a44a8a7aeed286f2c022997b0e86dce28938
+- gates.log (sequence transcript, revision assertions, container inspect):
+  cd5a68b2b08ccf38083fbd9a831abdb1a62ec8bcc29876f81be7b3468eb124ea
+- run-eest-aee866f7.sh (the runner):
+  fb7f26355c589d0957b983350266b1ad193f5ec5c65873426908ed1e278cde6e
+
+Not established by this record
+
+- The gates ran at c04d7ab4, not at a checkout of aee866f7 itself. The claim
+  for aee866f7 rests on the empty src/ diff and the single documentation-only
+  difference recorded under "Revision boundary".
+- The corpus was not re-downloaded for this record; its identity rests on the
+  pinned-digest fetch recorded for d203fee6 and on the re-hash before this run.
+- No machine-generated `scripts/conformance-report.sh` report accompanies this
+  run. docs/validation.md requires the report step to execute inside the marked
+  project image, and no reviewed broker command runs an arbitrary shell command
+  in the cold image; from a linked worktree the script would in any case read no
+  revision, because the worktree's gitdir lies outside the read-only
+  `/workspace` mount. The six manifest lines above are reproduced verbatim from
+  the run logs instead, and the archive digest was re-hashed independently.
+- Adjacent cold layers were not re-run here: this record covers only the eight
+  selected current-fork EEST gates, not a full cold-unit, cold-integration,
+  cold-e2e, or cold-docs pass at aee866f7 (its cold-all is recorded separately
+  with the amd64 runtime record in c04d7ab4).
+- Nothing here establishes Hive rpc-compat, Engine/auth, or devp2p surfaces,
+  SNAP target or healer completion, canonical execution through the
+  CL-authorized target, `eth_syncing=false`, the seven-day shadow comparison, or
+  the fourteen-day validator soak.
+
+Boundary
+
+This closes the plan-required stable current-fork EEST prerequisite for exact
+implementation revision aee866f7c7527f8da9f6e08a2311401006771eea (verified at
+c04d7ab4, src-identical), with nonzero execution across the full selected valid
+and invalid inventory and zero unexpected skips.
