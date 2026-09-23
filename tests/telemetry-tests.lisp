@@ -126,3 +126,47 @@
   (signals error
     (ethereum-lisp.telemetry:make-stream-telemetry-sink
      :stream (make-string-input-stream ""))))
+
+(deftest telemetry-runtime-fields-tell-gc-cpu-and-waiting-apart
+  ;; The Engine request log splits a slow phase into collection, own CPU and
+  ;; time off the CPU (npExecuteGcMs / npExecuteCpuMs against npExecuteMs).
+  ;; Each branch has its own control: a forced collection shows up as GC and
+  ;; not as waiting, a sleep as waiting and not as CPU, a busy loop as CPU.
+  (flet ((fields-of (thunk)
+           (let ((start (ethereum-lisp.telemetry:telemetry-runtime-sample)))
+             (funcall thunk)
+             (ethereum-lisp.telemetry:telemetry-runtime-fields "p" start)))
+         (field (name fields) (cdr (assoc name fields :test #'string=))))
+    (let ((gc (fields-of (lambda () #+sbcl (sb-ext:gc :full t))))
+          (sleep (fields-of (lambda () (sleep 0.3))))
+          (busy (fields-of
+                 (lambda ()
+                   (let ((deadline (+ (get-internal-real-time)
+                                      (* 3/10 internal-time-units-per-second)))
+                         (sink 0))
+                     (loop while (< (get-internal-real-time) deadline)
+                           do (setf sink (logxor sink (random 1000))))
+                     sink)))))
+      (is (equal '("pMs" "pGcMs" "pGcCount" "pCpuMs") (mapcar #'car gc)))
+      #+sbcl (is (<= 1 (field "pGcCount" gc)))
+      (is (<= 280 (field "pMs" sleep)))
+      (is (< (field "pCpuMs" sleep) 100))
+      (is (<= 100 (field "pCpuMs" busy)))
+      (is (= 0 (field "pGcMs" sleep))))))
+
+(deftest telemetry-wait-accounting-sums-kinds-and-names-what-was-waited-for
+  (is (null (let ((ethereum-lisp.telemetry:*telemetry-wait-accounting* nil))
+              (ethereum-lisp.telemetry:telemetry-note-wait "guard" 5000)
+              (ethereum-lisp.telemetry:telemetry-wait-fields))))
+  (ethereum-lisp.telemetry:telemetry-call-with-wait-accounting
+   (lambda ()
+     (ethereum-lisp.telemetry:telemetry-note-wait "guard" 1500 "a:1")
+     (ethereum-lisp.telemetry:telemetry-note-wait "guard" 2500 "b:2")
+     (ethereum-lisp.telemetry:telemetry-call-with-accounted-wait
+      "peer" (lambda () (sleep 0.05)))
+     (let ((fields (ethereum-lisp.telemetry:telemetry-wait-fields)))
+       (is (equal '("guardWaitMs" "guardWaitedFor" "peerWaitMs")
+                  (mapcar #'car fields)))
+       (is (= 4 (cdr (first fields))))
+       (is (string= "a:1 b:2" (cdr (second fields))))
+       (is (<= 45 (cdr (third fields))))))))

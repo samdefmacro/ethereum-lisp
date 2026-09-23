@@ -568,13 +568,13 @@ backend the peer sessions consult (pinned geth's Backend.AcceptTxs)."
   ;; fails must leave the guarded operation's own result intact.
   (let* ((calls 0)
          (fail-p nil))
-    (destructuring-bind (guard try priority pending)
+    (destructuring-bind (guard try priority pending ledger)
         (multiple-value-list
          (ethereum-lisp.cli::make-devnet-store-guard-function
           :release-hook (lambda ()
                           (incf calls)
                           (when fail-p (error "hook failure")))))
-      (declare (ignore pending))
+      (declare (ignore pending ledger))
       (is (eq :held (funcall guard (lambda () :held))))
       (is (= 1 calls))
       (is (equal '(:tried t)
@@ -592,6 +592,68 @@ backend the peer sessions consult (pinned geth's Backend.AcceptTxs)."
   ;; Without a hook (the dial guard) results still pass straight through.
   (let ((guard (ethereum-lisp.cli::make-devnet-store-guard-function)))
     (is (eq :plain (funcall guard (lambda () :plain))))))
+
+(deftest devnet-store-guard-names-the-holds-an-engine-request-waited-behind
+  ;; On Hoodi (aee866f7) Engine requests with no execution took 5-25 s, and
+  ;; their log could not say who held the store guard. A priority waiter now
+  ;; reports guardWaitMs and guardWaitedFor (label:holdMs+hookMs of every hold
+  ;; that ended while it waited), and a hold over the long-hold bound is
+  ;; handed to LONG-HOLD-FUNCTION. Control: a waiter that found the guard free
+  ;; reports nothing, and a short hold is not reported as long.
+  #+sbcl
+  (let ((long-holds '())
+        (ethereum-lisp.cli::*devnet-store-guard-long-hold-ms* 200))
+    (destructuring-bind (guard try priority pending ledger)
+        (multiple-value-list
+         (ethereum-lisp.cli::make-devnet-store-guard-function
+          :release-hook (lambda () (sleep 0.02))
+          :long-hold-function
+          (lambda (hold)
+            (push (ethereum-lisp.cli::devnet-store-guard-hold-label hold)
+                  long-holds))))
+      (declare (ignore try pending ledger))
+      ;; Control: a free guard, and a short hold.
+      (ethereum-lisp.telemetry:telemetry-call-with-wait-accounting
+       (lambda ()
+         (funcall priority (lambda () :free))
+         (is (null (ethereum-lisp.telemetry:telemetry-wait-fields)))))
+      (let ((ethereum-lisp.telemetry:*telemetry-activity-label* "short"))
+        (funcall guard (lambda () :short)))
+      (is (null long-holds))
+      (sleep 0.01)
+      (let* ((holding (sb-thread:make-semaphore))
+             (holder
+               (sb-thread:make-thread
+                (lambda ()
+                  ;; A condition here must not kill the suite process.
+                  (handler-case
+                      ;; A special binding is per thread: rebind the bound here.
+                      (let ((ethereum-lisp.telemetry:*telemetry-activity-label*
+                              "sync-gap-fill")
+                            (ethereum-lisp.cli::*devnet-store-guard-long-hold-ms*
+                              200))
+                        (funcall guard
+                                 (lambda ()
+                                   (sb-thread:signal-semaphore holding)
+                                   (sleep 0.4))))
+                    (serious-condition (condition) condition)))
+                :name "store-guard-attribution-holder")))
+        (sb-thread:wait-on-semaphore holding)
+        (ethereum-lisp.telemetry:telemetry-call-with-wait-accounting
+         (lambda ()
+           (let ((ethereum-lisp.telemetry:*telemetry-activity-label*
+                   "engine_newPayloadV4"))
+             (is (eq :engine (funcall priority (lambda () :engine)))))
+           (let* ((fields (ethereum-lisp.telemetry:telemetry-wait-fields))
+                  (waited (cdr (assoc "guardWaitMs" fields :test #'string=)))
+                  (holders (cdr (assoc "guardWaitedFor" fields
+                                       :test #'string=))))
+             (is (and waited (<= 250 waited)))
+             (is (and holders
+                      (eql 0 (search "sync-gap-fill:" holders))
+                      (search "+" holders))))))
+        (sb-thread:join-thread holder)
+        (is (equal '("sync-gap-fill") long-holds))))))
 
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with

@@ -2036,6 +2036,10 @@ the first, and the phase names the first measured request recorded."
         (is (< (* 3 warm-reads) (* 2 cold-reads)))
         (is (> warm-hits cold-hits))
         ;; The live telemetry carries the split and the counters.
+        ;; GcMs/GcCount/CpuMs split each phase's wall time into collection,
+        ;; own CPU and time off the CPU.
         (dolist (name '("npExecuteMs" "npPersistMs"
+                        "npExecuteGcMs" "npExecuteGcCount" "npExecuteCpuMs"
+                        "npPersistGcMs" "npPersistCpuMs"
                         "npTrieNodeReads" "npTrieNodeCacheHits"))
           (is (member name phase-names :test #'string=)))))))

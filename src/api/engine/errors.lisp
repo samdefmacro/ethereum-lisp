@@ -46,3 +46,21 @@
          (progn ,@body)
        (engine-rpc-record-phase-timing ,name started-at))))
 
+(defun engine-rpc-call-with-phase-accounting (prefix thunk)
+  "Call THUNK and record where its wall time went, as PREFIXMs (wall),
+PREFIXGcMs, PREFIXGcCount and PREFIXCpuMs (TELEMETRY-RUNTIME-FIELDS).
+
+A phase whose wall time is far above both its CPU and its GC time was off the
+CPU: waiting on a lock, a peer, a disk or the host scheduler."
+  (if (eq *engine-rpc-phase-timings* :disabled)
+      (funcall thunk)
+      (let ((start (ethereum-lisp.telemetry:telemetry-runtime-sample)))
+        (multiple-value-prog1 (funcall thunk)
+          (loop for (name . value)
+                  in (ethereum-lisp.telemetry:telemetry-runtime-fields
+                      prefix start)
+                do (engine-rpc-record-phase-duration name value))))))
+
+(defmacro engine-rpc-with-phase-accounting ((prefix) &body body)
+  `(engine-rpc-call-with-phase-accounting ,prefix (lambda () ,@body)))
+

@@ -171,7 +171,7 @@ store without a durable node provider."
                :source :engine
                :import-function
                (lambda (candidate-store candidate candidate-config)
-                 (engine-rpc-with-phase-timing ("npExecuteMs")
+                 (engine-rpc-with-phase-accounting ("npExecute")
                    (engine-rpc-import-with-prepared-execution
                     candidate-store candidate candidate-config
                     import-function)))
@@ -179,7 +179,7 @@ store without a durable node provider."
                (and
                 new-payload-persistence-function
                 (lambda (callback-store candidate &rest provenance)
-                  (engine-rpc-with-phase-timing ("npPersistMs")
+                  (engine-rpc-with-phase-accounting ("npPersist")
                     (apply
                      #'engine-rpc-persist-new-payload
                      callback-store candidate

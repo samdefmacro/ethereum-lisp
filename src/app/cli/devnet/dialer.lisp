@@ -2642,7 +2642,8 @@ A peer-specific backfill refusal is logged and the next target is tried. Local
 storage, capability, validation, and unknown program failures propagate to the
 session supervisor instead of being misclassified as a peer branch miss."
   (let ((store (devnet-node-store node))
-        (imported 0))
+        (imported 0)
+        (*telemetry-activity-label* "sync-gap-fill"))
     (dolist (target (devnet-node-sync-targets node) imported)
       (let ((parent (hash32-bytes
                      (block-header-parent-hash (block-header target)))))
