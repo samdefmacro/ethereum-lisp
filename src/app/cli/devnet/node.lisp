@@ -189,6 +189,10 @@
          (store-guard-pair (multiple-value-list (make-devnet-store-guard-function)))
          (store-guard-function (first store-guard-pair))
          (store-guard-try-function (second store-guard-pair))
+         ;; Engine requests take the same mutex through the priority guard, so a
+         ;; long holder can see them waiting and step aside.
+         (store-guard-priority-function (third store-guard-pair))
+         (store-guard-priority-pending-function (fourth store-guard-pair))
          (new-payload-persistence-function
            (devnet-cli-new-payload-persistence-function database-path db-engine))
          (peer-sync-progress-function
@@ -238,7 +242,7 @@
             :payload-improvement-notification-function
             payload-improvement-notification-function
             :gas-limit-target miner-gas-limit
-            :request-guard-function store-guard-function
+            :request-guard-function store-guard-priority-function
             :request-guard-predicate
             (lambda (method)
               (not (member method '("eth_syncing" "engine_getBlobsV3")
@@ -333,6 +337,8 @@
        :coinbase coinbase
        :store-guard-function store-guard-function
        :store-guard-try-function store-guard-try-function
+       :store-guard-priority-pending-function
+       store-guard-priority-pending-function
        :persistence-state persistence-state
        :candidate-persistence-function new-payload-persistence-function
        :peer-sync-progress-function peer-sync-progress-function

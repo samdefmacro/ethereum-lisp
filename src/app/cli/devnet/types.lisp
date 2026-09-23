@@ -119,6 +119,7 @@ the established pool instead of relearning it from the cold minimum."
                       public-endpoint-config txpool-policy
                       dev-mode-p coinbase store-guard-function
                       store-guard-try-function
+                      store-guard-priority-pending-function
                       persistence-state
                       candidate-persistence-function
                       peer-sync-progress-function
@@ -174,6 +175,11 @@ the established pool instead of relearning it from the cold minimum."
   ;; The same guard, but giving up rather than waiting. See
   ;; CALL-WITH-DEVNET-NODE-STORE-GUARD-IF-FREE.
   store-guard-try-function
+  ;; A function of no arguments, true while an Engine request is waiting for
+  ;; the store guard.  Long guard holders (the forward batch importer) poll it
+  ;; to end their hold early and step aside.  NIL means no priority waiter can
+  ;; exist.  See MAKE-DEVNET-STORE-GUARD-FUNCTION.
+  store-guard-priority-pending-function
   ;; Last computed transaction-gossip admission verdict. Every inbound
   ;; Transactions, NewPooledTransactionHashes, and PooledTransactions message
   ;; consults that gate, so it must never wait on the store guard; a busy node
@@ -318,18 +324,72 @@ held."
   (progn mutex (lambda (thunk) (values (funcall thunk) t))))
 
 (defun make-devnet-store-guard-function ()
-  "Return (VALUES GUARD TRY): the blocking store guard and its give-up-instead
-companion, over the same mutex. Two functions rather than one with a flag so
-that a caller cannot accidentally block by omitting an argument."
+  "Return (VALUES GUARD TRY PRIORITY-GUARD PRIORITY-PENDING-P) over one mutex.
+
+GUARD blocks until the mutex is free; TRY gives up instead of waiting. Two
+functions rather than one with a flag so that a caller cannot accidentally
+block by omitting an argument.
+
+PRIORITY-GUARD is GUARD for Engine API requests: while it waits, the
+no-argument PRIORITY-PENDING-P returns true, which is the signal a long holder
+such as the forward batch importer uses to commit what it has, release the
+mutex, and stay off it until the waiter got in. The count drops as soon as the
+waiter owns the mutex, not when it finishes, so a holder that stepped aside
+never spins through the Engine request's own work. SBCL mutexes are not fair;
+without this signal a holder that re-acquires in a loop can keep a waiting
+Engine request out indefinitely."
   #+sbcl
-  (let ((mutex (sb-thread:make-mutex :name "ethereum-lisp-node-store")))
+  (let ((mutex (sb-thread:make-mutex :name "ethereum-lisp-node-store"))
+        ;; A cons so SB-EXT:ATOMIC-INCF can update its fixnum CAR.
+        (priority-waiters (list 0)))
     (values (lambda (thunk)
               (sb-thread:with-mutex (mutex)
                 (funcall thunk)))
-            (make-devnet-store-guard-try-function mutex)))
+            (make-devnet-store-guard-try-function mutex)
+            (lambda (thunk)
+              (let ((counted-p t))
+                (sb-ext:atomic-incf (car priority-waiters))
+                (unwind-protect
+                     (sb-thread:with-mutex (mutex)
+                       (setf counted-p nil)
+                       (sb-ext:atomic-decf (car priority-waiters))
+                       (funcall thunk))
+                  ;; Unwound while still waiting (an interrupt or timeout).
+                  (when counted-p
+                    (sb-ext:atomic-decf (car priority-waiters))))))
+            (lambda ()
+              (plusp (car priority-waiters)))))
   #-sbcl
   (values (lambda (thunk) (funcall thunk))
-          (lambda (thunk) (values (funcall thunk) t))))
+          (lambda (thunk) (values (funcall thunk) t))
+          (lambda (thunk) (funcall thunk))
+          (lambda () nil)))
+
+(defun devnet-node-store-guard-priority-pending-p (node)
+  "True while an Engine request waits for NODE's store guard."
+  (let ((pending (devnet-node-store-guard-priority-pending-function node)))
+    (and pending (funcall pending) t)))
+
+(defparameter *devnet-store-guard-priority-yield-seconds* 2
+  "How long a long guard holder that stepped aside waits for priority waiters.
+
+Our policy. Waiting ends as soon as every waiter owns the guard in turn; the
+bound only keeps a continuous stream of Engine requests from starving the
+importer completely.")
+
+(defun devnet-node-yield-store-guard-to-priority (node)
+  "Wait, WITHOUT holding NODE's store guard, until no Engine request waits.
+
+A caller that just released the guard calls this before taking it again.
+Returns when the last waiter owns the guard (it then serializes behind that
+request's own work as usual) or after the bounded wait."
+  (let ((deadline
+          (+ (get-internal-real-time)
+             (* *devnet-store-guard-priority-yield-seconds*
+                internal-time-units-per-second))))
+    (loop while (and (devnet-node-store-guard-priority-pending-p node)
+                     (< (get-internal-real-time) deadline))
+          do (sleep 0.001))))
 
 (defun call-with-devnet-node-store-guard (node thunk)
   (unless (typep node 'devnet-node)
