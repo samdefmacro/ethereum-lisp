@@ -1,27 +1,5 @@
 (in-package #:ethereum-lisp.engine-api)
 
-(defvar *engine-rpc-phase-timings* :disabled
-  "Per-request Engine RPC phase timings, or :DISABLED outside HTTP handling.")
-
-(defun engine-rpc-record-phase-duration (name milliseconds)
-  (unless (eq *engine-rpc-phase-timings* :disabled)
-    (push (cons name milliseconds) *engine-rpc-phase-timings*))
-  nil)
-
-(defun engine-rpc-record-phase-timing (name started-at)
-  (engine-rpc-record-phase-duration
-   name
-   (round
-    (* 1000 (- (get-internal-real-time) started-at))
-    internal-time-units-per-second))
-  nil)
-
-(defmacro engine-rpc-with-phase-timing ((name) &body body)
-  `(let ((started-at (get-internal-real-time)))
-     (multiple-value-prog1
-         (progn ,@body)
-       (engine-rpc-record-phase-timing ,name started-at))))
-
 (defun engine-rpc-prepared-payload-body-arguments
     (payload-attributes config block-number timestamp)
   (let ((arguments nil))
