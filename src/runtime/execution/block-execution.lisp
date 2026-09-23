@@ -56,7 +56,8 @@
           (block-access-list-rlp nil)
           (block-access-list-rlp-supplied-p nil)
           phase-recorder
-          expected-block-hash)
+          expected-block-hash
+          selecting-p)
   (when (and expected-block-hash
              (not (hash32-p expected-block-hash)))
     (error 'block-validation-error
@@ -92,7 +93,7 @@
               (block-header-timestamp header)))
            (actual-blob-gas-used
             (validate-block-body-commitments-before-execution
-             transactions header
+             (if selecting-p (quote ()) transactions) header
              :ommers ommers
              :withdrawals withdrawals
              :withdrawals-supplied-p withdrawals-supplied-p
@@ -130,7 +131,8 @@
                     :chain-config chain-config
                     :block-hashes block-hashes)))))
             (multiple-value-bind
-                  (receipts gas-used regular-gas-used state-gas-used)
+                  (receipts gas-used regular-gas-used state-gas-used
+                   selected-transactions selection-stopped-p)
                 (call-with-execution-phase-timing
                  phase-recorder "fcuExecTransactionsMs"
                  (lambda ()
@@ -158,6 +160,13 @@
                     :block-gas-limit
                     (when (plusp (block-header-gas-limit header))
                       (block-header-gas-limit header)))))
+              ;; A selecting applier (the payload builder's) returns the
+              ;; transactions it kept.  From here on the block is built from
+              ;; those, exactly as if they had been the input list.
+              (when selecting-p
+                (setf transactions selected-transactions
+                      actual-blob-gas-used
+                      (blob-gas-used selected-transactions)))
               (multiple-value-bind (derived-requests requests-derived-p)
                   (call-with-execution-phase-timing
                    phase-recorder "fcuExecPostSystemMs"
@@ -256,7 +265,8 @@
                       ;; derives commitments by mutating the supplied header.
                       (error 'block-validation-error
                              :message "Executed block hash mismatch"))
-                    (values executed-block receipts))))))
+                    (values executed-block receipts
+                            selection-stopped-p))))))
         (error (condition)
           (state-db-revert-transaction-snapshot state snapshot)
           (restore-block-header-for-execution header header-snapshot)
@@ -342,3 +352,48 @@
    :block-access-list-rlp-supplied-p block-access-list-rlp-supplied-p
    :phase-recorder phase-recorder
    :expected-block-hash expected-block-hash))
+
+(defun execute-signed-block-selecting
+    (state candidates
+     &key expected-chain-id
+          (header (make-block-header))
+          parent-header
+          chain-rules
+          chain-config
+          (block-hashes (make-hash-table))
+          (withdrawals nil withdrawals-supplied-p)
+          (requests nil requests-supplied-p)
+          phase-recorder
+          stop-predicate
+          max-transaction-bytes)
+  "Build a block from CANDIDATES, keeping those that execute, in one pass.
+
+The payload builder's entry point: APPLY-SIGNED-MESSAGE-SELECTION executes each
+candidate at most once and the block is finished from the kept list.  HEADER
+must not commit to transactions, receipts, state or blob gas yet.  Returns
+(VALUES BLOCK RECEIPTS STOPPED-P); STOPPED-P is true when STOP-PREDICATE ended
+selection before every candidate was considered."
+  (when (block-header-transactions-root header)
+    (error 'block-validation-error
+           :message "A selecting build cannot take a transactions root"))
+  (execute-block-with-message-applier
+   state
+   candidates
+   (lambda (state transactions &rest options)
+     (apply #'apply-signed-message-selection
+            state transactions
+            :expected-chain-id expected-chain-id
+            :stop-predicate stop-predicate
+            :max-transaction-bytes max-transaction-bytes
+            options))
+   :header header
+   :parent-header parent-header
+   :chain-rules chain-rules
+   :chain-config chain-config
+   :block-hashes block-hashes
+   :withdrawals withdrawals
+   :withdrawals-supplied-p withdrawals-supplied-p
+   :requests requests
+   :requests-supplied-p requests-supplied-p
+   :phase-recorder phase-recorder
+   :selecting-p t))

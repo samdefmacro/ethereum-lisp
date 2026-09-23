@@ -4458,7 +4458,8 @@ transfer that leaves the contract untouched."
             (list
              (cons
               'ethereum-lisp.engine-api:engine-rpc-improve-open-payloads
-              (lambda (seen-store seen-config)
+              (lambda (seen-store seen-config &key stop-predicate)
+                (declare (ignore stop-predicate))
                 (sb-thread:with-mutex (lock)
                   (when (and (eq seen-store
                                  (ethereum-lisp.cli:devnet-node-store node))

@@ -1,0 +1,246 @@
+Section 6: payload building (fcU with attributes -> getPayload) bounded and proposer-safe
+
+Status
+
+Branch payload-building, from f1f079f6. Measured in the warm image, fixed,
+targeted cold selectors green (section 6). Not deployed, not run live, no
+cold-all (the coordinator runs it once at the end).
+
+The fourteen-day validator soak (plan Section 10) needs no client-attributable
+missed proposal: after engine_forkchoiceUpdated with payload attributes, our
+engine_getPayload must return a valid payload inside the consensus client's
+window (the Engine API gives getPayload a 1 s timeout; Lighthouse asks about a
+second before the slot boundary) while newPayload of other blocks and txpool
+gossip keep arriving.
+
+================================================================================
+1. The build path at f1f079f6
+================================================================================
+
+- forkchoiceUpdated with attributes (src/api/engine/forkchoice.lisp
+  ENGINE-RPC-HANDLE-FORKCHOICE-UPDATED) is synchronous only for an EMPTY
+  payload: after the forkchoice is applied it builds the empty block
+  (ENGINE-RPC-BUILD-VIABLE-PREPARED-PAYLOAD with no transactions), stores it
+  open under the stable payload id, and calls the payload-improvement
+  notification. A valid payload is therefore available immediately after fcU;
+  fcU itself took 0-5 ms in every probe below.
+- Filling is done by the background builder thread
+  (src/app/cli/devnet/background.lisp DEVNET-START-PAYLOAD-IMPROVEMENT-THREAD):
+  woken by that notification or every 2 s, it takes the node store guard (the
+  plain one) and runs ENGINE-RPC-IMPROVE-OPEN-PAYLOADS, which for every open
+  payload rebuilds from the pending pool (ENGINE-RPC-PENDING-BUILD-TRANSACTIONS:
+  child base fee, per-sender nonce order, senders by effective tip) unless the
+  pool's transaction root is the one already built.
+- The rebuild (ENGINE-RPC-BUILD-VIABLE-PREPARED-PAYLOAD) first executed the
+  whole candidate list once. If any candidate failed (nonce, balance, fee, gas)
+  or the block broke the EIP-7934 size cap, it fell back to probing: for every
+  candidate it rebuilt the whole accepted prefix plus that candidate from the
+  parent state. That is O(N^2) transaction executions, all under the store
+  guard, which every Engine request (newPayload, fcU, getPayload) needs.
+- getPayload (src/api/engine/payloads.lisp ENGINE-RPC-PREPARED-PAYLOAD), on an
+  open payload, ran the same improvement synchronously and without a bound,
+  then closed the payload. So getPayload never returned "what is built so far";
+  it waited for a full rebuild whenever the pool root had changed.
+- Bounds that existed: block gas (declared limits, then actual cumulative gas),
+  EIP-7934 encoded size (checked only after a full build, triggering the O(N^2)
+  path), the Section 4 prepared-payload cache TTL/count/bytes and the newest-
+  payload-only execution state. No time bound, no transaction-count bound, no
+  blob-gas bound during selection (execution rejected an over-full block as a
+  whole), nothing that let an Engine request preempt the builder.
+- Plan Section 6 items still open at f1f079f6: atomic pooled-blob admission
+  (policy, KZG, one mutation, sidecar refcounts/cap/TTL); EIP-7702 authority
+  index; incremental execution instead of prefix re-execution; bounded
+  improvement work, cancelable shutdown and Engine-priority scheduling; no lock
+  held across full simulations or scans by public RPC and background work.
+
+================================================================================
+2. Measurement at f1f079f6 (RED)
+================================================================================
+
+Fixture: tests/engine-payload-building-tests.lisp. A RocksDB-backed devnet node
+(Cancun/Prague/Osaka at genesis, 30M gas limit) and an independent in-memory
+verifier node on the same genesis; 40 funded senders x 8 nonce-ordered
+EIP-1559 transactions = 320 pending (every fourth sender calls a storage
+contract, 60k gas; the rest transfer); the real background builder thread
+running. Each probe: fcUV3 with attributes, sleep, getPayloadV5, and the
+returned executionPayload is imported by the verifier through
+engine_newPayloadV4 (the oracle). "Poisoned" = one sender's first transaction
+moves more value than the sender owns: fee-eligible, fails execution.
+
+  payload-building-measure (a plain fcU is also sent at +0.2 s)
+  clean     +0.5/+1/+2 s: getPayload 38/41/53 ms, 320 txs, 6,899,280 gas, VALID;
+                          plain fcU at +0.2 s 1 ms
+  poisoned  +0.5/+1/+2 s: plain fcU at +0.2 s waited 3643/3640/3544 ms
+                          (builder in the probing fallback holding the guard);
+                          312 txs, 6,731,280 gas, VALID
+
+  payload-building-measure-get-only (nothing between fcU and getPayload)
+  poisoned  getPayload at +0.5 s answered after 3481 ms, at +1 s after 2720 ms,
+            at +2 s after 1704 ms: the whole build is ~3.9 s and getPayload
+            waits for it. 312 txs, VALID.
+  poisoned, no builder thread, getPayload at +1 s: 3887 ms (synchronous build).
+
+  Execution count, same poisoned pool, one rebuild:
+    prefix probing (the f1f079f6 algorithm): 48,942 executions, 3894 ms
+    (tests: ENGINE-PAYLOAD-BUILD-EXECUTES-EACH-CANDIDATE-ONCE RED control)
+
+So one bad transaction among 320 cost ~3.9 s of guard hold per rebuild: a
+getPayload at +1 s missed the 1 s window, and newPayload/fcU for other blocks
+waited just as long. The cost grows with the square of the pool.
+
+================================================================================
+3. Fix
+================================================================================
+
+a) One pass, each candidate executed at most once.
+   src/runtime/execution/message-lists.lisp APPLY-SIGNED-MESSAGE-SELECTION
+   executes candidates in order on one state: per candidate it recovers the
+   sender, checks block gas (declared limit against gas actually used so
+   far), blob gas (the fork's max) and the EIP-7934 byte budget, validates the
+   fields and the sender's code exactly as the import path does, and applies
+   the message inside a transaction snapshot. A failing candidate is rolled
+   back and its sender skipped for the rest of the pass (geth
+   miner/worker.go commitTransactions pops the account). Receipts are built as
+   APPLY-SIGNED-MESSAGE-LIST builds them.
+   src/runtime/execution/block-execution.lisp: EXECUTE-BLOCK-WITH-MESSAGE-
+   APPLIER takes :SELECTING-P; with it, body pre-validation sees no
+   transactions, and after the applier returns the block is finished (system
+   calls, withdrawals, requests, roots, blob gas) from the KEPT list exactly as
+   if it had been the input. Without it nothing changes (the importer never
+   passes it). EXECUTE-SIGNED-BLOCK-SELECTING is the entry point.
+   src/api/engine/forkchoice.lisp ENGINE-RPC-BUILD-VIABLE-PREPARED-PAYLOAD
+   uses it inside BUILD-PRIVATE-BLOCK-CANDIDATE (same candidate validation as
+   before). Consensus behaviour is unchanged: the built block is validated by
+   an independent node through engine_newPayloadV4 in every probe and test.
+   Prefix probing remains only for Amsterdam
+   (ENGINE-RPC-BUILD-VIABLE-PREPARED-PAYLOAD-BY-PROBING): a rolled-back
+   candidate would stay in the EIP-7928 access list under construction, and
+   Amsterdam building is capability-gated off. The dead O(N^2) helper
+   ENGINE-RPC-FIRST-INVALID-TRANSACTION-SENDER-KEY is gone.
+
+b) The builder never holds the store guard for a whole build.
+   Selection polls a stop predicate before every candidate.
+   src/app/cli/devnet/background.lisp DEVNET-IMPROVE-OPEN-PAYLOADS-ONCE stops
+   when an Engine request waits for the guard (the c831c9a6 priority-pending
+   signal), after *DEVNET-PAYLOAD-IMPROVEMENT-PASS-SECONDS* = 1 s, or on
+   shutdown; after stepping aside it waits with
+   DEVNET-NODE-YIELD-STORE-GUARD-TO-PRIORITY and wakes itself to run again.
+   getPayload's last rebuild is cut at *ENGINE-GET-PAYLOAD-IMPROVEMENT-SECONDS*
+   = 0.3 s (then finished: post-block system calls, state root).
+
+c) A cut pass never makes the payload worse.
+   ENGINE-RPC-IMPROVE-PREPARED-PAYLOAD keeps the more valuable of the new build
+   and the stored one (priority fees, ENGINE-RPC-BLOCK-VALUE, as geth's payload
+   loop keeps its highest-fee block). Only a complete pass marks the pool root
+   as seen, so a cut pass is retried; a complete pass that found nothing better
+   keeps the block (and, by its unchanged hash, its private post-state).
+
+d) Blob transactions without a local sidecar are not candidates
+   (ENGINE-RPC-BUILDABLE-TRANSACTIONS). Before, selecting one made
+   ENGINE-RPC-BLOBS-BUNDLE-FOR-TRANSACTIONS signal a block-validation-error in
+   the builder thread, which fail-stops the node.
+
+================================================================================
+4. GREEN (same fixture, payload-building @ f35bc82c)
+================================================================================
+
+  payload-building-measure
+  clean     +0.5/+1/+2 s: getPayload 40/50/52 ms, 320 txs, 6,899,280 gas, VALID;
+                          plain fcU at +0.2 s 0 ms
+  poisoned  +0.5/+1/+2 s: getPayload 38/37/57 ms, 312 txs, 6,731,280 gas, VALID;
+                          plain fcU at +0.2 s 0 ms (was ~3,600 ms)
+
+  payload-building-measure-get-only, poisoned
+  getPayload at +0.5/+1/+2 s: 50/41/60 ms (was 3481/2720/1704), 312 txs, VALID.
+  no builder thread, getPayload at +1 s: 78 ms (was 3887), 312 txs, VALID.
+
+  Execution count, same poisoned pool: 313 executions (312 kept + the bad one;
+  its sender's 7 later nonces are skipped unexecuted), 23 ms (was 48,942,
+  3894 ms).
+
+  Larger pool, 100 senders x 20 = 2,000 candidates, poisoned: the block fills
+  (1,389 txs, 29,983,608 of 30M gas); getPayload at +0.5/+1 s answers in
+  229/194 ms, VALID; with no builder thread getPayload at +1 s answers in
+  387 ms (0.3 s selection bound + finish), VALID.
+
+  Headline: getPayload at +1 s returns a VALID payload with 312 of 320
+  transactions in 41 ms on the RocksDB fixture; before, it returned the same
+  312 after 2,720 ms because the builder's O(N^2) fallback held the store guard.
+
+================================================================================
+5. Tests (tests/engine-payload-building-tests.lisp, integration, loaded by
+   tests/cli-devnet-tests.lisp)
+================================================================================
+
+- ENGINE-PAYLOAD-BUILD-EXECUTES-EACH-CANDIDATE-ONCE: 48 candidates, one bad.
+  APPLY-MESSAGE counted. RED control in the test: the probing builder on the
+  same pool executes > 3 x 48. GREEN: <= 48 executions, 44 kept; the same build
+  through fcUV3/getPayloadV5 is imported VALID by the independent node.
+- ENGINE-PAYLOAD-IMPROVEMENT-STOPS-EARLY-AND-NEVER-REGRESSES: a pass cut after
+  5 candidates keeps 5 (control: a cut pass builds less); the next complete
+  pass rebuilds all 48 (a cut pass did not mark the pool seen); after the pool
+  changes, a cut pass keeps the stored 48; getPayload then returns 49, VALID
+  on the independent node.
+- DEVNET-PAYLOAD-BUILDER-STEPS-ASIDE-FOR-ENGINE-REQUESTS: with an Engine
+  request waiting, DEVNET-IMPROVE-OPEN-PAYLOADS-ONCE stops before the first
+  candidate, yields once, payload untouched. RED control: nobody waiting, the
+  same pass fills 48.
+- tests/cli-devnet-node-tests.lisp: the builder-wakeup test's stand-in for
+  ENGINE-RPC-IMPROVE-OPEN-PAYLOADS accepts the new :STOP-PREDICATE.
+
+================================================================================
+6. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: pass. Cold, from this checkout, each redirected to
+a file with its exit code:
+
+  cold-unit        --match PAYLOAD      92 passed               EXIT=0
+  cold-integration --match PAYLOAD      41 passed, 2 skipped    EXIT=0
+                   (skips: optional EEST engine fixtures, root not set)
+  cold-unit        --match ENGINE      149 passed               EXIT=0
+  cold-integration --match ENGINE       40 passed, 2 skipped    EXIT=0
+  cold-unit        --match FORKCHOICE   38 passed               EXIT=0
+  cold-integration --match FORKCHOICE    8 passed               EXIT=0
+  cold-unit        --match TXPOOL       36 passed               EXIT=0
+  cold-integration --match TXPOOL       24 passed               EXIT=0
+  cold-unit        --match BUILD        20 passed               EXIT=0
+  cold-integration --match BUILD         5 passed               EXIT=0
+  cold-unit        --match EXECUT      125 passed, 1 skipped    EXIT=0
+  cold-unit        --match BLOCK-IMPORT 31 passed               EXIT=0
+  cold-unit        --match PENDING      25 passed               EXIT=0
+  cold-integration --match PENDING       2 passed               EXIT=0
+  cold-integration --match DEV-PERIOD   12 passed               EXIT=0
+  cold-integration --match BLOB         12 passed               EXIT=0
+  cold-unit        --match TESTING       1 passed               EXIT=0
+
+No new STYLE-WARNING under /workspace/src: the image build reports the same
+five files with style-warnings as at f1f079f6 (evm-interpreter-call,
+execution-state, execution-accounting, txpool-admission-service,
+snap-sync-client).
+
+================================================================================
+7. Not done, not verified
+================================================================================
+
+- Not live. Not run against Lighthouse; the CL's actual getPayload deadline and
+  a real proposal are unverified. Blob-carrying payloads are not measured (the
+  fixture has none); getPayloadV5's blobsBundle for Osaka cell proofs was not
+  examined here.
+- Improvement passes still rebuild from the parent state each time: each pass
+  executes every kept transaction once, but a later pass does not continue from
+  the previous one's post-state. True cross-pass incremental execution needs a
+  checkpoint before the post-block system calls and withdrawals.
+- eth_getBlockByNumber("pending") builds through the same one-pass builder,
+  now O(N), but without a time bound, under the public RPC guard.
+- EIP-7702 authority index and effective-tip eviction: not touched.
+- Amsterdam building still uses prefix probing (gated off).
+- Blob sidecar admission, scoped only: a pooled blob transaction and its
+  sidecar enter the store through separate callbacks (txpool admission, then
+  :ACCEPT-BLOB-SIDECAR -> ENGINE-PAYLOAD-STORE-PUT-BLOB-SIDECAR in
+  src/app/cli/devnet/peer-sync.lisp), so a transaction can be pending with no
+  sidecar and a sidecar can outlive its transaction. The plan's item is one
+  admission: cheap policy/capacity checks, KZG verification, then a single
+  mutation adding both; sidecar ownership/refcounts per versioned hash, a
+  data cap, TTL, cleanup on inclusion and eviction, and persisted admission
+  age. This change only keeps the builder safe against the split (3d).

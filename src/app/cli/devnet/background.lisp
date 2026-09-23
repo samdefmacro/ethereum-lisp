@@ -5,6 +5,44 @@
 (defconstant +devnet-payload-improvement-interval-seconds+ 2
   "Cadence for rebuilding open Engine payloads while the proposer waits.")
 
+(defparameter *devnet-payload-improvement-pass-seconds* 1
+  "Longest one payload-improvement pass holds the store guard selecting.
+
+Our policy, the same one-second bound the forward batch importer holds the
+guard for (sec5-engine-timeouts-forward-sync).  An Engine request waiting for
+the guard ends the pass sooner.  A pass cut short keeps what it built when that
+is better than the current payload, so the payload only ever improves.")
+
+(defun devnet-improve-open-payloads-once (node shutdown-controller)
+  "Run one bounded payload-improvement pass under NODE's store guard.
+
+Selection stops before the next transaction once an Engine request waits for
+the guard, the pass has run *DEVNET-PAYLOAD-IMPROVEMENT-PASS-SECONDS*, or
+shutdown was requested.  After stepping aside for an Engine request the builder
+waits until that request owns the guard and then wakes itself to run the pass
+again: the pool was not fully considered."
+  (let* ((deadline-p (engine-rpc-deadline-predicate
+                      *devnet-payload-improvement-pass-seconds*))
+         (preempted-p nil)
+         (stop-predicate
+           (lambda ()
+             (cond
+               ((devnet-node-store-guard-priority-pending-p node)
+                (setf preempted-p t))
+               ((devnet-shutdown-requested-p shutdown-controller) t)
+               (t (funcall deadline-p))))))
+    (call-with-devnet-node-store-guard
+     node
+     (lambda ()
+       (engine-rpc-improve-open-payloads
+        (devnet-node-store node)
+        (devnet-node-config node)
+        :stop-predicate stop-predicate)))
+    (when preempted-p
+      (devnet-node-yield-store-guard-to-priority node)
+      (devnet-node-notify-payload-improvement node))
+    preempted-p))
+
 (defun devnet-start-payload-improvement-thread
     (node shutdown-controller error-callback
      &key (poll-interval-seconds
@@ -39,12 +77,8 @@
                                (unless
                                    (devnet-shutdown-requested-p
                                     shutdown-controller)
-                                 (call-with-devnet-node-store-guard
-                                  node
-                                  (lambda ()
-                                    (engine-rpc-improve-open-payloads
-                                     (devnet-node-store node)
-                                     (devnet-node-config node))))))
+                                 (devnet-improve-open-payloads-once
+                                  node shutdown-controller)))
                     ;; MANDATORY, not defensive: the node runs as
                     ;; `sbcl --script`, which implies --disable-debugger, so
                     ;; serious storage conditions must fail-stop the node.

@@ -120,34 +120,89 @@
                  transaction :expected-chain-id expected-chain-id)))
     (and sender (address-to-hex sender))))
 
-(defun engine-rpc-first-invalid-transaction-sender-key
-    (store parent-block payload-attributes config transactions
-     &key gas-limit-target)
-  "Find the sender whose next transaction makes payload execution invalid.
+(defun engine-rpc-deadline-predicate (seconds)
+  "A no-argument predicate that turns true SECONDS from now."
+  (let ((deadline (+ (get-internal-real-time)
+                     (round (* seconds internal-time-units-per-second)))))
+    (lambda () (>= (get-internal-real-time) deadline))))
 
-Each probe starts from the parent state through
-ENGINE-RPC-BUILD-PREPARED-PAYLOAD, so a successful prefix cannot leak its
-mutated working state into the next probe."
-  (loop with prefix = '()
-        for transaction in transactions
-        do (setf prefix (append prefix (list transaction)))
-           (handler-case
-               (engine-rpc-build-prepared-payload
-                store parent-block payload-attributes config prefix
-                :gas-limit-target gas-limit-target)
-             (transaction-validation-error ()
-               (return
-                 (engine-rpc-transaction-sender-key
-                  transaction (chain-config-chain-id config)))))))
+(defun engine-rpc-build-selected-payload-detached
+    (store parent-block payload-attributes config candidates
+     &key gas-limit-target extra-data stop-predicate)
+  "Build a payload from CANDIDATES in one pass, keeping those that execute.
 
-(defun engine-rpc-build-viable-prepared-payload
+Returns (VALUES BLOCK RECEIPTS STATE STOPPED-P).  Each candidate executes at
+most once (EXECUTE-SIGNED-BLOCK-SELECTING); STOP-PREDICATE may end selection
+early, and the block then holds what was kept so far."
+  (if (null candidates)
+      (engine-rpc-build-prepared-payload-detached
+       store parent-block payload-attributes config nil
+       :gas-limit-target gas-limit-target :extra-data extra-data)
+      (let* ((block
+               (engine-rpc-with-phase-timing ("fcuEmptyBlockMs")
+                 (engine-build-empty-payload
+                  parent-block payload-attributes config gas-limit-target)))
+             (header (block-header block))
+             (block-number (block-header-number header))
+             (timestamp (block-header-timestamp header))
+             (max-transaction-bytes
+               ;; EIP-7934 caps the whole encoded block.  The empty block is
+               ;; the header, withdrawals and list framing; the selector adds
+               ;; a per-transaction framing allowance on top of each encoding.
+               (when (chain-config-osaka-p config block-number timestamp)
+                 (- +max-rlp-block-size-eip7934+
+                    (length (block-rlp block))
+                    1024))))
+        (when extra-data
+          (setf (block-header-extra-data header) (copy-seq extra-data)))
+        (let ((state
+                (engine-rpc-with-phase-timing ("fcuStateOpenMs")
+                  (chain-store-state-db store (block-hash parent-block)))))
+          (unless state
+            (block-validation-fail
+             "Prepared payload parent state is unavailable"))
+          (setf (block-header-transactions-root header) nil
+                (block-header-state-root header) nil
+                (block-header-receipts-root header) nil
+                (block-header-logs-bloom header) nil)
+          (let ((block-hashes
+                  (engine-rpc-with-phase-timing ("fcuBlockHashesMs")
+                    (chain-store-block-hashes-for-header store header))))
+            (multiple-value-bind (built-block receipts stopped-p)
+                (engine-rpc-with-phase-timing ("fcuExecutePayloadMs")
+                  (apply
+                   #'execute-signed-block-selecting
+                   state
+                   candidates
+                   (append
+                    (list
+                     :expected-chain-id (chain-config-chain-id config)
+                     :header header
+                     :parent-header (block-header parent-block)
+                     :chain-config config
+                     :phase-recorder #'engine-rpc-record-phase-duration
+                     :block-hashes block-hashes
+                     :stop-predicate stop-predicate
+                     :max-transaction-bytes max-transaction-bytes)
+                    (engine-rpc-prepared-payload-body-arguments
+                     payload-attributes config block-number timestamp))))
+              (when (and max-transaction-bytes
+                         (> (length (block-rlp built-block))
+                            +max-rlp-block-size-eip7934+))
+                (block-validation-fail
+                 "Block RLP size exceeds the EIP-7934 cap"))
+              (values built-block receipts state stopped-p)))))))
+
+(defun engine-rpc-build-viable-prepared-payload-by-probing
     (store parent-block payload-attributes config transactions
      &key gas-limit-target extra-data)
-  "Execute and fill TRANSACTIONS in order using actual cumulative gas.
+  "Fill TRANSACTIONS by re-executing growing prefixes (Amsterdam only).
 
-Each candidate is probed on top of the already accepted transactions.  A
-sender whose next nonce is invalid or cannot fit the remaining gas is skipped
-for the rest of this payload; other senders are still considered."
+Each candidate is probed on top of the already accepted transactions by
+rebuilding the whole prefix from the parent state, so a pool with one bad
+transaction costs O(N^2) executions.  It remains only because the one-pass
+selector cannot roll a rejected candidate out of an EIP-7928 block access
+list under construction; Amsterdam building is capability-gated off."
   ;; The overwhelmingly common case is that the txpool has already produced a
   ;; nonce-ordered, fee-eligible set which fits the block.  Execute that set
   ;; once before entering the rejection path.  The old prefix loop rebuilt
@@ -172,7 +227,7 @@ for the rest of this payload; other senders are still considered."
                       (block-header-timestamp header))
                      (> (length (block-rlp candidate))
                         +max-rlp-block-size-eip7934+))
-              (return-from engine-rpc-build-viable-prepared-payload
+              (return-from engine-rpc-build-viable-prepared-payload-by-probing
                 (values candidate (copy-list transactions)
                         execution-state)))))
       (transaction-validation-error ())
@@ -221,6 +276,65 @@ for the rest of this payload; other senders are still considered."
                 (setf (gethash sender-key blocked-senders) t))))))
       (values block selected execution-state))))
 
+(defun engine-rpc-buildable-transactions (store transactions)
+  "TRANSACTIONS without the blob transactions whose sidecars STORE lacks.
+
+getPayload must return every selected blob with its commitment and proof, so a
+blob transaction this node holds no sidecar for cannot go into our payload."
+  (remove-if-not
+   (lambda (transaction)
+     (or (not (typep transaction 'blob-transaction))
+         (every (lambda (versioned-hash)
+                  (engine-payload-store-blob-and-proofs-v1
+                   store versioned-hash))
+                (blob-transaction-blob-versioned-hashes transaction))))
+   transactions))
+
+(defun engine-rpc-build-viable-prepared-payload
+    (store parent-block payload-attributes config transactions
+     &key gas-limit-target extra-data stop-predicate)
+  "Execute and fill TRANSACTIONS in order using actual cumulative gas.
+
+One pass: each candidate executes at most once, on top of the candidates kept
+before it.  A sender whose next transaction cannot execute or no longer fits
+the block is skipped for the rest of this payload; other senders are still
+considered.  STOP-PREDICATE, polled before each candidate, may end the pass
+early; the payload then holds what was kept so far and is still valid.
+
+Returns (VALUES BLOCK SELECTED EXECUTION-STATE STOPPED-P)."
+  (let ((candidates (engine-rpc-buildable-transactions store transactions)))
+    (if (chain-config-amsterdam-p
+         config
+         (1+ (block-header-number (block-header parent-block)))
+         (payload-attributes-v1-timestamp payload-attributes))
+        (multiple-value-bind (block selected execution-state)
+            (engine-rpc-build-viable-prepared-payload-by-probing
+             store parent-block payload-attributes config candidates
+             :gas-limit-target gas-limit-target
+             :extra-data extra-data)
+          (values block selected execution-state nil))
+        (let ((stopped-p nil))
+          (multiple-value-bind (block receipts execution-state)
+              (engine-rpc-with-phase-timing ("fcuPrivateCandidateMs")
+                (build-private-block-candidate
+                 store
+                 (lambda ()
+                   (multiple-value-bind (built receipts state stopped)
+                       (engine-rpc-build-selected-payload-detached
+                        store parent-block payload-attributes config
+                        candidates
+                        :gas-limit-target gas-limit-target
+                        :extra-data extra-data
+                        :stop-predicate stop-predicate)
+                     (setf stopped-p stopped)
+                     (values built receipts state)))
+                 config))
+            (declare (ignore receipts))
+            (values block
+                    (copy-list (block-transactions block))
+                    execution-state
+                    stopped-p))))))
+
 (defun engine-rpc-pending-build-transactions (store config parent-header)
   (engine-payload-store-pending-mining-transactions
    store (chain-config-chain-id config)
@@ -250,12 +364,51 @@ for the rest of this payload; other senders are still considered."
      :commitments (nreverse commitments)
      :proofs (nreverse proofs))))
 
-(defun engine-rpc-improve-prepared-payload (store config prepared-payload)
-  "Rebuild an open payload from the latest txpool contents under the same id."
+(defun engine-rpc-block-value (block)
+  "What BLOCK pays its fee recipient in priority fees, in wei."
+  (let ((base-fee (or (block-header-base-fee-per-gas (block-header block)) 0))
+        (previous-cumulative-gas 0))
+    (loop for transaction in (block-transactions block)
+          for receipt in (block-receipts block)
+          for cumulative-gas = (receipt-cumulative-gas-used receipt)
+          sum (* (- cumulative-gas previous-cumulative-gas)
+                 (transaction-priority-fee-per-gas
+                  transaction :base-fee base-fee))
+          do (setf previous-cumulative-gas cumulative-gas))))
+
+(defun engine-rpc-prepared-payload-revision
+    (prepared-payload &key block blobs-bundle candidate-transactions-root
+                           execution-state)
+  "A copy of the open PREPARED-PAYLOAD under the same id with a new build."
+  (make-engine-prepared-payload
+   :payload-id (engine-prepared-payload-payload-id prepared-payload)
+   :version (engine-prepared-payload-version prepared-payload)
+   :block block
+   :blobs-bundle blobs-bundle
+   :parent-hash (engine-prepared-payload-parent-hash prepared-payload)
+   :payload-attributes
+   (engine-prepared-payload-payload-attributes prepared-payload)
+   :gas-limit-target
+   (engine-prepared-payload-gas-limit-target prepared-payload)
+   :candidate-transactions-root candidate-transactions-root
+   :execution-state execution-state
+   :open-p t))
+
+(defun engine-rpc-improve-prepared-payload
+    (store config prepared-payload &key stop-predicate)
+  "Rebuild an open payload from the latest txpool contents under the same id.
+
+The more valuable of the new build and the current one is kept, as geth's
+payload loop keeps its highest-fee block (miner/payload_building.go), so a
+pass cut short by STOP-PREDICATE can never make the payload worse.  Such a
+pass also leaves the pool unmarked as seen, so the next pass rebuilds it.
+
+Returns (VALUES PAYLOAD STOPPED-P): the payload now stored under the id, and
+whether this pass was cut short."
   (unless (typep prepared-payload 'engine-prepared-payload)
     (block-validation-fail "Payload improvement requires a prepared payload"))
   (if (not (engine-prepared-payload-open-p prepared-payload))
-      prepared-payload
+      (values prepared-payload nil)
       (let* ((parent-block
                (chain-store-known-block
                 store
@@ -263,14 +416,14 @@ for the rest of this payload; other senders are still considered."
              (transactions
                (engine-rpc-pending-build-transactions
                 store config (block-header parent-block)))
-             (candidate-root (transaction-list-root transactions)))
-        (if (hash32=
-             candidate-root
-             (engine-prepared-payload-candidate-transactions-root
-              prepared-payload))
-            prepared-payload
+             (candidate-root (transaction-list-root transactions))
+             (seen-root
+               (engine-prepared-payload-candidate-transactions-root
+                prepared-payload)))
+        (if (hash32= candidate-root seen-root)
+            (values prepared-payload nil)
             (multiple-value-bind
-                  (block viable-transactions execution-state)
+                  (block viable-transactions execution-state stopped-p)
                 (engine-rpc-build-viable-prepared-payload
                  store
                  parent-block
@@ -278,40 +431,65 @@ for the rest of this payload; other senders are still considered."
                  config
                  transactions
                  :gas-limit-target
-                 (engine-prepared-payload-gas-limit-target prepared-payload))
-              (let ((improved
-                      (make-engine-prepared-payload
-                       :payload-id
-                       (engine-prepared-payload-payload-id prepared-payload)
-                       :version
-                       (engine-prepared-payload-version prepared-payload)
-                       :block block
-                       :blobs-bundle
-                       (engine-rpc-blobs-bundle-for-transactions
-                        store viable-transactions)
-                       :parent-hash
-                       (engine-prepared-payload-parent-hash prepared-payload)
-                       :payload-attributes
-                       (engine-prepared-payload-payload-attributes
-                        prepared-payload)
-                       :gas-limit-target
-                       (engine-prepared-payload-gas-limit-target
-                        prepared-payload)
-                       :candidate-transactions-root candidate-root
-                       :execution-state execution-state
-                       :open-p t)))
-                (chain-store-put-prepared-payload
-                 store improved :transfer-execution-state-p t)
-                improved))))))
+                 (engine-prepared-payload-gas-limit-target prepared-payload)
+                 :stop-predicate stop-predicate)
+              (let* ((current-block
+                       (engine-prepared-payload-block prepared-payload))
+                     (value (engine-rpc-block-value block))
+                     (current-value (engine-rpc-block-value current-block))
+                     (next
+                       (cond
+                         ((if stopped-p
+                              (> value current-value)
+                              (>= value current-value))
+                          (engine-rpc-prepared-payload-revision
+                           prepared-payload
+                           :block block
+                           :blobs-bundle
+                           (engine-rpc-blobs-bundle-for-transactions
+                            store viable-transactions)
+                           :candidate-transactions-root
+                           (if stopped-p seen-root candidate-root)
+                           :execution-state execution-state))
+                         (stopped-p nil)
+                         ;; A complete pass over this pool found nothing
+                         ;; better: keep the block (and, by its unchanged
+                         ;; hash, its private post-state) and mark the pool
+                         ;; seen.
+                         (t
+                          (engine-rpc-prepared-payload-revision
+                           prepared-payload
+                           :block current-block
+                           :blobs-bundle
+                           (engine-prepared-payload-blobs-bundle
+                            prepared-payload)
+                           :candidate-transactions-root candidate-root)))))
+                (if next
+                    (progn
+                      (chain-store-put-prepared-payload
+                       store next
+                       :transfer-execution-state-p (and execution-state t))
+                      (values next stopped-p))
+                    (values prepared-payload stopped-p))))))))
 
-(defun engine-rpc-improve-open-payloads (store config)
-  "Improve every payload that has not yet been retrieved."
-  (dolist (prepared-payload
-           (chain-store-prepared-payloads
-            store :copy-execution-state-p nil))
-    (when (engine-prepared-payload-open-p prepared-payload)
-      (engine-rpc-improve-prepared-payload store config prepared-payload)))
-  nil)
+(defun engine-rpc-improve-open-payloads (store config &key stop-predicate)
+  "Improve every payload that has not yet been retrieved.
+
+Returns true when STOP-PREDICATE cut a pass short, so the caller knows the
+pool was not fully considered."
+  (let ((stopped-p nil))
+    (dolist (prepared-payload
+             (chain-store-prepared-payloads
+              store :copy-execution-state-p nil))
+      (when (and (engine-prepared-payload-open-p prepared-payload)
+                 (not stopped-p))
+        (multiple-value-bind (payload stopped)
+            (engine-rpc-improve-prepared-payload
+             store config prepared-payload :stop-predicate stop-predicate)
+          (declare (ignore payload))
+          (when stopped
+            (setf stopped-p t)))))
+    stopped-p))
 
 (defun engine-rpc-persist-forkchoice
     (store transition forkchoice-persistence-function)
