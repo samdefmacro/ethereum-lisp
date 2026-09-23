@@ -98,7 +98,8 @@
      database-path))
   (let* ((telemetry-sink
            (if metrics
-               (make-counting-telemetry-sink :delegate telemetry-sink)
+               (make-counting-telemetry-sink
+                :delegate (make-devnet-rpc-latency-sink :delegate telemetry-sink))
                telemetry-sink))
          ;; The admin RPC backend must exist before the public service is built,
          ;; but it reads the node, which is built last. The box is filled the

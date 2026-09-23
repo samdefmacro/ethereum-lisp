@@ -181,6 +181,13 @@ was emitted, and no mangling can collide."
               metric
               (telemetry-prometheus-escape (princ-to-string (car entry)))
               (cdr entry)))
+    ;; A GAUGES entry named `..._total` only ever grows, so it is declared a
+    ;; counter: Prometheus then treats a drop as a restart rather than as data.
     (dolist (entry gauges)
-      (format out "# TYPE ~A gauge~%" (car entry))
+      (format out "# TYPE ~A ~A~%" (car entry)
+              (let ((name (car entry)))
+                (if (and (> (length name) 6)
+                         (string= "_total" name :start2 (- (length name) 6)))
+                    "counter"
+                    "gauge")))
       (format out "~A ~D~%" (car entry) (cdr entry)))))
