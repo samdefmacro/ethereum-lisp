@@ -1,0 +1,134 @@
+Section 5: a restarted node a few hundred blocks behind must catch up, not die
+
+Status
+
+Branch restart-behind-resnap, from 747ca812 (contains f1f079f6 = d203fee6 +
+docs). Both defects behind the Hoodi restart exit reproduced in-process on a
+RocksDB node through the shipped Engine RPC, import services, persistence
+adapter and sync coordinator (only peer transport is a test double), fixed,
+and green in targeted cold unit/integration/e2e selectors. Not re-run live on
+Hoodi (the coordinator's); no cold-all (the coordinator runs it once).
+
+Live record (Hoodi, d203fee6, 2026-09-23; live-samples-gate-d203fee6.txt):
+completed snap sync, followed the head (canonical 3680727 at 13:19Z), clean
+stop for two hours, restart 15:36:06Z. eth_syncing answered 0x3829d7 for all
+three fields; Lighthouse el_offline, sync_distance 529. Six
+peer.snap.pivot_unavailable for pivot 3680535 (the finished session's pivot),
+then target_stale -> pivot_rebased fromPivot 3680535 -> 3681343, target
+3681407, retainedStateProgress T; heal completed (fetched 24,863) in 35 s;
+15:42:58Z last line "Buffered candidate export refuses a known block", exit 1.
+
+================================================================================
+1. Why the node re-entered SNAP
+================================================================================
+
+(a) The finished session read as unfinished. DEVNET-NODE-DURABLE-SNAP-PIVOT-
+NUMBER and DEVNET-NODE-ACTIVE-SNAP-TARGET treated a completed session as
+residue only while its target's own state was available. The state retention
+window (+chain-store-default-state-retention-depth+ = 128;
+node-store-populate-state-retention-batch deletes :state-history records
+behind the head) had deleted it while the node followed the head, so after
+the restart the old target (pivot 3680535) was pinned again: exactly the
+fromPivot in the live log.
+
+(b) Any target more than +devnet-snap-pivot-distance+ (64) ahead went to SNAP,
+even from a synced head with executable state. geth 38271784
+eth/downloader/syncmode.go: newSyncModer/get switch to full sync once the head
+(number > 0) has state, and re-enable snap only when head < last pivot or the
+head state is missing -- no distance bound at all. Nethermind e52dc19a
+SyncConfig.cs FastSyncCatchUpHeightDelta default 8192 is the documented bound
+this client adopts.
+
+================================================================================
+2. Why it died
+================================================================================
+
+IMPORT-P2P-BLOCK-CANDIDATE checked (null parent) before any known-block
+branch, so a block the SNAP skeleton had already made known, arriving again
+with its parent missing, was put in the remote cache and handed to the
+durable adapter as :buffered; NODE-STORE-EXPORT-BUFFERED-CANDIDATE-TO-KV
+refuses a known block (its invariant) and the block-validation-error escaped
+the coordinator's handled classes. The Engine path already returned no
+candidate for a known block with a missing parent, and wraps adapter errors
+as "New payload persistence failed: ...", so the bare live message points at
+the P2P import path. The same known-block buffering existed in both
+state-unavailable handlers (P2P and Engine).
+
+================================================================================
+3. Fix (commit 6b37b097)
+================================================================================
+
+- DEVNET-STORE-SNAP-TARGET-PASSED-P: a session target has passed when its
+  state is available, or it is canonical under a head with executable state
+  (a canonical target executed: the pivot tail runs before any forkchoice
+  publishes it). Used by DURABLE-SNAP-PIVOT-NUMBER and ACTIVE-SNAP-TARGET. An
+  unfinished session (completed-p false) still pins SNAP.
+- +DEVNET-FORWARD-SYNC-MAXIMUM-DISTANCE+ = 8192 and
+  DEVNET-STORE-FORWARD-SYNC-ELIGIBLE-P (head > 0, head state available,
+  distance <= bound). SNAP-TARGET-REQUIRED-P sends a >64 gap to SNAP only when
+  not eligible; DEVNET-NODE-FORWARD-SYNC-TARGET-P routes a CL-buffered target
+  of such a gap to the multi-peer forward batch downloader (number-range from
+  head+1, DEVNET-PEER-SYNC-IMPORT-BATCH) instead of the hash gap fill; the
+  forward path's "wait for FCU" guard applies only when not eligible. Fresh
+  node (head 0), head without state, unfinished durable session, unknown
+  target, or gap > 8192: SNAP as before.
+- Known blocks are never buffered: P2P (known, parent missing) and both
+  state-unavailable handlers answer SYNCING with no candidate; the devnet
+  :buffered persistence adapter skips a known block. The exporter's refusal
+  itself is unchanged (still asserted by
+  node-store-buffered-candidate-export-is-atomic-and-cache-bound).
+
+================================================================================
+4. Tests (tests/cli-devnet-restart-behind-tests.lisp, commit 70a471ab = RED)
+================================================================================
+
+DEVNET-RESTART-BEHIND-A-FINISHED-SNAP-SYNC-FORWARD-SYNCS-TO-THE-CL-TARGET
+  RocksDB node, retention depth 8. Follows blocks 1..10 by newPayload+FCU,
+  records a completed snap session (pivot 5, target 10), follows to head 24
+  (premise asserted: block 10's state is gone). Stop (RocksDB handle closed),
+  restart on the same datadir; newPayload for 342..344 -> SYNCING, FCU(344)
+  -> SYNCING; snap-capable peers live. Coordinator passes.
+  RED (pre-fix): "Coordinator re-entered SNAP 3 times for a 320-block gap
+  from a head with state (passes 3, downloads NIL)".
+  GREEN: zero snap entries, zero hash gap fills, exactly one forward download
+  (25 343), target executed, FCU(344) VALID, head 344, eth_syncing false,
+  newPayload/FCU(345) VALID, head 345.
+DEVNET-PEER-BLOCK-KNOWN-FROM-THE-SNAP-SKELETON-IS-NOT-REBUFFERED
+  Block 4 arrives first (SYNCING, buffered), the snap skeleton exports 4..5,
+  block 4 arrives again with parent 3 missing.
+  RED: "Buffered candidate export refuses a known block" (the live message).
+  GREEN: SYNCING, no candidate; positive control: after 1..3, block 4
+  executes VALID with state.
+DEVNET-RESTART-BEHIND-STILL-SNAPS-AN-UNFINISHED-SESSION (positive control,
+  green before and after): completed-p false keeps durable pivot 20 and SNAP.
+DEVNET-FORWARD-SYNC-BOUND-SENDS-A-FAR-OR-FRESH-TARGET-TO-SNAP (positive
+  control): head 0 + 100 -> SNAP; head 2 + 8192 -> forward; head 2 + 8193 ->
+  SNAP. Pre-fix it fails on the missing constant.
+Both halves of the coordinator fix are needed for the first test: with only
+PASSED-P the 320 gap is > 64; with only the bound the durable pivot still
+pins SNAP (FORWARD-SYNC-TARGET-P requires no durable session).
+
+================================================================================
+5. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: pass.
+Warm image: the four new tests RED at 70a471ab as above, GREEN at 6b37b097.
+Cold (targeted selectors, scripts/dev.sh cold broker):
+  cold-e2e --match ops- --match restart: 10 passed, EXIT 0 (S's SIGKILL and
+    SIGTERM recovery tests incl. snap range phase, heal walk, forward batch).
+  cold-unit (devnet-peer, snap-target, pivot-tail, forkchoice-sync-pivot,
+    devnet-snap, restart-behind, forward-sync, multi-sync, gap-fill,
+    block-import, new-payload, buffered, eth-syncing, gossip-gate,
+    sync-pivot, known, ops-): 157 passed, EXIT 0.
+  cold-integration, same selectors: 69 passed, EXIT 0.
+  Broader: cold-unit --match devnet/snap/engine/import/sync: 411 passed,
+    EXIT 0; cold-integration, same: 356 passed, 2 skipped (optional EEST
+    fixture root unset), EXIT 0.
+No STYLE-WARNING in any cold log.
+
+Not verified: a live Hoodi restart behind the head; a real multi-peer
+download of the gap (the download is a test double serving the real chain);
+the exact live trigger that re-admitted the known block (no EL log beyond the
+aggregate samples; the P2P known-with-missing-parent route is the only one
+that yields the bare message); cold-all.

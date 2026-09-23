@@ -271,10 +271,14 @@
                              :latest-valid-hash (block-hash imported-block))
                             imported-block)))
               (state-unavailable-error ()
-                (engine-payload-store-put-remote-block store block)
+                ;; As on the missing-parent paths above: a known block is
+                ;; already its own sync record and must not also become a
+                ;; remote-buffered candidate the durable exporter refuses.
+                (unless known-block
+                  (engine-payload-store-put-remote-block store block))
                 (values
                  (make-payload-status :status +payload-status-syncing+)
-                 block))
+                 (unless known-block block)))
               (ethereum-lisp.bls12381:bls12381-unavailable-error (condition)
                 ;; A precompile backend that could not be consulted is a node
                 ;; capability failure, not an invalid block. Marking the block
