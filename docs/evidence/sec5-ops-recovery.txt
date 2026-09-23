@@ -1,0 +1,185 @@
+Section 10 operations: SIGKILL recovery, SIGTERM deadlines for build and
+reorg, operator metrics, and the runbook
+
+Status
+
+IMPLEMENTED AND VERIFIED LOCALLY by targeted cold lanes (see "Verification of
+record"). Nothing here was run against a live network. The full cold-all is
+left to the fleet coordinator's single final run.
+
+Revision: branch ops-recovery over f1f079f6 (sec5-public-bootstrap-sync).
+
+  a560644b  metrics: operator gauges (src/app/cli/devnet/types.lisp,
+            metrics-server.lisp, node.lisp; src/foundation/telemetry.lisp)
+  ef6f5e94  tests: SIGKILL recovery (tests/ops-recovery-tests.lisp,
+            scripts/ops-crash-worker.lisp, tests/cli-tests.lisp)
+  81439281  tests: metrics scrape, SIGTERM build/reorg deadlines
+  (this commit) docs/runbook.md, this record
+
+No consensus, snap/heal, Engine-guard or shutdown code was changed.
+
+1. SIGKILL recovery (tests/ops-recovery-tests.lisp, layer e2e)
+
+Shape. scripts/ops-crash-worker.lisp MODE WORKDIR loads the test system and
+runs one production operation on a RocksDB store under WORKDIR, publishing
+progress to WORKDIR/marker.sexp (temp file + rename). The parent waits for a
+marker predicate, sends SIGKILL (uiop:terminate-process :urgent t; status 137
+every time), reopens the store in-process, records what it holds, resumes the
+operation, and compares with a control run of the same operation into a
+separate RocksDB directory that nobody interrupted. Build and reorg run the
+shipped CLI (ETHEREUM-LISP.CLI:MAIN, --db.engine rocksdb, Engine port with JWT)
+and the parent drives it over HTTP; the child only adds a hook that announces
+itself and holds the step open.
+
+RED control of every test: the kill landed mid-operation -- the marker counted
+work, never reports completion or release, and the reopened store holds
+strictly less than the finished operation writes. Observed values (cold e2e):
+
+  (a) SNAP range phase with a storage plan
+      fixture: 403 accounts, three with 40-slot storage tries capped by a
+      350-byte StorageRanges limit (48 account pages in all)
+      kill at     pages 12, deferred-storage works 3
+      reopened    progress present, completed NIL, 3 deferred works durable
+      resumed     completed T, installed root = source root,
+                  742 of 742 source trie nodes present byte-for-byte
+      control     completed T, 742 of 742
+
+  (b) healer mid-walk
+      fixture: 4,096 accounts, range phase complete, healer from the durable
+      progress with 64 KiB responses (15 GetTrieNodes round trips)
+      kill at     6 responses, root durable (first 100 KiB flush landed)
+      reopened    completed NIL, 705 of 5,589 nodes present, 705 marked
+      resumed     completed T, 5,589 of 5,589, 0 marked, fetched 4,884
+                  (= 5,589 - 705: resumed, did not restart)
+      control     completed T, 5,589 of 5,589, 0 marked, fetched 5,589
+
+  (c) forward batch importer mid-batch
+      fixture: 24 empty blocks, one peer response, 150 ms per block, 1 s
+      guard-hold budget
+      kill at     9 executions
+      reopened    prefix 8 blocks with state, nothing beyond (no hole),
+                  durable cursor resume-start 9 with block 8 as parent,
+                  head 0 (forward import never publishes forkchoice)
+      resumed     from the cursor: prefix 24, resume-start 25, same parent,
+                  head and head hash as the control
+
+  (d) payload build (real node)
+      newPayload(A1) VALID, fcU(A1) VALID, fcU(A1, attributes) -> hook holds
+      ENGINE-RPC-BUILD-VIABLE-PREPARED-PAYLOAD
+      kill at     phase :build, never released; the client got no answer
+      reopened    head 1 = A1, canonical chain whole, head state available
+      resumed     retried fcU(A1, attributes) + getPayloadV1: blockHash
+                  0x6c1ad2d7...a33351b, equal to the control's
+
+  (e) reorg (real node)
+      A1..A3 newPayload + fcU(A3); B1..B3 newPayload (VALID); fcU(B3) ->
+      hook holds NODE-STORE-EXPORT-FORKCHOICE-TO-KV for the transition that
+      displaces blocks, i.e. after the in-memory reorg, before the durable
+      canonical rewrite
+      kill at     phase :reorg, never released; client got no answer
+      reopened    head A3 (0x0b003f6b...), canonical chain whole on A
+      resumed     replayed newPayload B1..B3 + fcU(B3): head B3
+                  (0xcf2263fb...), equal to the control's summary
+
+2. SIGTERM deadlines for build and reorg (layer e2e)
+
+The same real-node workers with the hook holding for 8 s -- longer than the
+5 s in-flight drain (*ENGINE-RPC-HTTP-SHUTDOWN-DRAIN-SECONDS*), so the
+connection is abandoned and the shutdown export waits for the store guard.
+RED control: the marker at the signal is the held phase, not released.
+
+  build   SIGTERM -> exit 0 in 8.01 s (cold), 8.05 s (warm); RocksDB LOG
+          "Shutdown complete" x1; the build finished during the stop
+  reorg   SIGTERM -> exit 0 in 8.05 s (cold), 8.03 s (warm); LOG close x1;
+          reopened head B3, chain whole: the stop waited for the rewrite
+          instead of cutting it
+
+Finding (not fixed, recorded in docs/runbook.md "Stop"): the stop lasts as
+long as the longest guard-holding request in flight, bounded only by that
+request's 30 s deadline. Probe with the hold raised to 30 s
+(ETHEREUM_LISP_OPS_HOLD_SECONDS=30, warm image, not a committed test):
+
+  stop-to-exit 30.03 s / 30.04 s, exit 0, LOG close x1; the worker log shows
+  engine.rpc.http.listener.abandoned then engine.rpc.http.connection.error
+  "HTTP request exceeded the 30 second deadline" -- the deadline, not the
+  stop, released the guard.
+
+Under `docker stop --time 30` that is a SIGKILL (exit 137). The committed
+test asserts the 20 s budget at 8 s and goes red at 30 s. Closing it means
+interrupting an in-flight Engine handler at shutdown, which is Engine-guard /
+shutdown code outside this brief.
+
+3. Metrics (a560644b)
+
+Plan list (Section 10) against the endpoint before this branch: event counts,
+txpool levels, head/safe/finalized number, peer count. Added, each a lock-free
+read so a scrape never waits for the store guard:
+
+  ethereum_lisp_sync_head_number / _sync_target_number / _sync_lag_blocks
+      from the sync view published at every guard release plus the durable
+      SNAP skeleton target
+  ethereum_lisp_snap_pivot_number / _snap_state_complete
+      RocksDB point read of the SNAP progress
+  ethereum_lisp_peers_inbound / _outbound / _eth / _snap
+      under the peer-table mutex (not the store guard)
+  ethereum_lisp_database_bytes            file sizes under the database path
+  ethereum_lisp_process_resident_bytes    /proc/self/status VmRSS
+  ethereum_lisp_heap_used_bytes / _heap_allocated_bytes_total / _gc_ms_total
+  ethereum_lisp_<family>_{last_ms,max_ms,ms_total,requests_total} for
+      engine_new_payload, engine_forkchoice_updated, engine_get_payload,
+      engine_other, rpc, rpc_batch -- handlerMs of every
+      engine.rpc.http.request event, recorded by a sink layered under the
+      counting sink
+  A gauge named *_total is declared a counter in the exposition.
+
+Not added (not cheap or not observable in a test without new instrumentation):
+reorg depth/count, pruning progress, RocksDB internal errors and cache or
+compaction pressure, peer quality scores.
+
+Tests:
+  ops-rpc-latency-sink-files-requests-by-family (unit): family table,
+      last/max/sum/count arithmetic, events without timing ignored, every
+      event delegated.
+  ops-metrics-endpoint-reports-sync-peers-storage-process-and-latency
+      (integration): a RocksDB node with --metrics scraped over HTTP before
+      and after: newPayload of block 3 with unknown ancestors, fcU(genesis),
+      getPayloadV1 (unknown id), one eth_blockNumber slowed to 60 ms, a SNAP
+      progress at pivot 6090, two peer entries. Busy scrape: head 0, target
+      3, lag 3, pivot 6090, complete 0, peers 1/1/2/1, one request per
+      family, rpc last/max 61 ms, database 42,172 bytes = the independent
+      directory sum, RSS 298 MB.
+  Positive control: the idle scrape (every moving value 0). Mutation RED
+  controls in the warm image, each run through the whole test:
+      DEVNET-NODE-OPERATOR-GAUGES -> NIL          RED (idle gauge missing)
+      DEVNET-RPC-LATENCY-RECORD   -> no-op        RED (new_payload count 0)
+      DEVNET-METRICS-SYNC-GAUGES  -> all zeros    RED (target 0, wanted 3)
+
+4. Runbook: docs/runbook.md (start, stop with the budgets and the measured
+table above, restart, a healthy d203fee6 sync, failure signatures, metrics,
+disk, acceptance commands).
+
+Verification of record (cold images, this machine, 2026-09-23, tree at
+81439281 untouched during the runs)
+
+  cold-e2e --match OPS-SIG               EXIT=0, 7 tests passed (two shards,
+      3 + 4): all five OPS-SIGKILL-* and both OPS-SIGTERM-* ok by name; 7 is
+      every registered OPS-SIG test
+  cold-integration --match OPS-METRICS   EXIT=0, 1 test passed
+  cold-unit --match OPS-RPC-LATENCY      EXIT=0, 1 test passed
+  cold-unit --match TELEMETRY            EXIT=0, 10 tests passed
+      (the exposition change: *_total declared a counter)
+  cold-integration --match DEVNET-METRICS  EXIT=0, 1 test passed
+  cold-unit --match DEVNET-METRICS       EXIT=0, 4 tests passed
+
+  Each command was redirected to a log with EXIT appended and grepped from
+  the file. The warm image additionally ran every new test by name, green,
+  and the metrics mutation controls above.
+
+Not verified
+
+- Any of this on a live network: no live SIGKILL/SIGTERM, no live scrape.
+- The full cold-all at this head (coordinator's final run).
+- SIGKILL during a pruning pass or a schema migration: no such long-running
+  operation exists in the node today to kill.
+- amd64: every run here is the arm64 dev/test image.
+- The 30 s-stall stop is a warm-image probe, not a committed test.
