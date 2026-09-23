@@ -1,0 +1,73 @@
+Section 5 exact linux/amd64 runtime artifact evidence
+
+Recorded at: 2026-09-23T10:05:00Z
+Branch: sec5-public-bootstrap-sync
+Revision: d203fee6 (git rev-parse d203fee6 for the full id)
+Image: ethereum-lisp-runtime:sec5-d203fee6-amd64
+Local image ID:
+  sha256:14bdd712e1128a3a1546ceeccede1d2411bd9790bb1730873caecebe2bd1496f
+Platform: linux/amd64
+Local image size: 72100724 bytes
+
+Revision under test
+
+d203fee6 is the candidate release revision of this session. Relative to
+8e95b990 (sec5-8e95b990-hoodi-run.txt) it adds, oldest first:
+
+  c831c9a6  Engine priority over forward batch import: consecutive guard
+            holds with a one-second budget (sec5-engine-timeouts-forward-sync.txt)
+  daaef3ee  the remote Hive gate broker scripts/hoodi-hive-gate.sh and its
+            stubbed self-test (docs/hive-gate.md, "Remote runs")
+  bdc2b3de  forward-sync peer transport errors: a peer hanging up during a
+            gap fill is that peer's failure (sec5-forward-sync-peer-errors.txt)
+  d203fee6  the published sync view: eth_syncing follows the canonical head
+            under guard contention (sec5-eth-syncing-live-head.txt)
+plus the acceptance plan (sec5-8e95b990-acceptance-plan.txt), the simulate
+burn-down check (rpc-compat is already 234/234 at 6e3e9b1d) and the run
+records. Every change since 75b0b7a7 was verified with targeted tests in the
+warm image at merge time and, per the user's instruction of 2026-09-23, the
+full cold suite ran once, here, on the candidate.
+
+Exact-revision gates
+
+cl-workbench validation run cold-all on d203fee6, exit 0, no `not ok` line,
+no compile warning under /workspace/src (log kept in the session scratchpad
+as final4-cold-all.log):
+
+  1436 tests passed, 3 skipped.   (unit)
+  602 tests passed, 9 skipped.    (integration)
+  33 tests passed.                (e2e)
+  36 tests passed.                (e2e)
+
+Against the aac5f762 record (1428 / 595 / 33 / 36): +8 unit, +7 integration,
+the tests the merges above added.
+
+Build and revision fence
+
+The checkout was on the branch at d203fee6 and clean before the build, and
+remained clean through build, export and smoke:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-d203fee6-amd64
+  scripts/dev.sh runtime-export ethereum-lisp-runtime:sec5-d203fee6-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-d203fee6-amd64.tar
+
+Exported artifact
+
+  /private/tmp/ethereum-lisp-runtime-sec5-d203fee6-amd64.tar
+  72125952 bytes
+  sha256 04b0c0f7397d0b407f8dc515db89f32aef6bebba22817614f35243120dbf4890
+
+Runtime smoke
+
+cl-workbench validation run runtime-smoke ethereum-lisp-runtime:sec5-d203fee6-amd64
+passed, exit 0 (PASS: runtime image ethereum-lisp-runtime:sec5-d203fee6-amd64
+serves public RPC and an authenticated Engine API).
+
+Live gate
+
+inspect / upload / load / start through scripts/hoodi-live-gate.sh from the
+worktree detached at d203fee6, all exit 0; uploaded-artifact sha256 as above;
+container hoodi-el-sec5-d203fee6 started 2026-09-23T10:03:59Z on the fresh
+datadir-d203fee6, replacing the stopped 8e95b990 container. The live run is
+recorded separately.
