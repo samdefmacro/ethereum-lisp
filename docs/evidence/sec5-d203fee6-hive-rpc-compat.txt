@@ -1,0 +1,72 @@
+Section 5 Hive rpc-compat at d203fee6: 234 of 234
+
+Result
+
+  hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c :: ethereum/rpc-compat :: 234/234 passed
+  execution-apis e5d1bb60e6c064e4b15080da07b4370d0baadf92
+  suite=rpc-compat selected=234 passed=234 failed=0 expected=234
+  runner sec5-hive-d203fee6-rpc-compat-full-r2: exit 0, OOMKilled=false,
+  RestartCount 0, started 2026-09-23T13:26:24Z, finished 13:28:56Z
+  hive-status.txt EXIT=0; hive 13:26:25Z -> 13:28:55Z
+
+This is the first pinned rpc-compat run on the release candidate; the
+previous 234/234 was 6e3e9b1d (sec5-6e3e9b1d-hive-rpc-compat.txt). No case
+that passed there fails here.
+
+Revision, host and inputs
+
+  revision      d203fee694ab44a362cc669a7f95e9e542acb85d
+  host          test-ethereum-sophon2-symbiosis (8 vCPU, 15 GiB), the live
+                Section 5 EL hoodi-el-sec5-d203fee6 STOPPED for the Hive
+                window (docker stop --time 120 at 13:18:44Z: 16 s, exit 0,
+                RocksDB "Shutdown complete"; the first clean stop on this
+                gate, see sec5-d203fee6-hoodi-complete.txt), Lighthouse
+                left running
+  runner image  ethereum-lisp-sec5-hive-runner:docker27-amd64
+                (sha256:6f95f39a0d6e16405a8f5681abf8d02efb12046fc293982747e937ec02032431),
+                bounds 2 CPU, memory 3g, memory+swap 3584m, 1024 PIDs,
+                read-only root, --privileged for its nested dockerd,
+                no ports, not on the Hoodi networks
+  runtime       ethereum-lisp-runtime:sec5-d203fee6-amd64 loaded into the
+                runner's nested daemon from
+                /data/hoodi-sec5-hive/staging/ethereum-lisp-runtime-sec5-d203fee6-amd64.tar
+                (sha256 04b0c0f7397d0b407f8dc515db89f32aef6bebba22817614f35243120dbf4890)
+  source        /data/hoodi-sec5-hive/staging/ethereum-lisp-source-d203fee6.tar
+                (git archive --format=tar d203fee6; 30,863,360 bytes;
+                sha256 89bd975b3758db201d6c114259c0085a51c9b12d10971a03554476d88a177220)
+  Hive binary   /data/hoodi-sec5-hive/staging/hive-dde4f59d
+                sha256 cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+                (copied from the r54 run root, checksum-verified by prepare)
+  evidence root /data/hoodi-sec5-hive/runs/d203fee6-rpc-compat-full-r2-20260923T132557Z
+  local copy    /private/tmp/sec5-hive-evidence/d203fee6-rpc-compat-full-r2-20260923T132557Z
+                manifest.sha256: 23 entries,
+                sha256 9a17cf6d7e3d5a22a1563b3d0f730b4c61ae489e7598881fbedf175fcb724211
+                result file 1790170135-1989aba91503bbea790bb6d464e2fc53.json
+
+Broker
+
+First use of scripts/hoodi-hive-gate.sh (docs/hive-gate.md, "Remote runs")
+against the real host. Two of its inferred parts needed adjusting, both
+recorded in the branch:
+
+  - the runner's git refused the Hive checkout under "dubious ownership"
+    (bind-mounted evidence root owned by the host user); the runner now
+    exports GIT_CONFIG_* safe.directory (commit "hive gate: the runner
+    whitelists the evidence root for git");
+  - `upload` requires the local Docker image for its checksum, and the
+    local Docker daemon was down (the control plane had rebooted; see
+    sec5-d203fee6-hoodi-complete.txt), so the source tar was staged by
+    scp from `git archive` and the runtime tar copied on the host from the
+    live gate's staging; `prepare` verified both checksums.
+Run 1 (stamp 20260923T131834Z) is the failed prepare; its root is retained.
+The Hive binary path /data/hoodi-sec5-hive/staging/hive-dde4f59d, inferred
+by the broker, is confirmed by this run.
+
+Commands (from the branch checkout; HOODI_HIVE_REVISION=d203fee6..., the
+fence allows the docs- and gate-script-only difference to HEAD)
+
+  scripts/hoodi-hive-gate.sh inspect
+  scripts/hoodi-hive-gate.sh prepare --sim rpc-compat --run 2 --stamp 20260923T132557Z
+  scripts/hoodi-hive-gate.sh run     --sim rpc-compat --run 2 --stamp 20260923T132557Z
+  scripts/hoodi-hive-gate.sh status  --sim rpc-compat --run 2 --stamp 20260923T132557Z
+  scripts/hoodi-hive-gate.sh collect --sim rpc-compat --run 2 --stamp 20260923T132557Z
