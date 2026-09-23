@@ -5939,13 +5939,54 @@ completion the closure proof must never inherit."
                (return nil))
              (setf next (max next (1+ limit))))))))
 
+(defun snap-sync-storage-closure-read-groups
+    (database kind identifiers function)
+  "Read IDENTIFIERS of KIND in native multi-gets of at most +KV-GET-MANY-MAX-KEYS+.
+
+FUNCTION receives each group's value vector, presence bits and the offset of
+the group's first identifier in IDENTIFIERS, in order, before the next group is
+read, so at most one group's values are live at a time.  Return the number of
+multi-gets issued."
+  (let ((count (length identifiers))
+        (calls 0))
+    (loop for start from 0 below count by +kv-get-many-max-keys+
+          for end = (min count (+ start +kv-get-many-max-keys+))
+          do (multiple-value-bind (group-values group-present)
+                 (kv-get-chain-records
+                  database kind (subseq identifiers start end))
+               (incf calls)
+               (funcall function group-values group-present start)))
+    calls))
+
 (defun snap-sync-storage-root-closure-walk (database storage-root)
   "Walk STORAGE-ROOT's local trie down to its range-derived subtree proofs.
 
-Return the hash of every visited node, parents before children, and :CLOSED;
-or NIL and the reason the trie is not provably closed: :MISSING-NODE when a
-reached node is absent, :INVALID-NODE when a stored node does not match its
-hash or is malformed, :TOO-WIDE past *SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES*.
+Return the hash of every visited node and :CLOSED; or NIL and the reason the
+trie is not provably closed: :MISSING-NODE when a reached node is absent,
+:INVALID-NODE when a stored node does not match its hash or is malformed,
+:TOO-WIDE when the next level would take the walk past
+*SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES* unproved nodes.  Third to fifth
+values, on success and refusal alike: the native multi-gets issued, the
+number of levels walked and the number of nodes visited.
+
+The walk goes breadth first, one level at a time.  A level first looks up the
+:STORAGE subtree proofs of all its hashes, then reads every unproved node, both
+in bounded multi-gets, so a trie of N unproved nodes and depth D costs at most
+N/4096 + D multi-gets per kind rather than 2 * N point reads -- on a 45 GB
+RocksDB store the point reads made each closure cost minutes (Hoodi, aac5f762;
+docs/evidence/sec5-marker-population.txt).  The width bound is checked after a
+level's proofs and before its nodes are read, so a trie too wide to close is
+refused without reading the level that would exceed it.  Node bodies are
+decoded group by group; only one multi-get's values are live at a time.
+
+The visited set is the set the depth-first walk visited: every node reachable
+from STORAGE-ROOT without passing through a :STORAGE proof.  The order is
+breadth first: each node follows the parent through which it was first reached
+(so the root comes first), and every node of a level precedes every node of
+the next.  Nothing depends on the order beyond that; the publisher only
+deletes markers.  When a trie is both too wide and broken, the reason reported
+may differ from the depth-first walk's (the width is judged a level at a time),
+but either is a refusal that publishes nothing.
 
 Only this client's own :STORAGE subtree proofs stop the descent.  Marker
 absence is not trusted here: an unmarked node is descended like a marked one,
@@ -5954,59 +5995,112 @@ Inline children are shorter than a hash and so name no further node."
   (let ((seen (make-hash-table :test #'equalp))
         (visited '())
         (count 0)
-        (stack (list (hash32-bytes storage-root))))
+        (calls 0)
+        (levels 0)
+        (frontier (list (hash32-bytes storage-root))))
+    (setf (gethash (first frontier) seen) t)
     (flet ((refuse (reason)
              (return-from snap-sync-storage-root-closure-walk
-               (values nil reason))))
-      (loop while stack
-            do (let ((hash (pop stack)))
-                 (unless (or (nth-value 1 (gethash hash seen))
-                             (snap-sync-healed-subtree-present-p
-                              database hash :storage))
-                   (setf (gethash hash seen) t)
-                   (when (> (incf count)
-                            *snap-sync-storage-root-closure-max-nodes*)
-                     (refuse :too-wide))
-                   (multiple-value-bind (encoded present-p)
-                       (trie-node-store-get database hash)
-                     (unless present-p
-                       (refuse :missing-node))
-                     (unless (bytes= hash (keccak-256 encoded))
-                       (refuse :invalid-node))
-                     (push hash visited)
-                     (let ((items
-                             (handler-case
-                                 (rlp-list-items
-                                  (rlp-decode-one encoded :max-list-items 17))
-                               (error () (refuse :invalid-node)))))
-                       (flet ((reference (item)
-                                (cond
-                                  ((and (byte-vector-p item)
-                                        (= 32 (length item)))
-                                   (push (copy-seq item) stack))
-                                  ((and (byte-vector-p item)
-                                        (zerop (length item))))
-                                  ((rlp-list-p item))
-                                  (t (refuse :invalid-node)))))
-                         (case (length items)
-                           (17 (loop for index below 16
-                                     do (reference (nth index items))))
-                           (2
-                            (let ((path (first items)))
-                              (unless (and (byte-vector-p path)
-                                           (plusp (length path)))
+               (values nil reason calls levels (length visited)))))
+      (loop while frontier
+            do (incf levels)
+               (let* ((hashes (coerce frontier 'vector))
+                      (unproved '())
+                      (next '()))
+                 (setf frontier nil)
+                 (incf calls
+                       (snap-sync-storage-closure-read-groups
+                        database :metadata
+                        (map 'vector
+                             (lambda (hash)
+                               (snap-sync-healed-subtree-identifier
+                                hash :storage))
+                             hashes)
+                        (lambda (proof-values proved start)
+                          (dotimes (index (length proved))
+                            (if (= 1 (aref proved index))
+                                (unless (bytes= (aref proof-values index)
+                                                +snap-sync-healed-subtree-value+)
+                                  (ethereum-lisp.validation:storage-fail
+                                   "Persisted snap healed-subtree proof has an unknown version"))
+                                (push (aref hashes (+ start index))
+                                      unproved))))))
+                 (setf unproved (coerce (nreverse unproved) 'vector))
+                 (when (> (+ count (length unproved))
+                          *snap-sync-storage-root-closure-max-nodes*)
+                   (refuse :too-wide))
+                 (incf count (length unproved))
+                 (incf calls
+                       (snap-sync-storage-closure-read-groups
+                        database :trie-node unproved
+                        (lambda (nodes present start)
+                          (dotimes (index (length present))
+                            (let ((hash (aref unproved (+ start index)))
+                                  (encoded (aref nodes index)))
+                              (unless (= 1 (aref present index))
+                                (refuse :missing-node))
+                              (unless (bytes= hash (keccak-256 encoded))
                                 (refuse :invalid-node))
-                              (if (logbitp 5 (aref path 0))
-                                  ;; The uint256 ceiling every storage ingestion
-                                  ;; path enforces; see the account/storage
-                                  ;; disjointness argument at the healer's skip.
-                                  (handler-case
-                                      (snap-sync-storage-trie-value
-                                       (second items))
-                                    (error () (refuse :invalid-node)))
-                                  (reference (second items)))))
-                           (otherwise (refuse :invalid-node))))))))))
-    (values (nreverse visited) :closed)))
+                              (push hash visited)
+                              (let ((items
+                                      (handler-case
+                                          (rlp-list-items
+                                           (rlp-decode-one
+                                            encoded :max-list-items 17))
+                                        (error () (refuse :invalid-node)))))
+                                (flet ((reference (item)
+                                         (cond
+                                           ((and (byte-vector-p item)
+                                                 (= 32 (length item)))
+                                            (unless (nth-value
+                                                     1 (gethash item seen))
+                                              (let ((child (copy-seq item)))
+                                                (setf (gethash child seen) t)
+                                                (push child next))))
+                                           ((and (byte-vector-p item)
+                                                 (zerop (length item))))
+                                           ((rlp-list-p item))
+                                           (t (refuse :invalid-node)))))
+                                  (case (length items)
+                                    (17 (loop for child below 16
+                                              do (reference
+                                                  (nth child items))))
+                                    (2
+                                     (let ((path (first items)))
+                                       (unless (and (byte-vector-p path)
+                                                    (plusp (length path)))
+                                         (refuse :invalid-node))
+                                       (if (logbitp 5 (aref path 0))
+                                           ;; The uint256 ceiling every
+                                           ;; storage ingestion path enforces;
+                                           ;; see the account/storage
+                                           ;; disjointness argument at the
+                                           ;; healer's skip.
+                                           (handler-case
+                                               (snap-sync-storage-trie-value
+                                                (second items))
+                                             (error ()
+                                               (refuse :invalid-node)))
+                                           (reference (second items)))))
+                                    (otherwise
+                                     (refuse :invalid-node))))))))))
+                 (setf frontier (nreverse next)))))
+    (values (nreverse visited) :closed calls levels count)))
+
+(defstruct (snap-sync-storage-closure-profile
+            (:constructor make-snap-sync-storage-closure-profile
+                (&key outcome nodes-visited multi-gets levels elapsed-ms)))
+  "Observational cost of one storage-root closure attempt.
+
+OUTCOME is the publisher's return value.  MULTI-GETS counts every native
+multi-get the attempt issued: the cursor-set lookup, the walk's proof and node
+reads, and the marker lookup.  NODES-VISITED and LEVELS are the walk's; both are
+zero when the attempt stopped before walking."
+  (outcome nil)
+  (nodes-visited 0)
+  (multi-gets 0)
+  (levels 0)
+  (elapsed-ms 0))
 
 (defun snap-sync-publish-storage-root-closure
     (database state-root account-hash storage-root &key write-lock)
@@ -6033,70 +6127,97 @@ markers stay and the healer walks the trie as before.
 
 Only a store under the current closure contract takes this path; a legacy
 store keeps its behaviour.  Return :CLOSED, :ALREADY-CLOSED, :LEGACY-STORE,
-:NO-CURSOR-SET, :CURSORS-OPEN, or a reason from the walk."
-  (cond
-    ((not (snap-sync-closed-account-writes-p database)) :legacy-store)
-    ((hash32= storage-root +empty-trie-hash+) :already-closed)
-    ((snap-sync-healed-subtree-present-p
-      database (hash32-bytes storage-root) :storage-root)
-     :already-closed)
-    (t
-     (let ((identifiers
-             (coerce
-              (loop for index below +snap-sync-storage-task-count+
-                    collect (snap-sync-storage-task-identifier
-                             state-root account-hash storage-root index))
-              'vector)))
-       (multiple-value-bind (records present)
-           (kv-get-chain-records database :metadata identifiers)
-         (cond
-           ((/= +snap-sync-storage-task-count+ (count 1 present))
-            :no-cursor-set)
-           ((not (snap-sync-storage-task-set-covers-keyspace-p
-                  (loop for record across records
-                        collect (snap-sync-storage-task-from-record record))))
-            :cursors-open)
-           (t
-            (multiple-value-bind (visited reason)
-                (snap-sync-storage-root-closure-walk database storage-root)
-              (if (not (eq reason :closed))
-                  reason
-                  (let ((batch (make-kv-write-batch)))
-                    ;; A walked trie can hold up to
-                    ;; *SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES* nodes, far
-                    ;; past one native multi-get, so the marker lookup goes
-                    ;; in +KV-GET-MANY-MAX-KEYS+ groups. On Hoodi the single
-                    ;; lookup failed every page that carried a chunked
-                    ;; contract wider than 4,096 nodes and stalled the range
-                    ;; phase at its ninth page.
-                    (loop with remaining = visited
-                          while remaining
-                          do (let* ((count (min +kv-get-many-max-keys+
-                                                (length remaining)))
-                                    (group (subseq remaining 0 count)))
-                               (setf remaining (nthcdr count remaining))
-                               (multiple-value-bind (values marked)
-                                   (kv-get-chain-records
-                                    database :metadata
-                                    (map 'vector
-                                         #'snap-sync-incomplete-node-identifier
-                                         group))
-                                 (declare (ignore values))
-                                 (loop for hash in group
-                                       for index from 0
-                                       when (= 1 (aref marked index))
-                                         do (snap-sync-delete-incomplete-node-batch
-                                             batch hash)))))
-                    (snap-sync-populate-healed-subtree-batch
-                     batch (hash32-bytes storage-root) :storage-root)
-                    #+sbcl
-                    (if write-lock
-                        (sb-thread:with-mutex (write-lock)
-                          (kv-apply-batch-buffered database batch))
-                        (kv-apply-batch-buffered database batch))
-                    #-sbcl
-                    (kv-apply-batch-buffered database batch)
-                    :closed))))))))))
+:NO-CURSOR-SET, :CURSORS-OPEN, or a reason from the walk; and, as a second
+value, a SNAP-SYNC-STORAGE-CLOSURE-PROFILE of the attempt."
+  (let ((started-at (get-internal-real-time))
+        (multi-gets 0)
+        (nodes-visited 0)
+        (levels 0))
+    (let ((outcome
+            (cond
+              ((not (snap-sync-closed-account-writes-p database)) :legacy-store)
+              ((hash32= storage-root +empty-trie-hash+) :already-closed)
+              ((snap-sync-healed-subtree-present-p
+                database (hash32-bytes storage-root) :storage-root)
+               :already-closed)
+              (t
+               (let ((identifiers
+                       (coerce
+                        (loop for index below +snap-sync-storage-task-count+
+                              collect (snap-sync-storage-task-identifier
+                                       state-root account-hash storage-root
+                                       index))
+                        'vector)))
+                 (multiple-value-bind (records present)
+                     (kv-get-chain-records database :metadata identifiers)
+                   (incf multi-gets)
+                   (cond
+                     ((/= +snap-sync-storage-task-count+ (count 1 present))
+                      :no-cursor-set)
+                     ((not (snap-sync-storage-task-set-covers-keyspace-p
+                            (loop for record across records
+                                  collect (snap-sync-storage-task-from-record
+                                           record))))
+                      :cursors-open)
+                     (t
+                      (multiple-value-bind
+                            (visited reason walk-gets walk-levels walk-nodes)
+                          (snap-sync-storage-root-closure-walk
+                           database storage-root)
+                        (incf multi-gets walk-gets)
+                        (setf levels walk-levels
+                              nodes-visited walk-nodes)
+                        (if (not (eq reason :closed))
+                            reason
+                            (let ((batch (make-kv-write-batch)))
+                              ;; A walked trie can hold up to
+                              ;; *SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES*
+                              ;; nodes, far past one native multi-get, so the
+                              ;; marker lookup goes in +KV-GET-MANY-MAX-KEYS+
+                              ;; groups. On Hoodi the single lookup failed every
+                              ;; page that carried a chunked contract wider than
+                              ;; 4,096 nodes and stalled the range phase at its
+                              ;; ninth page.
+                              (loop with remaining = visited
+                                    while remaining
+                                    do (let* ((count
+                                                (min +kv-get-many-max-keys+
+                                                     (length remaining)))
+                                              (group
+                                                (subseq remaining 0 count)))
+                                         (setf remaining
+                                               (nthcdr count remaining))
+                                         (multiple-value-bind (values marked)
+                                             (kv-get-chain-records
+                                              database :metadata
+                                              (map 'vector
+                                                   #'snap-sync-incomplete-node-identifier
+                                                   group))
+                                           (declare (ignore values))
+                                           (incf multi-gets)
+                                           (loop for hash in group
+                                                 for index from 0
+                                                 when (= 1 (aref marked index))
+                                                   do (snap-sync-delete-incomplete-node-batch
+                                                       batch hash)))))
+                              (snap-sync-populate-healed-subtree-batch
+                               batch (hash32-bytes storage-root) :storage-root)
+                              #+sbcl
+                              (if write-lock
+                                  (sb-thread:with-mutex (write-lock)
+                                    (kv-apply-batch-buffered database batch))
+                                  (kv-apply-batch-buffered database batch))
+                              #-sbcl
+                              (kv-apply-batch-buffered database batch)
+                              :closed)))))))))))
+      (values outcome
+              (make-snap-sync-storage-closure-profile
+               :outcome outcome
+               :nodes-visited nodes-visited
+               :multi-gets multi-gets
+               :levels levels
+               :elapsed-ms (snap-sync-elapsed-milliseconds
+                            started-at (get-internal-real-time)))))))
 
 #+sbcl
 (defun %snap-sync-fill-storage-root-ranges
@@ -8795,9 +8916,20 @@ for RocksDB compaction or a preceding batch write."
     ;; Before the owning account page resumes, so the closed account writer
     ;; reads this root's proof when it judges the account leaf.
     (when (eq terminal :completed)
-      (snap-sync-publish-storage-root-closure
-       database state-root account-hash storage-root
-       :write-lock (snap-sync-multi-runtime-database-write-lock runtime)))
+      (let ((profile
+              (nth-value
+               1
+               (snap-sync-publish-storage-root-closure
+                database state-root account-hash storage-root
+                :write-lock
+                (snap-sync-multi-runtime-database-write-lock runtime))))
+            (callback
+              (snap-sync-multi-runtime-storage-profile-callback runtime)))
+        ;; One observational record per closure attempt, through the storage
+        ;; profile callback.  The attempt runs on the owning page's thread, so
+        ;; its cost is page latency: on Hoodi at aac5f762 it made every
+        ;; carrying page's storageMs 90-142 s.
+        (when callback (funcall callback profile))))
     (eq terminal :completed)))
 
 #+sbcl
@@ -9237,7 +9369,8 @@ receives PROGRESS, SOURCE, and TASK-INDEX
 after that task page is durable. ON-PAGE-PROFILE then receives its observational
 timing profile, SOURCE, and TASK-INDEX. The single storage commit coordinator
 invokes ON-STORAGE-PROFILE with one aggregate profile after each buffered
-large-storage page batch. ON-SOURCE-ERROR
+large-storage page batch; it also receives a SNAP-SYNC-STORAGE-CLOSURE-PROFILE,
+on the owning page's thread, after each storage-root closure attempt. ON-SOURCE-ERROR
 receives SOURCE and the condition after its task has been made retryable.
 HEAL-SOURCE-PROVIDER refreshes both the account worker pool and the final
 content-addressed traversal. Newly connected sources join the range phase up to
