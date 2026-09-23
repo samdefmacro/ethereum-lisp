@@ -1,0 +1,51 @@
+Section 5 Hive Engine/auth at d203fee6: 401 of 403, two regressions
+
+Result
+
+  hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c :: ethereum/engine :: 401/403 passed
+  suite=engine-api                    selected=129 passed=128 failed=1
+  suite=engine-auth                   selected=8   passed=8   failed=0
+  suite=engine-exchange-capabilities  selected=5   passed=5   failed=0
+  suite=engine-withdrawals            selected=35  passed=35  failed=0
+  suite=engine-cancun                 selected=226 passed=225 failed=1
+  total selected=403 passed=401 failed=2 expected=403
+  runner sec5-hive-d203fee6-engine-full-r1: exit 0, OOMKilled=false, RestartCount 0,
+  started 2026-09-23T13:32:59Z, finished 15:22:08Z (1 h 49 min); hive-status EXIT=0
+
+  FAILED  engine-api     Invalid Missing Ancestor Syncing ReOrg, Incomplete Transactions,
+                         EmptyTxs=False, CanonicalReOrg=False, Invalid P9 (Paris)
+  FAILED  engine-cancun  Blob Transaction Ordering, Multiple Clients (Cancun)
+
+The previous pinned run (6e3e9b1d) passed 403 of 403, so both are regressions
+between 6e3e9b1d and d203fee6. Both exercise syncing / multi-client
+interplay; this session's forward-sync and Engine changes (c831c9a6 consecutive
+guard holds with Engine priority, bdc2b3de gap-fill peer errors, 8e95b990
+pending storage overlay, d203fee6 published sync view) are the prime
+suspects. Diagnosis and fix are recorded separately
+(sec5-engine-regressions-d203fee6.txt when it lands); the suite is rerun on
+the fixed revision.
+
+Revision, host and inputs
+
+  revision      d203fee694ab44a362cc669a7f95e9e542acb85d
+  host          test-ethereum-sophon2-symbiosis, live EL stopped for the Hive
+                window (see sec5-d203fee6-hive-rpc-compat.txt), Lighthouse running
+  runner        ethereum-lisp-sec5-hive-runner:docker27-amd64, bounds 2 CPU,
+                memory 8g, memory+swap 10g, 1024 PIDs, read-only root,
+                --privileged for its nested dockerd
+  runtime       ethereum-lisp-runtime:sec5-d203fee6-amd64 from the staged tar
+                (sha256 04b0c0f7397d0b407f8dc515db89f32aef6bebba22817614f35243120dbf4890)
+  source        staged ethereum-lisp-source-d203fee6.tar
+                (sha256 89bd975b3758db201d6c114259c0085a51c9b12d10971a03554476d88a177220)
+  Hive binary   hive-dde4f59d sha256 cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+  evidence root /data/hoodi-sec5-hive/runs/d203fee6-engine-full-r1-20260923T133220Z
+  local copy    /private/tmp/sec5-hive-evidence/d203fee6-engine-full-r1-20260923T133220Z
+                manifest.sha256: 516 entries,
+                sha256 644590fab0642a0996580618748e0cc3b35297a12c7fe200209b6749506d35db
+
+Commands
+
+  scripts/hoodi-hive-gate.sh prepare --sim engine --run 1 --stamp 20260923T133220Z
+  scripts/hoodi-hive-gate.sh run     --sim engine --run 1 --stamp 20260923T133220Z
+  scripts/hoodi-hive-gate.sh status  --sim engine --run 1 --stamp 20260923T133220Z
+  scripts/hoodi-hive-gate.sh collect --sim engine --run 1 --stamp 20260923T133220Z
