@@ -407,6 +407,27 @@ snapshot to fall back to."
                     (quantity-to-hex (max current (or highest current)))))
         :false)))
 
+(defun devnet-node-sync-view-answer-now (node)
+  "eth_syncing's answer for NODE right now, never waiting for the store guard.
+
+Republishes the sync view when the guard happens to be free, and otherwise
+answers from the view the last guard release published
+(DEVNET-NODE-PUBLISH-SYNC-VIEW), plus two lock-free reads. The inbound
+transaction gossip gate shares this answer: a node is fresh enough for gossip
+exactly when eth_syncing says false."
+  (call-with-devnet-node-store-guard-if-free
+   node
+   (lambda () (devnet-node-publish-sync-view node)))
+  (devnet-sync-view-answer
+   (devnet-node-sync-view node)
+   (handler-case (devnet-node-forkchoice-targets-pending-p node)
+     (serious-condition () nil))
+   ;; The durable skeleton is a direct database point read: long state
+   ;; imports keep the guard busy for their whole AccountRange/healer
+   ;; phase, and this target must stay visible throughout.
+   (handler-case (devnet-node-durable-snap-highest-block node)
+     (serious-condition () nil))))
+
 (defun devnet-node-admin-backend (node-box)
   "How the admin RPC namespace reaches this node's peering state.
 
@@ -417,27 +438,14 @@ the box is filled immediately after, and every closure reads it at call time, so
 none can capture a half-built node.
 
 Peer reads take the peer-table mutex, never the store guard. The syncing closure
-never waits for the store guard either: it republishes the sync view when the
-guard happens to be free and otherwise answers from the view the last guard
-release published (DEVNET-NODE-PUBLISH-SYNC-VIEW), plus two lock-free reads."
+never waits for the store guard either (DEVNET-NODE-SYNC-VIEW-ANSWER-NOW)."
   (flet ((node () (first node-box)))
     (make-admin-backend
      :syncing
      (lambda ()
        (let ((node (node)))
          (when node
-           (call-with-devnet-node-store-guard-if-free
-            node
-            (lambda () (devnet-node-publish-sync-view node)))
-           (devnet-sync-view-answer
-            (devnet-node-sync-view node)
-            (handler-case (devnet-node-forkchoice-targets-pending-p node)
-              (serious-condition () nil))
-            ;; The durable skeleton is a direct database point read: long state
-            ;; imports keep the guard busy for their whole AccountRange/healer
-            ;; phase, and this target must stay visible throughout.
-            (handler-case (devnet-node-durable-snap-highest-block node)
-              (serious-condition () nil))))))
+           (devnet-node-sync-view-answer-now node))))
      :listening-p
      (lambda () (and (node) (devnet-node-p2p-port (node)) t))
      :peer-count
