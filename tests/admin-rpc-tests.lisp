@@ -670,3 +670,55 @@ backend the peer sessions consult (pinned geth's Backend.AcceptTxs)."
   (let ((quiet (admin-test-backend :listening nil)))
     (is (eq :false (ethereum-lisp.public-api::engine-rpc-handle-net-listening
                     nil quiet)))))
+
+(defun store-guard-priority-wait-behind-regrabs (yield-seconds)
+  "Milliseconds an Engine (priority) request waits for the store guard while
+another thread takes the plain guard twenty times back to back, 50 ms each --
+the shape of a gap fill importing block after block."
+  #+sbcl
+  (multiple-value-bind (guard try priority)
+      (ethereum-lisp.cli::make-devnet-store-guard-function)
+    (declare (ignore try))
+    (let* ((started (sb-thread:make-semaphore))
+           (holder
+             (sb-thread:make-thread
+              (lambda ()
+                ;; A condition here must not kill the suite process.
+                (handler-case
+                    ;; Specials are per thread: the deferral runs here.
+                    (let ((ethereum-lisp.cli::*devnet-store-guard-priority-yield-seconds*
+                            yield-seconds))
+                      (loop for index below 20
+                            do (funcall guard
+                                        (lambda ()
+                                          (when (zerop index)
+                                            (sb-thread:signal-semaphore started))
+                                          (sleep 0.05)))))
+                  (serious-condition (condition) condition)))
+              :name "store-guard-regrab-holder")))
+      (sb-thread:wait-on-semaphore started)
+      (let ((started-at (get-internal-real-time)))
+        (funcall priority (lambda () nil))
+        (prog1 (round (* 1000 (- (get-internal-real-time) started-at))
+                      internal-time-units-per-second)
+          (sb-thread:join-thread holder)))))
+  #-sbcl 0)
+
+(deftest devnet-store-guard-background-takers-defer-to-a-waiting-engine-request
+  ;; SBCL mutexes are not fair. On Hoodi (aee866f7) Engine requests with no
+  ;; execution waited 5-25 s while a gap fill imported block after block, one
+  ;; guard hold each, re-taking the guard ahead of the woken Engine waiter.
+  ;; Plain guard takers now stay off the mutex while an Engine request waits.
+  ;; Control: with the deferral bounded to zero seconds (the old behaviour)
+  ;; the waiter sits behind most of the twenty holds (measured 607-1153 ms);
+  ;; with it, behind at most the hold in progress (measured 52-60 ms).
+  #-sbcl (skip-test "store guard deferral requires SBCL threads")
+  #+sbcl
+  ;; The unfairness is probabilistic (single runs measured 607-1153 ms), so
+  ;; each side takes the worst of three.
+  (let ((old (loop repeat 3
+                   maximize (store-guard-priority-wait-behind-regrabs 0)))
+        (new (loop repeat 3
+                   maximize (store-guard-priority-wait-behind-regrabs 2))))
+    (is (>= old 400))
+    (is (<= new 250))))

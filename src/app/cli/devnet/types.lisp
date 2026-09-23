@@ -328,6 +328,13 @@ error, so its conditions are dropped here."
           (serious-condition () nil)))
       (funcall thunk)))
 
+(defparameter *devnet-store-guard-priority-yield-seconds* 2
+  "How long a guard taker that is not an Engine request defers to one.
+
+Our policy. Waiting ends as soon as every waiter owns the guard in turn; the
+bound only keeps a continuous stream of Engine requests from starving the
+importer and the other background holders completely.")
+
 ;;; Guard-hold attribution.
 ;;;
 ;;; An Engine request that waited for the store guard cannot tell from its own
@@ -474,7 +481,10 @@ never spins through the Engine request's own work. SBCL mutexes are not fair;
 without this signal a holder that re-acquires in a loop can keep a waiting
 Engine request out indefinitely. A priority waiter that had to wait reports
 guardWaitMs and guardWaitedFor through TELEMETRY-NOTE-WAIT, so the Engine
-request log names the holds it waited behind.
+request log names the holds it waited behind. GUARD and TRY defer to a waiting
+Engine request (up to *DEVNET-STORE-GUARD-PRIORITY-YIELD-SECONDS*; TRY simply
+fails), because a holder that releases and re-takes the mutex otherwise wins
+against the woken waiter.
 
 RELEASE-HOOK, when given, is a function of no arguments that all three run
 just before they release the mutex, still owning it. It is how state that only
@@ -493,12 +503,30 @@ DEVNET-STORE-GUARD-LEDGER all holds are recorded in."
           (priority-waiters (list 0)))
       (flet ((hold (thunk)
                (call-with-devnet-store-guard-hold
-                ledger release-hook long-hold-function thunk)))
+                ledger release-hook long-hold-function thunk))
+             (defer-to-priority ()
+               ;; SBCL mutexes are not fair: a thread that releases the guard
+               ;; and takes it again (a gap fill importing block after block,
+               ;; a peer served lookup after lookup) usually wins against the
+               ;; woken Engine waiter. Every non-Engine taker therefore stays
+               ;; off the mutex while an Engine request waits, bounded by
+               ;; *DEVNET-STORE-GUARD-PRIORITY-YIELD-SECONDS*.
+               (when (plusp (car priority-waiters))
+                 (let ((deadline
+                         (+ (get-internal-real-time)
+                            (* *devnet-store-guard-priority-yield-seconds*
+                               internal-time-units-per-second))))
+                   (loop while (and (plusp (car priority-waiters))
+                                    (< (get-internal-real-time) deadline))
+                         do (sleep 0.001))))))
         (values (lambda (thunk)
+                  (defer-to-priority)
                   (sb-thread:with-mutex (mutex)
                     (hold thunk)))
                 (lambda (thunk)
-                  (if (sb-thread:grab-mutex mutex :waitp nil)
+                  ;; A waiting Engine request counts as holding the guard.
+                  (if (and (not (plusp (car priority-waiters)))
+                           (sb-thread:grab-mutex mutex :waitp nil))
                       (unwind-protect (values (hold thunk) t)
                         (sb-thread:release-mutex mutex))
                       (values nil nil)))
@@ -535,13 +563,6 @@ DEVNET-STORE-GUARD-LEDGER all holds are recorded in."
   "True while an Engine request waits for NODE's store guard."
   (let ((pending (devnet-node-store-guard-priority-pending-function node)))
     (and pending (funcall pending) t)))
-
-(defparameter *devnet-store-guard-priority-yield-seconds* 2
-  "How long a long guard holder that stepped aside waits for priority waiters.
-
-Our policy. Waiting ends as soon as every waiter owns the guard in turn; the
-bound only keeps a continuous stream of Engine requests from starving the
-importer completely.")
 
 (defun devnet-node-yield-store-guard-to-priority (node)
   "Wait, WITHOUT holding NODE's store guard, until no Engine request waits.
