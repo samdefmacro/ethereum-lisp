@@ -154,13 +154,18 @@
          (request nil)
          (close-p t)
          (response nil)
-         (*engine-rpc-phase-timings* nil))
+         (handler-sample nil)
+         (*engine-rpc-phase-timings* nil)
+         ;; Blocking waits that know what they wait for (a peer request, the
+         ;; store guard) add themselves here; see TELEMETRY-NOTE-WAIT.
+         (ethereum-lisp.telemetry:*telemetry-wait-accounting* (list :waits)))
     (handler-case
         (progn
           (setf request (engine-rpc-read-http-request-string input-stream))
           (when (null request)
             (return-from rpc-http-handle-stream (values nil t)))
-          (setf handler-started-at (get-internal-real-time))
+          (setf handler-started-at (get-internal-real-time)
+                handler-sample (ethereum-lisp.telemetry:telemetry-runtime-sample))
           (setf close-p
                 (or (not persistent-p)
                     (engine-rpc-http-request-close-p request)))
@@ -208,6 +213,19 @@
                       (round
                        (* 1000 (- handled-at handler-started-at))
                        internal-time-units-per-second)))
+               ;; handlerGcMs, handlerGcCount, handlerCpuMs: with handlerMs
+               ;; they split the handler into collection, own CPU and time
+               ;; off the CPU. heapMb is the Lisp heap after the handler.
+               (when handler-sample
+                 (append
+                  (ethereum-lisp.telemetry:telemetry-runtime-fields
+                   "handler" handler-sample :wall-p nil)
+                  (list
+                   (cons "heapMb"
+                         (floor
+                          (ethereum-lisp.telemetry:telemetry-dynamic-usage-bytes)
+                          (* 1024 1024))))
+                  (ethereum-lisp.telemetry:telemetry-wait-fields)))
                (nreverse *engine-rpc-phase-timings*)
                (engine-rpc-http-response-telemetry-fields response)))
       (write-string response output-stream)

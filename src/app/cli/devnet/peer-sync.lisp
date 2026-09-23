@@ -671,7 +671,8 @@ first lets any waiting Engine request in, so Engine latency is bounded by
 about one block execution rather than by the response size. Every committed
 candidate is noncanonical; only Engine forkchoice publishes a canonical view.
 Returns the number of blocks imported."
-  (let ((remaining blocks))
+  (let ((remaining blocks)
+        (*telemetry-activity-label* "forward-batch-import"))
     (loop while remaining
           do (setf remaining
                    (devnet-peer-sync-import-batch-chunk

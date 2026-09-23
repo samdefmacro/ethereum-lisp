@@ -393,7 +393,14 @@ tried here, because their response is NIL whether or not the view answered."
             (rpc-handle-request-from-read-view request context method)
           (cond
             (view-answered-p view-response)
-            ((and guard guard-required-p) (funcall guard thunk))
+            ((and guard guard-required-p)
+             ;; Name the hold after the method, so a request that waited
+             ;; for the guard can say which request it waited behind.
+             (let ((ethereum-lisp.telemetry:*telemetry-activity-label*
+                     (if (stringp method)
+                         method
+                         ethereum-lisp.telemetry:*telemetry-activity-label*)))
+               (funcall guard thunk)))
             (t (funcall thunk)))))
     (error (condition)
       (declare (ignore condition))

@@ -198,7 +198,21 @@
              (lambda ()
                (let ((node (first node-box)))
                  (when node
-                   (devnet-node-publish-guarded-views node)))))))
+                   (devnet-node-publish-guarded-views node))))
+             ;; Who kept the guard, and for how long, whenever a single hold
+             ;; outlasts the one-second budget the long holders keep to.
+             :long-hold-function
+             (lambda (hold)
+               (let ((node (first node-box)))
+                 (when node
+                   (devnet-peer-manager-log
+                    node "node.store_guard.long_hold"
+                    "holder" (devnet-store-guard-hold-label hold)
+                    "holdMs" (devnet-store-guard-hold-ms hold)
+                    "releaseHookMs" (devnet-store-guard-hold-hook-ms hold)
+                    "engineWaiting"
+                    (if (devnet-node-store-guard-priority-pending-p node)
+                        "true" "false"))))))))
          (store-guard-function (first store-guard-pair))
          (store-guard-try-function (second store-guard-pair))
          ;; Engine requests take the same mutex through the priority guard, so a

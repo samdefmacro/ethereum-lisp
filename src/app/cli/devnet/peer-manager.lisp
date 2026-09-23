@@ -494,11 +494,16 @@ as reported while preserving this condition's type."))
       (error 'devnet-peer-request-queue-closed))
     (setf (devnet-peer-request-queue-pending queue)
           (nconc (devnet-peer-request-queue-pending queue) (list job))))
-  (sb-thread:with-mutex ((devnet-peer-request-job-lock job))
-    (loop until (devnet-peer-request-job-done-p job)
-          do (sb-thread:condition-wait
-              (devnet-peer-request-job-changed job)
-              (devnet-peer-request-job-lock job))))
+  ;; A caller measuring where its time went (an Engine request) sees this
+  ;; wait as peerWaitMs.
+  (telemetry-call-with-accounted-wait
+   "peer"
+   (lambda ()
+     (sb-thread:with-mutex ((devnet-peer-request-job-lock job))
+       (loop until (devnet-peer-request-job-done-p job)
+             do (sb-thread:condition-wait
+                 (devnet-peer-request-job-changed job)
+                 (devnet-peer-request-job-lock job))))))
   (when (devnet-peer-request-job-condition job)
     (error (devnet-peer-request-job-condition job)))
   (values-list (devnet-peer-request-job-values job)))

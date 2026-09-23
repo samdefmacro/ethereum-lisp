@@ -2036,6 +2036,106 @@ the first, and the phase names the first measured request recorded."
         (is (< (* 3 warm-reads) (* 2 cold-reads)))
         (is (> warm-hits cold-hits))
         ;; The live telemetry carries the split and the counters.
+        ;; GcMs/GcCount/CpuMs split each phase's wall time into collection,
+        ;; own CPU and time off the CPU.
         (dolist (name '("npExecuteMs" "npPersistMs"
+                        "npExecuteGcMs" "npExecuteGcCount" "npExecuteCpuMs"
+                        "npPersistGcMs" "npPersistCpuMs"
                         "npTrieNodeReads" "npTrieNodeCacheHits"))
           (is (member name phase-names :test #'string=)))))))
+
+;;;; Engine requests behind a gap fill that imports the CL's own blocks.
+
+#+sbcl
+(defun devnet-gap-fill-engine-wait (yield-seconds blocks genesis-json)
+  "Import BLOCKS through the peer gap-fill path on one thread, each import
+slowed by 100 ms, and send newPayload for the first block once it is in.
+Returns the newPayload status, its wait fields and its handler milliseconds."
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json genesis-json :port 0))
+         (context (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-service node)))
+         (first-imported (sb-thread:make-semaphore))
+         (importer
+           (sb-thread:make-thread
+            (lambda ()
+              ;; A condition here must not kill the suite process.
+              (handler-case
+                  ;; Specials are per thread: the deferral runs here.
+                  (let ((ethereum-lisp.cli::*devnet-store-guard-priority-yield-seconds*
+                          yield-seconds)
+                        (ethereum-lisp.telemetry:*telemetry-activity-label*
+                          "sync-gap-fill"))
+                    (loop for block in blocks
+                          for index from 0
+                          do (ethereum-lisp.cli::devnet-peer-sync-import-block
+                              node block :require-valid-p t)
+                             (when (zerop index)
+                               (sb-thread:signal-semaphore first-imported))))
+                (serious-condition (condition) condition)))
+            :name "gap-fill-engine-wait-importer")))
+    (sb-thread:wait-on-semaphore first-imported)
+    (let ((ethereum-lisp.engine-api:*engine-rpc-phase-timings* nil))
+      (ethereum-lisp.telemetry:telemetry-call-with-wait-accounting
+       (lambda ()
+         (let* ((started-at (get-internal-real-time))
+                (response
+                  (ethereum-lisp.rpc:rpc-handle-request
+                   (engine-fixture-payload-request
+                    1 (execution-payload-envelope-execution-payload
+                       (block-to-executable-data (first blocks))))
+                   context))
+                (handler-ms
+                  (round (* 1000 (- (get-internal-real-time) started-at))
+                         internal-time-units-per-second)))
+           (sb-thread:join-thread importer)
+           (list :status (fixture-object-field
+                          (fixture-object-field response "result") "status")
+                 :waits (ethereum-lisp.telemetry:telemetry-wait-fields)
+                 :executed-p (assoc "npExecuteMs"
+                                    ethereum-lisp.engine-api:*engine-rpc-phase-timings*
+                                    :test #'string=)
+                 :handler-ms handler-ms)))))))
+
+(deftest devnet-engine-request-behind-a-gap-fill-waits-for-one-block-and-names-it
+  (:layer :integration)
+  ;; Hoodi (aee866f7): newPayloadV4 answers VALID with no execution at all
+  ;; took 7.4-25 s while 144 gap fills ran. The gap filler imports the CL's
+  ;; own blocks from peers, one store-guard hold per block, and re-took the
+  ;; unfair mutex ahead of the waiting Engine request. Reproduced here with
+  ;; the node's real guard and import path, each import slowed by 100 ms:
+  ;; control (deferral bounded to zero, the old behaviour) measured 1165 ms
+  ;; behind ten holds; with the deferral 121 ms behind one. The request log
+  ;; names the holder either way.
+  #-sbcl (skip-test "gap-fill Engine wait requires SBCL threads")
+  #+sbcl
+  (let* ((sender-keys '(1 2 3 4))
+         (genesis-json (devnet-np-latency-genesis-json sender-keys 64))
+         (blocks (devnet-np-latency-build-blocks
+                  genesis-json sender-keys 64 12))
+         (slow 'ethereum-lisp.cli::devnet-peer-sync-import-block-without-guard))
+    (sb-int:encapsulate slow 'gap-fill-engine-wait
+                        (lambda (function &rest arguments)
+                          (sleep 0.1)
+                          (apply function arguments)))
+    (unwind-protect
+         (let ((old (devnet-gap-fill-engine-wait 0 blocks genesis-json))
+               (new (devnet-gap-fill-engine-wait 2 blocks genesis-json)))
+           (flet ((wait-ms (result)
+                    (cdr (assoc "guardWaitMs" (getf result :waits)
+                                :test #'string=)))
+                  (waited-for (result)
+                    (cdr (assoc "guardWaitedFor" (getf result :waits)
+                                :test #'string=))))
+             (dolist (result (list old new))
+               ;; The gap filler already imported it: VALID, no execution.
+               (is (string= +payload-status-valid+ (getf result :status)))
+               (is (null (getf result :executed-p)))
+               (is (eql 0 (search "sync-gap-fill:" (waited-for result)))))
+             ;; Control: behind most of the eleven remaining holds.
+             (is (>= (wait-ms old) 500))
+             ;; Fixed: behind the hold in progress only.
+             (is (<= (wait-ms new) 350))
+             ;; At most the hold in progress and one that raced it.
+             (is (<= (count #\Space (waited-for new)) 1))))
+      (sb-int:unencapsulate slow 'gap-fill-engine-wait))))

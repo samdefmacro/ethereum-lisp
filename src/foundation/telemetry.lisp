@@ -191,3 +191,159 @@ was emitted, and no mangling can collide."
                     "counter"
                     "gauge")))
       (format out "~A ~D~%" (car entry) (cdr entry)))))
+
+;;;; Runtime accounting: where one thread's wall time went.
+;;;;
+;;;; A slow operation spent its wall time in one of three places: stopped for
+;;;; a garbage collection (SBCL stops every thread), running on its own CPU,
+;;;; or off the CPU -- blocked on a lock, a condition variable, a peer, a disk
+;;;; read, or a host that did not schedule it. A RUNTIME SAMPLE taken before
+;;;; and after tells the three apart without a profiler:
+;;;;
+;;;;   GcMs     the collector's run time inside the window (process-wide:
+;;;;            whichever thread triggered it, every thread was stopped)
+;;;;   GcCount  collections that completed inside the window
+;;;;   CpuMs    this thread's own CPU time (it includes a collection that
+;;;;            this thread itself triggered and ran)
+;;;;
+;;;; so wall - max(CpuMs, GcMs) is time off the CPU. Blocking waits that know
+;;;; what they wait for add themselves through TELEMETRY-NOTE-WAIT.
+
+(defvar *telemetry-activity-label* nil
+  "A short name for what the current thread is doing, or NIL.
+
+Bound around long-running work that other threads may wait for (an Engine
+method, a sync import) so a wait can be attributed to it. NIL means the
+thread's own name is the best available label.")
+
+(defun telemetry-activity-label ()
+  "The current thread's activity label, falling back to its thread name."
+  (or *telemetry-activity-label*
+      #+sbcl (sb-thread:thread-name sb-thread:*current-thread*)
+      "unknown"))
+
+#+sbcl
+(sb-ext:defglobal **telemetry-gc-count** (list 0)
+  "Completed collections since the image started, as a cons so its CAR can be
+updated with SB-EXT:ATOMIC-INCF.")
+
+#+sbcl
+(defun telemetry-note-gc ()
+  (sb-ext:atomic-incf (car **telemetry-gc-count**)))
+
+#+sbcl
+(pushnew 'telemetry-note-gc sb-ext:*after-gc-hooks*)
+
+(defun telemetry-gc-count ()
+  #+sbcl (car **telemetry-gc-count**)
+  #-sbcl 0)
+
+(defun telemetry-gc-run-microseconds ()
+  "Total collector run time so far, in microseconds."
+  #+sbcl (floor (* sb-ext:*gc-run-time* 1000000)
+                internal-time-units-per-second)
+  #-sbcl 0)
+
+(defun telemetry-thread-cpu-microseconds ()
+  "The calling thread's CPU time so far, in microseconds."
+  #+sbcl
+  (multiple-value-bind (seconds nanoseconds)
+      ;; SB-UNIX::CLOCK-GETTIME is internal but has been stable since SBCL
+      ;; 1.4; the exported clock id selects CLOCK_THREAD_CPUTIME_ID.
+      (sb-unix::clock-gettime sb-unix:clock-thread-cputime-id)
+    (+ (* seconds 1000000) (floor nanoseconds 1000)))
+  #-sbcl 0)
+
+(defun telemetry-dynamic-usage-bytes ()
+  "Bytes currently allocated in the Lisp heap (live plus not yet collected)."
+  #+sbcl (sb-kernel:dynamic-usage)
+  #-sbcl 0)
+
+(defstruct (telemetry-runtime-sample
+            (:constructor %make-telemetry-runtime-sample
+                (real gc-run gc-count cpu)))
+  (real 0 :read-only t)
+  (gc-run 0 :read-only t)
+  (gc-count 0 :read-only t)
+  (cpu 0 :read-only t))
+
+(defun telemetry-runtime-sample ()
+  "The calling thread's clocks now; see TELEMETRY-RUNTIME-FIELDS."
+  (%make-telemetry-runtime-sample
+   (get-internal-real-time)
+   (telemetry-gc-run-microseconds)
+   (telemetry-gc-count)
+   (telemetry-thread-cpu-microseconds)))
+
+(defun telemetry-runtime-fields (prefix start &key (wall-p t))
+  "Fields describing the window since START, a TELEMETRY-RUNTIME-SAMPLE taken
+on the calling thread: PREFIXMs (wall, unless WALL-P is false), PREFIXGcMs,
+PREFIXGcCount and PREFIXCpuMs, in whole milliseconds."
+  (let ((now (telemetry-runtime-sample)))
+    (flet ((name (suffix) (concatenate 'string prefix suffix))
+           (ms (microseconds) (round microseconds 1000)))
+      (append
+       (when wall-p
+         (list (cons (name "Ms")
+                     (round (* 1000 (- (telemetry-runtime-sample-real now)
+                                       (telemetry-runtime-sample-real start)))
+                            internal-time-units-per-second))))
+       (list (cons (name "GcMs")
+                   (ms (- (telemetry-runtime-sample-gc-run now)
+                          (telemetry-runtime-sample-gc-run start))))
+             (cons (name "GcCount")
+                   (- (telemetry-runtime-sample-gc-count now)
+                      (telemetry-runtime-sample-gc-count start)))
+             (cons (name "CpuMs")
+                   (ms (- (telemetry-runtime-sample-cpu now)
+                          (telemetry-runtime-sample-cpu start)))))))))
+
+(defvar *telemetry-wait-accounting* nil
+  "NIL, or an alist cell list (KIND . MICROSECONDS) the current thread's
+attributed blocking waits accumulate into; see TELEMETRY-CALL-WITH-WAIT-ACCOUNTING.")
+
+(defun telemetry-note-wait (kind microseconds &optional waited-for)
+  "Add MICROSECONDS of blocking wait of KIND (a string) to the current
+thread's accounting, when one is active. WAITED-FOR, a string, names what
+the wait was for (who held the lock); it is reported in KINDWaitedFor. Returns
+NIL."
+  (let ((accounting *telemetry-wait-accounting*))
+    (when accounting
+      (let ((entry (assoc kind (cdr accounting) :test #'string=)))
+        (unless entry
+          (setf entry (list kind 0 '()))
+          (push entry (cdr accounting)))
+        (incf (second entry) microseconds)
+        (when waited-for
+          (push waited-for (third entry))))))
+  nil)
+
+(defun telemetry-call-with-accounted-wait (kind thunk)
+  "Call THUNK and add its wall time to the current accounting under KIND."
+  (if *telemetry-wait-accounting*
+      (let ((start (get-internal-real-time)))
+        (unwind-protect (funcall thunk)
+          (telemetry-note-wait
+           kind
+           (floor (* 1000000 (- (get-internal-real-time) start))
+                  internal-time-units-per-second))))
+      (funcall thunk)))
+
+(defun telemetry-call-with-wait-accounting (thunk)
+  "Call THUNK with fresh wait accounting and return its values. Read the waits
+with TELEMETRY-WAIT-FIELDS before THUNK returns."
+  (let ((*telemetry-wait-accounting* (list :waits)))
+    (funcall thunk)))
+
+(defun telemetry-wait-fields ()
+  "The current accounting as fields: KINDWaitMs for every kind that waited, and
+KINDWaitedFor (the WAITED-FOR strings, oldest first, joined by spaces) when
+any were given."
+  (let ((accounting *telemetry-wait-accounting*))
+    (when accounting
+      (loop for (kind microseconds waited-for) in (reverse (cdr accounting))
+            collect (cons (concatenate 'string kind "WaitMs")
+                          (round microseconds 1000))
+            when waited-for
+              collect (cons (concatenate 'string kind "WaitedFor")
+                            (format nil "~{~A~^ ~}" (reverse waited-for)))))))

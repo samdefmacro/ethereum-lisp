@@ -568,13 +568,13 @@ backend the peer sessions consult (pinned geth's Backend.AcceptTxs)."
   ;; fails must leave the guarded operation's own result intact.
   (let* ((calls 0)
          (fail-p nil))
-    (destructuring-bind (guard try priority pending)
+    (destructuring-bind (guard try priority pending ledger)
         (multiple-value-list
          (ethereum-lisp.cli::make-devnet-store-guard-function
           :release-hook (lambda ()
                           (incf calls)
                           (when fail-p (error "hook failure")))))
-      (declare (ignore pending))
+      (declare (ignore pending ledger))
       (is (eq :held (funcall guard (lambda () :held))))
       (is (= 1 calls))
       (is (equal '(:tried t)
@@ -593,6 +593,68 @@ backend the peer sessions consult (pinned geth's Backend.AcceptTxs)."
   (let ((guard (ethereum-lisp.cli::make-devnet-store-guard-function)))
     (is (eq :plain (funcall guard (lambda () :plain))))))
 
+(deftest devnet-store-guard-names-the-holds-an-engine-request-waited-behind
+  ;; On Hoodi (aee866f7) Engine requests with no execution took 5-25 s, and
+  ;; their log could not say who held the store guard. A priority waiter now
+  ;; reports guardWaitMs and guardWaitedFor (label:holdMs+hookMs of every hold
+  ;; that ended while it waited), and a hold over the long-hold bound is
+  ;; handed to LONG-HOLD-FUNCTION. Control: a waiter that found the guard free
+  ;; reports nothing, and a short hold is not reported as long.
+  #+sbcl
+  (let ((long-holds '())
+        (ethereum-lisp.cli::*devnet-store-guard-long-hold-ms* 200))
+    (destructuring-bind (guard try priority pending ledger)
+        (multiple-value-list
+         (ethereum-lisp.cli::make-devnet-store-guard-function
+          :release-hook (lambda () (sleep 0.02))
+          :long-hold-function
+          (lambda (hold)
+            (push (ethereum-lisp.cli::devnet-store-guard-hold-label hold)
+                  long-holds))))
+      (declare (ignore try pending ledger))
+      ;; Control: a free guard, and a short hold.
+      (ethereum-lisp.telemetry:telemetry-call-with-wait-accounting
+       (lambda ()
+         (funcall priority (lambda () :free))
+         (is (null (ethereum-lisp.telemetry:telemetry-wait-fields)))))
+      (let ((ethereum-lisp.telemetry:*telemetry-activity-label* "short"))
+        (funcall guard (lambda () :short)))
+      (is (null long-holds))
+      (sleep 0.01)
+      (let* ((holding (sb-thread:make-semaphore))
+             (holder
+               (sb-thread:make-thread
+                (lambda ()
+                  ;; A condition here must not kill the suite process.
+                  (handler-case
+                      ;; A special binding is per thread: rebind the bound here.
+                      (let ((ethereum-lisp.telemetry:*telemetry-activity-label*
+                              "sync-gap-fill")
+                            (ethereum-lisp.cli::*devnet-store-guard-long-hold-ms*
+                              200))
+                        (funcall guard
+                                 (lambda ()
+                                   (sb-thread:signal-semaphore holding)
+                                   (sleep 0.4))))
+                    (serious-condition (condition) condition)))
+                :name "store-guard-attribution-holder")))
+        (sb-thread:wait-on-semaphore holding)
+        (ethereum-lisp.telemetry:telemetry-call-with-wait-accounting
+         (lambda ()
+           (let ((ethereum-lisp.telemetry:*telemetry-activity-label*
+                   "engine_newPayloadV4"))
+             (is (eq :engine (funcall priority (lambda () :engine)))))
+           (let* ((fields (ethereum-lisp.telemetry:telemetry-wait-fields))
+                  (waited (cdr (assoc "guardWaitMs" fields :test #'string=)))
+                  (holders (cdr (assoc "guardWaitedFor" fields
+                                       :test #'string=))))
+             (is (and waited (<= 250 waited)))
+             (is (and holders
+                      (eql 0 (search "sync-gap-fill:" holders))
+                      (search "+" holders))))))
+        (sb-thread:join-thread holder)
+        (is (equal '("sync-gap-fill") long-holds))))))
+
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with
   ;; three peers and net_peerCount with zero is worse than one answering neither.
@@ -608,3 +670,55 @@ backend the peer sessions consult (pinned geth's Backend.AcceptTxs)."
   (let ((quiet (admin-test-backend :listening nil)))
     (is (eq :false (ethereum-lisp.public-api::engine-rpc-handle-net-listening
                     nil quiet)))))
+
+(defun store-guard-priority-wait-behind-regrabs (yield-seconds)
+  "Milliseconds an Engine (priority) request waits for the store guard while
+another thread takes the plain guard twenty times back to back, 50 ms each --
+the shape of a gap fill importing block after block."
+  #+sbcl
+  (multiple-value-bind (guard try priority)
+      (ethereum-lisp.cli::make-devnet-store-guard-function)
+    (declare (ignore try))
+    (let* ((started (sb-thread:make-semaphore))
+           (holder
+             (sb-thread:make-thread
+              (lambda ()
+                ;; A condition here must not kill the suite process.
+                (handler-case
+                    ;; Specials are per thread: the deferral runs here.
+                    (let ((ethereum-lisp.cli::*devnet-store-guard-priority-yield-seconds*
+                            yield-seconds))
+                      (loop for index below 20
+                            do (funcall guard
+                                        (lambda ()
+                                          (when (zerop index)
+                                            (sb-thread:signal-semaphore started))
+                                          (sleep 0.05)))))
+                  (serious-condition (condition) condition)))
+              :name "store-guard-regrab-holder")))
+      (sb-thread:wait-on-semaphore started)
+      (let ((started-at (get-internal-real-time)))
+        (funcall priority (lambda () nil))
+        (prog1 (round (* 1000 (- (get-internal-real-time) started-at))
+                      internal-time-units-per-second)
+          (sb-thread:join-thread holder)))))
+  #-sbcl 0)
+
+(deftest devnet-store-guard-background-takers-defer-to-a-waiting-engine-request
+  ;; SBCL mutexes are not fair. On Hoodi (aee866f7) Engine requests with no
+  ;; execution waited 5-25 s while a gap fill imported block after block, one
+  ;; guard hold each, re-taking the guard ahead of the woken Engine waiter.
+  ;; Plain guard takers now stay off the mutex while an Engine request waits.
+  ;; Control: with the deferral bounded to zero seconds (the old behaviour)
+  ;; the waiter sits behind most of the twenty holds (measured 607-1153 ms);
+  ;; with it, behind at most the hold in progress (measured 52-60 ms).
+  #-sbcl (skip-test "store guard deferral requires SBCL threads")
+  #+sbcl
+  ;; The unfairness is probabilistic (single runs measured 607-1153 ms), so
+  ;; each side takes the worst of three.
+  (let ((old (loop repeat 3
+                   maximize (store-guard-priority-wait-behind-regrabs 0)))
+        (new (loop repeat 3
+                   maximize (store-guard-priority-wait-behind-regrabs 2))))
+    (is (>= old 400))
+    (is (<= new 250))))

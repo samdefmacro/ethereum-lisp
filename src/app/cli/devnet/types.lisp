@@ -328,30 +328,145 @@ error, so its conditions are dropped here."
           (serious-condition () nil)))
       (funcall thunk)))
 
-(defun make-devnet-store-guard-try-function (mutex &key release-hook)
-  "A companion to a store-guard function that gives up instead of waiting.
+(defparameter *devnet-store-guard-priority-yield-seconds* 2
+  "How long a guard taker that is not an Engine request defers to one.
 
-Returns a function of a thunk yielding (VALUES RESULT RAN-P): the thunk runs
-under MUTEX when it is free right now, and does not run at all when it is
-held. RELEASE-HOOK is as for MAKE-DEVNET-STORE-GUARD-FUNCTION."
-  #+sbcl
-  (lambda (thunk)
-    (if (sb-thread:grab-mutex mutex :waitp nil)
-        (unwind-protect
-             (values (call-with-devnet-store-guard-release-hook
-                      release-hook thunk)
-                     t)
-          (sb-thread:release-mutex mutex))
-        (values nil nil)))
-  #-sbcl
-  (progn
-    mutex
-    (lambda (thunk)
-      (values (call-with-devnet-store-guard-release-hook release-hook thunk)
-              t))))
+Our policy. Waiting ends as soon as every waiter owns the guard in turn; the
+bound only keeps a continuous stream of Engine requests from starving the
+importer and the other background holders completely.")
 
-(defun make-devnet-store-guard-function (&key release-hook)
-  "Return (VALUES GUARD TRY PRIORITY-GUARD PRIORITY-PENDING-P) over one mutex.
+;;; Guard-hold attribution.
+;;;
+;;; An Engine request that waited for the store guard cannot tell from its own
+;;; clock WHO it waited for, and on Hoodi (aee866f7) newPayload and
+;;; forkchoiceUpdated answers took 5-25 s with no execution at all. The ledger
+;;; records every hold as it is released -- the holder's activity label, how
+;;; long it held the guard and how much of that was the release hook -- so a
+;;; waiter can name the holds that ended while it waited, and a hold longer
+;;; than a bound can be logged by itself.
+
+(defconstant +devnet-store-guard-ledger-size+ 32
+  "How many released holds the ledger keeps. A waiter names only holds that
+ended during its wait, so this bounds the length of that list, not its age.")
+
+(defstruct (devnet-store-guard-ledger
+            (:constructor make-devnet-store-guard-ledger ()))
+  "Released store-guard holds, newest last. Written only by the guard owner,
+just before it releases; read by the next owner, so the mutex orders every
+access. HOLDER-LABEL is the current owner's label, set on acquisition; a waiter
+reads it racily, only to name who it found holding the guard."
+  (holder-label nil)
+  (holds (make-array +devnet-store-guard-ledger-size+ :initial-element nil)
+   :type simple-vector)
+  (next 0 :type fixnum))
+
+(defstruct (devnet-store-guard-hold
+            (:constructor make-devnet-store-guard-hold
+                (label started-at ended-at hook-ms)))
+  "One released hold. STARTED-AT and ENDED-AT are internal real times."
+  (label nil :read-only t)
+  (started-at 0 :read-only t)
+  (ended-at 0 :read-only t)
+  (hook-ms 0 :read-only t))
+
+(defun devnet-internal-time-ms (ticks)
+  (round (* 1000 ticks) internal-time-units-per-second))
+
+(defun devnet-store-guard-hold-ms (hold)
+  (devnet-internal-time-ms
+   (- (devnet-store-guard-hold-ended-at hold)
+      (devnet-store-guard-hold-started-at hold))))
+
+(defun devnet-store-guard-ledger-record (ledger hold)
+  (let ((next (devnet-store-guard-ledger-next ledger))
+        (holds (devnet-store-guard-ledger-holds ledger)))
+    (setf (svref holds next) hold
+          (devnet-store-guard-ledger-next ledger)
+          (mod (1+ next) (length holds)))
+    hold))
+
+(defun devnet-store-guard-ledger-holds-ended-after (ledger since)
+  "The recorded holds that ended after internal time SINCE, oldest first. Call
+it while owning the guard. Strictly after: the clock is coarse (a millisecond
+on SBCL), and a hold released in the tick a wait began usually ended before it."
+  (let* ((holds (devnet-store-guard-ledger-holds ledger))
+         (size (length holds))
+         (next (devnet-store-guard-ledger-next ledger)))
+    (loop for offset from 0 below size
+          for hold = (svref holds (mod (+ next offset) size))
+          when (and hold (> (devnet-store-guard-hold-ended-at hold) since))
+            collect hold)))
+
+(defun devnet-store-guard-hold-description (hold)
+  "LABEL:HOLDms, with +HOOKms when the release hook took any measurable time.
+HOLDms includes the hook."
+  (let ((hook-ms (devnet-store-guard-hold-hook-ms hold)))
+    (format nil "~A:~D~:[~;+~D~]"
+            (devnet-store-guard-hold-label hold)
+            (devnet-store-guard-hold-ms hold)
+            (plusp hook-ms) hook-ms)))
+
+(defparameter *devnet-store-guard-long-hold-ms* 1000
+  "Holds at least this long are reported to the guard's LONG-HOLD-FUNCTION.
+Our policy: the forward importer and the payload builder bound their holds to
+one second, so anything longer is worth a log line.")
+
+(defun call-with-devnet-store-guard-hold
+    (ledger release-hook long-hold-function thunk)
+  "Call THUNK as the owner of the guard LEDGER describes, then its release hook,
+recording the hold. The caller owns the mutex for the whole call.
+
+RELEASE-HOOK keeps CALL-WITH-DEVNET-STORE-GUARD-RELEASE-HOOK's contract. A
+hold of *DEVNET-STORE-GUARD-LONG-HOLD-MS* or more is passed to
+LONG-HOLD-FUNCTION, whose conditions are dropped like the hook's."
+  (let ((started-at (get-internal-real-time))
+        (label (ethereum-lisp.telemetry:telemetry-activity-label)))
+    (setf (devnet-store-guard-ledger-holder-label ledger) label)
+    (let ((hook-started-at nil))
+      (unwind-protect
+           (call-with-devnet-store-guard-release-hook
+            (and release-hook
+                 (lambda ()
+                   (setf hook-started-at (get-internal-real-time))
+                   (funcall release-hook)))
+            thunk)
+        (let* ((ended-at (get-internal-real-time))
+               (hold (make-devnet-store-guard-hold
+                      label started-at ended-at
+                      (if hook-started-at
+                          (devnet-internal-time-ms (- ended-at hook-started-at))
+                          0))))
+          (devnet-store-guard-ledger-record ledger hold)
+          (setf (devnet-store-guard-ledger-holder-label ledger) nil)
+          (when (and long-hold-function
+                     (>= (devnet-store-guard-hold-ms hold)
+                         *devnet-store-guard-long-hold-ms*))
+            (handler-case (funcall long-hold-function hold)
+              (serious-condition () nil))))))))
+
+(defun devnet-store-guard-note-priority-wait (ledger wait-started-at found-label)
+  "Account a priority waiter's wait that just ended in owning the guard.
+
+Adds guardWaitMs and guardWaitedFor to the current request's wait accounting
+(TELEMETRY-NOTE-WAIT): the holds that ended while it waited, or, when the
+ledger lost them, the label it found holding the guard."
+  (let ((waited-ticks (- (get-internal-real-time) wait-started-at)))
+    (when (plusp waited-ticks)
+      (let ((holds (devnet-store-guard-ledger-holds-ended-after
+                    ledger wait-started-at)))
+        (ethereum-lisp.telemetry:telemetry-note-wait
+         "guard"
+         (floor (* 1000000 waited-ticks) internal-time-units-per-second)
+         (cond
+           (holds
+            (format nil "~{~A~^ ~}"
+                    (mapcar #'devnet-store-guard-hold-description holds)))
+           (found-label (format nil "~A:?" found-label))))))))
+
+(defun make-devnet-store-guard-function
+    (&key release-hook long-hold-function)
+  "Return (VALUES GUARD TRY PRIORITY-GUARD PRIORITY-PENDING-P LEDGER) over one
+mutex.
 
 GUARD blocks until the mutex is free; TRY gives up instead of waiting. Two
 functions rather than one with a flag so that a caller cannot accidentally
@@ -364,56 +479,90 @@ mutex, and stay off it until the waiter got in. The count drops as soon as the
 waiter owns the mutex, not when it finishes, so a holder that stepped aside
 never spins through the Engine request's own work. SBCL mutexes are not fair;
 without this signal a holder that re-acquires in a loop can keep a waiting
-Engine request out indefinitely.
+Engine request out indefinitely. A priority waiter that had to wait reports
+guardWaitMs and guardWaitedFor through TELEMETRY-NOTE-WAIT, so the Engine
+request log names the holds it waited behind. GUARD and TRY defer to a waiting
+Engine request (up to *DEVNET-STORE-GUARD-PRIORITY-YIELD-SECONDS*; TRY simply
+fails), because a holder that releases and re-takes the mutex otherwise wins
+against the woken waiter.
 
 RELEASE-HOOK, when given, is a function of no arguments that all three run
 just before they release the mutex, still owning it. It is how state that only
 the guard may read gets published for readers that must never wait for the
 guard (eth_syncing): the guard is almost always held on a busy node, but it is
 released between holds, and that boundary is the one place where the store is
-both readable and committed. It must be cheap; it runs on every release."
-  #+sbcl
-  (let ((mutex (sb-thread:make-mutex :name "ethereum-lisp-node-store"))
-        ;; A cons so SB-EXT:ATOMIC-INCF can update its fixnum CAR.
-        (priority-waiters (list 0)))
-    (values (lambda (thunk)
-              (sb-thread:with-mutex (mutex)
-                (call-with-devnet-store-guard-release-hook release-hook thunk)))
-            (make-devnet-store-guard-try-function
-             mutex :release-hook release-hook)
-            (lambda (thunk)
-              (let ((counted-p t))
-                (sb-ext:atomic-incf (car priority-waiters))
-                (unwind-protect
-                     (sb-thread:with-mutex (mutex)
-                       (setf counted-p nil)
-                       (sb-ext:atomic-decf (car priority-waiters))
-                       (call-with-devnet-store-guard-release-hook
-                        release-hook thunk))
-                  ;; Unwound while still waiting (an interrupt or timeout).
-                  (when counted-p
-                    (sb-ext:atomic-decf (car priority-waiters))))))
-            (lambda ()
-              (plusp (car priority-waiters)))))
-  #-sbcl
-  (values (lambda (thunk)
-            (call-with-devnet-store-guard-release-hook release-hook thunk))
-          (make-devnet-store-guard-try-function nil :release-hook release-hook)
-          (lambda (thunk)
-            (call-with-devnet-store-guard-release-hook release-hook thunk))
-          (lambda () nil)))
+both readable and committed. It must be cheap; it runs on every release.
+
+LONG-HOLD-FUNCTION, when given, receives each DEVNET-STORE-GUARD-HOLD of at
+least *DEVNET-STORE-GUARD-LONG-HOLD-MS*, still under the mutex. LEDGER is the
+DEVNET-STORE-GUARD-LEDGER all holds are recorded in."
+  (let ((ledger (make-devnet-store-guard-ledger)))
+    #+sbcl
+    (let ((mutex (sb-thread:make-mutex :name "ethereum-lisp-node-store"))
+          ;; A cons so SB-EXT:ATOMIC-INCF can update its fixnum CAR.
+          (priority-waiters (list 0)))
+      (flet ((hold (thunk)
+               (call-with-devnet-store-guard-hold
+                ledger release-hook long-hold-function thunk))
+             (defer-to-priority ()
+               ;; SBCL mutexes are not fair: a thread that releases the guard
+               ;; and takes it again (a gap fill importing block after block,
+               ;; a peer served lookup after lookup) usually wins against the
+               ;; woken Engine waiter. Every non-Engine taker therefore stays
+               ;; off the mutex while an Engine request waits, bounded by
+               ;; *DEVNET-STORE-GUARD-PRIORITY-YIELD-SECONDS*.
+               (when (plusp (car priority-waiters))
+                 (let ((deadline
+                         (+ (get-internal-real-time)
+                            (* *devnet-store-guard-priority-yield-seconds*
+                               internal-time-units-per-second))))
+                   (loop while (and (plusp (car priority-waiters))
+                                    (< (get-internal-real-time) deadline))
+                         do (sleep 0.001))))))
+        (values (lambda (thunk)
+                  (defer-to-priority)
+                  (sb-thread:with-mutex (mutex)
+                    (hold thunk)))
+                (lambda (thunk)
+                  ;; A waiting Engine request counts as holding the guard.
+                  (if (and (not (plusp (car priority-waiters)))
+                           (sb-thread:grab-mutex mutex :waitp nil))
+                      (unwind-protect (values (hold thunk) t)
+                        (sb-thread:release-mutex mutex))
+                      (values nil nil)))
+                (lambda (thunk)
+                  (let ((counted-p t)
+                        (wait-started-at (get-internal-real-time))
+                        (found-label
+                          (devnet-store-guard-ledger-holder-label ledger)))
+                    (sb-ext:atomic-incf (car priority-waiters))
+                    (unwind-protect
+                         (sb-thread:with-mutex (mutex)
+                           (setf counted-p nil)
+                           (sb-ext:atomic-decf (car priority-waiters))
+                           (devnet-store-guard-note-priority-wait
+                            ledger wait-started-at found-label)
+                           (hold thunk))
+                      ;; Unwound while still waiting (an interrupt or timeout).
+                      (when counted-p
+                        (sb-ext:atomic-decf (car priority-waiters))))))
+                (lambda ()
+                  (plusp (car priority-waiters)))
+                ledger)))
+    #-sbcl
+    (flet ((hold (thunk)
+             (call-with-devnet-store-guard-hold
+              ledger release-hook long-hold-function thunk)))
+      (values #'hold
+              (lambda (thunk) (values (hold thunk) t))
+              #'hold
+              (lambda () nil)
+              ledger))))
 
 (defun devnet-node-store-guard-priority-pending-p (node)
   "True while an Engine request waits for NODE's store guard."
   (let ((pending (devnet-node-store-guard-priority-pending-function node)))
     (and pending (funcall pending) t)))
-
-(defparameter *devnet-store-guard-priority-yield-seconds* 2
-  "How long a long guard holder that stepped aside waits for priority waiters.
-
-Our policy. Waiting ends as soon as every waiter owns the guard in turn; the
-bound only keeps a continuous stream of Engine requests from starving the
-importer completely.")
 
 (defun devnet-node-yield-store-guard-to-priority (node)
   "Wait, WITHOUT holding NODE's store guard, until no Engine request waits.

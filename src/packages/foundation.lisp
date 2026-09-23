@@ -127,7 +127,20 @@
    #:telemetry-log
    #:telemetry-metric
    #:telemetry-prometheus-escape
-   #:telemetry-prometheus-text))
+   #:telemetry-prometheus-text
+   #:*telemetry-activity-label*
+   #:telemetry-activity-label
+   #:telemetry-gc-count
+   #:telemetry-gc-run-microseconds
+   #:telemetry-thread-cpu-microseconds
+   #:telemetry-dynamic-usage-bytes
+   #:telemetry-runtime-sample
+   #:telemetry-runtime-fields
+   #:*telemetry-wait-accounting*
+   #:telemetry-note-wait
+   #:telemetry-call-with-accounted-wait
+   #:telemetry-call-with-wait-accounting
+   #:telemetry-wait-fields))
 
 (defpackage #:ethereum-lisp.validation
   (:use #:cl #:ethereum-lisp.bytes)
