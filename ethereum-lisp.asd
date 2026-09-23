@@ -275,7 +275,8 @@
        (:file "txpool-cleanup-new-head" :pathname "txpool/service/cleanup-new-head")
        (:file "txpool-pending-revalidation" :pathname "txpool/service/pending-revalidation")
        (:file "txpool-reorg" :pathname "txpool/service/reorg")
-       (:file "node-store-blocks" :pathname "node-store/blocks")))
+       (:file "node-store-blocks" :pathname "node-store/blocks")
+       (:file "node-store-read-view" :pathname "node-store/read-view")))
      (:module "application-services"
       :pathname "application/services/"
       :depends-on ("runtime-core" "storage-core")
@@ -498,6 +499,7 @@
      (:file "debug-tracing-tests")
      (:file "cli-devnet-dial-tests")
      (:file "admin-rpc-tests")
+     (:file "rpc-read-view-tests")
      (:file "txpool-mining-order-tests")
      (:file "rpc-log-bloom-tests")
      (:file "engine-invalid-payload-tests")

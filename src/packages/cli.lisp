@@ -6,6 +6,9 @@
                 #:hash32=)
   (:import-from #:ethereum-lisp.chain-store
                 #:engine-payload-store-ancestor-p)
+  (:import-from #:ethereum-lisp.node-store
+                #:node-store-publish-read-view
+                #:node-store-read-view-attempt)
   (:import-from #:ethereum-lisp.engine-payloads
                 #:engine-target-gas-limit)
   (:import-from #:ethereum-lisp.engine-api

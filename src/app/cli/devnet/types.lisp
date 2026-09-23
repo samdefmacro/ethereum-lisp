@@ -294,6 +294,11 @@ the established pool instead of relearning it from the cold minimum."
   ;; wholesale at every store-guard release. Readers take it without any lock;
   ;; see DEVNET-NODE-PUBLISH-SYNC-VIEW. NIL until the first publication.
   (sync-view nil)
+  ;; The public read view (NODE-STORE-PUBLISH-READ-VIEW): the recent canonical
+  ;; chain as immutable data, republished at every store-guard release so the
+  ;; public RPC can answer block, receipt and head reads without waiting for
+  ;; the guard. NIL until the first publication; readers then use the guard.
+  (read-view nil)
   ;; EIP-778 sequence and the exact pairs it describes. The responder updates
   ;; these under the peer-table lock, so a changed endpoint/fork id increments
   ;; monotonically even across a chain reorg whose head number decreases.

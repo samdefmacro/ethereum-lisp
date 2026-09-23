@@ -9,6 +9,7 @@
                       new-payload-persistence-function
                       forkchoice-persistence-function request-guard-function
                       request-guard-predicate
+                      read-view-function read-view-method-p
                       payload-improvement-notification-function
                       network-id coinbase
                       allowed-method-p allow-unprotected-transactions-p
@@ -26,6 +27,13 @@
   forkchoice-persistence-function
   request-guard-function
   request-guard-predicate
+  ;; READ-VIEW-FUNCTION, when set, answers READ-VIEW-METHOD-P requests without
+  ;; the request guard: it is called with a function of one store argument and
+  ;; returns (VALUES RESULT ANSWERED-P), running that function against an
+  ;; immutable published view. ANSWERED-P false means the view could not answer
+  ;; and the request takes the guarded path. See RPC-HANDLE-REQUEST.
+  read-view-function
+  read-view-method-p
   payload-improvement-notification-function
   network-id
   coinbase
@@ -52,6 +60,8 @@
                        forkchoice-persistence-function
                        request-guard-function
                        request-guard-predicate
+                       read-view-function
+                       read-view-method-p
                        payload-improvement-notification-function
                        network-id
                        coinbase
@@ -90,6 +100,11 @@
              (not (functionp request-guard-predicate)))
     (block-validation-fail
      "JSON-RPC request guard predicate must be a function"))
+  (when (and read-view-function (not (functionp read-view-function)))
+    (block-validation-fail "JSON-RPC read view must be a function"))
+  (when (and read-view-method-p (not (functionp read-view-method-p)))
+    (block-validation-fail
+     "JSON-RPC read view method predicate must be a function"))
   (when (and payload-improvement-notification-function
              (not (functionp payload-improvement-notification-function)))
     (block-validation-fail
@@ -109,6 +124,8 @@
    :forkchoice-persistence-function forkchoice-persistence-function
    :request-guard-function request-guard-function
    :request-guard-predicate request-guard-predicate
+   :read-view-function read-view-function
+   :read-view-method-p read-view-method-p
    :payload-improvement-notification-function
    payload-improvement-notification-function
    :network-id network-id
@@ -283,6 +300,36 @@
            id
            :error (json-rpc-error-object -32603 "Internal error")))))))
 
+(defun rpc-response-error-p (response)
+  "Whether RESPONSE, as built by JSON-RPC-RESPONSE, carries an error."
+  (and (consp response)
+       (assoc "error" response :test #'equal)
+       t))
+
+(defun rpc-handle-request-from-read-view (request context method)
+  "Answer REQUEST from CONTEXT's published read view, without the guard.
+
+Returns (VALUES RESPONSE ANSWERED-P). Only a successful answer counts: a view
+miss, and also any error response, sends the request down the guarded path, so
+the live store stays the authority for every error and for everything the view
+does not hold. Notifications are never tried here, because their response is
+NIL whether or not the view answered."
+  (let ((read-view (rpc-context-read-view-function context))
+        (method-p (rpc-context-read-view-method-p context)))
+    (when (and read-view method-p
+               (stringp method)
+               (not (json-rpc-notification-p request))
+               (funcall method-p method))
+      (multiple-value-bind (response answered-p)
+          (funcall read-view
+                   (lambda (view)
+                     (let ((view-context (copy-rpc-context context)))
+                       (setf (rpc-context-store view-context) view)
+                       (rpc-handle-request-without-guard
+                        request view-context))))
+        (when (and answered-p response (not (rpc-response-error-p response)))
+          (values response t))))))
+
 (defun rpc-handle-request (request context)
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
@@ -292,17 +339,19 @@
              (guard (rpc-context-request-guard-function context))
              (predicate (rpc-context-request-guard-predicate context))
              (method
-               (and predicate
-                    (json-object-p request)
+               (and (json-object-p request)
                     (json-object-field-present-p request "method")
                     (json-object-field request "method")))
              (guard-required-p
                (or (null predicate)
                    (not (stringp method))
                    (funcall predicate method))))
-        (if (and guard guard-required-p)
-            (funcall guard thunk)
-            (funcall thunk)))
+        (multiple-value-bind (view-response view-answered-p)
+            (rpc-handle-request-from-read-view request context method)
+          (cond
+            (view-answered-p view-response)
+            ((and guard guard-required-p) (funcall guard thunk))
+            (t (funcall thunk)))))
     (error (condition)
       (declare (ignore condition))
       (unless (json-rpc-notification-p request)
@@ -310,6 +359,7 @@
          (and (json-object-p request)
               (json-object-field request "id"))
          :error (json-rpc-error-object -32603 "Internal error"))))))
+
 
 (defun rpc-handle-request-value (request context)
   (cond
