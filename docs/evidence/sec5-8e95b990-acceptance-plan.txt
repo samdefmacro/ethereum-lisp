@@ -1,0 +1,447 @@
+Section 5 acceptance plan for the 8e95b990 live run -- PREPARED, NOT RUN
+
+Prepared: 2026-09-23 (control plane only; the Hoodi host was not contacted)
+Revision: 8e95b9904447b4cee9aac7aa88d92963d17db4c6
+Live container: hoodi-el-sec5-8e95b990 on test-ethereum-sophon2-symbiosis
+Plan authority: docs/gap-analysis/public-testnet-readiness-plan.md, Section 5
+("Completion requires one continuous fresh datadir run ...") and Section 10
+(shadow gate paragraph); docs/validation.md (live gate, shadow fan-out,
+validator soak); docs/hive-gate.md.
+
+This file is the coordinator's command sequence for the moment the live run
+converges. Nothing below has been executed except the local builds in
+"Artifacts". Every step marked REMOTE-ONLY runs against the Hoodi host and
+needs the user's standing authorization for this blocker; every step marked
+LOCAL runs on the control plane through the reviewed brokers.
+
+Order (each step gates the next):
+
+  0. LOCAL        exact-revision EEST v20.0.2 and cold-all at 8e95b990 (if not
+                  already archived)
+  1. REMOTE-ONLY  `complete` (read-only acceptance) + status/logs
+  2. LOCAL        archive the live record (sec5-8e95b990-hoodi-complete.txt)
+  3. REMOTE-ONLY  Hive rpc-compat, Engine/auth, devp2p at 8e95b990
+  4. REMOTE-ONLY  seven-day shadow comparison
+  5. REMOTE-ONLY  fourteen-day validator soak
+
+
+=== Fixed identities ===
+
+REV=8e95b9904447b4cee9aac7aa88d92963d17db4c6
+HOST=test-ethereum-sophon2-symbiosis
+  (every broker defaults to test-ethereum-server, which does not resolve on
+  this control plane; it is the same machine: 8 vCPU, 15 GiB RAM, public IP
+  165.154.224.110 as pinned in every broker)
+
+Runtime image       ethereum-lisp-runtime:sec5-8e95b990-amd64
+  local image id    sha256:ea7e820d12db544d3e8078eff910036e90c8d0764e5b26e1aa983df1d5a87310
+  size              72,086,686 bytes, linux/amd64, user ethereum:ethereum,
+                    OCI revision label = REV
+Runtime artifact    /private/tmp/ethereum-lisp-runtime-sec5-8e95b990-amd64.tar
+                    72,111,616 bytes
+                    sha256 80a3bafb4e86315b1892b0e70450054e725f98efe8a250a5453a284674394e9d
+                    (independent shasum readback on 2026-09-23 agrees)
+Source archive      /private/tmp/ethereum-lisp-source-8e95b990.tar
+                    built with `git archive --format=tar 8e95b990`
+                    30,689,280 bytes
+                    sha256 dc547a2ea7ad3569d81dfb8506f6e6a0419390a592e3527a57683de2e1f0740c
+                    973 file entries = 973 paths from `git ls-tree -r 8e95b990`,
+                    plus 116 directory entries
+Shadow proxy image  ethereum-lisp-shadow-engine-proxy:sec5-8e95b990-amd64
+  local image id    sha256:8811ee7981a21f25ebe0f8204de353a510b4db8be25a16373c94fa4a4c3a9987
+  size              30,943,621 bytes, linux/amd64, user shadowproxy:shadowproxy,
+                    OCI revision label = REV
+Shadow artifact     /private/tmp/ethereum-lisp-shadow-engine-proxy-sec5-8e95b990-amd64.tar
+                    30,958,080 bytes
+                    sha256 cb7950d955e231e1794fde1b622276d0871b2e957d4919272fdc00b02bed7c30
+Memory bound        HOODI_GATE_MEMORY_BYTES=12884901888 (12 GiB memory and
+                    memory-swap; `status` and `restart` fail closed on any other
+                    value)
+Live datadir        /data/hoodi-sec5-20260814/datadir-8e95b990 (the broker's
+                    revision-derived default; confirm the `datadir=` line of
+                    the first `status` before any `restart`)
+CL alias / networks hoodi-el-public-36a22e47 on hoodi-frozen; egress hoodi-net
+Lighthouse          hoodi-lighthouse-public
+
+Hive pins (unchanged since 3305307d; checksums re-read at 8e95b990 and equal
+to the values in sec5-3305307d-hive-*.txt):
+  Hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c
+  execution-apis e5d1bb60e6c064e4b15080da07b4370d0baadf92 (rpc-compat only)
+  devp2p geth 101035a1049c7dc468bfe973478b579d9883d7b6
+  Hive binary sha256 cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+  scripts/hive-run.sh           1899c4944277703a908ab4727df5d3b0ee883849720cb8a753631da13df5c050
+  scripts/hive-devp2p.Dockerfile 73cba04a71d46be86379c83f9d7b3254d58d74296856d75f9529d9a8ce268d45
+  scripts/hive-adapter-smoke.sh 0e54df7de91e6de064ff42c24eb87e83e173d97a304677703152994f84020589
+  scripts/hive-runtime-smoke.sh 736ec67579ddf762655183b9e94cdfed537bc7a57e6458c87e1b2d7bc55cf3c9
+  tools/hive/Dockerfile         717cbf3b132129bc30bf9ec8f459d98f19337ab5e5eee675d3e4805d423b7adf
+  tools/hive/enode.sh           f2a6a9a8bd0b12e87d14d195fbb2f7cf0e2811958107f5eb0bb6ba91b2d25741
+  tools/hive/ethereum-lisp.sh   6e2f9e837657d4dd85f27b7a613bec1c158c9281b3933decb747f10ca601eb3a
+  tools/hive/genesis.json       744c8c0f80dbd291fe76672b9832ec80d51e92d081ed586c6617505f74240f8c
+  tools/hive/hive.yaml          47aea2c73e6013fb151060bebcc04014f81721adec8ef5a6c85cc63004e16945
+  tools/hive/mapper.jq          4330ef9400c96a42a864a378be0a8f1f511ef7098cadc10b586db3ed323a90be
+  tools/hive/README.md          4a8b87ab9ec57115f04f549bdd4144a99448106b66c0c58d8721d81091ba0f0c
+
+
+=== Where to run the brokers from ===
+
+All three Hoodi brokers refuse a dirty checkout for mutations. The live gate
+additionally refuses every mutating action when a runtime-sensitive path
+(anything outside docs/ and the three reviewed hoodi-*-gate scripts) differs
+between REV and HEAD. Run from a clean checkout whose HEAD is REV, or a
+descendant that changes only docs/ (this branch, sec5-acceptance-prep, is such
+a descendant). Export this block in that shell first:
+
+  export REV=8e95b9904447b4cee9aac7aa88d92963d17db4c6
+  export HOODI_GATE_HOST=test-ethereum-sophon2-symbiosis
+  export HOODI_GATE_RUNTIME_REVISION=$REV
+  export HOODI_GATE_MEMORY_BYTES=12884901888
+  export HOODI_GATE_DATADIR=/data/hoodi-sec5-20260814/datadir-8e95b990
+  export HOODI_SHADOW_HOST=test-ethereum-sophon2-symbiosis
+  export HOODI_SHADOW_PROXY_REVISION=$REV
+  export HOODI_SHADOW_SOURCE_CONTAINER=hoodi-el-sec5-8e95b990
+  export HOODI_SHADOW_SOURCE_REVISION=$REV
+  export HOODI_VALIDATOR_HOST=test-ethereum-sophon2-symbiosis
+
+HOODI_SHADOW_SOURCE_* are mandatory: the shadow broker still defaults to the
+retired hoodi-lisp-79fd759a-fresh-final / 79fd759a... source. The validator
+soak's `start` calls `scripts/hoodi-shadow-gate.sh complete` as a child, so
+the HOODI_SHADOW_* exports must be present in that shell too.
+
+
+=== Step 0 -- LOCAL: exact-revision offline gates (prerequisite, not remote) ===
+
+The plan requires the same revision to pass the selected current-fork EEST
+and required Hive suites with zero unexpected skips before its shadow
+comparison can count. No 8e95b990 cold-all or EEST v20.0.2 record exists on
+this branch (the latest are sec5-aac5f762-amd64-runtime.txt and
+sec5-3305307d-eest-v20.0.2.txt). If the coordinator does not already hold
+them, run from a clean checkout at REV (this agent did not run cold lanes):
+
+  cl-workbench doctor --strict
+  cl-workbench validation run cold-all > cold-all-8e95b990.log 2>&1; echo "EXIT=$?"
+  grep -E "^not ok|tests passed|skipped" cold-all-8e95b990.log
+  scripts/dev.sh eest-fixtures stable-v20.0.2 .eest-fixtures-sec5-8e95b990
+  # then the eight single-test cold-integration gates exactly as in
+  # sec5-3305307d-eest-v20.0.2.txt, with
+  #   ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<checkout>/.eest-fixtures-sec5-8e95b990/tests-v20.0.2
+  #   ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS=auto
+  #   ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS=London,Shanghai,Cancun,Prague,Osaka
+  #   ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS=auto
+  #   ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS=Shanghai,Cancun,Prague,Osaka
+  #   cl-workbench validation run cold-integration --match <test> > <log> 2>&1
+
+Evidence: sec5-8e95b990-amd64-runtime.txt (cold-all counts, runtime-smoke 7/7,
+the artifact identity above) and sec5-8e95b990-eest-v20.0.2.txt (per-gate
+table, selected/executed counts, corpus sha256 1280540950a4...1788).
+
+
+=== Step 1 -- REMOTE-ONLY: acceptance (read-only) ===
+
+Run as soon as a `logs` sample shows el-event=peer.snap.target_completed
+count>=1 and el-heal-progress=completed value=true with frontierWorks 0.
+`complete` and `logs` read only `docker logs --tail 10000`; if the completion
+lines scroll out of that window (discovery/dial noise, hours of forward sync)
+`complete` fails with completion-missing=... even though the run converged.
+Do not wait for a round number of hours. If `complete` reports
+completion-healer-completed=NIL because a new pivot generation has just
+started, re-run it after that generation logs completed=T.
+
+  S=<session scratchpad>
+  scripts/hoodi-live-gate.sh status   > $S/8e95-status-1.txt 2>&1; echo "EXIT=$?"
+  scripts/hoodi-live-gate.sh logs     > $S/8e95-logs-1.txt 2>&1;   echo "EXIT=$?"
+  scripts/hoodi-live-gate.sh complete > $S/8e95-complete.txt 2>&1; echo "EXIT=$?"
+  scripts/hoodi-live-gate.sh status   > $S/8e95-status-2.txt 2>&1; echo "EXIT=$?"
+
+Acceptance = `complete` exit 0 printing all four lines:
+  completion-target=<N>
+  completion-healer-completed=T frontier=0
+  completion-eth-syncing=false
+  completion-canonical-block=<M>   (M >= N)
+and, from status/logs: container running, OOMKilled false, started-at equal
+to the start record (continuity: no restart since start), el-runtime-fault-
+count=0, cl_node_syncing is_syncing=false/el_offline=false, net_peerCount>0.
+Then, 30+ minutes later, one more status sample showing eth_blockNumber has
+advanced with the CL head (continued head following).
+
+A `complete` failure is not a Section 5 result: keep the stderr line
+(completion-missing=..., completion-canonical-block=M target=N, etc.) and
+re-sample.
+
+
+=== Step 2 -- LOCAL: archive the live record ===
+
+Fill docs/evidence/sec5-8e95b990-hoodi-complete.txt (skeleton committed with
+this plan) from the step-1 outputs and commit it on a docs-only branch.
+Required content: the four completion lines verbatim; container start time
+and the absence of any restart; heal generation table (time, pivot,
+processed, fetched, skipped, frontier, knownIncomplete, completed) from the
+heal_progress events; target_completed pivot and time; eth_syncing=false
+time; canonical head vs CL target; peer/negotiation counts (eth72-snap1),
+discovery crawl chain-filter flag, no static enode; datadir bytes and
+/data utilization; runtime faults 0; any Engine deadline events during
+forward sync (the aac5f762 open item); peer.snap.storage_closure count (see
+finding F4: the broker does not project its fields).
+
+
+=== Step 3 -- REMOTE-ONLY: Hive rpc-compat, Engine/auth, devp2p ===
+
+Memory sequencing decision
+
+The host has 15 GiB. The EL is bounded at 12 GiB (limit, not usage) and
+Lighthouse runs beside it. Hive outer runners are bounded at: rpc-compat 2
+CPU / 3 GiB (3.5 GiB with swap); Engine/auth 2 CPU / 8 GiB (10 GiB with swap;
+3 GiB OOM-killed and 4 GiB produced connection-reset failures, r25-r29);
+devp2p 2 CPU / 8 GiB (10 GiB with swap, r54). Earlier Hive runs shared the
+host with a 7 GiB EL; with 12 GiB they cannot.
+
+Decision:
+  (a) rpc-compat runs first, WITH the EL running, only if the shadow broker's
+      read-only `status` (it prints `free -b`) shows MemAvailable >= 4.5 GiB
+      (3.5 GiB runner incl. swap + 1 GiB margin) and /data has >= 12 GiB free.
+      Otherwise treat it like (b).
+  (b) Engine/auth and devp2p cannot run beside a 12-GiB-bounded EL. They run
+      back to back in one maintenance window with the EL STOPPED and
+      Lighthouse left running (so the CL stays at head and EL catch-up is
+      short). Expected window: Engine about 2 h 06 min (r29), devp2p about
+      30 min (r54), plus staging; budget 3 h.
+  (c) After the window the EL is brought back with the broker's own
+      `restart`, which accepts a stopped container, re-checks revision,
+      datadir and 12 GiB bounds, and prints before/after evidence. This
+      restart doubles as the Section 5 restart-survival evidence at the
+      accepted revision; the node must return to eth_syncing=false before
+      step 4 (start-geth enforces it).
+  (d) Never run Hive during the shadow window or the soak: a Hive runner
+      plus geth (2 GiB) plus the EL does not fit, and a host OOM kill there
+      would void the seven-day clock.
+The EL stop in (b) has no broker action (finding F1). With the user's
+standing authorization for this blocker the coordinator issues exactly:
+  ssh test-ethereum-sophon2-symbiosis \
+    'docker inspect --format "{{index .Config.Labels \"io.ethereum-lisp.gate-revision\"}}" hoodi-el-sec5-8e95b990 &&
+     docker stop --time 120 hoodi-el-sec5-8e95b990 &&
+     docker inspect --format "exit={{.State.ExitCode}} oom={{.State.OOMKilled}} finished={{.State.FinishedAt}}" hoodi-el-sec5-8e95b990'
+(the first command must print REV; --time 120 because 8e95b990 carries the
+store close on shutdown, and a SIGKILL after 30 s would hide whether it
+completes). Nothing is removed. After Hive:
+  HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart \
+    > $S/8e95-restart.txt 2>&1; echo "EXIT=$?"
+  scripts/hoodi-live-gate.sh status > $S/8e95-status-post-hive.txt 2>&1
+
+Staging (REMOTE-ONLY, once, after sha256 verification):
+  ssh test-ethereum-sophon2-symbiosis \
+    'install -d -m 0755 /data/hoodi-sec5-hive/staging-8e95b990'
+  scp /private/tmp/ethereum-lisp-runtime-sec5-8e95b990-amd64.tar \
+      /private/tmp/ethereum-lisp-source-8e95b990.tar \
+      test-ethereum-sophon2-symbiosis:/data/hoodi-sec5-hive/staging-8e95b990/
+  # on the host:
+  cd /data/hoodi-sec5-hive/staging-8e95b990 && sha256sum -c <<'SUMS'
+  80a3bafb4e86315b1892b0e70450054e725f98efe8a250a5453a284674394e9d  ethereum-lisp-runtime-sec5-8e95b990-amd64.tar
+  dc547a2ea7ad3569d81dfb8506f6e6a0419390a592e3527a57683de2e1f0740c  ethereum-lisp-source-8e95b990.tar
+  SUMS
+  # the runtime image is already loaded on the host by the live gate `load`;
+  # verify rather than reload:
+  docker image inspect ethereum-lisp-runtime:sec5-8e95b990-amd64 \
+    --format '{{.Os}}/{{.Architecture}} {{index .Config.Labels "org.opencontainers.image.revision"}} {{.Config.User}}'
+  # must print: linux/amd64 8e95b9904447b4cee9aac7aa88d92963d17db4c6 ethereum:ethereum
+
+Each suite runs inside a fresh isolated outer runner named
+sec5-hive-8e95b990-<suite>-full-r<N> with evidence root
+/data/hoodi-sec5-hive/runs/8e95b990-<suite>-full-r<N>-<UTCSTAMP> (fresh,
+previously absent), read-only root, 1,024 PIDs, no published port, not on the
+Hoodi networks, binds limited to its evidence root and nested-Docker path.
+The launcher that created r19/r29/r54 was the external Section 5 supervisor
+(launcher sha256 28d3e77c604cd8883a3e8e58b685d42f06be1614f7c325408f7e34284e4794f4
+in r54); it is not in this repository and its runtime directory is no longer
+present on this control plane (finding F2). Inside the runner, from the
+extracted source at REV:
+
+  mkdir -p "$RUN_ROOT/src" "$RUN_ROOT/results"
+  tar -xf /data/hoodi-sec5-hive/staging-8e95b990/ethereum-lisp-source-8e95b990.tar -C "$RUN_ROOT/src"
+  cd "$RUN_ROOT/src"
+  export RUNTIME_PREBUILT=1 RUNTIME_IMAGE=ethereum-lisp-runtime RUNTIME_TAG=sec5-8e95b990-amd64
+  export HIVE_WORKDIR="$RUN_ROOT/hive-gate" HIVE_RESULTS="$RUN_ROOT/results"
+  export HIVE_PREBUILT_BINARY_SHA256=cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+  # (stage the pinned binary at $HIVE_WORKDIR/hive/hive, or unset the
+  #  variable on a runner with Go 1.24)
+
+  3a rpc-compat  (runner: --cpus 2 --memory 3g --memory-swap 3584m)
+     RUN_ROOT=/data/hoodi-sec5-hive/runs/8e95b990-rpc-full-r<N>-<UTCSTAMP>
+     scripts/hive-run.sh --sim ethereum/rpc-compat > "$RUN_ROOT/hive-rpc-full.log" 2>&1
+     echo "EXIT=$?" > "$RUN_ROOT/hive-status.txt"
+     # HIVE_EXPECTED_TESTS unset: the broker enforces 234.
+     # Expected: "hive dde4f59d... :: ethereum/rpc-compat :: 234/234 passed",
+     # exit 0; the four testing_buildBlockV1 cases pass.
+
+  3b Engine/auth (runner: --cpus 2 --memory 8g --memory-swap 10g; EL stopped)
+     RUN_ROOT=/data/hoodi-sec5-hive/runs/8e95b990-engine-full-r<N>-<UTCSTAMP>
+     scripts/hive-run.sh --sim ethereum/engine > "$RUN_ROOT/hive-engine-full.log" 2>&1
+     echo "EXIT=$?" > "$RUN_ROOT/hive-status.txt"
+     # HIVE_EXPECTED_TESTS unset: the broker enforces 403.
+     # Expected 403/403: engine-api 129, engine-auth 8,
+     # engine-exchange-capabilities 5, engine-withdrawals 35, engine-cancun 226.
+
+  3c devp2p      (runner: --cpus 2 --memory 8g --memory-swap 10g; EL stopped;
+                  /data >= 12,884,901,888 bytes available, re-read now)
+     RUN_ROOT=/data/hoodi-sec5-hive/runs/8e95b990-devp2p-full-r<N>-<UTCSTAMP>
+     HIVE_EXPECTED_TESTS=48 scripts/hive-run.sh --sim devp2p \
+       > "$RUN_ROOT/hive-devp2p-full.log" 2>&1
+     echo "EXIT=$?" > "$RUN_ROOT/hive-status.txt"
+     # HIVE_EXPECTED_TESTS=48 is mandatory: hive-run.sh has no built-in devp2p
+     # count (finding F5). Expected: discv4 16/16, eth 25/25, snap 6/6 =
+     # 47/47 required, 47/48 complete inventory (discv5 refused); Hive exits
+     # 1 for that refusal alone, as r54 did.
+
+No --sim-limit, no HIVE_EXTRA_ARGS in any of the three.
+
+Evidence per suite (sec5-8e95b990-hive-rpc-compat.txt, -hive-engine-auth.txt,
+-hive-devp2p.txt), superseding the NOT RUN preparation style of the 3305307d
+records: run identity and evidence root; start/stop UTC; outer runner exit,
+OOMKilled=false, RestartCount=0; the broker's printed summary line verbatim;
+per-suite selected/passed/failed counts against the pinned inventory, zero
+unexpected skips; the sorted name inventory compared with the retained
+r19/r29/r54 sets and every passed-to-failed change named; every `not ok` or
+failed case quoted with suite and case; sha256 + size of the result JSON,
+hive.json, simulator and details logs; an independent sha256+relative-path
+manifest over the evidence root with its entry count; runtime and source
+archive sha256 as above; and a readback proving Lighthouse was untouched and
+(for 3a) the EL kept its container id and start time.
+
+
+=== Step 4 -- REMOTE-ONLY: seven-day shadow comparison ===
+
+Preconditions: step 1 accepted, step 3 all green, EL restarted and back at
+eth_syncing=false. Then (with the exports above):
+
+  scripts/hoodi-shadow-gate.sh inspect   > $S/shadow-inspect.txt 2>&1; echo "EXIT=$?"
+     # read-only; verifies the local artifact against the image label and
+     # prints free -b, both images, and every involved container.
+     # STOP here if any of these is not as expected (finding F3):
+     #   container=/hoodi-geth-v1.17.4-baseline present, running=false,
+     #     labels agent=codex-geth-same-host-benchmark, non-root user
+     #   /data/hoodi-sec5-20260814/geth-v1.17.4-baseline non-empty
+     #   image ethereum/client-go:v1.17.4 id sha256:9389d337...478b
+     #   source-gate-revision=REV stable-alias=true
+     #   MemAvailable >= 3 GiB (start-geth refuses below that) -- plus the
+     #     proxy's 128 MiB and headroom for geth's 2 GiB bound
+  HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh upload
+     # to /data/hoodi-sec5-20260830/ethereum-lisp-shadow-engine-proxy-sec5-8e95b990-amd64.tar
+     # expected sha256 cb7950d955e231e1794fde1b622276d0871b2e957d4919272fdc00b02bed7c30
+  HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh load
+     # expected: platform=linux/amd64 revision=REV user=shadowproxy:shadowproxy
+  HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh start-geth
+  HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh cutover
+     # phase=catchup; geth catches up from its retained datadir
+  scripts/hoodi-shadow-gate.sh status    # repeat until both eth_syncing=false
+  HOODI_SHADOW_ALLOW_MUTATION=1 scripts/hoodi-shadow-gate.sh reset-soak
+     # prints soak-start=<ISO> soak-start-epoch=<E>; the 604,800 s clock
+     # starts here, not at cutover
+  scripts/hoodi-shadow-gate.sh status    # daily samples, archived
+  scripts/hoodi-shadow-gate.sh complete  # only after soak-start + 7 days
+  # restore (Lighthouse back to Lisp directly) only if the soak is abandoned
+  # or after the validator soak no longer needs the proxy; it is not part of
+  # the success path because step 5 runs through the same topology.
+
+Pass = `complete` exit 0 printing shadow-soak=PASSED elapsed-seconds>=604800
+and metrics with: shadow_primary_errors_total 0, shadow_mirror_errors_total
+0, shadow_mirror_dropped_total 0, shadow_status_mismatches_total 0,
+shadow_mirror_started_total == shadow_mirror_succeeded_total,
+shadow_head_observations_total >= 47,880 (95% of 50,400), shadow_head_rpc_
+errors_total 0, shadow_head_lag_violations_total 0, shadow_head_root_
+mismatches_total 0, shadow_head_max_lag_blocks <= 2.
+
+Evidence (sec5-8e95b990-hoodi-shadow.txt): proxy artifact identity above and
+the remote image id from `load`; geth image id and datadir; cutover and
+reset-soak timestamps; soak-start epoch; daily status samples (heads, lag,
+counters, free -b, EL memory); the `complete` output verbatim; confirmation
+that no EL, geth or proxy restart happened inside the window (a restart
+voids the counters; start over with reset-soak).
+
+
+=== Step 5 -- REMOTE-ONLY: fourteen-day validator soak ===
+
+Blocked on inputs this repository does not have (finding F6): the validator
+container name and its decimal indices. Once the operator supplies them:
+
+  export HOODI_VALIDATOR_CONTAINER=<operator-supplied>
+  export HOODI_VALIDATOR_INDICES=<operator-supplied, comma-separated>
+  export HOODI_VALIDATOR_CL_CONTAINER=hoodi-lighthouse-public
+  export HOODI_VALIDATOR_EL_CONTAINER=hoodi-el-sec5-8e95b990
+  export HOODI_VALIDATOR_EL_REVISION=$REV
+  # Beacon REST must answer on http://127.0.0.1:5052 on the host (default);
+  # set HOODI_VALIDATOR_BEACON_URL otherwise. curl, jq, sha256sum on host.
+  scripts/hoodi-validator-soak.sh status
+  HOODI_VALIDATOR_ALLOW_MUTATION=1 scripts/hoodi-validator-soak.sh start
+     # runs `scripts/hoodi-shadow-gate.sh complete` first; prints the unique
+     # state path /data/hoodi-sec5-validator-soak-<START>-<NONCE>
+  export HOODI_VALIDATOR_STATE=<path printed by start>
+  scripts/hoodi-validator-soak.sh status   # periodic
+  scripts/hoodi-validator-soak.sh complete # after 1,209,600 s and the final
+                                           # intersecting epoch has ended
+
+Pass = `complete` exit 0 with its compact record: at least one selected
+proposer duty, zero missed duties, zero RPC errors. Evidence
+(sec5-8e95b990-hoodi-validator-soak.txt): that record verbatim, the state
+path, start/complete timestamps, periodic status samples. No indices or
+pubkeys go into the repository.
+
+
+=== Findings from checking the brokers against the current gate ===
+
+F1 (live gate) There is no brokered `stop`. The Hive sequencing needs the EL
+   stopped for about 3 h and `restart` accepts a stopped container, but the
+   stop itself is a manual `docker stop` on the exact container. A `stop`
+   action with the same ownership/revision/datadir checks as `restart` would
+   close this; not added here (no shell test harness exists for the broker).
+F2 (Hive) The outer runner is not brokered in this repository. r19/r29/r54
+   were launched by the external Section 5 supervisor, whose runtime
+   directory is absent from this control plane. Either recover that launcher
+   (sha256 28d3e77c...94f4) or review a checked-in replacement before step 3;
+   an ad hoc `docker run` is not the reviewed path.
+F3 (shadow gate) Defaults that no longer describe the deployment: host
+   test-ethereum-server (does not resolve here), source container
+   hoodi-lisp-79fd759a-fresh-final / revision 79fd759a (retired). Both are
+   overridable and the exports above do so. The broker also assumes a
+   stopped legacy geth hoodi-geth-v1.17.4-baseline (label
+   agent=codex-geth-same-host-benchmark) with a non-empty datadir
+   /data/hoodi-sec5-20260814/geth-v1.17.4-baseline; no evidence file records
+   that container after the 2026-09-18 disk cleanup (which removed
+   geth-control-20260914), so its presence must be read from `inspect`
+   before any mutation. If absent, the only reviewed way to create one is
+   scripts/hoodi-geth-benchmark-gate.sh start, which takes over the
+   Lighthouse alias from the Lisp EL -- a second alias cutover that has to
+   be sequenced before step 4, not during it.
+   Labels and topology do match the current live gate: the source check uses
+   agent=codex-sec5-live-gate and io.ethereum-lisp.gate-revision, both set by
+   `start`/`upgrade`; the stable alias hoodi-el-public-36a22e47 on
+   hoodi-frozen and egress hoodi-net match; the proxy metric names and
+   SHADOW_PROXY_* variables the broker uses all exist in tools/shadow-proxy.
+   The proxy image user (shadowproxy) is overridden by --user 10001:10001,
+   which passes the non-root check.
+F3b (shadow memory) The shadow design text sizes the host around a 7 GiB EL.
+   With the 12 GiB bound, EL limit + geth 2 GiB + proxy 128 MiB + Lighthouse
+   exceeds 15 GiB; it only fits if actual EL usage stays well under its
+   bound. start-geth checks MemAvailable >= 3 GiB once; nothing watches it
+   during the seven days. The live gate cannot lower the bound on a running
+   container (`restart` fails closed unless the limit equals the selected
+   value, and `upgrade` needs a new revision), so record EL memory in every
+   daily sample.
+F4 (live gate `logs`) peer.snap.storage_closure is counted but none of its
+   numeric fields (outcome, nodesVisited, multiGets, levels, elapsedMs) are
+   projected, and peer.snap.heal_progress's localReadBatches and
+   localReadWorks are missing from the projected field list. The closure
+   walk's live cost (the open item from aac5f762) is therefore not readable
+   through the broker; it needs a two-line addition to the field loops (no
+   identity is involved) or a raw-log read. Not changed here: the brief
+   allows only one-liner fixes with a test, and the broker has no test.
+F4b (live gate `complete`/`logs`) Both read only the last 10,000 log lines;
+   see the timing note in step 1.
+F5 (hive-run.sh) devp2p has no built-in expected count, so
+   HIVE_EXPECTED_TESTS=48 must be passed by hand (as step 3c does). Not
+   changed: hive-run.sh is a runtime-sensitive path for the live gate, and a
+   change on the gate branch would make every mutating live-gate action
+   refuse for this revision.
+F6 (validator soak) No validator container or index set is recorded
+   anywhere in the repository; the broker has no defaults by design. Step 5
+   cannot start without operator input. Its default host is also
+   test-ethereum-server; the export above overrides it. Its label checks
+   (io.ethereum-lisp.gate-revision on the EL container, OCI revision on its
+   image) match the live gate.
