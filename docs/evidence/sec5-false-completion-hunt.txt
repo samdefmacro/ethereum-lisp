@@ -287,3 +287,46 @@ Verification
   Warm image: the new test loads with no warning and passes (it asserts the
   defect; see section 1). No cold lane was run for this branch: it adds one
   test and this record, and changes no src/ file.
+
+================================================================================
+5. The fix, and why the process exited instead of retrying
+================================================================================
+
+Fix (branch pending-storage-overlay, on 4a7e46a7). One helper,
+CHAIN-STORE-FIND-PENDING-STORAGE-TRIE (chain-store/service/
+state-availability.lisp), searches the block's own pending storage tries,
+then each pending ancestor's, and stops at the first block with no pending
+set. Both CHAIN-STORE-STATE-DB and NODE-STORE-DIRECT-STORAGE-TRIE call it; the
+account-trie carry-forward is unchanged. Tries are matched by root hash, and
+equal roots name identical content, so the nearest match is used. Exporting
+each batch block before its child was not chosen: the overlay is sound once
+the lookup covers the same unexported chain the account trie already carries,
+and per-block export would give up the batch's single durable seam.
+
+Tests:
+  DIRECT-STATE-READS-STORAGE-CHANGED-BY-AN-UNEXPORTED-GRANDPARENT (now GREEN):
+    block 2 reads the slot through both paths; block 3 reads it, writes it and
+    the whole ancestry exports in one forkchoice batch; a fresh provider reads
+    all three blocks from the database alone.
+  DEVNET-PEER-RANGE-BATCH-READS-STORAGE-AN-EARLIER-BATCH-BLOCK-WROTE
+    (integration): real signed blocks (write A, plain transfer, write A)
+    imported by DEVNET-PEER-SYNC-IMPORT-BATCH into a RocksDB-backed node.
+  RED control for both, in the warm image: the helper reduced to the parent's
+  own tries gives "Persisted trie node 0xd776138f... is missing" (unit) and
+  "Persisted trie node 0x63cfcda8... is missing" (devnet batch).
+
+Exit path. The batch error is a plain ERROR from MAKE-PERSISTED-MPT. It is not
+caught per peer: ETH-SYNC-DOWNLOAD-BLOCKS-MULTI calls IMPORT-BATCH outside its
+header-validation HANDLER-CASE, so it escapes DEVNET-NODE-MULTI-SYNC-PASS and
+DEVNET-NODE-SYNC-COORDINATOR-PASS (which absorbs only DEVNET-PEER-SYNC-INVALID,
+ETH-SYNC-MULTI-PEER-ERROR and SNAP-SYNC-SOURCES-EXHAUSTED). The coordinator
+thread's outer SERIOUS-CONDITION handler (DEVNET-START-SYNC-COORDINATOR-THREAD)
+calls the error callback and requests shutdown, so listeners close and the
+main thread exits 1 with the error text. The earlier peer.sync.multi_retry
+lines are ETH-SYNC-MULTI-PEER-ERRORs, a separate path. This is by design: the
+coordinator pass says local storage and unexpected program failures escape
+on purpose, and a state read that finds a durable node missing means
+corruption, which must stop the node rather than be retried against peers
+indefinitely. With the overlay fixed, this batch no longer raises. Not
+changed: MAKE-PERSISTED-MPT signals an untyped ERROR, not a STORAGE-ERROR, so
+logs cannot tell corruption from a program fault by type alone.

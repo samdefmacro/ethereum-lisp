@@ -171,14 +171,18 @@ so execution only fails if EVM code actually queries unavailable history."
                                 (state-account-storage-root account))
                               (storage-trie
                                 (let ((committed-storage-trie
+                                        ;; The parent's own pending tries hold
+                                        ;; only what the parent touched; a root
+                                        ;; an older unexported block wrote is
+                                        ;; found further up the pending chain.
                                         (and committed-tries
-                                             (find-if
+                                             (chain-store-find-pending-storage-trie
+                                              store block-hash
                                               (lambda (trie)
                                                 (hash32=
                                                  (make-hash32
                                                   (mpt-root-hash trie))
-                                                 storage-root))
-                                              (rest committed-tries)))))
+                                                 storage-root))))))
                                   ;; Proposal/private execution must never
                                   ;; mutate the store-owned pending trie object.
                                   (if committed-storage-trie

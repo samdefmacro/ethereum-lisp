@@ -1069,16 +1069,15 @@ whole new ancestry."
       child)))
 
 (deftest direct-state-reads-storage-changed-by-an-unexported-grandparent
-  ;; DEFECT REPRODUCTION, pinned as it stands at 8933d407; invert it with the
-  ;; fix.  CHAIN-STORE-STATE-DB (execution) and NODE-STORE-DIRECT-STORAGE-TRIE
-  ;; (RPC point reads) look for an account's pending storage trie only among
-  ;; the PARENT block's pending tries, and those hold only the storage tries
-  ;; the parent itself touched.  A storage trie changed two unexported blocks
-  ;; back is therefore opened from the database by its new root, which no
-  ;; batch has written yet: "Persisted trie node ... is missing".  Forward
-  ;; peer sync executes a whole response this way before exporting its last
-  ;; block, so a contract written in block N, untouched in N+1 and read in N+2
-  ;; of one response fails every peer.  See
+  ;; Forward peer sync executes a whole response before exporting its last
+  ;; block.  CHAIN-STORE-STATE-DB (execution) and
+  ;; NODE-STORE-DIRECT-STORAGE-TRIE (RPC point reads) used to look for an
+  ;; account's pending storage trie only among the PARENT's pending tries,
+  ;; which hold only what the parent touched, so a contract written in block
+  ;; N, untouched in N+1 and read in N+2 was opened from the database by a
+  ;; root no batch had written: "Persisted trie node ... is missing", the
+  ;; Hoodi exit text.  Both paths now walk the whole unexported chain through
+  ;; CHAIN-STORE-FIND-PENDING-STORAGE-TRIE.  See
   ;; docs/evidence/sec5-false-completion-hunt.txt.
   (let* ((bootstrap (make-engine-payload-memory-store))
          (database (make-instance 'direct-store-test-database))
@@ -1150,17 +1149,49 @@ whole new ancestry."
                        (state-db-get-storage-root
                         (chain-store-state-db direct second-hash)
                         contract))))
-        ;; Defect: one block later the same slot is unreadable.
-        (flet ((missing-node-p (thunk)
-                 (handler-case (progn (funcall thunk) nil)
-                   (error (condition)
-                     (and (search "is missing" (princ-to-string condition))
-                          t)))))
-          (is (missing-node-p
-               (lambda ()
-                 (state-db-get-storage
-                  (chain-store-state-db direct second-hash) contract slot))))
-          (is (missing-node-p
-               (lambda ()
-                 (chain-store-account-storage
-                  direct second-hash contract slot)))))))))
+        ;; One block later the same slot reads through both paths.  RED
+        ;; control: before the fix both signalled "Persisted trie node <block
+        ;; 1's storage root> is missing".
+        (is (= 2 (state-db-get-storage
+                  (chain-store-state-db direct second-hash) contract slot)))
+        (is (= 2 (chain-store-account-storage
+                  direct second-hash contract slot)))
+        ;; A third block writes the contract on top of the unexported pair,
+        ;; exactly the batch shape that failed live, and the whole ancestry
+        ;; then exports in one forkchoice batch.
+        (let* ((third-child
+                 (direct-store-test-pending-child
+                  direct second-child 3
+                  (lambda (state)
+                    (is (= 2 (state-db-get-storage state contract slot)))
+                    (state-db-set-storage state contract slot 3))))
+               (third-hash (block-hash third-child)))
+          (is (= 3 (chain-store-account-storage
+                    direct third-hash contract slot)))
+          (node-store-import-txpool-records-from-kv
+           direct database :expected-chain-id 1)
+          (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+           direct)
+          (chain-store-update-forkchoice-checkpoints
+           direct
+           (make-forkchoice-state
+            :head-block-hash third-hash
+            :safe-block-hash (block-hash genesis)
+            :finalized-block-hash (block-hash genesis)))
+          (multiple-value-bind (head transition)
+              (chain-store-set-canonical-head direct third-hash)
+            (declare (ignore head))
+            (node-store-export-forkchoice-to-kv direct transition database))
+          ;; Every exported state is complete on disk: a fresh provider with
+          ;; no overlay reads each block's slot from the database alone.
+          (let ((reopened (make-database-engine-payload-store database)))
+            (loop for (hash expected) in (list (list first-hash 2)
+                                               (list second-hash 2)
+                                               (list third-hash 3))
+                  do (is (= expected
+                            (chain-store-account-storage
+                             reopened hash contract slot)))
+                     (is (= expected
+                            (state-db-get-storage
+                             (chain-store-state-db reopened hash)
+                             contract slot))))))))))
