@@ -1,0 +1,110 @@
+Section 5 Hoodi completion record at 8e95b990 -- DRAFT / NOT YET RUN
+
+Status: DRAFT. `complete` has not been run. Every <...> below is filled from
+the step-1 outputs of sec5-8e95b990-acceptance-plan.txt; delete this line and
+the DRAFT marker only when `complete` has exited 0.
+
+Completion criteria (readiness plan, Section 5): one continuous fresh-datadir
+run records peer.snap.target_completed, finishes the healer with
+completed=true and an empty frontier, returns eth_syncing=false, and executes
+the canonical EL head through the CL-authorized target. Discovery must use the
+preset bootnodes only (no static enode), and the run must keep following head.
+
+Revision and artifact
+
+  revision        8e95b9904447b4cee9aac7aa88d92963d17db4c6
+  image           ethereum-lisp-runtime:sec5-8e95b990-amd64
+  local image id  sha256:ea7e820d12db544d3e8078eff910036e90c8d0764e5b26e1aa983df1d5a87310
+  remote image id <from the start record / status image=>
+  artifact        /private/tmp/ethereum-lisp-runtime-sec5-8e95b990-amd64.tar
+                  72,111,616 bytes
+                  sha256 80a3bafb4e86315b1892b0e70450054e725f98efe8a250a5453a284674394e9d
+  offline gates   cold-all <unit/integration/e2e counts>, runtime-smoke <7/7>
+                  (sec5-8e95b990-amd64-runtime.txt); EEST v20.0.2
+                  <result> (sec5-8e95b990-eest-v20.0.2.txt)
+
+Run identity
+
+  host            test-ethereum-sophon2-symbiosis (8 vCPU, 15 GiB)
+  container       hoodi-el-sec5-8e95b990
+  started         <StartedAt>  (fresh datadir; replaced <old container> via
+                  the broker's old-container branch)
+  datadir         <datadir= line; expected /data/hoodi-sec5-20260814/datadir-8e95b990>
+  bounds          memory=12884901888 memory-swap=12884901888, user 1000:1000,
+                  read-only root, caps ALL dropped, no-new-privileges,
+                  io_uring seccomp profile
+  broker env      HOODI_GATE_HOST=test-ethereum-sophon2-symbiosis
+                  HOODI_GATE_MEMORY_BYTES=12884901888
+                  HOODI_GATE_RUNTIME_REVISION=<if HEAD != revision>
+  checkout        <path and HEAD the broker ran from>
+
+Continuity (must be one uninterrupted run)
+
+  status StartedAt at acceptance   <must equal "started" above>
+  running / OOMKilled / RestartCount  <true / false / 0>
+  el-runtime-fault-count             <0>
+
+Acceptance -- `scripts/hoodi-live-gate.sh complete`, exit <0>, at <UTC>
+
+  completion-target=<N>
+  completion-healer-completed=T frontier=0
+  completion-eth-syncing=false
+  completion-canonical-block=<M>
+
+Supporting samples (status + logs at <UTC>)
+
+  eth_blockNumber        <hex> (<decimal>)
+  eth_syncing            false
+  net_peerCount          <hex>
+  cl_node_syncing        <is_syncing / is_optimistic / el_offline / head_slot>
+  CL-authorized target   <number>, canonical EL head <M> -> M >= target
+  datadir-bytes          <bytes>
+  data-filesystem-bytes  total=<> used=<> available=<> utilization=<>
+  runtime                cpu=<> memory=<> / 12GiB blockIo=<> pids=<>
+
+Discovery and negotiation (logs)
+
+  el-event=peer.discovery.crawl count=<>, chain filter <on>
+  el-negotiated=eth72-snap1 count=<>
+  static enode            none (preset bootnodes only)
+
+Range phase
+
+  start -> end            <UTC> -> <UTC>  (<duration>)
+  pivot rebases           <count>
+  import_failed           <count>   storage_failed <count>
+  pivot_unavailable       <count>
+  peer.snap.storage_closure count=<>; fields (outcome, nodesVisited,
+    multiGets, levels, elapsedMs): <not projected by the broker, see plan
+    finding F4; fill from a raw read only if one was authorized>
+
+Healer generations (from peer.snap.heal_progress)
+
+  time (UTC)  pivot  processed  fetched  skipped  frontier  knownIncompl  batches  works  completed
+  <one row per generation, first and final sample of each>
+
+target_completed
+
+  pivot <N> at <UTC>
+
+Forward sync to head
+
+  eth_syncing=false first observed   <UTC>
+  blocks executed after the pivot    <M - N>
+  Engine deadline events             <count, first/last UTC>  (open item from
+                                     sec5-aac5f762-hoodi-run.txt)
+  peer.sync.multi_retry              <count>
+
+Head following (second sample >= 30 min after acceptance)
+
+  <UTC>  eth_blockNumber <hex>  CL head_slot <>  eth_syncing false
+
+Restart survival at this revision (filled after plan step 3c)
+
+  `restart` exit <>, before-started <>, before-exit <>, before-oom <>,
+  after-block <>, after-syncing <>, back to eth_syncing=false at <UTC>
+
+What this record does NOT establish
+
+  Hive rpc-compat / Engine/auth / devp2p at 8e95b990 (separate records),
+  the seven-day shadow comparison, and the fourteen-day validator soak.
