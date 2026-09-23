@@ -1558,6 +1558,31 @@ must prove the new state root before either record can authorize publication."
                 "retainedStateProgress" state-present-p)
                (values replacement t)))))))))
 
+(defun devnet-log-snap-storage-closure (node pivot-number profile)
+  "Log one storage-root closure attempt as peer.snap.storage_closure.
+
+Like peer.snap.storage_profile, the event carries no peer, network, account or
+root identity, so the live-gate broker may expose its numeric fields."
+  (devnet-peer-manager-log
+   node "peer.snap.storage_closure"
+   "pivot" pivot-number
+   "outcome"
+   (string-downcase
+    (symbol-name
+     (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-outcome
+      profile)))
+   "nodesVisited"
+   (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-nodes-visited
+    profile)
+   "multiGets"
+   (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-multi-gets
+    profile)
+   "levels"
+   (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-levels profile)
+   "elapsedMs"
+   (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-elapsed-ms
+    profile)))
+
 (defun devnet-node-snap-import-with-failover
     (node database pivot-header target-hash
      &key preferred-entry
@@ -1859,74 +1884,78 @@ must prove the new state root before either record can authorize publication."
                  progress))))))
        :on-storage-profile
        (lambda (profile)
-         (incf
-          storage-profile-pages
-          (ethereum-lisp.snap-sync:snap-sync-storage-profile-page-count
-           profile))
-         (incf
-          storage-profile-slots
-          (ethereum-lisp.snap-sync:snap-sync-storage-profile-slot-count
-           profile))
-         (incf
-          storage-profile-logical-bytes
-          (ethereum-lisp.snap-sync:snap-sync-storage-profile-logical-batch-bytes
-           profile))
-         (let ((elapsed-ms
-                 (max
-                  1
-                  (ethereum-lisp.snap-sync::snap-sync-elapsed-milliseconds
-                   storage-profile-started-at (get-internal-real-time)))))
-           ;; This event deliberately contains no peer or network identity.
-           ;; The live-gate broker may therefore expose its numeric fields as
-           ;; aggregate write-amplification and throughput evidence.
-           (devnet-peer-manager-log
-            node "peer.snap.storage_profile"
-            "pivot" pivot-number
-            "pages"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-page-count
-             profile)
-            "totalPages" storage-profile-pages
-            "slots"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-slot-count
-             profile)
-            "totalSlots" storage-profile-slots
-            "trieRecords"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-trie-record-count
-             profile)
-            "batchOperations"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-batch-operation-count
-             profile)
-            "logicalBytes"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-logical-batch-bytes
-             profile)
-            "totalLogicalBytes" storage-profile-logical-bytes
-            "completedTasks"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-completed-task-count
-             profile)
-            "requestMs"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-request-ms
-             profile)
-            "proofMs"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-proof-ms profile)
-            "materializeMs"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-materialize-ms
-             profile)
-            "batchBuildMs"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-batch-build-ms
-             profile)
-            "prepareMs"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-prepare-ms
-             profile)
-            "commitMs"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-commit-ms profile)
-            "writerIdleMs"
-            (ethereum-lisp.snap-sync:snap-sync-storage-profile-writer-idle-ms
-             profile)
-            "elapsedMs" elapsed-ms
-            "slotsPerSecond"
-            (floor (* storage-profile-slots 1000) elapsed-ms)
-            "logicalBytesPerSecond"
-            (floor (* storage-profile-logical-bytes 1000) elapsed-ms))))
+         (typecase profile
+           (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile
+            (devnet-log-snap-storage-closure node pivot-number profile))
+           (t
+            (incf
+             storage-profile-pages
+             (ethereum-lisp.snap-sync:snap-sync-storage-profile-page-count
+              profile))
+            (incf
+             storage-profile-slots
+             (ethereum-lisp.snap-sync:snap-sync-storage-profile-slot-count
+              profile))
+            (incf
+             storage-profile-logical-bytes
+             (ethereum-lisp.snap-sync:snap-sync-storage-profile-logical-batch-bytes
+              profile))
+            (let ((elapsed-ms
+                    (max
+                     1
+                     (ethereum-lisp.snap-sync::snap-sync-elapsed-milliseconds
+                      storage-profile-started-at (get-internal-real-time)))))
+              ;; This event deliberately contains no peer or network identity.
+              ;; The live-gate broker may therefore expose its numeric fields as
+              ;; aggregate write-amplification and throughput evidence.
+              (devnet-peer-manager-log
+               node "peer.snap.storage_profile"
+               "pivot" pivot-number
+               "pages"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-page-count
+                profile)
+               "totalPages" storage-profile-pages
+               "slots"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-slot-count
+                profile)
+               "totalSlots" storage-profile-slots
+               "trieRecords"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-trie-record-count
+                profile)
+               "batchOperations"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-batch-operation-count
+                profile)
+               "logicalBytes"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-logical-batch-bytes
+                profile)
+               "totalLogicalBytes" storage-profile-logical-bytes
+               "completedTasks"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-completed-task-count
+                profile)
+               "requestMs"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-request-ms
+                profile)
+               "proofMs"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-proof-ms profile)
+               "materializeMs"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-materialize-ms
+                profile)
+               "batchBuildMs"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-batch-build-ms
+                profile)
+               "prepareMs"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-prepare-ms
+                profile)
+               "commitMs"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-commit-ms profile)
+               "writerIdleMs"
+               (ethereum-lisp.snap-sync:snap-sync-storage-profile-writer-idle-ms
+                profile)
+               "elapsedMs" elapsed-ms
+               "slotsPerSecond"
+               (floor (* storage-profile-slots 1000) elapsed-ms)
+               "logicalBytesPerSecond"
+               (floor (* storage-profile-logical-bytes 1000) elapsed-ms))))))
        :on-page-profile
        (lambda (profile source task-index)
          (multiple-value-bind (dynamic-usage bytes-consed gc-run-ms)
