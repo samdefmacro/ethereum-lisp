@@ -139,20 +139,15 @@ false sync state.
 This gate runs on every inbound Transactions, NewPooledTransactionHashes, and
 PooledTransactions message, so it must not wait for the store guard: that guard
 is held for a whole block import, and waiting stops the peer session rather
-than slowing it. Reuse the previous verdict while the guard is busy."
-  (multiple-value-bind (verdict computed-p)
-      (call-with-devnet-node-store-guard-if-free
-       node
-       (lambda ()
-         (let ((current
-                 (chain-store-head-number (devnet-node-store node))))
-           (multiple-value-bind (highest forkchoice-target-p)
-               (devnet-node-sync-highest-block node)
-             (not (or forkchoice-target-p
-                      (and highest (> highest current))))))))
-    (if computed-p
-        (setf (devnet-node-accept-inbound-transactions-cache node) verdict)
-        (devnet-node-accept-inbound-transactions-cache node))))
+than slowing it. It answers from the sync view the last guard release
+published, exactly as eth_syncing does (DEVNET-NODE-SYNC-VIEW-ANSWER-NOW), so
+it is lock-free like pinned geth's atomic Backend.AcceptTxs flag. A verdict
+cached only when a try-lock succeeded refused gossip on a node that had never
+found the guard free and kept a stale refusal after the head reached its
+target: in Hive 'Blob Transaction Ordering, Multiple Clients' at d203fee6 the
+producer dropped its peer's first announcements that way, and a dropped
+announcement is never repeated."
+  (eq :false (devnet-node-sync-view-answer-now node)))
 
 (defun devnet-peer-serve-backend (node)
   "A serve backend answering a peer's requests and gossip from NODE's store.
