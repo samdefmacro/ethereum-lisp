@@ -1839,3 +1839,187 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
         (sb-thread:join-thread engine-thread))
       (when (and public-thread (sb-thread:thread-alive-p public-thread))
         (sb-thread:join-thread public-thread)))))
+
+;;;; newPayload trie-node reads on a RocksDB direct provider.
+
+(defun devnet-np-latency-account (index)
+  (let ((hash (keccak-256
+               (ethereum-lisp.crypto::integer-to-fixed-bytes
+                (+ 1000000 index) 32)))
+        (bytes (make-byte-vector 20)))
+    (replace bytes hash :start2 12)
+    (make-address bytes)))
+
+(defun devnet-np-latency-genesis-json (sender-keys account-count)
+  "Shanghai genesis with funded SENDER-KEYS and ACCOUNT-COUNT Keccak accounts."
+  (let* ((genesis (parse-json
+                   (devnet-cli-file-string +devnet-cli-genesis-fixture+)))
+         (accounts '()))
+    (dolist (key sender-keys)
+      (push (cons (address-to-hex (fixture-private-key-address key))
+                  (list (cons "balance" (quantity-to-hex (expt 10 24)))
+                        (cons "nonce" "0x0")))
+            accounts))
+    (dotimes (index account-count)
+      (push (cons (address-to-hex (devnet-np-latency-account index))
+                  (list (cons "balance" (quantity-to-hex (1+ index)))
+                        (cons "nonce" "0x1")))
+            accounts))
+    (setf (cdr (assoc "alloc" genesis :test #'string=))
+          (append (fixture-object-field genesis "alloc") (nreverse accounts)))
+    (let ((state (state-db-from-genesis-json-string (json-encode genesis))))
+      (setf (cdr (assoc "stateRoot" genesis :test #'string=))
+            (hash32-to-hex (state-db-root state))))
+    (json-encode genesis)))
+
+(defun devnet-np-latency-build-blocks
+    (genesis-json sender-keys account-count block-count)
+  "Build BLOCK-COUNT transfer blocks on a memory-store builder node."
+  (let* ((builder (ethereum-lisp.cli:make-devnet-node
+                   :genesis-json genesis-json :port 0))
+         (store (ethereum-lisp.cli:devnet-node-store builder))
+         (config (ethereum-lisp.cli:devnet-node-config builder))
+         (context (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-service builder)))
+         (parent (ethereum-lisp.cli:devnet-node-genesis-block builder))
+         (blocks '()))
+    (dotimes (block-index block-count)
+      (let* ((transactions
+               (loop for key in sender-keys
+                     for sender-index from 0
+                     append
+                     (loop for slot below 2
+                           collect
+                           (fixture-sign-legacy-transaction
+                            (make-legacy-transaction
+                             :nonce (+ (* 2 block-index) slot)
+                             :gas-price 1000000000
+                             :gas-limit 21000
+                             :to (devnet-np-latency-account
+                                  (mod (* 7919 (+ (* 97 block-index)
+                                                  (* 13 sender-index)
+                                                  slot
+                                                  1))
+                                       account-count))
+                             :value 1)
+                            key
+                            (chain-config-chain-id config)))))
+             (block
+               (ethereum-lisp.engine-api::engine-rpc-build-prepared-payload
+                store parent
+                (make-payload-attributes-v1
+                 :timestamp (+ 12 (block-header-timestamp
+                                   (block-header parent)))
+                 :prev-randao (zero-hash32)
+                 :suggested-fee-recipient (zero-address)
+                 :withdrawals nil
+                 :withdrawals-present-p t)
+                config transactions)))
+        (is (= (length transactions) (length (block-transactions block))))
+        (ethereum-lisp.rpc:rpc-handle-request
+         (engine-fixture-payload-request
+          1 (execution-payload-envelope-execution-payload
+             (block-to-executable-data block)))
+         context)
+        (ethereum-lisp.rpc:rpc-handle-request
+         (engine-fixture-forkchoice-request 2 (block-hash block))
+         context)
+        (is (hash32= (block-hash block)
+                     (block-hash (chain-store-head-block store))))
+        (push block blocks)
+        (setf parent block)))
+    (nreverse blocks)))
+
+(defun devnet-np-latency-replay (genesis-json blocks write-through-p)
+  "Import BLOCKS through a fresh RocksDB node's Engine path.
+
+Returns the trie-node database reads and cache hits of every newPayload after
+the first, and the phase names the first measured request recorded."
+  (let ((dir (namestring
+              (devnet-cli-temp-directory "ethereum-lisp-np-latency")))
+        (reads 0)
+        (hits 0)
+        (phase-names nil))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (let* ((ethereum-lisp.node-store.persistence::*node-store-direct-trie-node-write-through-p*
+                     write-through-p)
+                   (node (ethereum-lisp.cli:make-devnet-node
+                          :genesis-json genesis-json :port 0
+                          :database-path dir :db-engine :rocksdb))
+                   (store (ethereum-lisp.cli:devnet-node-store node))
+                   (context
+                     (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                      (ethereum-lisp.cli:devnet-node-service node))))
+              (is (database-engine-payload-store-p store))
+              (loop for block in blocks
+                    for index from 0
+                    do (multiple-value-bind (reads-before hits-before)
+                           (ethereum-lisp.chain-store:chain-store-trie-node-read-statistics store)
+                         (let* ((ethereum-lisp.engine-api:*engine-rpc-phase-timings*
+                                  nil)
+                                (response
+                                  (ethereum-lisp.rpc:rpc-handle-request
+                                   (engine-fixture-payload-request
+                                    1 (execution-payload-envelope-execution-payload
+                                       (block-to-executable-data block)))
+                                   context)))
+                           (is (string= +payload-status-valid+
+                                        (fixture-object-field
+                                         (fixture-object-field response "result")
+                                         "status")))
+                           (multiple-value-bind (reads-after hits-after)
+                               (ethereum-lisp.chain-store:chain-store-trie-node-read-statistics store)
+                             (when (plusp index)
+                               (incf reads (- reads-after reads-before))
+                               (incf hits (- hits-after hits-before))))
+                           (when (= index 1)
+                             (setf phase-names
+                                   (mapcar #'car
+                                           ethereum-lisp.engine-api:*engine-rpc-phase-timings*)))))
+                       (ethereum-lisp.rpc:rpc-handle-request
+                        (engine-fixture-forkchoice-request 2 (block-hash block))
+                        context)
+                       (is (hash32= (block-hash block)
+                                    (block-hash (chain-store-head-block store)))))
+              (let ((database
+                      (ethereum-lisp.cli::devnet-cli-cached-kv-database dir)))
+                (when database
+                  (ethereum-lisp.database:close-rocksdb-key-value-database
+                   database))))))
+      (uiop:delete-directory-tree
+       (uiop:ensure-directory-pathname dir)
+       :validate t :if-does-not-exist :ignore))
+    (values reads hits phase-names)))
+
+(deftest devnet-new-payload-reads-the-nodes-its-parent-wrote-from-cache
+  (:layer :integration)
+  ;; Every block rewrites the root and the upper levels of the paths it
+  ;; touches. The direct provider's trie-node cache used to be filled only by
+  ;; reads, so the next newPayload point-read those just-written nodes back
+  ;; from RocksDB (Hoodi, d203fee6: newPayloadV4 handlerMs 1.8-29 s). The
+  ;; export now writes them through into the cache. The same blocks imported
+  ;; with the write-through disabled are the positive control: that run must
+  ;; read more, or the assertion could pass with no cache involved at all.
+  (let* ((sender-keys '(1 2 3 4))
+         (account-count 512)
+         (genesis-json
+           (devnet-np-latency-genesis-json sender-keys account-count))
+         (blocks (devnet-np-latency-build-blocks
+                  genesis-json sender-keys account-count 6)))
+    (multiple-value-bind (cold-reads cold-hits)
+        (devnet-np-latency-replay genesis-json blocks nil)
+      (multiple-value-bind (warm-reads warm-hits phase-names)
+          (devnet-np-latency-replay genesis-json blocks t)
+        ;; Control: without write-through the payloads do reach the database.
+        (is (plusp cold-reads))
+        ;; The write-through cuts the reads by more than a third (measured
+        ;; 166 -> 75 on this fixture; the remainder are first touches of
+        ;; genesis nodes) and turns them into cache hits.
+        (is (< (* 3 warm-reads) (* 2 cold-reads)))
+        (is (> warm-hits cold-hits))
+        ;; The live telemetry carries the split and the counters.
+        (dolist (name '("npExecuteMs" "npPersistMs"
+                        "npTrieNodeReads" "npTrieNodeCacheHits"))
+          (is (member name phase-names :test #'string=)))))))

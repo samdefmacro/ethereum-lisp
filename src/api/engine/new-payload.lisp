@@ -85,6 +85,30 @@
                      #'execute-and-commit-engine-payload)
                  store block config))))
 
+(defun engine-rpc-call-with-new-payload-read-statistics (store thunk)
+  "Call THUNK and record the trie-node reads STORE served while it ran.
+
+npTrieNodeReads counts point reads that reached the database and
+npTrieNodeCacheHits those the direct provider's node cache answered.  The
+counters are store-wide, so a concurrent reader outside the store guard can
+inflate them; under the guard they describe this payload.  Both are zero for a
+store without a durable node provider."
+  (if (eq *engine-rpc-phase-timings* :disabled)
+      (funcall thunk)
+      (multiple-value-bind (reads-before hits-before)
+          (chain-store-trie-node-read-statistics store)
+        (multiple-value-prog1 (funcall thunk)
+          (multiple-value-bind (reads-after hits-after)
+              (chain-store-trie-node-read-statistics store)
+            (engine-rpc-record-phase-duration
+             "npTrieNodeReads" (- reads-after reads-before))
+            (engine-rpc-record-phase-duration
+             "npTrieNodeCacheHits" (- hits-after hits-before)))))))
+
+(defmacro engine-rpc-with-new-payload-read-statistics ((store) &body body)
+  `(engine-rpc-call-with-new-payload-read-statistics
+    ,store (lambda () ,@body)))
+
 (defun engine-rpc-handle-new-payload
     (version params store config
      &key import-function new-payload-persistence-function)
@@ -138,30 +162,34 @@
         (when invalid-message
           (engine-rpc-fail -32602 invalid-message)))
       (multiple-value-bind (status block receipts)
-          (apply
-           #'import-executable-payload
-           store version payload config
-           (append
-            (list
-             :source :engine
-             :import-function
-             (lambda (candidate-store candidate candidate-config)
-               (engine-rpc-import-with-prepared-execution
-                candidate-store candidate candidate-config import-function))
-             :durability-function
-             (and
-              new-payload-persistence-function
-              (lambda (callback-store candidate &rest provenance)
-                (apply
-                 #'engine-rpc-persist-new-payload
-                 callback-store candidate
-                 new-payload-persistence-function
-                 provenance))))
-            (when (>= version 3)
-              (list :versioned-hashes versioned-hashes
-                    :parent-beacon-root parent-beacon-root))
-            (when (>= version 4)
-              (list :requests requests))))
+          (engine-rpc-with-new-payload-read-statistics (store)
+            (apply
+             #'import-executable-payload
+             store version payload config
+             (append
+              (list
+               :source :engine
+               :import-function
+               (lambda (candidate-store candidate candidate-config)
+                 (engine-rpc-with-phase-timing ("npExecuteMs")
+                   (engine-rpc-import-with-prepared-execution
+                    candidate-store candidate candidate-config
+                    import-function)))
+               :durability-function
+               (and
+                new-payload-persistence-function
+                (lambda (callback-store candidate &rest provenance)
+                  (engine-rpc-with-phase-timing ("npPersistMs")
+                    (apply
+                     #'engine-rpc-persist-new-payload
+                     callback-store candidate
+                     new-payload-persistence-function
+                     provenance)))))
+              (when (>= version 3)
+                (list :versioned-hashes versioned-hashes
+                      :parent-beacon-root parent-beacon-root))
+              (when (>= version 4)
+                (list :requests requests)))))
         (declare (ignore receipts))
         (when (and (string= +payload-status-valid+
                             (payload-status-status status))

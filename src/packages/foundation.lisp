@@ -287,6 +287,7 @@
    #:mpt-hashed-subtrees-at-prefix-depth
    #:mpt-populate-dirty-batch
    #:mpt-mark-nodes-persisted
+   #:mpt-node-record
    #:trie-node-store-get
    #:mpt-get-node-by-compact-path
    #:make-mpt-iterator

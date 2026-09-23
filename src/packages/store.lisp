@@ -169,6 +169,8 @@
    #:chain-store-backing-account-state
    #:chain-store-backing-account-storage
    #:chain-store-backing-trie-node
+   #:chain-store-note-persisted-trie-nodes
+   #:chain-store-trie-node-read-statistics
    #:chain-store-backing-code
    #:chain-store-backing-blob-sidecar
    #:chain-store-durable-state-provider-p

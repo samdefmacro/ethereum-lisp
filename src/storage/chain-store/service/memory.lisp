@@ -79,6 +79,29 @@ provider that has no trie state for the requested block."))
   (declare (ignore store hash))
   (values nil nil))
 
+(defgeneric chain-store-note-persisted-trie-nodes (store database nodes)
+  (:documentation
+   "Tell STORE that NODES were just written to DATABASE by an applied batch.
+
+A direct provider keeps them in its content-addressed read cache, so the next
+block's traversal of the paths this block rewrote needs no point read."))
+
+(defmethod chain-store-note-persisted-trie-nodes ((store t) database nodes)
+  (declare (ignore store database))
+  nodes)
+
+(defgeneric chain-store-trie-node-read-statistics (store)
+  (:documentation
+   "Return (VALUES DATABASE-READS CACHE-HITS), monotonic trie-node counters."))
+
+(defmethod chain-store-trie-node-read-statistics ((store t))
+  ;; A composite store answers for its chain component, which is where a
+  ;; direct provider keeps its node cache.
+  (let ((component (chain-store-component store)))
+    (if (and component (not (eq component store)))
+        (chain-store-trie-node-read-statistics component)
+        (values 0 0))))
+
 (defgeneric chain-store-backing-code (store hash)
   (:documentation
    "Return (VALUES CODE PRESENT-P) for a content-addressed bytecode hash."))

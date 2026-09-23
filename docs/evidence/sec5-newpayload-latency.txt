@@ -1,0 +1,227 @@
+Section 5: newPayload latency at the head
+
+Status
+
+Branch newpayload-latency, from f1f079f6. Measured in an arm64 warm image on a
+local RocksDB store (container tmpfs), not on the Hoodi host. One read-path
+cost is found and fixed: the trie-node point reads a block makes for nodes its
+parent just wrote. One per-block write-path read is removed, and newPayload now
+logs where its time goes. The fixture does NOT reproduce the live magnitude:
+it runs a Hoodi-shaped block in about 11 ms. The live 2-29 s is therefore not
+explained by execution CPU. The new telemetry is there to find it. Not
+deployed, no live run, no cold-all (the coordinator runs it once at the end).
+
+Revision
+
+  9a9b872f  node-store: keep the nodes a block wrote in the trie-node cache
+  52d0aa46  engine: log newPayload execute/persist phases and trie-node reads
+  3af5e63d  test: newPayload reads its parent's rewritten trie nodes from cache
+
+Live boundary (Hoodi, d203fee6, 2026-09-23 12:40-13:12Z)
+
+engine_newPayloadV4 handlerMs 1,808-29,017 ms across 402 VALID answers,
+engine_forkchoiceUpdatedV3 3,564-20,421 ms. The node was synced and following
+the head, with 0 forward gap fills, so the forward batch importer was not
+holding the store guard (sec5-d203fee6-hoodi-complete.txt). At the 8e95b990
+restart the tail also executed at about 3 s per block
+(sec5-8e95b990-hoodi-run.txt).
+
+================================================================================
+1. Fixture
+================================================================================
+
+A scratch harness (not in git) builds a Prague genesis with 20,000 accounts at
+Keccak addresses, 30 funded senders, and a storage contract (SSTORE of calldata
+slot) with 2,000 slots. It then builds 50 blocks on a RocksDB builder node with
+testing_buildBlockV1. Each block has 30 legacy transactions: 15 transfers to
+random existing accounts (1 in 5 to a new account) and 15 contract calls
+writing a random existing or new slot. The harness replays those 50 payloads
+into a fresh RocksDB devnet node through the node's own Engine rpc-context
+(RPC-HANDLE-REQUEST: guard, newPayloadV4 with the persistence function, then
+forkchoiceUpdatedV3). The first 5 blocks are excluded from wall-clock figures.
+The warm image has a 1 GiB heap, which limited the fixture size (two heap
+exhaustions at larger sizes).
+
+Measurement method: SB-INT:ENCAPSULATE timers on function boundaries
+(inclusive ms and call counts), plus a tally of KV-GET-CHAIN-RECORD by record
+kind, found-p, and phase (execution / export / forkchoice). No statistical
+sb-sprof run was needed: the whole block costs about 11 ms of CPU.
+
+================================================================================
+2. Where a block's time goes (parent f1f079f6, per 30-transaction block)
+================================================================================
+
+  engine_newPayloadV4 handler                 10.7 ms   (fcU: 5.6 ms)
+    EXECUTE-SIGNED-BLOCK                        5.4
+      SECP256K1-RECOVER-ADDRESS (60 calls)      1.4   see 5.
+      STATE-DB-ROOT                             1.1
+      trie node decode+hash check (218)         0.7
+    durable candidate export                    2.9
+    RocksDB point reads (541 calls)             0.5   (tmpfs; memtable/cache)
+    RocksDB writes (2)                          0.2
+
+RocksDB point reads per block, by phase and record kind:
+
+                                        parent        this branch
+  execution  :trie-node found              206.4          52.4
+  export     :trie-node absent             218.8           0
+  forkchoice :txpool / :tx-location        60             60
+  everything else                          ~56            ~56
+  total %ROCKS-GET                         541.2         168.4
+  trie-node cache lookups / DB fills   218.1 / 206.4  218.1 / 52.4
+
+Finding A: the parent's rewritten nodes miss the cache (VERIFIED). The
+direct provider's content-addressed trie-node cache
+(DATABASE-CHAIN-STORE-TRIE-NODE-CACHE) was filled only on read. Every block
+rewrites the root and the upper levels of each path it touches, and the child
+opens a fresh persisted MPT at the parent's root. So the child's first
+traversal missed on exactly the nodes this process had just written, and read
+them back from RocksDB: 206 of 218 lookups missed.
+
+Finding B: the candidate export does one negative read per dirty node
+(VERIFIED). CHAIN-STORE-POPULATE-STATE-TRIE-RECORD-TO-KV passed DATABASE to
+MPT-POPULATE-DIRTY-BATCH, which point-reads every new node's key to check for a
+collision before the put: 219 absent-key reads per block.
+
+On Hoodi the trie is deeper (millions of accounts) and the store is 57 GB, so
+both counts scale with depth times touched keys. Finding A is the one that
+costs wall time on a disk-bound store: found reads go to SST blocks, while
+absent reads mostly stop at the Bloom filter.
+
+================================================================================
+3. Fix
+================================================================================
+
+- CHAIN-STORE-NOTE-PERSISTED-TRIE-NODES (chain-store generic, no-op default).
+  NODE-STORE-EXPORT-PAYLOAD-CANDIDATE-TO-KV and the forkchoice export call it
+  after their batch is applied. The DATABASE-CHAIN-STORE method puts each node
+  (MPT-NODE-RECORD, the same hash/encoding the batch wrote) into the node
+  cache. It does this only when the export target is EQ to the provider's own
+  database, so the cache never claims a node the provider cannot read. SNAP
+  presence checks see nothing new. Entries cannot go stale because nodes are
+  Keccak-addressed. The bound is unchanged: two generations of 16,384.
+  *NODE-STORE-DIRECT-TRIE-NODE-WRITE-THROUGH-P* exists only as the test
+  control.
+- A hit in the older cache generation is promoted to the current one.
+- The export no longer passes DATABASE to MPT-POPULATE-DIRTY-BATCH. The key is
+  the Keccak of the value written, so an existing record under it can differ
+  only if it is corrupt, and overwriting it with the correct bytes repairs it.
+  Other callers (snap import, MPT-PERSIST) keep the check.
+- Telemetry: engine.rpc.http.request for engine_newPayload* now carries
+  npExecuteMs (execution + root + in-memory commit), npPersistMs (durable
+  candidate export), npTrieNodeReads and npTrieNodeCacheHits
+  (CHAIN-STORE-TRIE-NODE-READ-STATISTICS deltas, store-wide monotonic
+  counters). The phase-timing helpers moved from forkchoice.lisp to errors.lisp
+  unchanged, because new-payload.lisp loads earlier.
+
+Consensus behaviour is unchanged. Execution, roots, receipts and gas are
+untouched. Every cached node is still Keccak-checked against its reference
+when a persisted MPT resolves it (MAKE-PERSISTED-MPT), so wrong bytes would
+fail loudly instead of changing a root. Every replayed payload answered VALID
+against the builder's block hash (state root, receipts root, gas used) before
+and after.
+
+================================================================================
+4. Before / after (fixture, 50 blocks, first 5 excluded)
+================================================================================
+
+Operation counts (the measurement of record, identical run to run):
+  RocksDB point reads per block       541 -> 168   (3.2x)
+  execution trie-node DB reads        206 ->  52   (3.9x)
+  export collision reads              219 ->   0
+
+Wall clock on tmpfs RocksDB (everything in memtable/cache): unchanged,
+  newPayload mean 11.1 ms (write-through off) vs 10.7 ms (on).
+
+Wall clock with 0.5 ms added to every FOUND point read (an emulated
+disk-bound store; absent reads get no delay, so Finding B's removal is not
+credited here). The same code runs both ways, with only the write-through
+toggled:
+  write-through off   newPayload mean 177.3 ms, median 179, max 199
+                      (npExecuteMs 170 at block 40)
+  write-through on    newPayload mean  55.1 ms, median  55, max  72
+                      (npExecuteMs  40 at block 40)
+  -> 3.2x. forkchoiceUpdated 21.6 -> 21.7 ms (its ~30 found reads are block,
+     checkpoint and index records, which this change does not touch).
+
+Live telemetry sample (fixture, write-through on, three late blocks):
+  npTrieNodeReads 65/51/56, npTrieNodeCacheHits 156/164/166,
+  npExecuteMs 5, npPersistMs 2.
+
+================================================================================
+5. Candidates examined and left alone
+================================================================================
+
+- Durable export fsync. PROJECT.md "Atomic import": an imported block
+  publishes state, receipts, indexes and forkchoice effects together, and a
+  failed validation or durable write never exposes a partial chain view. The
+  newPayload export already uses KV-APPLY-BATCH-BUFFERED (RocksDB WAL without
+  sync) for Engine candidates, and the forkchoice export syncs only at
+  safe/finalized/reorg/pivot seams (about once per epoch). So no fsync sits on
+  the per-block critical path, and nothing was moved.
+- Sender recovery: 2 per transaction. ENGINE-NEW-PAYLOAD-REQUIRE-
+  TRANSACTION-SENDERS recovers it in newPayload (execution reuses the cached
+  sender), and ENGINE-PENDING-TXPOOL-REMOVE-INCLUDED-TRANSACTION recovers it
+  again in forkchoiceUpdated on the stored block's transaction objects. That
+  is about 25 us each (libsecp256k1), 1.4 ms per 30 transactions. Not changed.
+- Pending-code lookup (NODE-STORE-DIRECT-PENDING-CODE keccaks every pending
+  code body per call) is 3 calls per block here, and export clears pending
+  state. Not a cost at the head.
+- BLOCKHASH window: 0.1 ms per block (block cache).
+- Store guard: no forward importer ran during the live window. Engine
+  requests take the priority guard since 9f84d312.
+
+================================================================================
+6. Verification of record (targeted)
+================================================================================
+
+cl-workbench doctor --strict: passed.
+
+RED/GREEN, DEVNET-NEW-PAYLOAD-READS-THE-NODES-ITS-PARENT-WROTE-FROM-CACHE
+(tests/cli-devnet-live-persistence-tests.lisp, integration). A RocksDB node
+imports 6 transfer blocks (512 accounts, 8 transactions each) through Engine
+newPayloadV2/forkchoiceUpdatedV1, first with the write-through off and then on:
+  control (off)  166 trie-node DB reads, 0 cache hits after the first block
+  on             75 reads, 91 hits          -> GREEN (asserts 3*on < 2*off)
+  mutation: CHAIN-STORE-NOTE-PERSISTED-TRIE-NODES made a no-op
+                 -> RED "Assertion failed: (< (* 3 WARM-READS) (* 2 COLD-READS))"
+It also asserts that the four np* telemetry fields are recorded.
+
+Warm image, run-tests :match ("DATABASE-CHAIN-STORE" "DIRECT-"
+  "PAYLOAD-CANDIDATE" "KV-EXPORT" "FORKCHOICE" "ENGINE-RPC" "NEW-PAYLOAD"
+  "NEWPAYLOAD" "BLOCK-IMPORT" "DEVNET-LIVE-PERSISTENCE" "NODE-STORE"
+  "ENGINE-PAYLOAD" "DEVNET-NEW-PAYLOAD" "MPT" "TRIE-NODE"):
+  410 passed, 1 skipped, 11 failed. All 11 were KZG/capability tests failing
+  because the harness thread had the real c-kzg and blst backends installed.
+  Re-run by name without them: 11 of 11 passed.
+Warm image, :match ("BLOCKCHAIN" "EEST" "SNAP-HEAL" "ROCKSDB"
+  "DEVNET-PEER-SYNC" "DEVNET-PEER-RANGE" "STATE-DIFF" "CHAIN-STORE"
+  "ENGINE-FIXTURE"): 219 passed, 11 skipped.
+Cold:
+  cl-workbench validation run cold-integration --match DEVNET-NEW-PAYLOAD-READS
+    1 test passed, EXIT=0
+  cl-workbench validation run cold-unit --match DATABASE-CHAIN-STORE
+    --match NODE-STORE --match PAYLOAD-CANDIDATE --match NEW-PAYLOAD
+    60 tests passed, EXIT=0
+  cl-workbench validation run cold-integration --match DEVNET-LIVE-PERSISTENCE
+    --match NODE-STORE --match DIRECT- --match DATABASE-CHAIN-STORE
+    138 tests passed, EXIT=0
+No STYLE-WARNING under /workspace/src from these files. The warm image load
+reports one pre-existing unused PRECOMPILE-P in
+src/runtime/evm/interpreter/call.lisp, which this branch does not touch.
+
+Not verified
+
+- The live cause of 2-29 s. The fixture runs a Hoodi-shaped block in about
+  11 ms, so the live time is outside execution CPU: disk-bound reads of a
+  57 GB store on a host shared with Lighthouse, GC on a 6 GiB heap, or a store
+  guard holder not identified here. The deployed npExecuteMs / npPersistMs /
+  npTrieNodeReads fields will split it. A block with npTrieNodeReads in the
+  thousands and npExecuteMs in seconds means read latency; small counts with
+  large ms mean it is elsewhere.
+- The 3.2x wall-clock figure comes from an emulated 0.5 ms read, not from Hoodi
+  disk.
+- forkchoiceUpdated's 3.5-20 s is not addressed. Its reads here are about 60
+  per block, most of them absent keys.
+- EEST blockchain fixtures replayed on a RocksDB direct provider (not run in
+  this branch). The block-import and Engine tests above are the oracle.

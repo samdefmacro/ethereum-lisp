@@ -193,7 +193,13 @@ migration to establish them separately."
                 record-label))))))
       (dolist (trie tries)
         (let ((dirty
-                (mpt-populate-dirty-batch batch trie database)))
+                ;; No DATABASE argument, so no collision-check point read per
+                ;; dirty node: each key is the Keccak of the value written
+                ;; under it, computed here from that value, so an existing
+                ;; record can differ only if it is corrupt, and overwriting
+                ;; it with the bytes that hash to the key repairs it.  The
+                ;; read was one negative lookup per new node on every block.
+                (mpt-populate-dirty-batch batch trie)))
           (when dirty
             (setf changed-p t
                   nodes (nconc nodes dirty)))))
