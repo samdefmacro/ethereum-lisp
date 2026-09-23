@@ -1244,7 +1244,11 @@ set -euo pipefail
 container="$1"
 el_log="$(mktemp)"
 trap 'rm -f "$el_log"' EXIT HUP INT TERM
-docker logs --tail 10000 "$container" >"$el_log" 2>&1
+# The whole container log, not a tail: on a run that completed hours ago the
+# target_completed and final heal_progress lines sit far above the last ten
+# thousand lines, and a tail reported them missing on a node that was already
+# serving eth_syncing=false at the head (d203fee6, 2026-09-23T13:10Z).
+docker logs "$container" >"$el_log" 2>&1
 
 # Runtime integrity faults fail completion before anything else is considered.
 # SBCL's SIGSEGV handler prints "CORRUPTION WARNING", signals a
