@@ -1,0 +1,96 @@
+Section 5 Hoodi completion record at aee866f7
+
+Status: COMPLETE for the fresh-datadir acceptance on the second release
+candidate. `scripts/hoodi-live-gate.sh complete` exited 0 at
+2026-09-23T19:18Z from the worktree detached at aee866f7 (HEAD = revision).
+The remaining Section 5 gates at this revision (Hive x3, shadow, soak) are
+recorded separately; the branch stays unmerged until then.
+
+Revision and artifact
+
+  revision        aee866f7 (git rev-parse aee866f7)
+  image           ethereum-lisp-runtime:sec5-aee866f7-amd64
+  local image id  sha256:16cfd45a8d0e6e4f5aab7333f26696bae930834d76fbb99c6069e4a2df865d54
+  remote image id sha256:85d22dabc05df59e7bf34c0f9ff4d536c86a58b99fc3c02c41270414c0abe965
+  artifact        /private/tmp/ethereum-lisp-runtime-sec5-aee866f7-amd64.tar
+                  72,218,112 bytes
+                  sha256 ab52095f1204474e21e9c7a4e3eca959374a00bf32132dbea035609d5c4874c5
+  offline gates   cold-all 1450+3 / 620+9 / 40 / 36, runtime-smoke PASS
+                  (sec5-aee866f7-amd64-runtime.txt); EEST v20.0.2 eight
+                  gates, zero unexpected skips (sec5-aee866f7-eest-v20.0.2.txt)
+
+Run identity
+
+  host            test-ethereum-sophon2-symbiosis (8 vCPU, 15 GiB)
+  container       hoodi-el-sec5-aee866f7
+  started         2026-09-23T16:33:15.094126079Z (fresh datadir; replaced the
+                  stopped hoodi-el-sec5-d203fee6 via the broker)
+  datadir         /data/hoodi-sec5-20260814/datadir-aee866f7
+  bounds          memory=12884901888 memory-swap=12884901888, user 1000:1000,
+                  read-only root, caps ALL dropped, no-new-privileges,
+                  io_uring seccomp profile
+  broker env      HOODI_GATE_HOST=test-ethereum-sophon2-symbiosis
+                  HOODI_GATE_MEMORY_BYTES=12884901888
+
+Continuity (one uninterrupted run)
+
+  status StartedAt at acceptance     2026-09-23T16:33:15.094126079Z (equal)
+  running / OOMKilled / RestartCount true / false / 0
+  el-runtime-fault-count             0
+
+Acceptance -- `scripts/hoodi-live-gate.sh complete`, exit 0, 2026-09-23T19:18Z
+
+  completion-target=3682298
+  completion-healer-completed=T frontier=0
+  completion-eth-syncing=false
+  completion-canonical-block=3682338
+
+Supporting samples (status right after `complete`)
+
+  eth_blockNumber        0x383022 (3682338)
+  eth_syncing            false
+  cl_node_syncing        is_syncing=false, is_optimistic=false, el_offline=false,
+                         head_slot 3998133, sync_distance 4
+  datadir-bytes          56,590,265,233
+  runtime                cpu=101.02% memory=8.914GiB / 12GiB blockIo=1.4TB / 2TB pids=48
+
+Discovery and negotiation
+
+  peer.discovery.crawl   273 (chain-filtered), preset bootnodes only, no static enode
+
+Range phase
+
+  start -> end           2026-09-23T16:35:38Z -> 19:08:58Z (2 h 33 min)
+  account pages          4,289; storage closures 3,355
+  pivot rebases          11; pivot_unavailable 120 (the first minutes while
+                         Lighthouse caught up from 80 slots behind);
+                         dependency_failed 103 (pivot expiry, handled)
+  import_failed          0; storage_failed 0
+
+Healer
+
+  19:08:59Z  start at pivot 3682234 (one fetched node)
+  19:09:29Z  processed 23,480 fetched 23,674 skipped 244,204 frontier 31,626
+  19:09:34Z  processed 32,990 fetched 32,988 skipped 279,054 frontier 0
+             knownIncompleteNodes 0 completed=T   (35 s)
+  19:12:59Z  peer.snap.target_completed pivot 3682234 target 3682298
+
+Head following
+
+  peer.sync.gap_filled 144 after target_completed, gap_peer_failed 0 (the
+  bdc2b3de path); Engine answers: 24 VALID, 9 ACCEPTED, 1,435 SYNCING
+  (before completion); eth_syncing false from the published view.
+
+  newPayload phase telemetry (e0b76c48), the last 20 VALID answers:
+  handlerMs 76-25,265; npExecuteMs is bimodal, 52-548 ms or 6,000-6,260 ms;
+  npPersistMs 4-24; npTrieNodeReads 0-825 with cache hits 296-1,662. Several
+  handlers spend most of their time neither executing nor persisting
+  (handlerMs 8,656 with execute 6,000 + persist 12; 25,265 with no execution
+  at all), i.e. waiting for the store guard. The ~6 s execution quantum is
+  under investigation (sec5-newpayload-six-second-quantum.txt when it lands).
+
+Lineage
+
+  d203fee6  complete exit 0 at 13:12Z (sec5-d203fee6-hoodi-complete.txt)
+  aee866f7  complete exit 0 at 19:18Z (this record); heal 35 s, one
+            generation, no exit, no fault
