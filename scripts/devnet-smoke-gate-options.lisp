@@ -515,10 +515,15 @@ references/ checkouts.~%")
            :port port
            :public-port public-port
            :jwt-secret-path jwt-secret-path)))
-    (node-store-import-from-kv
-     (ethereum-lisp.cli:devnet-node-store node)
-     (make-file-key-value-database path)
-     :expected-chain-id (chain-config-chain-id config))
+    ;; Under the node's store guard, as every store mutation must be: its
+    ;; release republishes the view public reads answer from.
+    (ethereum-lisp.cli::call-with-devnet-node-store-guard
+     node
+     (lambda ()
+       (node-store-import-from-kv
+        (ethereum-lisp.cli:devnet-node-store node)
+        (make-file-key-value-database path)
+        :expected-chain-id (chain-config-chain-id config))))
     (setf (ethereum-lisp.cli::devnet-node-database-path node) path)
     (devnet-cli-set-node-store-config
      node

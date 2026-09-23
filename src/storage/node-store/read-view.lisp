@@ -47,13 +47,19 @@ reader, with compare-and-swap, and are immutable once installed."
 
 (defstruct (node-store-read-view
             (:constructor %make-node-store-read-view
-                (head-number head-hash safe-number finalized-number entries)))
+                (source head-number head-hash safe-number finalized-number
+                 entries)))
   "What the public read path may answer without the store guard.
 
 ENTRIES is a simple vector, head first: entry I holds canonical block
 HEAD-NUMBER - I. It may be shorter than the window when ancestors are not
 available (genesis, a SNAP pivot). SAFE-NUMBER and FINALIZED-NUMBER are what
-the live tag lookup returned, or :UNAVAILABLE when it signalled."
+the live tag lookup returned, or :UNAVAILABLE when it signalled.
+
+SOURCE is the store the view was built from. A caller answering for another
+store object (a store that was swapped out, as test harnesses do) must not use
+it; NODE-STORE-READ-VIEW-ATTEMPT enforces that."
+  (source nil :read-only t)
   (head-number 0 :read-only t)
   (head-hash nil :read-only t)
   (safe-number nil :read-only t)
@@ -64,11 +70,14 @@ the live tag lookup returned, or :UNAVAILABLE when it signalled."
   "Leave the view: the request is answered under the guard instead."
   (throw 'node-store-read-view-miss :miss))
 
-(defun node-store-read-view-attempt (function view)
+(defun node-store-read-view-attempt (function view store)
   "Call FUNCTION with VIEW as its store. Return (VALUES RESULT ANSWERED-P).
 
-ANSWERED-P is false when the view could not answer, in which case the caller
-must fall back to the guarded live store."
+STORE is the live store the caller would otherwise read; a view built from any
+other store does not answer for it. ANSWERED-P is false when the view could not
+answer, in which case the caller must fall back to the guarded live store."
+  (unless (eq store (node-store-read-view-source view))
+    (return-from node-store-read-view-attempt (values nil nil)))
   (let ((answered-p nil))
     (let ((result (catch 'node-store-read-view-miss
                     (prog1 (funcall function view)
@@ -128,6 +137,7 @@ getPayload, a txpool change) costs two index lookups and no allocation."
          (safe (%node-store-read-view-tag store "safe"))
          (finalized (%node-store-read-view-tag store "finalized")))
     (if (and previous
+             (eq store (node-store-read-view-source previous))
              (eql head-number (node-store-read-view-head-number previous))
              (let ((old (node-store-read-view-head-hash previous)))
                (if head-hash (and old (hash32= head-hash old)) (null old)))
@@ -135,9 +145,13 @@ getPayload, a txpool change) costs two index lookups and no allocation."
              (eql finalized (node-store-read-view-finalized-number previous)))
         previous
         (%make-node-store-read-view
-         head-number head-hash safe finalized
+         store head-number head-hash safe finalized
          (if head-block
-             (%node-store-read-view-entries store head-block previous window)
+             (%node-store-read-view-entries
+              store head-block
+              (and previous (eq store (node-store-read-view-source previous))
+                   previous)
+              window)
              #())))))
 
 (defun %node-store-read-view-entry-at (view number)

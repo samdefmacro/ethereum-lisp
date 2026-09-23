@@ -424,15 +424,16 @@ holds no state.")
 (defun devnet-node-read-view-function (node-box)
   "The public RPC's way into NODE's published read view.
 
-Returns a function of a one-argument FUNCTION that runs it against the current
-view and returns (VALUES RESULT ANSWERED-P); ANSWERED-P is false before the
-first publication and whenever the view misses. The view is read from the node
-once per request, so one request never mixes two views."
-  (lambda (function)
+Returns a function of a one-argument FUNCTION and the caller's STORE that runs
+FUNCTION against the current view and returns (VALUES RESULT ANSWERED-P);
+ANSWERED-P is false before the first publication, when the view was built from
+a different store object, and whenever the view misses. The view is read from
+the node once per request, so one request never mixes two views."
+  (lambda (function store)
     (let* ((node (first node-box))
            (view (and node (devnet-node-read-view node))))
       (if view
-          (node-store-read-view-attempt function view)
+          (node-store-read-view-attempt function view store)
           (values nil nil)))))
 
 (defun devnet-node-forkchoice-targets-pending-p (node)

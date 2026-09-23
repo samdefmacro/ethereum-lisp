@@ -1532,6 +1532,9 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
                 (original-engine-guard
                   (ethereum-lisp.rpc::rpc-context-request-guard-function
                    engine-context))
+                (original-read-view
+                  (ethereum-lisp.rpc::rpc-context-read-view-function
+                   public-context))
                 (original-persistence-function
                   (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
                    node))
@@ -1587,9 +1590,14 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
                             (serious-condition (condition) condition)))
                         :name "devnet-engine-guard-shares-store-mutex")
                        :timeout 10 :default :timeout)))))
+           ;; This test observes the public request CONTENDING for the store
+           ;; guard, so the published read view (which answers eth_blockNumber
+           ;; without the guard) is switched off for its duration.
            (setf
             (ethereum-lisp.cli::devnet-node-store-guard-function node)
             test-store-guard
+            (ethereum-lisp.rpc::rpc-context-read-view-function public-context)
+            nil
             (ethereum-lisp.rpc::rpc-context-request-guard-function
              public-context)
             (lambda (thunk)
@@ -1732,6 +1740,8 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
               (ethereum-lisp.rpc::rpc-context-request-guard-function
                public-context)
               original-public-guard
+              (ethereum-lisp.rpc::rpc-context-read-view-function public-context)
+              original-read-view
               (ethereum-lisp.cli::devnet-node-canonical-transition-persistence-function
                node)
               original-persistence-function)))
@@ -1820,9 +1830,15 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
                            public-context)))
                   :name "ethereum-lisp-test-public-rpc"))
            (sb-thread:wait-on-semaphore public-started)
-           (is (eq :timeout
-                   (sb-thread:join-thread
-                    public-thread :timeout 0.2 :default :timeout)))
+           ;; eth_blockNumber is answered from the published read view without
+           ;; waiting for the failing hold, and that view is the last committed
+           ;; one: the tentative head is invisible while the hold is in progress
+           ;; (asserted below), not merely because the request waited it out.
+           (is (not (eq :timeout
+                        (sb-thread:join-thread
+                         public-thread :timeout 5 :default :timeout))))
+           (is (string= "0x0"
+                        (fixture-object-field public-response "result")))
            (sb-thread:signal-semaphore release-persistence)
            (sb-thread:join-thread engine-thread)
            (sb-thread:join-thread public-thread)

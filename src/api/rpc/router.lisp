@@ -29,9 +29,10 @@
   request-guard-predicate
   ;; READ-VIEW-FUNCTION, when set, answers READ-VIEW-METHOD-P requests without
   ;; the request guard: it is called with a function of one store argument and
-  ;; returns (VALUES RESULT ANSWERED-P), running that function against an
-  ;; immutable published view. ANSWERED-P false means the view could not answer
-  ;; and the request takes the guarded path. See RPC-HANDLE-REQUEST.
+  ;; with the context's own STORE, and returns (VALUES RESULT ANSWERED-P),
+  ;; running that function against an immutable view published from STORE.
+  ;; ANSWERED-P false means no such view could answer and the request takes the
+  ;; guarded path. See RPC-HANDLE-REQUEST.
   read-view-function
   read-view-method-p
   payload-improvement-notification-function
@@ -326,7 +327,8 @@ NIL whether or not the view answered."
                      (let ((view-context (copy-rpc-context context)))
                        (setf (rpc-context-store view-context) view)
                        (rpc-handle-request-without-guard
-                        request view-context))))
+                        request view-context)))
+                   (rpc-context-store context))
         (when (and answered-p response (not (rpc-response-error-p response)))
           (values response t))))))
 
