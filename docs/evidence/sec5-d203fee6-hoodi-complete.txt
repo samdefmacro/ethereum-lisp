@@ -1,0 +1,128 @@
+Section 5 Hoodi completion record at d203fee6
+
+Status: COMPLETE for the fresh-datadir acceptance. `scripts/hoodi-live-gate.sh
+complete` exited 0 at 2026-09-23T13:12:23Z against the run below. The
+remaining Section 5 gates (Hive rpc-compat / Engine-auth / devp2p at this
+revision, the seven-day shadow comparison, the fourteen-day validator soak)
+are recorded separately as they land; the branch stays unmerged until then.
+
+Completion criteria (readiness plan, Section 5): one continuous fresh-datadir
+run records peer.snap.target_completed, finishes the healer with
+completed=true and an empty frontier, returns eth_syncing=false, and executes
+the canonical EL head through the CL-authorized target. Discovery uses the
+preset bootnodes only (no static enode), and the run keeps following head.
+
+Revision and artifact
+
+  revision        d203fee694ab44a362cc669a7f95e9e542acb85d
+  image           ethereum-lisp-runtime:sec5-d203fee6-amd64
+  local image id  sha256:14bdd712e1128a3a1546ceeccede1d2411bd9790bb1730873caecebe2bd1496f
+  remote image id sha256:4dec4c41d25c361ec775b848735ebd203f573c82c1978099e6437bb6fe50def1
+  artifact        /private/tmp/ethereum-lisp-runtime-sec5-d203fee6-amd64.tar
+                  72,125,952 bytes
+                  sha256 04b0c0f7397d0b407f8dc515db89f32aef6bebba22817614f35243120dbf4890
+  offline gates   cold-all 1436+3 / 602+9 / 33 / 36, runtime-smoke PASS
+                  (sec5-d203fee6-amd64-runtime.txt); EEST v20.0.2 at this
+                  revision: recorded separately (sec5-d203fee6-eest-v20.0.2.txt)
+
+Run identity
+
+  host            test-ethereum-sophon2-symbiosis (8 vCPU, 15 GiB)
+  container       hoodi-el-sec5-d203fee6
+  started         2026-09-23T10:03:59.831692032Z (fresh datadir; replaced the
+                  stopped hoodi-el-sec5-8e95b990 via the broker's
+                  old-container branch)
+  datadir         /data/hoodi-sec5-20260814/datadir-d203fee6
+  bounds          memory=12884901888 memory-swap=12884901888, user 1000:1000,
+                  read-only root, caps ALL dropped, no-new-privileges,
+                  io_uring seccomp profile
+  broker env      HOODI_GATE_HOST=test-ethereum-sophon2-symbiosis
+                  HOODI_GATE_MEMORY_BYTES=12884901888
+                  HOODI_GATE_RUNTIME_REVISION=d203fee694ab44a362cc669a7f95e9e542acb85d
+  checkout        upload/load/start from .claude/worktrees/gate-d203fee6
+                  (HEAD = revision); `complete` from the branch checkout at
+                  9f8f336e (a docs- and gate-script-only descendant)
+
+Continuity (one uninterrupted run)
+
+  status StartedAt at acceptance     2026-09-23T10:03:59.831692032Z (equal)
+  running / OOMKilled / RestartCount true / false / 0
+  el-runtime-fault-count             0
+
+Acceptance -- `scripts/hoodi-live-gate.sh complete`, exit 0, at 2026-09-23T13:12:23Z
+
+  completion-target=3680599
+  completion-healer-completed=T frontier=0
+  completion-eth-syncing=false
+  completion-canonical-block=3680709
+
+The first `complete` at 13:10:16Z reported completion-missing=
+peer.snap.target_completed because the action read only the last 10,000 log
+lines and the completion lines were three hours above that window; 9f8f336e
+makes the action read the whole container log (read-only, excluded from the
+revision fence). The second run above is the record.
+
+Supporting samples (status at 13:09:25Z, complete at 13:12:23Z)
+
+  eth_blockNumber        0x3829bd (3680701) at 13:09; 3680709 at 13:12
+  eth_syncing            false
+  net_peerCount          0x5
+  cl_node_syncing        is_syncing=true (sync_distance 33), is_optimistic=false,
+                         el_offline=false, head_slot 3996265
+  CL-authorized target   3680599; canonical EL head 3680709 >= target
+  datadir-bytes          56,154,459,335
+  data-filesystem-bytes  total=738678194176 used=436623462400
+                         available=269804756992 utilization=62%
+  runtime                cpu=101.70% memory=10.32GiB / 12GiB
+                         blockIo=1.34TB / 1.94TB pids=93
+
+Discovery and negotiation (whole log unless noted)
+
+  peer.discovery.crawl   321 (chain-filtered); peer.discovery.dns 35
+  el-negotiated          eth72-snap1 count=4 in the last window (`logs`)
+  static enode           none (preset bootnodes only)
+
+Range phase
+
+  start -> end           2026-09-23T10:04:30Z -> 12:33:08Z (2 h 29 min)
+  account pages          4,291 (peer.snap.progress = page_profile)
+  storage pages          20,583 storage_profile events
+  storage closures       3,390 (3,325 closed, 65 already-closed)
+  pivot rebases          16; pivot_unavailable 38 (12 in the first minutes
+                         while Lighthouse caught up); dependency_failed 80
+                         ("Snap peer does not have the requested
+                         storage-range state", handled by rebase)
+  import_failed          0; storage_failed 0
+
+Healer
+
+  12:33:09Z  start at pivot 3680492 (one fetched node)
+  12:33:39Z  processed 25,874 fetched 26,050 skipped 262,065 frontier 35,179
+  12:33:44Z  processed 36,676 fetched 36,620 reused 70,171 skipped 301,039
+             frontier 0 knownIncompleteNodes 0 completed=T   (35 s)
+  12:37:10Z  peer.snap.target_completed pivot 3680492 target 3680556
+  12:37 - 12:40  pivots 3680520, 3680528, 3680532, 3680534, 3680535: root
+             present, instant completion (the tail execution wrote them);
+             6 target_completed in total, the last at target 3680599
+
+Head following
+
+  12:39:52Z  first engine_newPayloadV4 -> VALID
+  to 13:12   402 Engine calls answered VALID; 1,524 answered SYNCING/ACCEPTED
+             before completion (expected while syncing); 0 INVALID observed
+             in the VALID window
+  forward gap fills      0 gap_filled, 0 gap_peer_failed (the CL drove the
+                         head through newPayload; no peer fetch was needed)
+  eth_syncing            false, answered from the published sync view
+                         (d203fee6) while the guard was busy
+
+Lineage of this result
+
+  3305307d  four days in the healer, never converged (epoch six)
+  75b0b7a7  epoch seven: healer could not finish inside a pivot lifetime
+            (width one, stale storage markers)  sec5-75b0b7a7-hoodi-heal.txt
+  aac5f762  healed in 34 s; exited on the batch importer's overlay bug
+            sec5-aac5f762-hoodi-run.txt
+  8e95b990  healed in 36 s; followed the head with VALID payloads; exited on
+            an unclassified peer socket error  sec5-8e95b990-hoodi-run.txt
+  d203fee6  healed in 35 s; complete exit 0   (this record)
