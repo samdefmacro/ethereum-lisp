@@ -118,6 +118,91 @@ fails if either the binary or checksum is absent or mismatched. This permits a
 binary built by a bounded reviewed Go container without silently trusting a
 different executable.
 
+### Remote runs: `scripts/hoodi-hive-gate.sh`
+
+The Section 5 gates run on the Linux Hoodi host, each inside a fresh bounded
+"outer runner" container that has its own nested Docker daemon. The external
+supervisor that started the r19/r29/r54 runners is no longer on the control
+plane. `scripts/hoodi-hive-gate.sh` (remote half in
+`scripts/hoodi-hive-gate-remote.sh`) is the checked-in broker that replaces
+it. It follows `scripts/hoodi-live-gate.sh`: `HOODI_GATE_HOST` (default
+`test-ethereum-sophon2-symbiosis`), every path below `/data/hoodi-sec5-hive`,
+runner label `agent=codex-sec5-live-gate`, and nothing is ever deleted.
+
+```sh
+S="--sim rpc-compat --run N --stamp YYYYMMDDTHHMMSSZ"   # or engine, devp2p
+scripts/hoodi-hive-gate.sh inspect            # read-only: free -b, df, containers, images, staging
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-hive-gate.sh upload       # source + runtime tar, sha256 both ends
+HOODI_GATE_ALLOW_MUTATION=1 HOODI_HIVE_NESTED_DOCKER_PRIVILEGED=1 \
+  scripts/hoodi-hive-gate.sh prepare $S       # fresh evidence root, nested load, --prepare-only
+HOODI_GATE_ALLOW_MUTATION=1 HOODI_HIVE_NESTED_DOCKER_PRIVILEGED=1 \
+  scripts/hoodi-hive-gate.sh run $S           # detached outer runner
+scripts/hoodi-hive-gate.sh status $S          # runner exit/OOMKilled/restarts, Hive summary line
+scripts/hoodi-hive-gate.sh logs $S
+scripts/hoodi-hive-gate.sh collect $S         # results + logs to /private/tmp/sec5-hive-evidence/<run>, counts, manifest
+```
+
+Mutating actions require `HOODI_GATE_ALLOW_MUTATION=1`, a clean checkout, and
+the live gate's revision fence: `HOODI_HIVE_REVISION` (default `HEAD`) must be
+`HEAD`, or an ancestor with no runtime-sensitive change since. `upload`
+builds `/private/tmp/ethereum-lisp-source-<rev8>.tar` with
+`git archive --format=tar <rev>` and checks that an existing one matches.
+
+Refusal matrix, each checked before any change:
+
+| Condition | Refused actions |
+|---|---|
+| mutation flag missing, dirty checkout | upload, prepare, run |
+| revision not an ancestor of HEAD | all |
+| runtime-sensitive change since the revision | upload, prepare, run |
+| `HOODI_HIVE_NESTED_DOCKER_PRIVILEGED` not 1 | prepare, run |
+| runner or prepare container already exists | prepare, run |
+| `/data` available below 12,884,901,888 bytes (r40) | prepare, run |
+| MemAvailable below 4.5 GiB (prepare, rpc-compat) or 8 GiB (engine, devp2p) | prepare, run |
+| a live-gate EL is running (`agent=codex-sec5-live-gate` + gate-revision label) | run engine, run devp2p |
+| another Hive runner is running | prepare, run |
+| runner image absent; staged archive, source, or Hive binary checksum mismatch | prepare |
+| evidence root not freshly prepared, results non-empty, runner script changed | run |
+| runner still running, no `hive-status.txt`, local directory exists | collect |
+
+Transcribed from the records: runner bounds 2 CPU, 3g/3584m for rpc-compat
+(r19, `sec5-6e3e9b1d-hive-rpc-compat.txt`) and 8g/10g for Engine (r29,
+`sec5-3305307d-hive-engine-auth.txt`) and devp2p (r54,
+`sec5-03957929-hive-devp2p-r54.txt`), 1,024 PIDs, read-only root, no published
+port, not on the Hoodi networks, binds limited to the evidence root and the
+nested-Docker path, bounded tmpfs. The runtime archive is loaded into the
+runner's nested daemon, not the host's (r35/r43,
+`sec5-4097bbd4-amd64-artifacts.txt`, `sec5-b147ade6-amd64-runtime.txt`).
+The inner call comes from the 3305307d records: `RUNTIME_PREBUILT=1`,
+`HIVE_WORKDIR=/evidence/hive-gate`, `HIVE_RESULTS=/evidence/results`, the
+pinned Hive binary `cff9f5c0…` via `HIVE_PREBUILT_BINARY_SHA256`,
+`HIVE_EXPECTED_TESTS=48` for devp2p only (234 and 403 come from
+`hive-run.sh`), no `HIVE_EXTRA_ARGS`. The runner exits 0 with Hive's own
+status in `hive-status.txt` (r54).
+
+**Inferred, not in any record — review before the first run:**
+
+1. `--privileged` on the outer runner. A nested Docker daemon needs it, but no
+   record names the flag, so `prepare`/`run` require
+   `HOODI_HIVE_NESTED_DOCKER_PRIVILEGED=1` as an explicit acknowledgement.
+2. The runner image `ethereum-lisp-sec5-hive-runner:docker27-amd64` contains
+   `dockerd`, `docker`, `bash`, `git`, `jq`, `sha256sum`, `tar`. The runner
+   script checks them and uses `/bin/sh` as entrypoint; `inspect` prints the
+   image configuration.
+3. The host path of the pinned Hive binary (default
+   `/data/hoodi-sec5-hive/staging/hive-dde4f59d`, `HOODI_HIVE_BINARY`).
+4. tmpfs sizes (`/run`, `/var/run` 64 MiB; `/tmp` 1 GiB).
+5. No run timeout: r39's 2 h bound would cut off r29's roughly 2 h 06 min
+   Engine run.
+
+`scripts/hoodi-hive-gate-selftest.sh` runs the broker against stubbed
+`ssh`/`scp`/`docker`/`git`/`free`/`df` (the ssh stub runs the remote half
+locally). It covers argument parsing and every refusal above except the
+staging-checksum and runner-script ones, each with a positive control. It runs
+as the integration test `HOODI-HIVE-GATE-SELFTEST-COVERS-REFUSALS`
+(`tests/control-plane-broker-tests.lisp`). The broker has not yet run against
+the real host.
+
 ## The `HIVE_*` contract, as this client implements it
 
 Commit `05ef79d5` made the CLI reject unknown options and behaviour-selecting

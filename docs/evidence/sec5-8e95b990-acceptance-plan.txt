@@ -292,6 +292,39 @@ extracted source at REV:
 
 No --sim-limit, no HIVE_EXTRA_ARGS in any of the three.
 
+Brokered form (added on branch hive-remote-broker; closes finding F2 once
+reviewed). scripts/hoodi-hive-gate.sh runs the staging, prepare, runner, and
+readback steps above, with the same bounds, names, and inner environment. Its
+refusal matrix and the five inferred runner details (--privileged for the
+nested daemon, runner image contents, Hive binary host path, tmpfs sizes, no
+timeout) are in docs/hive-gate.md "Remote runs". Check the inferred details
+against `inspect` before the first mutation. Revision fence: the broker
+refuses to mutate for a revision whose runtime-sensitive paths changed before
+HEAD, the same rule as hoodi-live-gate.sh. It therefore refuses 8e95b990 from
+a checkout at c831c9a6 or later (src changes); run it from the accepted
+revision's own successor line, or for the upgraded revision.
+
+  export HOODI_GATE_HOST=test-ethereum-sophon2-symbiosis HOODI_HIVE_REVISION=$REV
+  scripts/hoodi-hive-gate.sh inspect > $S/hive-inspect.txt 2>&1; echo "EXIT=$?"
+  HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-hive-gate.sh upload
+  export HOODI_HIVE_NESTED_DOCKER_PRIVILEGED=1          # after reviewing inspect
+  for suite in rpc-compat engine devp2p; do             # engine/devp2p: EL stopped
+    ID="--sim $suite --run <N> --stamp $(date -u +%Y%m%dT%H%M%SZ)"   # keep ID per suite
+    HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-hive-gate.sh prepare $ID
+    HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-hive-gate.sh run $ID
+    scripts/hoodi-hive-gate.sh status $ID               # repeat until running=false
+    scripts/hoodi-hive-gate.sh collect $ID > $S/hive-$suite-collect.txt 2>&1
+  done
+  # (run the loop body per suite by hand; the stamp must stay the same across
+  #  prepare, run, status, and collect of one suite)
+
+run refuses engine and devp2p while any live-gate EL is running, refuses
+below MemAvailable 4.5 GiB (rpc-compat) or 8 GiB (engine, devp2p) and below
+12 GiB free on /data, and never removes a container, image, or evidence root.
+collect copies the evidence to /private/tmp/sec5-hive-evidence/<run>. It
+prints the runner's exit/OOMKilled/restarts, per-suite selected/passed/failed
+counts with every failed case named, and a sha256 manifest.
+
 Evidence per suite (sec5-8e95b990-hive-rpc-compat.txt, -hive-engine-auth.txt,
 -hive-devp2p.txt), superseding the NOT RUN preparation style of the 3305307d
 records: run identity and evidence root; start/stop UTC; outer runner exit,
