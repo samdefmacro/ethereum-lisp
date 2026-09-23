@@ -408,7 +408,8 @@ rather than a node's peering state."
              (setf parent block)))
   parent)
 
-(defun admin-test-syncing-under-sustained-guard-contention (advance-to)
+(defun admin-test-syncing-under-sustained-guard-contention
+    (advance-to &key probe)
   "Return (VALUES BEFORE DURING) eth_syncing answers around a busy store guard.
 
 A remote block at height 5 is the only sync target. BEFORE is answered with the
@@ -416,9 +417,12 @@ guard free. Another thread then takes the guard, advances the canonical head to
 ADVANCE-TO, releases, and immediately takes the guard again and keeps it: the
 live Hoodi pattern, where block execution, batch import and Engine handlers
 hold the guard back to back and eth_syncing's try-lock never finds it free.
-DURING is answered while that second hold is in progress."
+DURING is answered while that second hold is in progress.
+
+PROBE, when given, is a function of the node returning the no-argument
+function to answer BEFORE and DURING with, in place of eth_syncing."
   #-sbcl
-  (progn advance-to (skip-test "Store-guard contention probe requires SBCL threads"))
+  (progn advance-to probe (skip-test "Store-guard contention probe requires SBCL threads"))
   #+sbcl
   (let* ((node (ethereum-lisp.cli:make-devnet-node
                 :genesis-json *eth-sync-paris-genesis-json*
@@ -426,7 +430,9 @@ DURING is answered while that second hold is in progress."
          (store (ethereum-lisp.cli:devnet-node-store node))
          (genesis (ethereum-lisp.cli:devnet-node-genesis-block node))
          (backend (ethereum-lisp.cli::devnet-node-admin-backend (list node)))
-         (syncing (ethereum-lisp.public-api::admin-backend-syncing backend))
+         (syncing (if probe
+                      (funcall probe node)
+                      (ethereum-lisp.public-api::admin-backend-syncing backend)))
          (entered (sb-thread:make-semaphore :count 0))
          (release (sb-thread:make-semaphore :count 0))
          (before nil)
@@ -487,6 +493,74 @@ DURING is answered while that second hold is in progress."
     (is (listp during))
     (is (string= "0x3" (cdr (assoc "currentBlock" during :test #'string=))))
     (is (string= "0x5" (cdr (assoc "highestBlock" during :test #'string=))))))
+
+(defun admin-test-gossip-gate (node)
+  "NODE's inbound transaction gossip gate, reached through the shipped serve
+backend the peer sessions consult (pinned geth's Backend.AcceptTxs)."
+  (let ((backend (ethereum-lisp.cli::devnet-peer-serve-backend node)))
+    (lambda ()
+      (ethereum-lisp.eth-sync::eth-accept-inbound-transactions-p backend))))
+
+(deftest devnet-gossip-gate-admits-transactions-on-a-fresh-node-under-guard-contention
+  (:layer :integration :module :p2p)
+  ;; Hive engine-cancun "Blob Transaction Ordering, Multiple Clients" at
+  ;; d203fee6 (2026-09-23): the payload producer's first-ever inbound
+  ;; transaction announcement arrived while its store guard was busy (its RPC
+  ;; handlers waited 0.7-1.6 s on the guard at the time), the gate fell back to
+  ;; a verdict never computed (NIL), and the second client's single-blob
+  ;; transactions were dropped before decoding and never re-announced, so the
+  ;; first payload carried 5 blobs instead of 6. A node at its head with no
+  ;; sync target must admit gossip whether or not the guard is free.
+  #-sbcl
+  (skip-test "Store-guard contention probe requires SBCL threads")
+  #+sbcl
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0))
+         (gate (admin-test-gossip-gate node))
+         (entered (sb-thread:make-semaphore :count 0))
+         (release (sb-thread:make-semaphore :count 0))
+         (holder
+           (sb-thread:make-thread
+            (lambda ()
+              ;; An unhandled condition here would kill the whole suite run
+              ;; rather than fail this test.
+              (handler-case
+                  (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                   node
+                   (lambda ()
+                     (sb-thread:signal-semaphore entered)
+                     (sb-thread:wait-on-semaphore release)))
+                (serious-condition (condition)
+                  (sb-thread:signal-semaphore entered)
+                  condition))))))
+    (unwind-protect
+         (progn
+           (sb-thread:wait-on-semaphore entered)
+           (is (eq t (and (funcall gate) t))))
+      (sb-thread:signal-semaphore release)
+      (sb-thread:join-thread holder))))
+
+(deftest devnet-gossip-gate-follows-the-head-past-the-target-under-guard-contention
+  (:layer :integration :module :p2p)
+  ;; The stale-verdict half of the same defect: a refusal computed while a
+  ;; target was ahead must not outlive the head reaching it just because every
+  ;; later try-lock found the guard busy.
+  (multiple-value-bind (before during)
+      (admin-test-syncing-under-sustained-guard-contention
+       6 :probe #'admin-test-gossip-gate)
+    (is (null before))
+    (is (eq t (and during t)))))
+
+(deftest devnet-gossip-gate-still-refuses-below-the-target-under-guard-contention
+  (:layer :integration :module :p2p)
+  ;; Positive control for the two tests above: the gate is not simply open.
+  ;; A head still below the sync target keeps refusing gossip under contention.
+  (multiple-value-bind (before during)
+      (admin-test-syncing-under-sustained-guard-contention
+       3 :probe #'admin-test-gossip-gate)
+    (is (null before))
+    (is (null during))))
 
 (deftest devnet-store-guard-release-hook-runs-on-every-release-and-never-fails-the-hold
   ;; The eth_syncing view is published from this hook, so every way of taking
