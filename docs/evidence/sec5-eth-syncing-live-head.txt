@@ -1,0 +1,116 @@
+Section 5: eth_syncing frozen at the pivot while the store guard is busy
+
+Status
+
+Branch eth-syncing-live-head, from daaef3ee. Reproduced in-process (red test
+committed first), fixed, targeted tests green in the warm image. Not deployed,
+not run live, no cold run (the coordinator runs cold-all once at the end).
+
+Live boundary (Hoodi, 8e95b990, 2026-09-23 09:30-09:40Z)
+
+After snap healing completed and the node caught up, 18 of 18 Engine
+newPayloadV4 / forkchoiceUpdatedV3 calls answered VALID and eth_blockNumber
+followed the chain (0x3825ed = 3679725). eth_syncing kept answering
+{"startingBlock":"0x382564","currentBlock":"0x382564","highestBlock":"0x3825df"}
+(3679588 / 3679711, pivot-era values) for 20+ minutes, so the live gate's
+`complete` acceptance failed on completion-eth-syncing=not-false.
+
+================================================================================
+1. Mechanism (pre-fix, daaef3ee)
+================================================================================
+
+- There is no refresher thread. The :SYNCING closure of DEVNET-NODE-ADMIN-BACKEND
+  (src/app/cli/devnet/peer-table.lisp) ran inside the eth_syncing request and
+  refreshed a closure-cached snapshot only when
+  CALL-WITH-DEVNET-NODE-STORE-GUARD-IF-FREE found the node store guard free at
+  that instant (the mutex named "ethereum-lisp-rpc-syncing-snapshot" only
+  protected the cache).
+- On a miss it answered the cached snapshot. Only a cached :FALSE got special
+  treatment (reported as syncing at the last head); a cached syncing snapshot
+  was repeated verbatim. The durable SNAP skeleton overlay only raised
+  highestBlock; nothing lowered currentBlock's staleness or produced false.
+- At the head the guard is held back to back: block execution, forward batch
+  holds (at most ~1 s since c831c9a6), Engine requests (priority guard), peer
+  serving. The guard IS released between holds, but a gate poll landing in a
+  gap is rare, so the snapshot from the pivot era survived indefinitely.
+
+================================================================================
+2. Fix
+================================================================================
+
+- src/app/cli/devnet/types.lisp: MAKE-DEVNET-STORE-GUARD-FUNCTION (and
+  MAKE-DEVNET-STORE-GUARD-TRY-FUNCTION) take :RELEASE-HOOK. GUARD, TRY and
+  PRIORITY-GUARD run it just before releasing the mutex, still owning it, on
+  normal return and on unwind (CHAIN-STORE-ATOMIC-COMMIT has rolled back by
+  then, so the hook reads committed state). Hook conditions are dropped so a
+  failing hook never fails the hold. New DEVNET-NODE slot SYNC-VIEW.
+- src/app/cli/devnet/node.lisp: the node store guard's hook calls
+  DEVNET-NODE-PUBLISH-SYNC-VIEW; the view is also seeded at construction. The
+  dial guard has no hook.
+- src/app/cli/devnet/peer-table.lisp: DEVNET-NODE-PUBLISH-SYNC-VIEW stores an
+  immutable plist (:CURRENT head :HIGHEST in-memory target :TARGETS-P) computed
+  under the guard (DEVNET-NODE-MEMORY-SYNC-HIGHEST-BLOCK, the guarded half of
+  DEVNET-NODE-SYNC-HIGHEST-BLOCK, which keeps its old contract). eth_syncing
+  republishes when the guard is free, then answers DEVNET-SYNC-VIEW-ANSWER from
+  the view plus two lock-free reads: the forkchoice-target table's entry count
+  (DEVNET-NODE-FORKCHOICE-TARGETS-PENDING-P; covers a target inserted in the
+  hold still in progress, which the old cached-:FALSE branch existed for) and
+  the durable skeleton target. Head >= every known target => :false.
+- Staleness bound: one guard hold. The view is published at release, not at the
+  moment the head changes inside a hold: publishing mid-transaction could expose
+  a head a rollback later undoes, and the release boundary is the one point
+  where the store is both readable and committed without touching the storage
+  layer. A single long hold (5-25 s block execution) delays the answer by that
+  hold; it no longer freezes it.
+- Not changed: snap/heal, forward-sync error classification, the Engine
+  priority guard's behaviour, shutdown. DEVNET-NODE-ACCEPT-INBOUND-TRANSACTIONS
+  (peer-sync.lisp) has the same try-lock-or-stale shape for the gossip gate and
+  could read the published view; left for a separate change.
+
+================================================================================
+3. RED / GREEN (tests/admin-rpc-tests.lisp)
+================================================================================
+
+Scenario (ADMIN-TEST-SYNCING-UNDER-SUSTAINED-GUARD-CONTENTION): the only sync
+target is a remote block at 5; eth_syncing with the guard free answers
+syncing 0x0/0x5. Another thread takes the guard, advances the canonical head,
+releases, and immediately holds the guard again; eth_syncing is asked during
+that second hold.
+
+- ETH-SYNCING-TURNS-FALSE-WHEN-THE-HEAD-PASSES-THE-TARGET-UNDER-GUARD-CONTENTION
+  (head -> 6). RED on daaef3ee (commit 93a92cab): assertion (EQ :FALSE DURING)
+  failed; the pre-contention snapshot came back. GREEN at f514145f.
+- ETH-SYNCING-UNDER-GUARD-CONTENTION-REPORTS-THE-PUBLISHED-HEAD-BELOW-TARGET
+  (positive control, head -> 3): must stay syncing with currentBlock 0x3,
+  highestBlock 0x5. RED on daaef3ee (currentBlock was 0x0); GREEN at f514145f.
+- DEVNET-STORE-GUARD-RELEASE-HOOK-RUNS-ON-EVERY-RELEASE-AND-NEVER-FAILS-THE-HOLD:
+  hook runs for guard, try, priority and an unwinding hold; a failing hook
+  leaves the hold's result intact. GREEN.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+Warm image (cl-workbench repl, restarted after the defstruct slot), f514145f:
+- The seven ETH-SYNCING tests by name (the two new ones, snapshot-does-not-wait,
+  known-target-before-publication, durable-snap-skeleton-target,
+  pending-forkchoice-target-at-genesis, known-state-unavailable-forkchoice-
+  height): all pass.
+- Every registered test whose name contains ETH-SYNCING, SYNCING, PEER-TABLE,
+  DEVNET-NODE, METADATA, STORE-GUARD, ADMIN-, PRIORITY, RPC-METHOD or
+  INBOUND-TRANSACTION: 48 ran, 0 failed.
+- Every test whose name contains GUARD, FORWARD-BATCH, ENGINE-PRIORITY or
+  CHAIN-CONTEXT: 17 ran, 0 failed (includes
+  DEVNET-ENGINE-REQUEST-IS-NOT-HELD-BEHIND-A-FORWARD-BATCH and
+  DEVNET-TRANSACTION-GOSSIP-GATE-NEVER-WAITS-FOR-THE-STORE-GUARD).
+- compile-file of peer-table.lisp, node.lisp and admin-rpc-tests.lisp: no
+  warnings; the image's own build of types.lisp/peer-table.lisp/node.lisp
+  emitted none.
+
+Not verified
+
+- No cold run (cold-unit/integration/e2e/all); the struct slot addition should
+  be confirmed by the coordinator's cold-all.
+- Not run live: whether eth_syncing turns false on Hoodi within one hold after
+  catch-up, and the per-release hook cost on a busy node (it scans the bounded
+  remote-block cache, at most 96 entries, and the forkchoice-target table).
