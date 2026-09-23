@@ -99,6 +99,16 @@ gate."
     ;; can keep READABLE-P true indefinitely, so neither fetch may wait for the
     ;; periodic drain interval. ETH-PEER-AWAIT still consumes and serves
     ;; interleaved messages while the sole writer waits for a cell response.
+    ;;
+    ;; But each urgent fetch BLOCKS this writer on the peer's reply, and a peer
+    ;; that announced several blob transactions keeps URGENT-DRAINABLE-P true
+    ;; for one round trip per transaction. A ready broadcast is a bounded,
+    ;; non-blocking send, so it goes first: pinned geth announces from its own
+    ;; loop, independent of the transaction fetcher, and Hive's "Blob
+    ;; Transaction Ordering, Multiple Clients" lost our announcements behind
+    ;; such a backlog. Alternation follows, since the broadcast clears the
+    ;; backlog it sends.
+    ((and urgent-drainable-p broadcast-p) :broadcast)
     (urgent-drainable-p :drain)
     (readable-p :read)
     ((eth-pump-due-p (eth-pump-policy-idle-timeout-seconds policy)

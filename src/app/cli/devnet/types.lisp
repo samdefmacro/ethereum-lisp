@@ -110,6 +110,63 @@ the established pool instead of relearning it from the cold minimum."
   (confidence 1d0)
   (tuned-at (get-internal-real-time)))
 
+(defconstant +devnet-blob-cell-cache-limit+ 32
+  "How many blobs' EIP-7594 derivations a node keeps. Our policy: one entry is
+the 128 KiB blob key, 256 KiB of cells and 6 KiB of proofs, so the cache stays
+near 12 MiB -- above the largest scheduled blob count per block (bpo2, 21).")
+
+(defstruct (devnet-blob-cell-cache
+            (:constructor make-devnet-blob-cell-cache ()))
+  "Cells and cell proofs per blob, keyed by the blob's bytes.
+
+Pinned geth's blobpool computes a transaction's cells once, when it enters the
+pool, and serves eth/72 GetCells and pooled wrappers from what it stored. We
+derive lazily instead, on the first eth/72 request, but at most once per blob,
+and callers do it outside the store guard."
+  (lock #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-blob-cell-cache")
+        #-sbcl nil)
+  (entries (make-hash-table :test #'equalp))
+  (order '()))
+
+(defun devnet-blob-cell-cache-derivation (cache blob function)
+  "Return (VALUES CELLS PROOFS) for BLOB, computing them with FUNCTION once.
+
+FUNCTION takes the blob and returns cells and proofs as two values. It runs
+outside the cache lock; two threads racing on a new blob may both compute it,
+which costs time but never a wrong answer, since the derivation is a pure
+function of the blob. Keys are the blob bytes themselves: an equalp table
+compares them in full, so a colliding hash costs a comparison, never a wrong
+entry."
+  (let ((key (copy-seq (ensure-byte-vector blob))))
+    (flet ((locked (thunk)
+             #+sbcl
+             (sb-thread:with-mutex ((devnet-blob-cell-cache-lock cache))
+               (funcall thunk))
+             #-sbcl
+             (funcall thunk)))
+      (let ((cached
+              (locked
+               (lambda ()
+                 (gethash key (devnet-blob-cell-cache-entries cache))))))
+        (if cached
+            (values (car cached) (cdr cached))
+            (multiple-value-bind (cells proofs) (funcall function blob)
+              (locked
+               (lambda ()
+                 (let ((entries (devnet-blob-cell-cache-entries cache)))
+                   (unless (gethash key entries)
+                     (setf (gethash key entries) (cons cells proofs))
+                     (push key (devnet-blob-cell-cache-order cache))
+                     (when (> (hash-table-count entries)
+                              +devnet-blob-cell-cache-limit+)
+                       (let ((oldest
+                               (car (last
+                                     (devnet-blob-cell-cache-order cache)))))
+                         (setf (devnet-blob-cell-cache-order cache)
+                               (butlast (devnet-blob-cell-cache-order cache)))
+                         (remhash oldest entries)))))))
+              (values cells proofs)))))))
+
 (defstruct (devnet-node
             (:constructor %make-devnet-node
                 (&key genesis-path store config genesis-block service
@@ -295,6 +352,10 @@ the established pool instead of relearning it from the cold minimum."
   ;; public RPC can answer block, receipt and head reads without waiting for
   ;; the guard. NIL until the first publication; readers then use the guard.
   (read-view nil)
+  ;; EIP-7594 cells and cell proofs derived for pooled blobs, served to eth/72
+  ;; peers without recomputing (DEVNET-BLOB-CELL-CACHE-DERIVATION). Bounded;
+  ;; has its own lock and is never touched under the store guard.
+  (blob-cell-cache (make-devnet-blob-cell-cache))
   ;; EIP-778 sequence and the exact pairs it describes. The responder updates
   ;; these under the peer-table lock, so a changed endpoint/fork id increments
   ;; monotonically even across a chain reorg whose head number decreases.

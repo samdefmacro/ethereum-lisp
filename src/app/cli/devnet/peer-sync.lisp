@@ -40,37 +40,45 @@ VERSION 1 carries the original EIP-4844 proof stored with an RPC wrapper.
 VERSION 2 carries the EIP-7594 cell proofs required by eth/72.  When durable
 storage only has the original blob proof, CELL-PROOF-FUNCTION derives the cell
 proofs transiently without overwriting that legacy proof."
-  (let ((entries
-          (loop for hash in
-                  (blob-transaction-blob-versioned-hashes transaction)
-                for entry =
-                  (engine-payload-store-blob-and-proofs-v1 store hash)
-                unless entry do (return nil)
-                collect entry)))
-    (when entries
-      (let ((proofs
-              (ecase version
-                (1 (mapcar #'engine-blob-and-proofs-proof entries))
-                (2
-                 (loop for entry in entries
-                       for existing =
-                         (engine-blob-and-proofs-cell-proofs entry)
-                       for derived =
-                         (or (and (= +cell-proofs-per-blob+
-                                     (length existing))
-                                  existing)
-                             (and cell-proof-function
-                                  (funcall
-                                   cell-proof-function
-                                   (engine-blob-and-proofs-blob entry))))
-                       unless (= +cell-proofs-per-blob+ (length derived))
-                         do (return nil)
-                       append derived)))))
-        (when proofs
-          (make-blob-sidecar
-           :blobs (mapcar #'engine-blob-and-proofs-blob entries)
-           :commitments (mapcar #'engine-blob-and-proofs-commitment entries)
-           :proofs proofs))))))
+  (devnet-pooled-blob-sidecar-from-entries
+   (devnet-pooled-blob-entries store transaction) version cell-proof-function))
+
+(defun devnet-pooled-blob-entries (store transaction)
+  "TRANSACTION's stored blob entries in order, or NIL when any is missing.
+A store read: call it under the store guard."
+  (loop for hash in (blob-transaction-blob-versioned-hashes transaction)
+        for entry = (engine-payload-store-blob-and-proofs-v1 store hash)
+        unless entry do (return nil)
+        collect entry))
+
+(defun devnet-pooled-blob-sidecar-from-entries
+    (entries version cell-proof-function)
+  "The network sidecar of DEVNET-POOLED-BLOB-SIDECAR from already-read ENTRIES.
+Touches no store, so the cell-proof derivation can run without the guard."
+  (when entries
+    (let ((proofs
+            (ecase version
+              (1 (mapcar #'engine-blob-and-proofs-proof entries))
+              (2
+               (loop for entry in entries
+                     for existing =
+                       (engine-blob-and-proofs-cell-proofs entry)
+                     for derived =
+                       (or (and (= +cell-proofs-per-blob+
+                                   (length existing))
+                                existing)
+                           (and cell-proof-function
+                                (funcall
+                                 cell-proof-function
+                                 (engine-blob-and-proofs-blob entry))))
+                     unless (= +cell-proofs-per-blob+ (length derived))
+                       do (return nil)
+                     append derived)))))
+      (when proofs
+        (make-blob-sidecar
+         :blobs (mapcar #'engine-blob-and-proofs-blob entries)
+         :commitments (mapcar #'engine-blob-and-proofs-commitment entries)
+         :proofs proofs)))))
 
 (defun devnet-peer-custody-indices (mask)
   "Decode geth's little-endian 128-bit eth/72 custody bitmap."
@@ -113,19 +121,48 @@ can be tested without making cryptographic capability a test precondition."
               (incf cell-count (length flat)))))))
     (values (nreverse response-hashes) (nreverse groups) (copy-seq mask))))
 
-(defun devnet-peer-blob-cells (guarded store hashes mask)
-  "Resolve pooled sidecars under GUARDED, then compute eth/72 cell groups."
-  (devnet-peer-blob-cells-from-reader
-   (lambda (hash)
-     (funcall
-      guarded
-      (lambda ()
-        (let ((transaction
-                (engine-payload-store-pooled-transaction
-                 store (make-hash32 hash))))
-          (and (typep transaction 'blob-transaction)
-               (devnet-pooled-blob-sidecar store transaction))))))
-   hashes mask))
+(defun devnet-node-blob-cells-and-proofs (node blob)
+  "BLOB's EIP-7594 cells and cell proofs, derived once per NODE.
+
+Never call it under the store guard: the derivation takes about 0.12 s per blob
+in the warm image, and the guard also serializes every Engine request."
+  (devnet-blob-cell-cache-derivation
+   (devnet-node-blob-cell-cache node) blob
+   (lambda (blob) (kzg-compute-cells-and-proofs blob))))
+
+(defun devnet-node-pooled-blob-sidecar (node transaction version)
+  "DEVNET-POOLED-BLOB-SIDECAR for serving: the store read under NODE's guard,
+any cell-proof derivation after it, from NODE's cache."
+  (devnet-pooled-blob-sidecar-from-entries
+   (call-with-devnet-node-store-guard
+    node
+    (lambda ()
+      (devnet-pooled-blob-entries (devnet-node-store node) transaction)))
+   version
+   (and (= version 2)
+        (kzg-cell-computation-available-p)
+        (lambda (blob)
+          (nth-value 1 (devnet-node-blob-cells-and-proofs node blob))))))
+
+(defun devnet-peer-blob-cells (node hashes mask)
+  "Resolve pooled sidecars under NODE's guard, then serve eth/72 cell groups
+from NODE's derivation cache, outside the guard. Only blobs are needed here,
+so the original (version 1) sidecar is read and no cell proof is derived."
+  (let ((store (devnet-node-store node)))
+    (devnet-peer-blob-cells-from-reader
+     (lambda (hash)
+       (let ((entries
+               (call-with-devnet-node-store-guard
+                node
+                (lambda ()
+                  (let ((transaction
+                          (engine-payload-store-pooled-transaction
+                           store (make-hash32 hash))))
+                    (and (typep transaction 'blob-transaction)
+                         (devnet-pooled-blob-entries store transaction)))))))
+         (devnet-pooled-blob-sidecar-from-entries entries 1 nil)))
+     hashes mask
+     :cell-function (lambda (blob) (devnet-node-blob-cells-and-proofs node blob)))))
 
 (defun devnet-node-accept-inbound-transactions-p (node)
   "Whether NODE is semantically fresh enough to admit peer transaction gossip.
@@ -177,20 +214,18 @@ take the guard for the whole admission, since that mutates the pool."
          (guarded (lambda ()
                     (engine-payload-store-pooled-transaction
                      store (make-hash32 hash)))))
+       ;; eth/72 cell proofs and cells are derived outside the store guard,
+       ;; once per blob (DEVNET-NODE-BLOB-CELLS-AND-PROOFS).
        :pooled-blob-sidecar
        (lambda (transaction)
-         (guarded
-          (lambda ()
-            (devnet-pooled-blob-sidecar store transaction :version 2))))
+         (devnet-node-pooled-blob-sidecar node transaction 2))
        :pooled-transaction-sidecar
        (lambda (transaction)
-         (guarded
-          (lambda ()
-            (devnet-pooled-blob-sidecar store transaction :version 1))))
+         (devnet-node-pooled-blob-sidecar node transaction 1))
        :blob-cells
        (when (kzg-cell-computation-available-p)
          (lambda (hashes mask)
-           (devnet-peer-blob-cells #'guarded store hashes mask)))
+           (devnet-peer-blob-cells node hashes mask)))
        :known-transaction-p
        (lambda (hash)
          (guarded (lambda ()
