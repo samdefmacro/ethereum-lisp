@@ -1,0 +1,136 @@
+Section 5 forward sync: a peer hanging up under a gap-fill request shut the
+node down
+
+Status
+
+IMPLEMENTED AND VERIFIED IN THE WARM IMAGE with targeted tests (RED before
+the change, GREEN after; 109 selected sync/p2p tests green). The cold lanes
+were NOT run on this branch; the coordinator runs cold-all once at the end.
+Whether the live Hoodi node now keeps following the head through peer churn
+is NOT established (see "Not verified").
+
+Revision: branch forward-sync-peer-errors over daaef3ee
+(sec5-public-bootstrap-sync), commit 6e09dd40 and the commit adding this file.
+
+The live observation
+
+Hoodi, revision 8e95b990, 2026-09-23. The pivot was installed at 09:15:54Z
+and the node followed the head with dozens of peer.sync.gap_filled events.
+At 09:17:19.2 both HTTP listeners finished (orderly error exit), and at
+09:17:31.9 the process printed, last, and exited 1:
+
+  couldn't read from #<SB-SYS:FD-STREAM for "socket 172.18.0.3:30303,
+    peer: 3.237.241.129:58278" {10026DA433}>: Connection reset by peer
+
+The path
+
+1. DEVNET-START-SYNC-COORDINATOR-THREAD runs DEVNET-NODE-SYNC-COORDINATOR-PASS
+   -> DEVNET-NODE-MULTI-SYNC-PASS. After the pivot, the forkchoice target no
+   longer needs snap (DEVNET-NODE-SNAP-TARGET-REQUIRED-P is false), so the pass
+   calls DEVNET-NODE-FILL-SYNC-GAPS-WITH-LIVE-PEER (src/app/cli/devnet/
+   dialer.lisp).
+2. That function submits DEVNET-PEER-FILL-SYNC-GAPS to the first live entry's
+   request queue. The job runs on that peer's SESSION thread (here an inbound
+   session on our :30303), which is the sole reader/writer of its socket:
+   ETH-SYNC-FILL-GAP -> ETH-SYNC-COLLECT-BACKFILL-HEADERS ->
+   ETH-PEER-GET-BLOCK-HEADERS -> ETH-PEER-AWAIT -> read -> ECONNRESET, i.e.
+   SB-INT:SIMPLE-STREAM-ERROR.
+3. DEVNET-PEER-PENDING-REQUEST's job wrapper stores the condition in the job
+   (and re-signals it on the session thread, which tears the session down:
+   p2p.peer.session_failed). DEVNET-PEER-REQUEST-QUEUE-SUBMIT-JOB, waiting on
+   the coordinator thread, re-signals the SAME condition there.
+4. DEVNET-NODE-FILL-SYNC-GAPS-WITH-LIVE-PEER handled only
+   DEVNET-PEER-REQUEST-QUEUE-CLOSED and ETH-SYNC-BACKFILL-PEER-ERROR; the
+   coordinator pass only DEVNET-PEER-SYNC-INVALID, ETH-SYNC-MULTI-PEER-ERROR
+   and SNAP-SYNC-SOURCES-EXHAUSTED. The stream error reached the coordinator
+   thread's SERIOUS-CONDITION handler -> error callback -> shutdown -> exit 1.
+
+So the read was NOT performed synchronously on the coordinator thread; it ran
+on the session thread and its condition was transported back to the
+coordinator by the request queue. An orderly close (FIN) took the same route
+as the untyped simple-error "RLPx stream ended after N of M bytes".
+
+Other forward paths checked: ETH-SYNC-DOWNLOAD-BLOCKS-MULTI's per-peer
+workers catch SERIOUS-CONDITION per source and penalize/disable it;
+DEVNET-NODE-RESOLVE-SNAP-TARGET has a SERIOUS-CONDITION arm per entry; the
+snap source pool classifies transport conditions itself. The hash gap fill
+was the only coordinator-driven peer request without a transport arm.
+
+The change
+
+- src/protocol/p2p/connection.lisp: RLPX-READ-EXACTLY signals the new typed
+  RLPX-STREAM-ENDED, a STREAM-ERROR, instead of an untyped error, so every way
+  a peer hangs up (reset, broken pipe, FIN mid-read) is one type.
+- src/networking/eth-sync/backfill.lisp: CALL-WITH-ETH-SYNC-PEER-TRANSPORT
+  wraps each GetBlockHeaders / GetBlockBodies exchange of the gap fill and
+  re-signals STREAM-ERROR, SB-BSD-SOCKETS:SOCKET-ERROR, SB-EXT:TIMEOUT,
+  RLPX-DISCONNECT and ETH-PEER-PROTOCOL-ERROR as the new
+  ETH-SYNC-PEER-TRANSPORT-ERROR (CAUSE keeps the original). The import and
+  known-hash callbacks are outside the wrapper, so a local stream failure (a
+  WAL write on a full disk) keeps its own type and stays fatal. The new
+  condition is deliberately not an ETH-SYNC-BACKFILL-PEER-ERROR: that one is
+  retried per target on the same session, while a transport failure aborts the
+  whole job (the session is dead).
+- src/app/cli/devnet/dialer.lisp: DEVNET-NODE-FILL-SYNC-GAPS-WITH-LIVE-PEER
+  logs peer.sync.gap_peer_failed (with the peer id) for that condition and asks
+  the next live peer; if none can, the existing ETH-SYNC-MULTI-PEER-FAIL is
+  what the coordinator already absorbs as peer.sync.multi_retry.
+- Not touched: snap/heal code, the pending overlay, the Engine guard, shutdown
+  code, and the coordinator's fatal set.
+
+RED / GREEN
+
+Tests:
+- DEVNET-COORDINATOR-PASS-SURVIVES-A-PEER-RESET-DURING-GAP-FILL
+  (tests/cli-devnet-node-tests.lisp, unit). Real request queues serviced by
+  session-like writer threads; the real coordinator pass, multi-sync pass,
+  gap-fill dispatcher, DEVNET-PEER-FILL-SYNC-GAPS and ETH-SYNC-FILL-GAP; the
+  first peer's GetBlockHeaders signals the SB-INT:SIMPLE-STREAM-ERROR SBCL
+  signals for a reset. A condition escaping the pass is exactly what the
+  coordinator thread turns into its error callback and a shutdown.
+  Positive control in the same test: a stream error raised by the LOCAL import
+  callback inside the same queued job still escapes the pass unchanged.
+- ETH-SYNC-GAP-FILL-NAMES-A-PEER-HANG-UP-AS-A-TRANSPORT-FAILURE
+  (tests/eth-sync-tests.lisp, integration, local sockets). A real RLPx/eth
+  loopback peer that (:eof) reads our GetBlockHeaders and closes, or (:reset)
+  closes over the unread request so the kernel sends a reset.
+
+RED, warm image holding the pre-change source, new tests loaded:
+  coordinator test: "a peer reset escaped the coordinator pass: couldn't read
+    from #<SB-SYS:FD-STREAM for "socket peer">: Connection reset by peer"
+    (the live exit text).
+  socket test: the escaping condition was the untyped SIMPLE-ERROR "RLPx
+    stream ended after ~D of ~D bytes" (the typep on the new condition then
+    fails, the type being undefined pre-change).
+
+GREEN after reloading the system (no non-redefinition warnings compiling the
+three changed source files): both tests pass, twice each in one image. A
+probe of the socket helper showed the two modes produce the two live shapes:
+  :EOF   cause RLPX-STREAM-ENDED "RLPx stream ended after 0 of 32 bytes"
+  :RESET cause SB-INT:SIMPLE-STREAM-ERROR "couldn't read from
+         #<SB-SYS:FD-STREAM for "socket 127.0.0.1:54790, peer: ...">:
+         Connection reset by peer"
+
+Targeted selectors (warm image, every registered test whose name contains
+ETH-SYNC, DEVNET-PEER-SYNC, DEVNET-PEER-RANGE, SYNC-COORDINATOR, GAP,
+FORWARD, RLPX, P2P-SESSION or ETH-PEER): 109 selected, 109 passed, 0 failed.
+
+Verification of record
+
+None on this branch: warm-image only, by the brief's instruction. The
+coordinator's cold-all over the merged result is the verification of record.
+
+Not verified
+
+- A live Hoodi run past target_completed with peer churn.
+- A real node process (the RED/GREEN drive the coordinator pass directly, not
+  the thread plus error callback; the thread's only escape to the callback is
+  a condition leaving the pass, which is what the test asserts).
+- Peer failures that are untyped plain errors (an RLPx MAC mismatch, a
+  malformed eth message rejected by a decoder with SIMPLE-ERROR) still escape
+  the gap fill and remain fatal; they were not observed live and classifying
+  them needs typed conditions at their sources.
+- The classifier also covers the peer's own requests served while we await a
+  reply (ETH-PEER-AWAIT serves them inline); a local store failure there that
+  surfaces as a STREAM-ERROR would be charged to the peer. Serving reads the
+  store and writes only to the peer socket, so none is known.
