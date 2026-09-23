@@ -10,6 +10,7 @@
                 #:engine-target-gas-limit)
   (:import-from #:ethereum-lisp.engine-api
                 #:engine-rpc-improve-open-payloads
+                #:engine-rpc-deadline-predicate
                 #:make-engine-rpc-get-blobs-v3-snapshot-function)
   (:import-from #:ethereum-lisp.eth-wire
                 #:eth-pooled-entry-transaction

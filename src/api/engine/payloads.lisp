@@ -13,6 +13,16 @@
       (block-validation-fail "engine_getPayload payload id must be 8 bytes"))
     payload-id))
 
+(defparameter *engine-get-payload-improvement-seconds* 0.3
+  "How long getPayload may spend selecting transactions for a last rebuild.
+
+Our policy.  The Engine API gives getPayload a one-second timeout, and the
+consensus client calls it about a second before the slot boundary.  The last
+rebuild only adds transactions that arrived since the background builder's
+latest pass; it is cut at this bound and then finished (post-block system
+calls, withdrawals, state root), and it can never make the payload worse, so
+the answer is always at least the best payload built so far.")
+
 (defun engine-rpc-prepared-payload (params store config method)
   (unless (and (listp params) (= 1 (length params)))
     (block-validation-fail
@@ -30,28 +40,20 @@
     (when (engine-prepared-payload-open-p prepared-payload)
       (setf prepared-payload
             (engine-rpc-improve-prepared-payload
-             store config prepared-payload)
+             store config prepared-payload
+             :stop-predicate
+             (engine-rpc-deadline-predicate
+              *engine-get-payload-improvement-seconds*))
             (engine-prepared-payload-open-p prepared-payload) nil)
       (chain-store-put-prepared-payload
        store prepared-payload :transfer-execution-state-p t))
     prepared-payload))
 
 (defun engine-rpc-prepared-payload-envelope (prepared-payload)
-  (let* ((block (engine-prepared-payload-block prepared-payload))
-         (base-fee (or (block-header-base-fee-per-gas (block-header block)) 0))
-         (previous-cumulative-gas 0)
-         (block-value
-           (loop for transaction in (block-transactions block)
-                 for receipt in (block-receipts block)
-                 for cumulative-gas = (receipt-cumulative-gas-used receipt)
-                 for gas-used = (- cumulative-gas previous-cumulative-gas)
-                 sum (* gas-used
-                        (transaction-priority-fee-per-gas
-                         transaction :base-fee base-fee))
-                 do (setf previous-cumulative-gas cumulative-gas))))
+  (let ((block (engine-prepared-payload-block prepared-payload)))
     (block-to-executable-data
      block
-     :block-value block-value
+     :block-value (engine-rpc-block-value block)
      :blobs-bundle (engine-prepared-payload-blobs-bundle prepared-payload))))
 
 (defun engine-rpc-require-prepared-payload-version

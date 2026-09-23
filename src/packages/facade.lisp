@@ -1521,7 +1521,8 @@
    #:apply-dao-hard-fork
    #:apply-dao-hard-fork-if-needed
    #:execute-legacy-block
-   #:execute-signed-block)
+   #:execute-signed-block
+   #:execute-signed-block-selecting)
   (#:ethereum-lisp.execution-service
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store

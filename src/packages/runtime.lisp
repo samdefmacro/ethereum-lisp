@@ -397,7 +397,8 @@
    #:process-block-pre-execution-system-calls
    #:validate-block-body-commitments-before-execution
    #:execute-legacy-block
-   #:execute-signed-block))
+   #:execute-signed-block
+   #:execute-signed-block-selecting))
 
 (defpackage #:ethereum-lisp.execution-service
   (:use #:cl

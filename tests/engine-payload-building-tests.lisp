@@ -296,3 +296,178 @@ an independent in-memory verifier node on the same genesis."
      :senders senders :per-sender per-sender :poisoned-p poisoned-p
      :improvement-thread-p improvement-thread-p)
     (nreverse results)))
+
+(defun payload-building-attributes-struct (timestamp)
+  (make-payload-attributes-v1
+   :timestamp timestamp
+   :prev-randao (zero-hash32)
+   :suggested-fee-recipient (zero-address)
+   :withdrawals '()
+   :withdrawals-present-p t
+   :parent-beacon-root (hash32-from-hex *payload-building-beacon-root*)
+   :parent-beacon-root-present-p t))
+
+(defun payload-building-open-payload (node timestamp)
+  "fcU with attributes through NODE's Engine context; return the open payload."
+  (let* ((genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (response
+           (payload-building-call
+            node
+            (payload-building-request
+             1 "engine_forkchoiceUpdatedV3"
+             (list (payload-building-forkchoice-state (block-hash genesis))
+                   (payload-building-attributes timestamp)))))
+         (payload-id
+           (payload-building-field
+            (payload-building-field response "result") "payloadId")))
+    (is (stringp payload-id))
+    (engine-payload-store-prepared-payload
+     (ethereum-lisp.cli:devnet-node-store node)
+     (hex-to-bytes payload-id)
+     :copy-execution-state-p nil)))
+
+(defun payload-building-stored (node prepared-payload)
+  (engine-payload-store-prepared-payload
+   (ethereum-lisp.cli:devnet-node-store node)
+   (engine-prepared-payload-payload-id prepared-payload)
+   :copy-execution-state-p nil))
+
+(defun payload-building-transaction-count (prepared-payload)
+  (length (block-transactions (engine-prepared-payload-block prepared-payload))))
+
+(deftest engine-payload-build-executes-each-candidate-once
+  (:layer :integration :module :engine)
+  ;; Plan Section 6: each selected transaction executes at most once per
+  ;; build.  One unexecutable transaction among 48 used to send the builder
+  ;; into prefix re-execution, O(N^2) executions under the store guard (3.6 s
+  ;; for 320 transactions on the d203fee6 dev image).
+  (call-with-payload-building-nodes
+   (lambda (node verifier)
+     (let* ((store (ethereum-lisp.cli:devnet-node-store node))
+            (config (ethereum-lisp.cli:devnet-node-config node))
+            (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+            (attributes (payload-building-attributes-struct 11))
+            (candidates
+              (ethereum-lisp.engine-api:engine-rpc-pending-build-transactions
+               store config (block-header genesis)))
+            (original (fdefinition 'ethereum-lisp.execution::apply-message))
+            (executions 0))
+       (is (= 48 (length candidates)))
+       (devnet-peer-sync-call-with-function-overrides
+        (list (cons 'ethereum-lisp.execution::apply-message
+                    (lambda (&rest arguments)
+                      (incf executions)
+                      (apply original arguments))))
+        (lambda ()
+          ;; RED control: the prefix-probing builder, kept only for
+          ;; Amsterdam, re-executes prefixes on the same pool.  This proves
+          ;; the counter sees every execution.
+          (ethereum-lisp.engine-api::engine-rpc-build-viable-prepared-payload-by-probing
+           store genesis attributes config candidates)
+          (is (> executions (* 3 (length candidates))))
+          (setf executions 0)
+          (multiple-value-bind (block selected)
+              (ethereum-lisp.engine-api:engine-rpc-build-viable-prepared-payload
+               store genesis attributes config candidates)
+            (is (<= executions (length candidates)))
+            ;; The poisoned sender's four transactions are skipped.
+            (is (= 44 (length selected)))
+            (is (= 44 (length (block-transactions block)))))))
+       ;; Oracle: the same build through fcU/getPayloadV5 is imported VALID by
+       ;; an independent node through engine_newPayloadV4.
+       (let* ((ethereum-lisp.engine-api::*engine-get-payload-improvement-seconds*
+                30)
+              (result (payload-building-probe node verifier 12 0)))
+         (is (= 44 (getf result :transactions)))
+         (is (string= "VALID" (getf result :verdict))))))
+   :senders 12 :per-sender 4 :poisoned-p t :improvement-thread-p nil))
+
+(deftest engine-payload-improvement-stops-early-and-never-regresses
+  (:layer :integration :module :engine)
+  (call-with-payload-building-nodes
+   (lambda (node verifier)
+     (let* ((store (ethereum-lisp.cli:devnet-node-store node))
+            (config (ethereum-lisp.cli:devnet-node-config node))
+            (open (payload-building-open-payload node 13)))
+       (flet ((improve (stop-after)
+                (let ((polls 0))
+                  (ethereum-lisp.engine-api:engine-rpc-improve-prepared-payload
+                   store config (payload-building-stored node open)
+                   :stop-predicate
+                   (and stop-after
+                        (lambda () (> (incf polls) stop-after)))))))
+         (is (= 0 (payload-building-transaction-count open)))
+         ;; A pass cut after five candidates keeps its five: better than the
+         ;; empty payload.  This is also the control that a cut pass really
+         ;; builds less than the pool offers.
+         (multiple-value-bind (payload stopped-p) (improve 5)
+           (is stopped-p)
+           (is (= 5 (payload-building-transaction-count payload))))
+         ;; The cut pass did not mark the pool as seen: the next one rebuilds.
+         (multiple-value-bind (payload stopped-p) (improve nil)
+           (is (not stopped-p))
+           (is (= 48 (payload-building-transaction-count payload))))
+         ;; The pool changes; a pass cut short now builds less than the
+         ;; stored payload, which is kept.
+         (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+          store
+          (payload-building-transaction
+           config (first (payload-building-sender-keys 12)) 4
+           :contract-call-p t))
+         (multiple-value-bind (payload stopped-p) (improve 5)
+           (is stopped-p)
+           (is (= 48 (payload-building-transaction-count payload))))
+         (is (= 48 (payload-building-transaction-count
+                    (payload-building-stored node open))))
+         ;; getPayload finishes the rebuild within its bound and the result
+         ;; imports VALID on the independent node.
+         (let* ((response
+                  (payload-building-call
+                   node
+                   (payload-building-request
+                    2 "engine_getPayloadV5"
+                    (list (bytes-to-hex
+                           (engine-prepared-payload-payload-id open))))))
+                (payload
+                  (payload-building-field
+                   (payload-building-field response "result")
+                   "executionPayload")))
+           (is (= 49 (length (payload-building-field payload "transactions"))))
+           (is (string= "VALID"
+                        (payload-building-import-verdict verifier payload)))))))
+   :senders 12 :per-sender 4 :improvement-thread-p nil))
+
+(deftest devnet-payload-builder-steps-aside-for-engine-requests
+  (:layer :integration :module :engine)
+  ;; The builder holds the node's store guard while it selects.  With an
+  ;; Engine request waiting for that guard it must stop before the next
+  ;; transaction, step aside, and wake itself to finish later.
+  (call-with-payload-building-nodes
+   (lambda (node verifier)
+     (declare (ignore verifier))
+     (let ((shutdown (ethereum-lisp.cli:make-devnet-shutdown-controller))
+           (yields 0))
+       (flet ((pass (priority-pending-p)
+                (devnet-peer-sync-call-with-function-overrides
+                 (list (cons 'ethereum-lisp.cli::devnet-node-store-guard-priority-pending-p
+                             (lambda (seen-node)
+                               (declare (ignore seen-node))
+                               priority-pending-p))
+                       (cons 'ethereum-lisp.cli::devnet-node-yield-store-guard-to-priority
+                             (lambda (seen-node)
+                               (declare (ignore seen-node))
+                               (incf yields))))
+                 (lambda ()
+                   (ethereum-lisp.cli::devnet-improve-open-payloads-once
+                    node shutdown)))))
+         (let ((open (payload-building-open-payload node 14)))
+           (is (pass t))
+           (is (= 1 yields))
+           (is (= 0 (payload-building-transaction-count
+                     (payload-building-stored node open))))
+           ;; RED control: nobody waiting, the same pass fills the payload.
+           (is (not (pass nil)))
+           (is (= 1 yields))
+           (is (= 48 (payload-building-transaction-count
+                      (payload-building-stored node open))))))))
+   :senders 12 :per-sender 4 :improvement-thread-p nil))

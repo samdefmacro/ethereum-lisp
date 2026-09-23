@@ -17,5 +17,6 @@
            "tests/cli-devnet-txpool-period-tests.lisp"
            "tests/cli-devnet-artifact-tests.lisp"
            "tests/cli-devnet-geth-config-tests.lisp"
-           "tests/cli-devnet-log-tests.lisp"))
+           "tests/cli-devnet-log-tests.lisp"
+           "tests/engine-payload-building-tests.lisp"))
   (load-cli-devnet-test-file relative-path))
