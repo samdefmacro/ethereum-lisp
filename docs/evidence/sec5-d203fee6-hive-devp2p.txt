@@ -1,0 +1,55 @@
+Section 5 Hive devp2p at d203fee6: 47 of 48, the required surface complete
+
+Result
+
+  hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c :: devp2p :: 47/48 passed
+  suite=discv4  selected=16 passed=16 failed=0
+  suite=discv5  selected=1  passed=0  failed=1   (expected: this client does not
+                                                 implement discv5; the adapter
+                                                 refuses HIVE_DISCV5 fail-closed,
+                                                 as every retained devp2p record
+                                                 shows, e.g. r54 in
+                                                 sec5-3305307d-hive-devp2p.txt)
+  suite=eth     selected=25 passed=25 failed=0
+  suite=snap    selected=6  passed=6  failed=0
+  total selected=48 passed=47 failed=1 expected=48 (HIVE_EXPECTED_TESTS=48 set by
+  the broker for this suite)
+  runner sec5-hive-d203fee6-devp2p-full-r1: exit 0, OOMKilled=false,
+  RestartCount 0, started 2026-09-23T15:28:50Z, finished 15:34:39Z; hive-status EXIT=0
+
+The readiness plan's required devp2p surface is discv4 / eth / snap at
+47 of 47, which this run meets; devp2p geth pin 101035a1049c7dc468bfe973478b579d9883d7b6.
+
+Revision, host and inputs
+
+  revision      d203fee694ab44a362cc669a7f95e9e542acb85d
+  host          test-ethereum-sophon2-symbiosis, live EL stopped for the Hive
+                window, Lighthouse running
+  runner        ethereum-lisp-sec5-hive-runner:docker27-amd64, bounds 2 CPU,
+                memory 8g, memory+swap 10g, 1024 PIDs, read-only root,
+                --privileged for its nested dockerd
+  runtime       ethereum-lisp-runtime:sec5-d203fee6-amd64 from the staged tar
+                (sha256 04b0c0f7397d0b407f8dc515db89f32aef6bebba22817614f35243120dbf4890)
+  source        staged ethereum-lisp-source-d203fee6.tar
+                (sha256 89bd975b3758db201d6c114259c0085a51c9b12d10971a03554476d88a177220)
+  Hive binary   hive-dde4f59d sha256 cff9f5c075d1214076e4a1d02dff0ff55ac9a3225f0b91f5f52eb12515d17308
+  evidence root /data/hoodi-sec5-hive/runs/d203fee6-devp2p-full-r1-20260923T152636Z
+  local copy    /private/tmp/sec5-hive-evidence/d203fee6-devp2p-full-r1-20260923T152636Z
+                manifest.sha256: 32 entries,
+                sha256 4e528fd1efed1945e25d2aaad9e97e3b3f70ae63401357c359110cefaf2ba8dd
+
+Broker note
+
+`prepare` ran from the branch head; the first `run` was refused by the
+revision fence because a merge (cab507ee, scripts/ops-crash-worker.lisp) had
+just landed on HEAD, which the fence rightly counts as runtime-sensitive.
+The run was then issued from a worktree detached at a6b9e952, a descendant
+of d203fee6 that changes only docs and the gate scripts. Mutating broker
+actions for an image revision belong in such a worktree.
+
+Commands
+
+  scripts/hoodi-hive-gate.sh prepare --sim devp2p --run 1 --stamp 20260923T152636Z
+  scripts/hoodi-hive-gate.sh run     --sim devp2p --run 1 --stamp 20260923T152636Z  (from a6b9e952)
+  scripts/hoodi-hive-gate.sh status  --sim devp2p --run 1 --stamp 20260923T152636Z
+  scripts/hoodi-hive-gate.sh collect --sim devp2p --run 1 --stamp 20260923T152636Z
