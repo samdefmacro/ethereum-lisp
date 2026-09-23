@@ -2432,6 +2432,16 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
       (eth-sync-backfill-peer-error (condition)
         (devnet-peer-manager-log
          node "peer.sync.gap_peer_failed"
+         "peer" (devnet-peer-entry-id-hex entry) "error" condition))
+      (eth-sync-peer-transport-error (condition)
+        ;; The peer reset or hung up under the request (seen live on Hoodi as
+        ;; an inbound session's ECONNRESET). The session thread re-signals the
+        ;; same condition and tears itself down; here it only means this peer
+        ;; could not fill the gap, so the next live peer is asked. Local
+        ;; storage failures inside the import callback are not wrapped by the
+        ;; request layer and still reach the coordinator's fatal boundary.
+        (devnet-peer-manager-log
+         node "peer.sync.gap_peer_failed"
          "peer" (devnet-peer-entry-id-hex entry) "error" condition)))))
 
 (defun devnet-node-multi-sync-pass (node)

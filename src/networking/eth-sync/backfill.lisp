@@ -39,6 +39,47 @@ grinding backwards forever would be worse than reporting that.")
          :format-control control
          :format-arguments arguments))
 
+(define-condition eth-sync-peer-transport-error (error)
+  ((operation
+    :initarg :operation
+    :reader eth-sync-peer-transport-error-operation)
+   (cause
+    :initarg :cause
+    :reader eth-sync-peer-transport-error-cause))
+  (:report
+   (lambda (condition stream)
+     (format stream "peer transport failed during ~A: ~A"
+             (eth-sync-peer-transport-error-operation condition)
+             (eth-sync-peer-transport-error-cause condition))))
+  (:documentation
+   "The peer's connection failed underneath one of our requests to it.
+
+Signalled only around the request/reply exchange itself, never around the
+import callbacks, so a local stream failure (a full disk under the store's log)
+keeps its own type and stays fatal. It is deliberately NOT an
+ETH-SYNC-BACKFILL-PEER-ERROR: that one is recoverable on the same session by
+trying the next target, while after a transport failure the session is dead and
+the whole request must be retried on another peer. The CAUSE is the original
+condition: a stream error (reset, broken pipe, EOF), a socket error, a devp2p
+Disconnect, a wall-clock timeout, or an eth protocol violation."))
+
+(defun call-with-eth-sync-peer-transport (operation thunk)
+  "Call THUNK, a request/reply exchange with one peer, classifying its failures.
+
+A condition that can only have come from the peer's side of the connection is
+re-signalled as ETH-SYNC-PEER-TRANSPORT-ERROR naming OPERATION; everything else
+passes through unchanged."
+  (handler-case (funcall thunk)
+    ((or stream-error
+         #+sbcl sb-bsd-sockets:socket-error
+         #+sbcl sb-ext:timeout
+         rlpx-disconnect
+         eth-peer-protocol-error)
+        (condition)
+      (error 'eth-sync-peer-transport-error
+             :operation operation
+             :cause condition))))
+
 (defun eth-sync-collect-backfill-headers
     (peer target-hash known-hash-p
      &key (batch-size +eth-backfill-batch-size+)
@@ -62,9 +103,12 @@ backwards walk exists to prevent."
         (next-number nil)
         (count 0))
     (loop
-      (let ((headers (eth-peer-get-block-headers
-                      peer :origin-hash next-hash :amount batch-size
-                           :reverse t)))
+      (let ((headers (call-with-eth-sync-peer-transport
+                      "backfill GetBlockHeaders"
+                      (lambda ()
+                        (eth-peer-get-block-headers
+                         peer :origin-hash next-hash :amount batch-size
+                              :reverse t)))))
         (when (null headers)
           (eth-sync-backfill-peer-fail
            "peer stopped answering ~D headers into a backfill toward ~A"
@@ -122,7 +166,10 @@ parent has been. Returns how many were imported."
                     (hashes (mapcar (lambda (header)
                                       (hash32-bytes (block-header-hash header)))
                                     batch))
-                    (bodies (eth-peer-get-block-bodies peer hashes)))
+                    (bodies (call-with-eth-sync-peer-transport
+                             "backfill GetBlockBodies"
+                             (lambda ()
+                               (eth-peer-get-block-bodies peer hashes)))))
                (unless (listp bodies)
                  (eth-sync-backfill-peer-fail
                   "peer returned a non-list body response during backfill"))
