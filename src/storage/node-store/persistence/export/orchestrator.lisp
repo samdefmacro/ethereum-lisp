@@ -779,6 +779,8 @@ cursors and pivot publication have distinct durability obligations."
               (kv-apply-batch-buffered database batch)
               (kv-apply-batch database batch))
           (mpt-mark-nodes-persisted pending-trie-nodes)
+          (chain-store-note-persisted-trie-nodes
+           chain-store database pending-trie-nodes)
           (dolist (hash persisted-state-hashes)
             (chain-store-clear-state-persistence-pending chain-store hash)))
         (node-store-clear-durable-cache-deletions
@@ -1136,6 +1138,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
               (kv-apply-batch-buffered database batch)
               (kv-apply-batch database batch))
           (mpt-mark-nodes-persisted pending-trie-nodes)
+          (chain-store-note-persisted-trie-nodes
+           chain-store database pending-trie-nodes)
           (dolist (hash persisted-state-hashes)
             (chain-store-clear-state-persistence-pending chain-store hash)))
         (node-store-clear-durable-cache-deletions

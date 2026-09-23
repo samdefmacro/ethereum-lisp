@@ -49,7 +49,21 @@
     #-sbcl nil)
   (trie-node-cache-lock
     #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-trie-node-cache")
-    #-sbcl nil))
+    #-sbcl nil)
+  ;; Monotonic diagnostics for CHAIN-STORE-TRIE-NODE-READ-STATISTICS, updated
+  ;; under TRIE-NODE-CACHE-LOCK.
+  (trie-node-database-reads 0 :type (integer 0))
+  (trie-node-cache-hits 0 :type (integer 0)))
+
+(defvar *node-store-direct-trie-node-write-through-p* t
+  "When true, nodes an applied export batch wrote enter the trie-node cache.
+
+Every block rewrites the root and the upper levels of each path it touched, so
+without write-through the next block's first traversal of those paths misses
+the read cache and point-reads nodes this process wrote a moment earlier.
+Nodes are addressed by their Keccak hash, so an entry can never go stale.  Only
+tests bind this to NIL, as the control that the write-through is what saves
+the reads.")
 
 (defun make-empty-database-chain-store (database)
   "Construct a direct provider with fresh memory-overlay slot defaults.
@@ -372,41 +386,92 @@ hash-table slot can start as NIL."
   (lambda (hash)
     (chain-store-backing-trie-node store hash)))
 
-(defun node-store-direct-trie-node-cache-lookup-unlocked (store identifier)
-  (multiple-value-bind (encoded present-p)
-      (gethash identifier (database-chain-store-trie-node-cache store))
-    (if present-p
-        (values encoded t)
-        (gethash identifier
-                 (database-chain-store-previous-trie-node-cache store)))))
-
-(defun node-store-direct-trie-node-cache-lookup (store identifier)
-  #+sbcl
-  (sb-thread:with-mutex ((database-chain-store-trie-node-cache-lock store))
-    (node-store-direct-trie-node-cache-lookup-unlocked store identifier))
-  #-sbcl
-  (node-store-direct-trie-node-cache-lookup-unlocked store identifier))
-
-(defun node-store-direct-trie-node-cache-put-unlocked
-    (store identifier encoded)
+(defun node-store-direct-trie-node-cache-insert-unlocked
+    (store identifier cached)
+  "Store the already private IDENTIFIER/CACHED pair in the current generation."
   (when (>= (hash-table-count (database-chain-store-trie-node-cache store))
             +node-store-direct-trie-node-cache-generation-limit+)
     (setf (database-chain-store-previous-trie-node-cache store)
           (database-chain-store-trie-node-cache store)
           (database-chain-store-trie-node-cache store)
           (make-hash-table :test 'equalp)))
-  (let ((cached (copy-seq encoded)))
-    (setf (gethash (copy-seq identifier)
-                   (database-chain-store-trie-node-cache store))
-          cached)
-    cached))
+  (setf (gethash identifier (database-chain-store-trie-node-cache store))
+        cached))
 
-(defun node-store-direct-trie-node-cache-put (store identifier encoded)
-  #+sbcl
-  (sb-thread:with-mutex ((database-chain-store-trie-node-cache-lock store))
-    (node-store-direct-trie-node-cache-put-unlocked store identifier encoded))
-  #-sbcl
-  (node-store-direct-trie-node-cache-put-unlocked store identifier encoded))
+(defun node-store-direct-trie-node-cache-lookup-unlocked (store identifier)
+  (multiple-value-bind (encoded present-p)
+      (gethash identifier (database-chain-store-trie-node-cache store))
+    (if present-p
+        (values encoded t)
+        (multiple-value-bind (previous previous-p)
+            (gethash identifier
+                     (database-chain-store-previous-trie-node-cache store))
+          ;; A hit in the older generation is still in use: promote it, so a
+          ;; node every block traverses but no block rewrites (an untouched
+          ;; upper-level sibling) is not dropped at the next rotation.
+          (when previous-p
+            (node-store-direct-trie-node-cache-insert-unlocked
+             store (copy-seq identifier) previous))
+          (values previous previous-p)))))
+
+(defun node-store-direct-trie-node-cache-lookup (store identifier)
+  "Look IDENTIFIER up and count a hit toward the read statistics."
+  (flet ((lookup ()
+           (multiple-value-bind (encoded present-p)
+               (node-store-direct-trie-node-cache-lookup-unlocked
+                store identifier)
+             (when present-p
+               (incf (database-chain-store-trie-node-cache-hits store)))
+             (values encoded present-p))))
+    #+sbcl
+    (sb-thread:with-mutex ((database-chain-store-trie-node-cache-lock store))
+      (lookup))
+    #-sbcl
+    (lookup)))
+
+(defun node-store-direct-trie-node-cache-put-unlocked
+    (store identifier encoded)
+  (node-store-direct-trie-node-cache-insert-unlocked
+   store (copy-seq identifier) (copy-seq encoded)))
+
+(defun node-store-direct-trie-node-cache-put
+    (store identifier encoded &key database-read-p)
+  "Cache ENCODED under IDENTIFIER; DATABASE-READ-P counts a point read."
+  (flet ((put ()
+           (when database-read-p
+             (incf (database-chain-store-trie-node-database-reads store)))
+           (node-store-direct-trie-node-cache-put-unlocked
+            store identifier encoded)))
+    #+sbcl
+    (sb-thread:with-mutex ((database-chain-store-trie-node-cache-lock store))
+      (put))
+    #-sbcl
+    (put)))
+
+(defmethod chain-store-note-persisted-trie-nodes
+    ((store database-chain-store) database nodes)
+  ;; Only this provider's own database: a node written to some other export
+  ;; target is not readable through STORE, and a cache entry would then hide
+  ;; its absence from presence checks such as the SNAP healer's.
+  (when (and *node-store-direct-trie-node-write-through-p*
+             nodes
+             (eq database (database-chain-store-database store)))
+    (let ((records (mapcar #'mpt-node-record nodes)))
+      #+sbcl
+      (sb-thread:with-mutex ((database-chain-store-trie-node-cache-lock store))
+        (dolist (record records)
+          (node-store-direct-trie-node-cache-put-unlocked
+           store (car record) (cdr record))))
+      #-sbcl
+      (dolist (record records)
+        (node-store-direct-trie-node-cache-put-unlocked
+         store (car record) (cdr record)))))
+  nodes)
+
+(defmethod chain-store-trie-node-read-statistics
+    ((store database-chain-store))
+  (values (database-chain-store-trie-node-database-reads store)
+          (database-chain-store-trie-node-cache-hits store)))
 
 (defun node-store-direct-account-cache-key (block-hash address)
   (engine-payload-store-account-key block-hash address))
@@ -585,7 +650,7 @@ execution pre-state does; a durable block's roots open from the database."
                 (values
                  (copy-seq
                   (node-store-direct-trie-node-cache-put
-                   store identifier encoded))
+                   store identifier encoded :database-read-p t))
                  t)
                 (values nil nil)))))))
 

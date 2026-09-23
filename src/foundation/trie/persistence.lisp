@@ -441,6 +441,13 @@ checked before the batch is allowed to replace it."
     (setf (trie-concrete-node-dirty-p node) nil))
   nodes)
 
+(defun mpt-node-record (node)
+  "Return NODE's content-addressed durable record as (HASH . ENCODED).
+
+This is exactly the key and value MPT-POPULATE-DIRTY-BATCH writes for NODE, so
+a caller that has applied that batch may keep the pair in a read cache."
+  (cons (node-hash node) (encoded-node node)))
+
 (defun mpt-persist (database trie)
   "Atomically persist newly allocated trie paths and return the root.
 
