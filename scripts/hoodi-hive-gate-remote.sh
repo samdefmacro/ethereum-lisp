@@ -263,6 +263,12 @@ read -r _id platform image_revision image_user < "$ev/nested-runtime-inspect-$mo
 cd "$ev/src"
 export RUNTIME_PREBUILT=1 HIVE_WORKDIR="$ev/hive-gate" HIVE_RESULTS="$ev/results"
 unset HIVE_EXTRA_ARGS HIVE_EXPECTED_TESTS
+# The evidence root is a bind mount owned by the host user while the runner's
+# git runs as the container user, so git refuses the Hive checkout under
+# "dubious ownership" (observed on the first d203fee6 rpc-compat prepare,
+# 2026-09-23T13:24Z).  Whitelist the evidence root through git's environment
+# rather than writing a config file into the read-only runner.
+export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'
 if [ "$EXPECTED_TESTS" != none ]; then
     export HIVE_EXPECTED_TESTS="$EXPECTED_TESTS"
 fi
