@@ -1,0 +1,240 @@
+Section 5 SIGTERM during an active heal walk: the stop that never reached the
+store close
+
+Status
+
+IMPLEMENTED AND VERIFIED LOCALLY (cold unit, integration and e2e; see
+"Verification of record"). The blocking wait in the live stop is identified
+and reproduced on a real node process in the integration suite, RED before the
+change and GREEN after. Whether the live Hoodi stop now completes inside
+`docker stop --time 30` is NOT established: that needs a live run (see "Not
+verified").
+
+Revision: branch sigterm-during-heal over cceee42f
+(sec5-public-bootstrap-sync), which already carries the HTTP keep-alive stop
+fix 6f8b80eb and the store close 6a6dbbb8.
+
+The live observation
+
+Hoodi, revision 75b0b7a7, node inside a snap heal walk with a frontier of
+about 380k works, a ~57 GB RocksDB store, 12 GiB container, stopped with
+`docker stop --time 30`:
+
+  23:17:48.795Z  "Devnet shutdown requested; closing RPC listeners."
+                 engine.rpc.http.listener.finish for 127.0.0.1:8545 (42
+                 connections) and 127.0.0.1:8551 (100), several
+                 engine.rpc.http.stream.finish, one peer.discovery.crawl
+  ... nothing for ~30 s ...
+  23:18:19.125Z  exit 137, OOMKilled=false (SIGKILL at the end of the grace)
+
+RocksDB's LOG in that datadir has no "Shutdown complete", so the store close
+was never reached. The listeners did stop (the keep-alive fix works); what ran
+between listener finish and the store close did not finish in time. The
+discovery crawl after the request is the discovery worker still running,
+which is consistent with the joins below still being in progress.
+
+What was established: the blocking wait
+
+The stop sequence, by reading src/app/cli/devnet/service.lisp at cceee42f:
+SIGTERM handler -> DEVNET-SHUTDOWN-REQUEST (listeners and registered sockets
+closed) -> START-DEVNET-NODE-LISTENERS cleanup joins every worker in turn ->
+DEVNET-CLI-RUN-SERVE-NODE cleanup runs the shutdown export -> the cache scope
+closes the store. The joins, in order, each with its own bound:
+
+  rejournal, txpool maintenance, payload improvement, dev period   unbounded
+  sync coordinator                        15 s, terminate, 5 s
+  dialer                                   5 s, terminate, 5 s
+  each outbound peer session               5 s, terminate, 5 s
+  discovery, discovery server, p2p listener, metrics, WebSocket
+                                           5 s, terminate, 5 s each
+  each inbound peer / WebSocket session    5 s, terminate, 5 s
+
+The first of these that does not return by itself is the sync coordinator,
+and the reason is the heal walk's stop observation:
+
+1. %SNAP-SYNC-HEAL-STATE reads HEAL-YIELD-P only at its pass boundary and in
+   the remote pipeline's pause predicate. A pass ends when it has collected
+   enough MISSING work for a peer request. Over a store that already holds
+   most of the trie, a walk finds almost nothing missing, so the whole walk is
+   ONE pass that never reaches either place. Closing the peer sockets does not
+   interrupt it either: it makes no peer request.
+
+   Measured (warm image, arm64): a 69,905-node trie, every node present and
+   marked incomplete, local read batches slowed to 50 ms (the regime of a
+   57 GB store whose reads miss the block cache), HEAL-YIELD-P returning true
+   from the fifth second on. The walk ignored it and ran to completion: 944
+   read batches, 56.1 s. Without the slowdown the same walk is 1.3 s.
+
+2. The coordinator's yield predicate (YIELD-FOR-STALE-TARGET-P in
+   DEVNET-NODE-SNAP-IMPORT-WITH-FAILOVER) does not look at the shutdown request
+   at all, and nothing else in the snap loops did.
+
+So the sync coordinator join waits out its 15 s bound, terminates the thread,
+and only then do the other joins start -- each with its own 5 s bound plus
+5 s after a terminate. A dialer or discovery worker blocked in a dial or a
+receive that no closeable reaches adds up to 10 s each; two of them already
+exceed the remaining 15 s of the grace period. The shutdown export takes the
+store guard with no bound behind all of that.
+
+Reproduction (tests/cli-devnet-shutdown-deadline-tests.lisp)
+
+DEVNET-STOP-DURING-A-LOCAL-HEAL-WALK-REACHES-THE-STORE-CLOSE-IN-TIME: a real
+node (RocksDB store, p2p port 0 so the sync coordinator starts) inside the
+kv-cache scope that closes its store; the coordinator's pass is replaced by a
+real SNAP-SYNC-HEAL-STATE over that store's own fixture trie (69,905 nodes),
+with every local read batch slowed to 50 ms. The stop is requested exactly as
+the SIGTERM handler requests it, after the 20th read batch.
+
+  previous tree   stop-to-return 15.95 s, stop-to-close 15.97 s; the walk
+                  ran 298 more batches after the stop and was ended by the
+                  coordinator join's terminate
+  this change     stop-to-return 0.90 s, stop-to-close 0.93 s; no batch after
+                  the stop
+
+Both arms record exactly one "Shutdown complete" in the store's LOG (positive
+control: the LOG carries this run's "RocksDB version" line).
+
+A CLI-driven live heal was not used: a heal needs a CL-authorized pivot and a
+peer serving snap/1, which the e2e harness cannot provide. The integration
+test uses the shipped coordinator thread, shutdown request, join sequence,
+store scope and close; only the pass body and the disk speed are the
+fixture's.
+
+What changed
+
+1. Snap work observes a stop (src/networking/snap-sync/client.lisp).
+   *SNAP-SYNC-STOP-P* is NIL or a predicate; SNAP-SYNC-CHECK-STOP unwinds with
+   SNAP-SYNC-STOPPED when it is true. SNAP-SYNC-STOPPED is a CONDITION, not an
+   ERROR, so the snap loops' own ERROR / SERIOUS-CONDITION boundaries (which
+   retire sources and classify faults) do not catch it. It is read:
+     - before every local read batch of the heal pass;
+     - at the heal pass boundary, before HEAL-YIELD-P;
+     - in the remote pipeline's pause predicate (assignment stops; the
+       in-flight responses drain, their sockets already closed), and in the
+       pipeline's refill collector (which then returns what it has instead of
+       unwinding through the pipeline);
+     - right after the pipeline returns, BEFORE the fetched-node flush and the
+       checkpoint;
+     - at the account-range commit seams (single-source and multi-source) and
+       the storage-range commit seam, before their yield predicates.
+   Nothing is written on the way out: no checkpoint, no flush of buffered
+   nodes, no completion. Markers and checkpoints are crash-safe by design, so
+   the next run resumes exactly as after a crash at that batch boundary. The
+   healer's skip/closure rules, the read limiter and the batch collector's
+   width logic are unchanged.
+
+2. The coordinator binds it (src/app/cli/devnet/dialer.lisp).
+   DEVNET-START-SYNC-COORDINATOR-THREAD binds *SNAP-SYNC-STOP-P* to
+   DEVNET-SHUTDOWN-REQUESTED-P around its loop and treats SNAP-SYNC-STOPPED as
+   a clean exit (no error callback, no error re-signalled after cleanup).
+
+3. The joins share one deadline (src/app/cli/devnet/service.lisp, types.lisp,
+   peer-manager.lisp).
+   *DEVNET-SHUTDOWN-JOIN-BUDGET-SECONDS* = 12. The first join that needs it
+   fixes the deadline; every later join, including the Engine listener
+   thread's and every peer and WebSocket session's (DEVNET-JOIN-PEER-SESSIONS
+   :DEADLINE), gets only what is left. A worker that outlasts it is
+   terminated, given a fixed 0.1 s to unwind (so each stuck worker
+   overruns the deadline by at most that), and then abandoned with a
+   stderr line naming it ("Devnet shutdown abandoned worker <label>: ...");
+   the export and the store close run regardless, and the close's own
+   drain (+ROCKSDB-CLOSE-DRAIN-SECONDS+, 5 s) still waits for any caller left
+   inside the handle. 12 s of joins + 5 s close drain + 2 s pool
+   release stays inside the 20 s e2e budget named by
+   sec5-shutdown-provenance-audit.txt, and inside the 30 s grace.
+
+   The four previously unbounded joins (rejournal, txpool maintenance,
+   payload improvement, dev period) are now bounded by the same deadline.
+
+   JOIN-THREAD's outcome is read from its second value (:TIMEOUT / :ABORT);
+   the old :DEFAULT :TIMEOUT sentinel was also what a terminated thread
+   returns. An expired deadline polls with a 1 ms timeout: SBCL 2.2.9's
+   JOIN-THREAD rejects :TIMEOUT 0 with a TYPE-ERROR.
+
+   The SIGTERM handler is unchanged: it still does nothing but request
+   shutdown.
+
+Measurements (warm dev image, arm64, this machine)
+
+  local heal walk, 69,905 nodes, 50 ms per read batch, HEAL-YIELD-P true
+    after 5 s, previous tree                      56.1 s, 944 batches, yield
+                                                  never observed
+  reproduction, stop -> node returned             15.95 s -> 0.90 s
+  reproduction, stop -> store closed              15.97 s -> 0.93 s
+  node with two workers that ignore stop AND terminate (dialer, discovery),
+    stop -> node returned                         20.96 s (previous
+                                                  service.lisp) -> 3.01 s
+                                                  (budget set to 3 s)
+
+RED controls
+
+- DEVNET-STOP-DURING-A-LOCAL-HEAL-WALK-REACHES-THE-STORE-CLOSE-IN-TIME, run in
+  the warm image on cceee42f's client.lisp and dialer.lisp: fails at
+  (< STOP-TO-RETURN 5d0) with 15.95 s. Its positive controls: the stop landed
+  after at least 20 batches, fewer than 400 of the 944 batches ran (the walk
+  was really interrupted mid-way), and the LOG carries the run's version line.
+- DEVNET-STUCK-WORKERS-DO-NOT-KEEP-THE-NODE-FROM-ITS-STORE-CLOSE, run with
+  cceee42f's service.lisp loaded over the new tree: fails at
+  (< STOP-TO-RETURN 5d0) with 20.96 s and no "abandoned" line. The stuck
+  workers hold WITHOUT-INTERRUPTS, which defers TERMINATE-THREAD exactly as a
+  foreign call does.
+- DEVNET-SHUTDOWN-JOINS-SHARE-ONE-DEADLINE (unit) carries the per-join shape
+  inline as its positive control: the same two stuck workers joined with a
+  1 s budget EACH take >= 2 s; under one shared 1 s deadline they take
+  between 1.0 and 1.5 s. It also exercises :ABSENT, :JOINED and :TERMINATED so
+  that :ABANDONED is not the only answer the helper can give.
+
+Verification of record
+
+At 4ed38c80 (code), cold images, this machine, 2026-09-23:
+
+cl-workbench validation run cold-unit
+  1428 tests passed, 3 skipped.   Exit 0.   (1431 selected = 1431 registered
+  for :unit; one unit test added)
+cl-workbench validation run cold-integration
+  597 tests passed, 9 skipped.    Exit 0.   (606 selected = 606 registered;
+  two integration tests added)
+cl-workbench validation run cold-e2e
+  worker 1: 33 tests passed; worker 2: 36 tests passed.   Exit 0.
+  (69 = 69 registered; none added)
+
+Registered counts were read from the warm image's test registry with the new
+file loaded; cceee42f therefore registers 1430 unit and 604 integration tests.
+Each new test is "ok" by name in its log, as are
+DEVNET-KV-CACHE-CLOSES-THE-NODE-STORE-ONCE-AFTER-ITS-WORKERS-STOP,
+DEVNET-CLI-NODE-CLOSES-ITS-ROCKSDB-STORE-ON-EVERY-EXIT-PATH and both
+DEVNET-CLI-SIGTERM-STOPS-A-NODE-... keep-alive tests. No "not ok", and no
+compile warning under /workspace/src, in any of the three logs.
+
+An earlier cold-unit at 15aba19b failed one check: the :TERMINATED arm of
+DEVNET-SHUTDOWN-JOINS-SHARE-ONE-DEADLINE. The post-terminate join then waited
+only what was left of the deadline, which is nothing once the first join has
+timed out at it, so a worker that would unwind in milliseconds was reported
+abandoned. 4ed38c80 gives it a fixed 0.1 s grace; the cold-integration and
+cold-e2e runs at 15aba19b were green (597 passed, 9 skipped; 33 + 36).
+
+
+Not verified
+
+- The live stop. Owed: a Hoodi run on this revision stopped with the gate's
+  `docker stop --time 30` while a heal walk is active, with the exit status,
+  the time from "Devnet shutdown requested" to exit, any "abandoned worker"
+  line, and "Shutdown complete" in chaindata/LOG.
+- The live batch latency. The reproduction's 50 ms per read batch is a model
+  of a cold 57 GB store; the live per-batch time was not measured. The stop is
+  observed once per batch, so a single batch far slower than a second would
+  show up directly in stop-to-return.
+- The shutdown export is still unbounded: it takes the node store guard with
+  no timeout. A worker abandoned while holding that guard (it would have to be
+  stuck in a foreign call, since a terminated thread releases the mutex on
+  unwind) would block the export and hence the close. Not reproduced; not
+  changed here.
+- The range and storage-range stop checks are exercised by no dedicated test;
+  they sit at the same seams as the existing yield checks and unwind the same
+  way. The pipeline's pause-and-drain path on a stop is exercised by no
+  dedicated test either; the reproduction covers the local walk.
+- The pipeline and range event loops still join their own request workers
+  without a bound when they unwind; that relies on the shutdown request having
+  closed the peer sockets those workers wait on.
+- E4 from the memory-fault trace (the SIGTERM handler takes a mutex and runs
+  closeable thunks in signal context) is unchanged.
