@@ -62,6 +62,47 @@
            (memory-chain-store-state-tries
             (chain-store-require-memory-store store))))
 
+(defun chain-store-find-pending-storage-trie (store block-hash predicate)
+  "Return the first pending storage trie PREDICATE accepts, or NIL.
+
+A block's pending set holds its account trie and only the storage tries that
+block itself touched, while the account trie a child copies carries the dirty
+account leaves of every unexported ancestor.  A storage root named by such a
+leaf may therefore live only in an older pending block: forward peer sync
+executes a whole response before exporting its last block, so a contract
+written in block N and untouched in N+1 is unreadable from N+2 unless the
+lookup walks the whole unexported chain.  Search BLOCK-HASH's pending storage
+tries, then each pending ancestor's, stopping at the first block with no
+pending set (its state, and everything older, is durable).  This is the storage
+counterpart of the all-blocks pending-code lookup.
+
+Callers match by root hash, and equal roots name identical content, so the
+nearest match is as good as any; nearest-first keeps the common parent hit to
+one step."
+  (setf store (chain-store-require-memory-store store))
+  (unless (functionp predicate)
+    (block-validation-fail "Pending storage trie predicate must be a function"))
+  (let ((seen (make-hash-table :test 'equal))
+        (hash block-hash))
+    (loop
+      (unless hash
+        (return nil))
+      (let* ((key (engine-payload-store-key hash))
+             (tries (and (not (gethash key seen))
+                         (gethash key
+                                  (memory-chain-store-state-tries store)))))
+        (unless tries
+          (return nil))
+        (setf (gethash key seen) t)
+        ;; The first pending trie is the account trie.
+        (let ((found (find-if predicate (rest tries))))
+          (when found
+            (return found)))
+        (let ((block (chain-store-known-block store hash)))
+          (setf hash
+                (and block
+                     (block-header-parent-hash (block-header block)))))))))
+
 (defun chain-store-state-persistence-code-bodies (store block-hash)
   (gethash (engine-payload-store-key block-hash)
            (memory-chain-store-state-code-bodies

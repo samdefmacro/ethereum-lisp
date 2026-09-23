@@ -1,0 +1,332 @@
+Section 5: hunting the false completion behind "Persisted trie node ... is missing"
+
+Status
+
+Read-only audit of 8933d407 (sec5-public-bootstrap-sync head) plus one
+reproduction. Branch false-completion-hunt, on 8933d407. No live run, no ssh.
+The db verify of the preserved Hoodi datadir had not reported when this was
+written; section 4 states the prediction it decides.
+
+Result in one paragraph. Every way the snap code can leave a present
+account-path or storage-path :TRIE-NODE record, or a subtree/root proof, above
+an absent descendant was enumerated for the six interleavings in the brief. None
+is reachable in a run that does not crash, and the Hoodi run did not crash
+before 04:34:13Z. The exact error text is, however, reproduced by a different
+mechanism that needs no heal defect at all: forward peer sync executes a
+response's blocks against an in-memory overlay that loses a storage trie changed
+two unexported blocks back. The reproduction yields "Persisted trie node 0x...
+is missing" where the missing hash is the new storage root of block N. It
+matches the live sequence at 04:27-04:34 (peer.sync.multi_retry, "all sync
+peers failed with block 3678317 still pending", then exit 1) better than any
+false-completion path. Section 1 is that mechanism; sections 2-3 are the
+snap-side audit and why each path is closed; section 4 is the ranking and what
+the pending db verify decides.
+
+Reference client for the snap design: go-ethereum
+38271784c2b31926563806da9a2e023b88f5e7a8 (v1.17.6-unstable), as in
+docs/snap-account-closure.md.
+
+================================================================================
+1. The reproduced mechanism: an unexported grandparent's storage trie
+================================================================================
+
+Code (8933d407):
+
+  src/app/cli/devnet/peer-sync.lisp DEVNET-PEER-SYNC-IMPORT-BATCH
+    Executes every block of one forward response oldest-first inside one
+    CHAIN-STORE-ATOMIC-COMMIT, passing a durability function ONLY to the last
+    block ("batch callers omit it from intermediate blocks and commit their
+    last candidate's whole new ancestry instead"). Callers: the
+    ancestor download in DEVNET-NODE-MULTI-SYNC-PASS (dialer.lisp, the
+    peer.sync.multi path) and peer-sync.lisp's forward range import.
+  src/application/services/block-import.lisp BLOCK-IMPORT-EXECUTE-CANDIDATE
+    -> EXECUTE-AND-COMMIT-ENGINE-PAYLOAD (execution.lisp), which builds each
+    block's pre-state with CHAIN-STORE-STATE-DB on the parent hash.
+  src/application/services/execution.lisp CHAIN-STORE-STATE-DB
+    For a durable provider whose parent is still pending, the account trie is
+    COPY-MPT of the parent's pending account trie (so dirty account nodes of
+    every unexported ancestor are carried). A storage trie, however, is taken
+    from (REST committed-tries) of the PARENT only, matched by root; failing
+    that it is MAKE-PERSISTED-MPT on the storage root over the database loader.
+  src/application/services/execution.lisp STATE-DB-PERSISTENCE-TRIES (via
+  COMMIT-STATE-DB-TO-CHAIN-STORE)
+    A block's pending tries are its account trie plus the storage tries of the
+    accounts IT touched. src/runtime/state/roots.lisp says so explicitly.
+  src/storage/node-store/persistence/direct-store.lisp
+  NODE-STORE-DIRECT-STORAGE-TRIE
+    The RPC point-read path has the identical parent-only lookup.
+
+  Contrast: NODE-STORE-DIRECT-PENDING-CODE searches the pending code bodies of
+  EVERY block. Code was made ancestor-aware; storage tries were not.
+
+So in one response: block N writes contract A's storage (new root S_N, nodes
+only in N's pending storage trie); block N+1 does not write A (A absent from
+N+1's pending tries, even if N+1 read A); block N+2 touches A's storage. N+2's
+pre-state finds A's leaf naming S_N in the carried account trie, looks for S_N
+among N+1's pending storage tries, misses, and opens S_N from the database,
+where no batch has written it: "Persisted trie node <S_N> is missing". The
+batch rolls back, the next peer serves the same range, and it fails the same
+way. Nothing on disk references S_N: the node lives in a rolled-back overlay.
+
+On a public chain the trigger is ordinary (any contract written in one block,
+not written in the next, and touched in the one after, inside one response).
+The Engine path exports every newPayload immediately and the snap tail
+(dialer.lisp DEVNET-NODE-SNAP-SYNC-PIVOT-ATTEMPT) imports one block at a time
+with the default durability function, so neither exposes it; the batched
+forward download does.
+
+Reproduction (tests/core-node-store-direct-store-tests.lisp)
+
+  DIRECT-STATE-READS-STORAGE-CHANGED-BY-AN-UNEXPORTED-GRANDPARENT
+    Genesis with contract A (one slot = 1) and a bystander, exported through
+    NODE-STORE-EXPORT-TO-KV and reopened with
+    MAKE-DATABASE-ENGINE-PAYLOAD-STORE (the direct provider production uses).
+    Block 1 sets A's slot to 2; block 2 changes only the bystander; neither is
+    exported (DIRECT-STORE-TEST-PENDING-CHILD commits exactly as an
+    intermediate batch block does).
+    Controls: neither block's :STATE-HISTORY is durable (so any successful read
+    comes from the overlay); at block 1 the slot reads 2 through both
+    CHAIN-STORE-STATE-DB and CHAIN-STORE-ACCOUNT-STORAGE; at block 2 the
+    account trie still names the new storage root (the account overlay IS
+    carried).
+    Defect: at block 2 both reads signal "Persisted trie node ... is missing".
+    Observed in the warm image:
+      "Persisted trie node 0xd776138f...445de878 is missing" (both paths)
+      block 1's storage root for A = 0xd776138f...445de878
+    i.e. the missing node is exactly block 1's new storage root.
+
+  The test is a DEFECT REPRODUCTION: it asserts the failure as it stands and
+  must be inverted by the fix. It passes in the warm image at this revision.
+  Not run: a devnet-level reproduction through DEVNET-PEER-SYNC-IMPORT-BATCH
+  with real signed contract-call blocks (existing batch tests use empty blocks,
+  which is why none caught this); the unit test drives the same
+  CHAIN-STORE-STATE-DB / COMMIT-STATE-DB-TO-CHAIN-STORE pair the batch path
+  calls per block.
+
+Fix direction (not implemented here; not this branch's brief): resolve a
+storage root against the pending storage tries of every unexported ancestor
+(or carry touched storage tries forward in each block's pending set), in both
+CHAIN-STORE-STATE-DB and NODE-STORE-DIRECT-STORAGE-TRIE; or export each batch
+block's pending state before executing its child. geth's equivalent is the
+state database's dirty-node cache, which is shared across all uncommitted
+blocks rather than scoped to the parent.
+
+================================================================================
+2. The snap-side audit, interleaving by interleaving
+================================================================================
+
+The invariant the healer consumes (INTEGRATE-PRESENT-WORK, client.lisp): a
+present, hash-addressed, not-fetched node is skipped when it is unmarked and
+either a storage node or an account node under the closed scheme; a marked
+node is always processed first. Proof lookups (:ACCOUNT, :STORAGE,
+:STORAGE-ROOT) skip whole subtrees. So a false completion needs one of: an
+unmarked present node above an absent descendant, a proof above an absent
+descendant, or a marker deleted early.
+
+(1) Closed range writer -- CLOSED.
+  SNAP-SYNC-PREPARE-ACCOUNT-PAGE-RANGE writes nothing for a closed store.
+  SNAP-SYNC-COMPLETE-ACCOUNT-PAGE -> SNAP-SYNC-CLOSED-ACCOUNT-PAGE-CONTENT ->
+  MPT-PROVED-RANGE-CLOSED-SUBTREES (trie/persistence.lisp). A group qualifies
+  only if ANALYZE finds every node dirty (a HASH-NODE or clean proof node child
+  fails) and every leaf closed; its REFERENCES are exactly the dirty nodes
+  beneath it; RECORDS are filtered to those references; the :ACCOUNT proof
+  roots are a subset of the same groups. Records, proofs and codes go in ONE
+  buffered batch (SNAP-SYNC-BUFFER-ACCOUNT-PAGE-CONTENT). A withheld record is
+  never named by a published proof, because a proof root's whole subtree is in
+  the same REFERENCES set. The closure predicate re-reads :CODE and
+  :STORAGE-ROOT from the store. Content addressing makes a rebase irrelevant:
+  nothing in a closed subtree mentions the state root.
+  Coverage: MPT-VERIFY-RANGE-PROOF trims [origin, last] and rebuilds it gap-free,
+  so a dirty subtree whose key range lies inside [origin, proved-end] holds
+  every key there; right-edge siblings stay HASH-NODEs and poison their
+  ancestors. The Geth inclusive-limit overlap is handled by PROVED-END = LIMIT
+  on a complete page.
+
+(2) Storage range pages -- CLOSED.
+  Complete group (SNAP-SYNC-POPULATE-VERIFIED-STORAGE-GROUP, complete arm):
+  proofless verification rebuilds the whole trie from the entries, so every
+  node is dirty; records, marker deletes and :STORAGE-ROOT in one batch.
+  Byte-capped first page (partial arm): records include every proof node;
+  everything outside a proved group is marked in the same batch; no proof is
+  published. Partition pages (SNAP-SYNC-BUILD-STORAGE-PAGE-BATCH): records,
+  markers for the non-proved rest, cursor and the :STORAGE proofs in ONE page
+  batch. The committer (SNAP-SYNC-MULTI-COMMIT-STORAGE-RESULTS) only
+  KV-BATCH-APPENDs whole page batches into one combined batch and applies it
+  once; the single-source path applies each page batch whole. No batch carries a
+  proof without its records. The multi path's :CLEAR-COMPLETE-MARKERS-P NIL
+  leaves stale markers (fail-closed) and relies on :STORAGE proofs, which are
+  consulted before the marker (candidate lookup precedes the local read).
+
+(3) G's SNAP-SYNC-PUBLISH-STORAGE-ROOT-CLOSURE -- CLOSED.
+  The cursor set is keyed by (account, storage root) only
+  (SNAP-SYNC-STORAGE-TASK-IDENTIFIER ignores the state root by design), so a
+  set completed under R1 IS read as complete under R2. That is harmless: every
+  page of it was verified against the storage root itself, and completion only
+  admits the walk, which requires every node reached to be present and
+  hash-correct, stopping only at :STORAGE proofs, which are themselves
+  same-batch range proofs (2) or post-order healer proofs (4). A mosaic of
+  partitions from different pivots therefore either walks clean or refuses
+  (:MISSING-NODE), and the refusal writes nothing (R4/R5 of
+  sec5-marker-population.txt pin both). Inline children cannot hide a hash
+  (a node naming a 32-byte hash is at least 33 bytes, so it is never inlined).
+  The walk's marker deletes cover only walked, verified nodes; a concurrent
+  marker put on the same hash is either before (then deleted -- correctly,
+  the hash is closed) or after (then fail-closed).
+
+(4) The healer -- CLOSED for a run that does not crash.
+  Fetched nodes: HANDLE-RESULT puts node and marker in one pending batch and
+  records the marker in INCOMPLETE-NODES before the work is re-pushed, so a
+  fetched node is always processed and gets a :NODE-COMPLETE sentinel.
+  Sentinels: a :NODE-COMPLETE or :COMPLETE work RUNS only in the T branch,
+  i.e. with no missing work this pass, no remote work outstanding, no lookups
+  in the batch and no deferred storage. Inside the pipeline REMOTE-WORK-COUNT
+  is positive, so every sentinel is blocked and restored at the bottom
+  (RESTORE-BLOCKED-COMPLETIONS). Carried sentinels (F) are carried before the
+  batch knows which lookups are missing, but they are restored at the batch
+  floor and the next pop re-applies the missing/remote rule first; deferred
+  storage exposed by the batch is drained above them before any can run.
+  Flush order: PERSIST-COMPLETE-NODE flushes fetched nodes and codes BEFORE
+  queueing the marker delete; FLUSH-HEALED-SUBTREES flushes fetched nodes,
+  codes and completions before the synchronous proof batch. A marker delete is
+  therefore never applied ahead of the fetched children it vouches for.
+  Duplicate hashes: completeness is a property of the hash, so one copy's
+  post-order delete is valid for every copy; a later re-fetch that re-puts the
+  marker is fail-closed.
+  Pivot rebase mid-heal: SNAP-SYNC-HEAL-YIELDED is signalled only at the main
+  loop head (after the pass's FLUSH-HEALED-SUBTREES) or after the pipeline's
+  own flushes. Fetched nodes whose children were never pushed are durable AND
+  marked, so the next generation processes them if its root reaches them.
+  Deleting the checkpoint loses only the in-memory frontier.
+  Checkpoint restore: the frontier encodes FETCHED-P and every marker state
+  (:NODE-COMPLETE = 4); a checkpoint is written only with no pending missing
+  list, with blocked completions restored and deferred storage drained.
+  Completion: published only with STACK and MISSING empty, after a pass-end
+  flush, in a synchronous batch (fsync covers the buffered prefix).
+  Crash seams remain (a buffered completion batch reordered against a lost
+  fetched batch is not possible on one WAL, but the file/memory oracles differ);
+  they are irrelevant here because the process did not crash.
+
+(5) Block execution on the healed base -- the heal side is CLOSED; execution
+    side is section 1.
+  The pivot's :STATE-HISTORY is written only by the completion batch
+  (SNAP-SYNC-COMPLETE-BATCH), so nothing can execute on a pivot before its heal
+  completes; the tail runs after install in the same coordinator thread. A
+  root "present and unmarked" at a later rebase (3678050/55/58,
+  3678217/.../29) was written by an exported block commit: each export writes
+  the block's dirty nodes in one batch over a base that the previous export or
+  the completed heal made durable, and a failed batch is rolled back whole. The
+  one exception found -- a dirty overlay that does not see an unexported
+  grandparent's storage -- fails the READ and rolls back; it never writes an
+  incomplete root, so it cannot seed a false instant completion either.
+
+(6) Deferred-storage plan, segment cursor and promotion -- INERT on an
+    epoch-seven store.
+  The plan marker is written only by SNAP-SYNC-COMMIT-ACCOUNT-PAGES and only
+  when NOT SNAP-SYNC-CLOSED-ACCOUNT-WRITES-P; without it
+  SNAP-SYNC-DEFERRED-STORAGE-SEGMENT returns NIL (the healer seeds from the
+  root), SNAP-SYNC-MAP-DEFERRED-STORAGE-PLAN reports untrusted, and
+  SNAP-SYNC-FILL-DEFERRED-STORAGE does nothing. SNAP-SYNC-PROMOTE-COMPLETE-
+  RANGE-PLAN returns 0 on a closed store before reading the plan.
+  SNAP-SYNC-FILL-STORAGE-THEN-HEAL's walk-free completion refuses a closed
+  store explicitly. The deferred-storage entries themselves are still written
+  by SNAP-SYNC-BUFFER-ACCOUNT-PAGE-CONTENT, but nothing reads them without the
+  marker. Legacy dependency proofs (SNAP-SYNC-FILTERED-ACCOUNT-SUBTREE-
+  DEPENDENCIES) are never written by the closed writer, and
+  SNAP-SYNC-HEAL-DEFER-DEPENDENCIES-P is false for zero dependencies.
+
+================================================================================
+3. Other writers checked
+================================================================================
+
+  Genesis export: one atomic batch with its code (phase-two record).
+  snap/1 server: writes nothing since 00cf8da4.
+  Trie-node deletion: no src/ site deletes a :TRIE-NODE record (grep).
+  Kind blindness: storage leaf values are bounded at 33 bytes at every
+  ingestion point, including the healed leaf (PROCESS-VALUE), so a storage
+  path cannot reach an account node and vice versa.
+
+================================================================================
+4. Ranking, and what the pending db verify decides
+================================================================================
+
+  1. Section 1, execution overlay loses an unexported grandparent's storage
+     trie. REPRODUCED (unit). Reachable live on every multi-block forward
+     response; matches the 04:27-04:34 sequence (forward ancestor download,
+     every peer failing the same block range, the same error text). It is NOT
+     a false completion: the store is consistent and the healer is not
+     implicated.
+  2. Crash-only seams in the healer and range writer (buffered batches on the
+     memory/file oracles). Not reachable in this run (no crash before exit).
+  3. Block-commit closure resting on "every export writes the dirty set over a
+     durable base". Held in every path read; audited batch by batch in
+     SNAP-EPOCH-SEVEN-DOES-NOT-TRUST-ACCOUNT-NODES-WRITTEN-BY-BLOCK-IMPORT. Not
+     reproduced.
+  4-6. Items (1), (2), (3), (6) of the brief: no path found.
+
+Prediction for the db verify of the preserved datadir. If mechanism 1 is the
+cause, 0x7cf22bf1659ccadc858b263eeb8ab6096ba4a3957a4026dfdf9b5874847b7d40 is a
+storage root (or a node on a changed storage path) that NO durable record
+references: the verify from the durable head state should find nothing missing
+and no present owner. A present owner hash would refute mechanism 1 for this
+event and reopen the snap-side search at that owner (check first whether the
+owner carries an incomplete marker, a :STORAGE / :ACCOUNT / :STORAGE-ROOT
+proof, and which writer's batch put it).
+
+Log checks that decide it without the verify:
+  - peer.sync.multi_retry / sync errors between 03:29Z and 04:02Z. The node
+    fell 143 blocks behind in that window after a successful tail; a forward
+    batch failing on this mechanism explains why a second snap pivot was
+    needed at all.
+  - whether the failing forward batch contained more than two blocks, and
+    whether block 3678317's range writes a contract written two or more blocks
+    earlier in the same response.
+
+Verification
+
+  cl-workbench doctor --strict: passed.
+  Warm image: the new test loads with no warning and passes (it asserts the
+  defect; see section 1). No cold lane was run for this branch: it adds one
+  test and this record, and changes no src/ file.
+
+================================================================================
+5. The fix, and why the process exited instead of retrying
+================================================================================
+
+Fix (branch pending-storage-overlay, on 4a7e46a7). One helper,
+CHAIN-STORE-FIND-PENDING-STORAGE-TRIE (chain-store/service/
+state-availability.lisp), searches the block's own pending storage tries,
+then each pending ancestor's, and stops at the first block with no pending
+set. Both CHAIN-STORE-STATE-DB and NODE-STORE-DIRECT-STORAGE-TRIE call it; the
+account-trie carry-forward is unchanged. Tries are matched by root hash, and
+equal roots name identical content, so the nearest match is used. Exporting
+each batch block before its child was not chosen: the overlay is sound once
+the lookup covers the same unexported chain the account trie already carries,
+and per-block export would give up the batch's single durable seam.
+
+Tests:
+  DIRECT-STATE-READS-STORAGE-CHANGED-BY-AN-UNEXPORTED-GRANDPARENT (now GREEN):
+    block 2 reads the slot through both paths; block 3 reads it, writes it and
+    the whole ancestry exports in one forkchoice batch; a fresh provider reads
+    all three blocks from the database alone.
+  DEVNET-PEER-RANGE-BATCH-READS-STORAGE-AN-EARLIER-BATCH-BLOCK-WROTE
+    (integration): real signed blocks (write A, plain transfer, write A)
+    imported by DEVNET-PEER-SYNC-IMPORT-BATCH into a RocksDB-backed node.
+  RED control for both, in the warm image: the helper reduced to the parent's
+  own tries gives "Persisted trie node 0xd776138f... is missing" (unit) and
+  "Persisted trie node 0x63cfcda8... is missing" (devnet batch).
+
+Exit path. The batch error is a plain ERROR from MAKE-PERSISTED-MPT. It is not
+caught per peer: ETH-SYNC-DOWNLOAD-BLOCKS-MULTI calls IMPORT-BATCH outside its
+header-validation HANDLER-CASE, so it escapes DEVNET-NODE-MULTI-SYNC-PASS and
+DEVNET-NODE-SYNC-COORDINATOR-PASS (which absorbs only DEVNET-PEER-SYNC-INVALID,
+ETH-SYNC-MULTI-PEER-ERROR and SNAP-SYNC-SOURCES-EXHAUSTED). The coordinator
+thread's outer SERIOUS-CONDITION handler (DEVNET-START-SYNC-COORDINATOR-THREAD)
+calls the error callback and requests shutdown, so listeners close and the
+main thread exits 1 with the error text. The earlier peer.sync.multi_retry
+lines are ETH-SYNC-MULTI-PEER-ERRORs, a separate path. This is by design: the
+coordinator pass says local storage and unexpected program failures escape
+on purpose, and a state read that finds a durable node missing means
+corruption, which must stop the node rather than be retried against peers
+indefinitely. With the overlay fixed, this batch no longer raises. Not
+changed: MAKE-PERSISTED-MPT signals an untyped ERROR, not a STORAGE-ERROR, so
+logs cannot tell corruption from a program fault by type alone.

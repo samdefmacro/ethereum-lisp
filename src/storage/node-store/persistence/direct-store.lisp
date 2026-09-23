@@ -514,14 +514,18 @@ hash-table slot can start as NIL."
          t)
         (values 0 0 nil nil nil state-present-p))))
 
-(defun node-store-direct-storage-trie (store pending-tries root)
+(defun node-store-direct-storage-trie (store block-hash pending-tries root)
+  "Return ROOT's storage trie for BLOCK-HASH's state.
+
+A pending block's storage roots may name a trie that only an older unexported
+block holds, so the lookup walks the whole pending chain, exactly as the
+execution pre-state does; a durable block's roots open from the database."
   (or
-   (find-if
-    (lambda (trie)
-      (bytes= (mpt-root-hash trie) (hash32-bytes root)))
-    ;; The first pending trie is the account trie.  Only the remaining tries
-    ;; can be storage tries, and only touched storage tries are retained here.
-    (rest pending-tries))
+   (and pending-tries
+        (chain-store-find-pending-storage-trie
+         store block-hash
+         (lambda (trie)
+           (bytes= (mpt-root-hash trie) (hash32-bytes root)))))
    (make-persisted-mpt root (node-store-direct-trie-node-loader store))))
 
 (defmethod chain-store-backing-account-storage
@@ -540,7 +544,8 @@ hash-table slot can start as NIL."
       (t
        (let ((storage-trie
                (node-store-direct-storage-trie
-                store pending-tries (state-account-storage-root account))))
+                store block-hash pending-tries
+                (state-account-storage-root account))))
          (multiple-value-bind (encoded present-p)
              (mpt-get storage-trie (keccak-256 (hash32-bytes slot)))
            (if present-p

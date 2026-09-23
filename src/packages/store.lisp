@@ -255,6 +255,7 @@
    #:chain-store-state-root
    #:chain-store-put-state-persistence
    #:chain-store-state-persistence-tries
+   #:chain-store-find-pending-storage-trie
    #:chain-store-state-persistence-code-bodies
    #:chain-store-clear-state-persistence-pending
    #:engine-payload-store-prune-state-snapshot

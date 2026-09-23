@@ -1044,3 +1044,154 @@
               (is (= 424242
                      (state-account-balance
                       (state-db-get-account state target)))))))))))
+
+(defun direct-store-test-pending-child (store parent number mutate)
+  "Execute one child of PARENT on the direct store without exporting it.
+
+This is the shape DEVNET-PEER-SYNC-IMPORT-BATCH gives every block but the last
+of a forward response: the block and its dirty trie set are committed to the
+in-memory overlay, and only the final candidate's exporter later writes the
+whole new ancestry."
+  (let ((state (chain-store-state-db store (block-hash parent))))
+    (funcall mutate state)
+    (let ((child
+            (make-block
+             :header
+             (make-block-header
+              :number number
+              :parent-hash (block-hash parent)
+              :state-root (state-db-root state)
+              :timestamp number
+              :gas-limit 30000000))))
+      (engine-payload-store-put-block
+       store child :state-available-p t :canonicalize-p nil)
+      (commit-state-db-to-chain-store store (block-hash child) state)
+      child)))
+
+(deftest direct-state-reads-storage-changed-by-an-unexported-grandparent
+  ;; Forward peer sync executes a whole response before exporting its last
+  ;; block.  CHAIN-STORE-STATE-DB (execution) and
+  ;; NODE-STORE-DIRECT-STORAGE-TRIE (RPC point reads) used to look for an
+  ;; account's pending storage trie only among the PARENT's pending tries,
+  ;; which hold only what the parent touched, so a contract written in block
+  ;; N, untouched in N+1 and read in N+2 was opened from the database by a
+  ;; root no batch had written: "Persisted trie node ... is missing", the
+  ;; Hoodi exit text.  Both paths now walk the whole unexported chain through
+  ;; CHAIN-STORE-FIND-PENDING-STORAGE-TRIE.  See
+  ;; docs/evidence/sec5-false-completion-hunt.txt.
+  (let* ((bootstrap (make-engine-payload-memory-store))
+         (database (make-instance 'direct-store-test-database))
+         (genesis-state (make-state-db))
+         (contract (state-diff-test-address 171))
+         (bystander (state-diff-test-address 172))
+         (slot (state-diff-test-slot 29)))
+    (state-db-set-account
+     genesis-state contract (make-state-account :nonce 1 :balance 1))
+    (state-db-set-storage genesis-state contract slot 1)
+    (state-db-set-account
+     genesis-state bystander (make-state-account :nonce 0 :balance 5))
+    (let ((genesis
+            (make-block
+             :header
+             (make-block-header
+              :number 0
+              :parent-hash (zero-hash32)
+              :state-root (state-db-root genesis-state)
+              :timestamp 0
+              :gas-limit 30000000))))
+      (chain-store-put-block bootstrap genesis :state-available-p t)
+      (commit-state-db-to-chain-store
+       bootstrap (block-hash genesis) genesis-state)
+      (chain-store-update-forkchoice-checkpoints
+       bootstrap
+       (make-forkchoice-state
+        :head-block-hash (block-hash genesis)
+        :safe-block-hash (block-hash genesis)
+        :finalized-block-hash (block-hash genesis)))
+      (node-store-export-to-kv bootstrap database)
+      (let* ((direct (make-database-engine-payload-store database))
+             ;; N: the contract's slot changes, so its storage root moves.
+             (first-child
+               (direct-store-test-pending-child
+                direct genesis 1
+                (lambda (state)
+                  (state-db-set-storage state contract slot 2))))
+             ;; N+1: an unrelated account only.
+             (second-child
+               (direct-store-test-pending-child
+                direct first-child 2
+                (lambda (state)
+                  (state-db-set-account
+                   state bystander
+                   (make-state-account :nonce 1 :balance 6)))))
+             (first-hash (block-hash first-child))
+             (second-hash (block-hash second-child)))
+        ;; Neither child is durable: every successful read below comes from
+        ;; the in-memory overlay, never from a database fallback.
+        (is (not (nth-value
+                  1 (kv-get-chain-record
+                     database :state-history (hash32-bytes first-hash)))))
+        (is (not (nth-value
+                  1 (kv-get-chain-record
+                     database :state-history (hash32-bytes second-hash)))))
+        ;; Control: the block that touched the storage reads it back, through
+        ;; both the execution state and the point-read path.
+        (is (= 2 (state-db-get-storage
+                  (chain-store-state-db direct first-hash) contract slot)))
+        (is (= 2 (chain-store-account-storage
+                  direct first-hash contract slot)))
+        ;; Control: the grandchild still sees the new storage ROOT, so the
+        ;; account trie overlay is carried and only the storage trie is lost.
+        (let ((root-at-first
+                (state-db-get-storage-root
+                 (chain-store-state-db direct first-hash) contract)))
+          (is (hash32= root-at-first
+                       (state-db-get-storage-root
+                        (chain-store-state-db direct second-hash)
+                        contract))))
+        ;; One block later the same slot reads through both paths.  RED
+        ;; control: before the fix both signalled "Persisted trie node <block
+        ;; 1's storage root> is missing".
+        (is (= 2 (state-db-get-storage
+                  (chain-store-state-db direct second-hash) contract slot)))
+        (is (= 2 (chain-store-account-storage
+                  direct second-hash contract slot)))
+        ;; A third block writes the contract on top of the unexported pair,
+        ;; exactly the batch shape that failed live, and the whole ancestry
+        ;; then exports in one forkchoice batch.
+        (let* ((third-child
+                 (direct-store-test-pending-child
+                  direct second-child 3
+                  (lambda (state)
+                    (is (= 2 (state-db-get-storage state contract slot)))
+                    (state-db-set-storage state contract slot 3))))
+               (third-hash (block-hash third-child)))
+          (is (= 3 (chain-store-account-storage
+                    direct third-hash contract slot)))
+          (node-store-import-txpool-records-from-kv
+           direct database :expected-chain-id 1)
+          (ethereum-lisp.txpool:engine-payload-store-enable-txpool-database-change-tracking
+           direct)
+          (chain-store-update-forkchoice-checkpoints
+           direct
+           (make-forkchoice-state
+            :head-block-hash third-hash
+            :safe-block-hash (block-hash genesis)
+            :finalized-block-hash (block-hash genesis)))
+          (multiple-value-bind (head transition)
+              (chain-store-set-canonical-head direct third-hash)
+            (declare (ignore head))
+            (node-store-export-forkchoice-to-kv direct transition database))
+          ;; Every exported state is complete on disk: a fresh provider with
+          ;; no overlay reads each block's slot from the database alone.
+          (let ((reopened (make-database-engine-payload-store database)))
+            (loop for (hash expected) in (list (list first-hash 2)
+                                               (list second-hash 2)
+                                               (list third-hash 3))
+                  do (is (= expected
+                            (chain-store-account-storage
+                             reopened hash contract slot)))
+                     (is (= expected
+                            (state-db-get-storage
+                             (chain-store-state-db reopened hash)
+                             contract slot))))))))))

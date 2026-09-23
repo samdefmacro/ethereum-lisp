@@ -1270,6 +1270,116 @@ really reopens the directory instead of observing the first handle's memory."
       (is (null (chain-store-known-block store (block-hash block))))
       (is (not (chain-store-state-available-p store (block-hash block)))))))
 
+(defparameter +devnet-peer-sync-storage-writer-key+
+  #x45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8)
+
+(defparameter +devnet-peer-sync-storage-writer-contract+
+  "0x0000000000000000000000000000000000002002")
+
+(defun devnet-peer-sync-storage-writer-genesis-json ()
+  "Paris genesis with a funded sender and a contract that stores its calldata.
+
+The contract is PUSH1 0 CALLDATALOAD PUSH1 0 SSTORE STOP and starts with slot
+zero set, so its storage root is non-empty and moves with every write."
+  (format nil "{\"config\":{\"chainId\":1337,\"terminalTotalDifficulty\":0,\"londonBlock\":0},\"nonce\":\"0x0\",\"timestamp\":\"0x0\",\"extraData\":\"0x\",\"gasLimit\":\"0x1c9c380\",\"difficulty\":\"0x0\",\"mixHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"coinbase\":\"0x0000000000000000000000000000000000000000\",\"alloc\":{\"~A\":{\"balance\":\"0xde0b6b3a7640000\"},\"~A\":{\"balance\":\"0x0\",\"nonce\":\"0x1\",\"code\":\"0x60003560005500\",\"storage\":{\"0x0000000000000000000000000000000000000000000000000000000000000000\":\"0x01\"}}}}"
+          (address-to-hex
+           (fixture-private-key-address
+            +devnet-peer-sync-storage-writer-key+))
+          +devnet-peer-sync-storage-writer-contract+))
+
+(defun devnet-peer-sync-produce-storage-blocks (genesis-json writes)
+  "Chain one valid block per WRITES entry on a private producer store.
+
+An integer entry calls the contract with that value; NIL sends a plain value
+transfer that leaves the contract untouched."
+  (multiple-value-bind (producer config parent)
+      (eth-sync-make-seeded-store genesis-json)
+    (let ((produced '())
+          (contract (address-from-hex +devnet-peer-sync-storage-writer-contract+)))
+      (loop for write in writes
+            for nonce from 0
+            do (let* ((transaction
+                        (fixture-sign-legacy-transaction
+                         (make-legacy-transaction
+                          :nonce nonce
+                          :gas-price 10000000000
+                          :gas-limit 100000
+                          :to (if write
+                                  contract
+                                  (address-from-hex
+                                   "0x0000000000000000000000000000000000003003"))
+                          :value (if write 0 1)
+                          :data (if write
+                                    (let ((word (make-byte-vector 32)))
+                                      (setf (aref word 31) write)
+                                      word)
+                                    (make-byte-vector 0)))
+                         +devnet-peer-sync-storage-writer-key+
+                         (chain-config-chain-id config)))
+                      (attributes
+                        (make-payload-attributes-v1
+                         :timestamp
+                         (+ (block-header-timestamp (block-header parent)) 12)
+                         :prev-randao (zero-hash32)
+                         :suggested-fee-recipient (zero-address)))
+                      (block
+                        (ethereum-lisp.engine-api::engine-rpc-build-prepared-payload-detached
+                         producer parent attributes config
+                         (list transaction))))
+                 (execute-and-commit-engine-payload producer block config)
+                 (push block produced)
+                 (setf parent block)))
+      (nreverse produced))))
+
+(deftest devnet-peer-range-batch-reads-storage-an-earlier-batch-block-wrote
+  (:layer :integration :module :p2p)
+  ;; The live Hoodi exit: one forward response in which block N writes a
+  ;; contract, N+1 leaves it alone and N+2 writes it again.  Every block but
+  ;; the last executes against the unexported overlay, and N+2's pre-state
+  ;; used to look for the contract's storage trie only among N+1's pending
+  ;; tries, then open it from RocksDB by a root nothing had written.  RED
+  ;; control: with CHAIN-STORE-FIND-PENDING-STORAGE-TRIE reduced to the
+  ;; parent's own tries this batch fails with "Persisted trie node ... is
+  ;; missing" and imports nothing.
+  (let* ((genesis-json (devnet-peer-sync-storage-writer-genesis-json))
+         (blocks (devnet-peer-sync-produce-storage-blocks
+                  genesis-json (list 2 nil 3)))
+         (contract (address-from-hex +devnet-peer-sync-storage-writer-contract+))
+         (slot (make-hash32 (make-byte-vector 32)))
+         (datadir
+           (devnet-cli-temp-directory "ethereum-lisp-peer-sync-storage-batch"))
+         (database-path
+           (ethereum-lisp.cli::devnet-cli-datadir-database-path
+            datadir :rocksdb)))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (unwind-protect
+                 (let* ((node
+                          (ethereum-lisp.cli:make-devnet-node
+                           :genesis-json genesis-json
+                           :database-path database-path
+                           :db-engine :rocksdb
+                           :port 0 :public-port 0))
+                        (store (ethereum-lisp.cli::devnet-node-store node)))
+                   (is (ethereum-lisp.node-store.persistence:database-engine-payload-store-p
+                        store))
+                   (is (= 3
+                          (ethereum-lisp.cli::devnet-peer-sync-import-batch
+                           node blocks nil)))
+                   (loop for block in blocks
+                         for expected in '(2 2 3)
+                         do (is (chain-store-state-available-p
+                                 store (block-hash block)))
+                            (is (= expected
+                                   (chain-store-account-storage
+                                    store (block-hash block) contract slot)))))
+              (devnet-peer-sync-test-drop-cached-rocksdb-handle
+               database-path))))
+      (uiop:delete-directory-tree datadir
+                                  :validate t
+                                  :if-does-not-exist :ignore))))
+
 (deftest devnet-peer-range-batch-persists-an-intermediate-invalid-verdict
   (:layer :unit :module :p2p)
   (let* ((node
