@@ -1,0 +1,63 @@
+Section 5 exact linux/amd64 runtime artifact evidence
+
+Recorded at: 2026-09-23T21:50:00Z
+Branch: sec5-public-bootstrap-sync
+Revision: b5161312 (git rev-parse b5161312)
+Image: ethereum-lisp-runtime:sec5-b5161312-amd64
+Local image ID:
+  sha256:22c707b9214f486504eee9b9bf1fd4091510df52bef966ecdc8a27f2814a6716
+Platform: linux/amd64
+Local image size: 72207071 bytes
+
+Revision under test
+
+b5161312 is the fourth release candidate of 2026-09-23 and the freeze
+candidate for the shadow comparison. Relative to 880319df
+(sec5-880319df-amd64-runtime.txt) it adds one merge:
+
+  b5161312  blob serving: EIP-7594 cells and cell proofs are computed once
+            per blob, outside the store guard, into a bounded per-node cache;
+            GetCells serves the stored sidecar; a session's own ready
+            broadcast goes ahead of an urgent fetch
+            (sec5-engine-regressions-aee866f7.txt: the Hive "Blob Transaction
+            Ordering, Multiple Clients" defect; the "Invalid Missing Ancestor
+            Syncing ReOrg" family is the Hive setup race ethereum/hive#1351,
+            an expected failure that never reaches the client)
+plus the aee866f7 Hive record. src/ differs from 880319df only by that merge.
+
+Exact-revision gates
+
+cl-workbench validation run cold-all on b5161312, exit 0, no `not ok` line,
+no compile warning under /workspace/src, run with nothing else on the control
+plane (log kept in the session scratchpad as final8-cold-all.log):
+
+  1455 tests passed, 3 skipped.   (unit)
+  622 tests passed, 9 skipped.    (integration)
+  40 tests passed.                (e2e)
+  36 tests passed.                (e2e)
+
+Against the 880319df record (1454 / 621 / 40 / 36): +1 unit, +1 integration.
+
+Build and revision fence
+
+The checkout was on the branch at b5161312 and clean before the build, and
+remained clean through build, export and smoke; the build ran only after
+the cold lanes had finished:
+
+  RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+    ethereum-lisp-runtime:sec5-b5161312-amd64
+  scripts/dev.sh runtime-export ethereum-lisp-runtime:sec5-b5161312-amd64 \
+    /private/tmp/ethereum-lisp-runtime-sec5-b5161312-amd64.tar
+
+Exported artifact
+
+  /private/tmp/ethereum-lisp-runtime-sec5-b5161312-amd64.tar
+  sha256 53b77bf3597b723bef995a1cf67aaea7fd7e977a2ccdf903efe2fc7c69df7904
+
+Runtime smoke
+
+cl-workbench validation run runtime-smoke ethereum-lisp-runtime:sec5-b5161312-amd64
+passed, exit 0 (PASS: runtime image ethereum-lisp-runtime:sec5-b5161312-amd64
+serves public RPC and an authenticated Engine API).
+
+The live run and the gate reruns at this revision are recorded separately.
