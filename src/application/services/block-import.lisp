@@ -473,6 +473,19 @@ Returns PAYLOAD-STATUS, candidate block, and receipts."
                   ;; back, never poison the INVALID cache.
                   (handler-case
                       (cond
+                        ;; A block the SNAP skeleton (or an earlier import)
+                        ;; already made known is its own durable sync record.
+                        ;; Buffering it again as an unexecuted remote
+                        ;; candidate creates the combination "known and
+                        ;; remote buffered" that the durable exporter refuses;
+                        ;; on Hoodi d203fee6 that refusal killed the node on
+                        ;; restart.  Its parent is still missing: SYNCING,
+                        ;; with no candidate to persist.
+                        ((and known-block (null parent))
+                         (values
+                          (block-import-make-buffered-status
+                           +payload-status-syncing+)
+                          nil nil))
                         ((null parent)
                          (block-import-buffer-p2p-candidate
                           store block config nil sidecar
@@ -517,9 +530,14 @@ Returns PAYLOAD-STATUS, candidate block, and receipts."
                             (block-import-make-valid-status executed)
                             executed receipts))))
                     (state-unavailable-error ()
-                      (block-import-buffer-p2p-candidate
-                       store block config parent sidecar
-                       +payload-status-syncing+))
+                      (if known-block
+                          (values
+                           (block-import-make-buffered-status
+                            +payload-status-syncing+)
+                           nil nil)
+                          (block-import-buffer-p2p-candidate
+                           store block config parent sidecar
+                           +payload-status-syncing+)))
                     (block-validation-error (condition)
                       (block-import-mark-invalid-for-head
                        store block invalid-head-hash)

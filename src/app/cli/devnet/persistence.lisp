@@ -114,8 +114,14 @@ past the metadata that actually exists on disk."
               (when progress
                 (block-validation-fail
                  "Buffered candidate cannot advance peer sync progress"))
-              (node-store-export-buffered-candidate-to-kv
-               store candidate database))
+              ;; A block that is already known (a SNAP skeleton block, or one
+              ;; executed earlier) is durable under its own records; it is
+              ;; never re-exported as an unexecuted candidate.  The import
+              ;; services do not buffer such a block; this keeps any other
+              ;; route from turning the exporter's refusal into a node exit.
+              (unless (chain-store-known-block store (block-hash candidate))
+                (node-store-export-buffered-candidate-to-kv
+                 store candidate database)))
              (:invalid
               (when progress
                 (block-validation-fail

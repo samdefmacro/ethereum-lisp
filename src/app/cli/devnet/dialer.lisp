@@ -160,6 +160,55 @@ first, so a long backfill does not starve a short one."
 (defconstant +devnet-snap-pivot-distance+ 64
   "How many blocks after a snap pivot are executed normally before the target.")
 
+(defconstant +devnet-forward-sync-maximum-distance+ 8192
+  "How far ahead of a synced head a CL target is still executed forward.
+
+A node whose canonical head is past genesis and has executable state catches
+up by downloading and executing the missing blocks from that head; SNAP is for
+a node without a synced chain, a head without state, an unfinished durable
+session, or a gap beyond this bound.  geth (38271784,
+eth/downloader/syncmode.go) has no bound at all: once the head has state it
+full-syncs whatever the distance.  The bound is Nethermind's default
+FastSyncCatchUpHeightDelta (e52dc19a, SyncConfig.cs: 8192), about 27 hours of
+12-second slots, well above an operator restart and well below the gap a fresh
+public-network node faces.  The 64-block +DEVNET-SNAP-PIVOT-DISTANCE+ is the
+executed tail after a snap pivot, not this trigger.")
+
+(defun devnet-store-forward-sync-eligible-p (store target-number)
+  "True when STORE's head can reach TARGET-NUMBER by forward execution.
+
+The caller holds the node's store guard."
+  (let* ((head-number (chain-store-head-number store))
+         (head-hash (and (plusp head-number)
+                         (chain-store-canonical-hash store head-number))))
+    (and head-hash
+         (chain-store-state-available-p store head-hash)
+         (<= (- target-number head-number)
+             +devnet-forward-sync-maximum-distance+))))
+
+(defun devnet-store-snap-target-passed-p (store target-hash)
+  "True when a snap session's TARGET-HASH needs no more SNAP work.
+
+Either its state is still available, or it is canonical and the canonical head
+at or above it has executable state.  The second clause matters after the
+state retention window (128 blocks) has deleted the target's own state: on
+Hoodi d203fee6 a node that finished snap sync and then followed the head for
+hours read the finished session as unfinished after a restart and re-entered
+SNAP from its old pivot.  A canonical target was executed: the pivot tail runs
+before any forkchoice can publish it.  The caller holds the node's store guard."
+  (or (chain-store-state-available-p store target-hash)
+      (let ((target (chain-store-known-block store target-hash)))
+        (and target
+             (let* ((number (block-header-number (block-header target)))
+                    (canonical (chain-store-canonical-hash store number))
+                    (head-number (chain-store-head-number store))
+                    (head-hash (chain-store-canonical-hash store head-number)))
+               (and canonical
+                    (hash32= canonical target-hash)
+                    (>= head-number number)
+                    head-hash
+                    (chain-store-state-available-p store head-hash)))))))
+
 (defconstant +devnet-snap-heal-progress-log-interval-seconds+ 30
   "Minimum interval between non-terminal TrieNodes healing progress events.")
 
@@ -497,7 +546,8 @@ are one recovery session and must agree."
                                   (devnet-node-snap-session-rebase-target
                                    node))))
                       (if (or rebase-p
-                              (chain-store-state-available-p store target))
+                              (devnet-store-snap-target-passed-p
+                               store target))
                           ;; The stale decision captured a successor only
                           ;; after proving it was a newer FCU target with a
                           ;; local Engine block.  FCU queues are transient,
@@ -1298,9 +1348,10 @@ the transport which supplied it."
   "Return the highest pivot whose unfinished SNAP work is still durable.
 
 A completed state session continues to pin scheduling until its target is
-executable.  Once that target's state is available, matching state and skeleton
-metadata are historical residue and must not force later Engine targets through
-SNAP again."
+executable.  Once that target has executed (see
+DEVNET-STORE-SNAP-TARGET-PASSED-P, which also covers a target whose state the
+retention window has since deleted), matching state and skeleton metadata are
+historical residue and must not force later Engine targets through SNAP again."
   (let ((store (devnet-node-store node)))
     (when (database-engine-payload-store-p store)
       (call-with-devnet-node-store-guard
@@ -1319,7 +1370,7 @@ SNAP again."
                       (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
                        progress)
                       target
-                      (chain-store-state-available-p store target))
+                      (devnet-store-snap-target-passed-p store target))
                      (setf completed-target target)
                      (push
                       (ethereum-lisp.snap-sync:snap-sync-progress-pivot-number
@@ -1345,8 +1396,10 @@ SNAP again."
 An unfinished durable SNAP session always keeps its recovery path.  For a new
 Engine target, resolve the locally buffered header before doing any SNAP peer
 work: a gap of at most `+DEVNET-SNAP-PIVOT-DISTANCE+` blocks is cheaper to
-download and execute directly.  Unknown targets stay on the conservative SNAP
-path because their distance cannot yet be proved bounded."
+download and execute directly, and so is any gap within
+`+DEVNET-FORWARD-SYNC-MAXIMUM-DISTANCE+` of a synced head with executable
+state (a restarted node catching up).  Unknown targets stay on the
+conservative SNAP path because their distance cannot yet be proved bounded."
   (or (devnet-node-durable-snap-pivot-number node)
       (call-with-devnet-node-store-guard
        node
@@ -1356,9 +1409,35 @@ path because their distance cannot yet be proved bounded."
                   (or (chain-store-known-block store target-hash)
                       (engine-payload-store-remote-block store target-hash))))
            (or (null target)
-               (> (- (block-header-number (block-header target))
-                     (chain-store-head-number store))
-                  +devnet-snap-pivot-distance+)))))))
+               (let ((number (block-header-number (block-header target))))
+                 (and (> (- number (chain-store-head-number store))
+                         +devnet-snap-pivot-distance+)
+                      (not (devnet-store-forward-sync-eligible-p
+                            store number))))))))))
+
+(defun devnet-node-forward-sync-target-p (node target-hash)
+  "True when TARGET-HASH is a long gap the forward downloader should close.
+
+That is a CL-supplied block buffered locally (newPayload delivered it), more
+than +DEVNET-SNAP-PIVOT-DISTANCE+ blocks ahead of a synced head with executable
+state and within +DEVNET-FORWARD-SYNC-MAXIMUM-DISTANCE+ of it, with no
+unfinished durable SNAP session.  Such a target is downloaded by number from
+the head through the multi-peer batch importer instead of being walked back by
+hash from one peer."
+  (and (not (devnet-node-durable-snap-pivot-number node))
+       (call-with-devnet-node-store-guard
+        node
+        (lambda ()
+          (let* ((store (devnet-node-store node))
+                 (target
+                   (engine-payload-store-remote-block store target-hash)))
+            (and target
+                 (not (chain-store-known-block store target-hash))
+                 (let ((number (block-header-number (block-header target))))
+                   (and (> (- number (chain-store-head-number store))
+                           +devnet-snap-pivot-distance+)
+                        (devnet-store-forward-sync-eligible-p
+                         store number)))))))))
 
 (defun devnet-node-select-snap-pivot
     (node preferred-entry tail-headers)
@@ -2449,7 +2528,12 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
   (let ((forkchoice-target
           (devnet-node-active-snap-target
            node (first (devnet-node-forkchoice-sync-targets node)))))
-    (when forkchoice-target
+    (when (and forkchoice-target
+               ;; A long gap from a synced head (a restarted node catching
+               ;; up) is executed forward by the multi-peer batch downloader
+               ;; below, which needs the CL-supplied block locally.
+               (not (devnet-node-forward-sync-target-p
+                     node forkchoice-target)))
       (return-from devnet-node-multi-sync-pass
         (if (devnet-node-snap-target-required-p node forkchoice-target)
             (let ((snap-entries
@@ -2481,9 +2565,16 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
       ;; gap: that monopolizes and eventually cancels every session before the
       ;; FCU target can select a bounded pivot.  Small gaps remain eligible for
       ;; ordinary candidate download; large gaps wait for the ensuing FCU.
+      ;; A synced head with executable state is the exception: it catches up
+      ;; forward within +DEVNET-FORWARD-SYNC-MAXIMUM-DISTANCE+ instead.
       (when (and (> (- target-number head-number)
                     +devnet-snap-pivot-distance+)
-                 (devnet-node-live-sync-entries node :snap-only-p t))
+                 (devnet-node-live-sync-entries node :snap-only-p t)
+                 (not (call-with-devnet-node-store-guard
+                       node
+                       (lambda ()
+                         (devnet-store-forward-sync-eligible-p
+                          (devnet-node-store node) target-number)))))
         (return-from devnet-node-multi-sync-pass nil))
       ;; TARGET-BLOCK is already local: Engine newPayload is what created this
       ;; bounded sync target.  Peers are only required to serve its missing
