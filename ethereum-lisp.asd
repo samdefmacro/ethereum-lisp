@@ -499,6 +499,7 @@
      (:file "cli-devnet-dial-tests")
      (:file "admin-rpc-tests")
      (:file "txpool-mining-order-tests")
+     (:file "engine-payload-building-tests")
      (:file "rpc-log-bloom-tests")
      (:file "engine-invalid-payload-tests")
      (:file "p2p-identity-tests")
