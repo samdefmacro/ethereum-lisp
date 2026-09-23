@@ -1893,7 +1893,14 @@ really reopens the directory instead of observing the first handle's memory."
              :batch-operation-count 450 :logical-batch-bytes 500000
              :completed-task-count 1 :request-ms 20 :proof-ms 30
              :materialize-ms 40 :batch-build-ms 42 :prepare-ms 45 :commit-ms 50
-             :writer-idle-ms 60)))
+             :writer-idle-ms 60))
+           ;; A closure attempt reaches the same callback and logs its own
+           ;; event without counting as a storage page.
+           (funcall
+            callback
+            (ethereum-lisp.snap-sync::make-snap-sync-storage-closure-profile
+             :outcome :too-wide :nodes-visited 7000 :multi-gets 9 :levels 4
+             :elapsed-ms 12)))
          (apply import-function arguments))))
      (lambda ()
        (is
@@ -1982,6 +1989,19 @@ really reopens the directory instead of observing the first handle's memory."
           (is (= 60 (field record "writerIdleMs")))
           (is (not (minusp (field record "slotsPerSecond"))))
           (is (not (minusp (field record "logicalBytesPerSecond")))))
+        (let ((closure-logs
+                (remove-if-not
+                 (lambda (record)
+                   (string= "peer.snap.storage_closure" (first record)))
+                 logs)))
+          (is (= 1 (length closure-logs)))
+          (let ((record (first closure-logs)))
+            (is (null (field record "peer")))
+            (is (equal "too-wide" (field record "outcome")))
+            (is (= 7000 (field record "nodesVisited")))
+            (is (= 9 (field record "multiGets")))
+            (is (= 4 (field record "levels")))
+            (is (= 12 (field record "elapsedMs")))))
         ;; The shared source/target database makes this a reuse-only healing
         ;; pass. Its terminal snapshot still reaches the operator log.
         (is (= 1 (length heal-logs)))

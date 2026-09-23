@@ -966,6 +966,7 @@ for event in \
     peer.snap.progress \
     peer.snap.page_profile \
     peer.snap.storage_profile \
+    peer.snap.storage_closure \
     peer.snap.heal_progress \
     peer.snap.sources_refreshed \
     peer.snap.dependency_failed \

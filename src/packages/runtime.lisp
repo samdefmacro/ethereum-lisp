@@ -499,6 +499,12 @@
    #:snap-sync-storage-profile-prepare-ms
    #:snap-sync-storage-profile-commit-ms
    #:snap-sync-storage-profile-writer-idle-ms
+   #:snap-sync-storage-closure-profile
+   #:snap-sync-storage-closure-profile-outcome
+   #:snap-sync-storage-closure-profile-nodes-visited
+   #:snap-sync-storage-closure-profile-multi-gets
+   #:snap-sync-storage-closure-profile-levels
+   #:snap-sync-storage-closure-profile-elapsed-ms
    #:snap-sync-heal-progress
    #:snap-sync-heal-progress-processed-nodes
    #:snap-sync-heal-progress-reused-nodes

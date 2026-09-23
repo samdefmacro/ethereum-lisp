@@ -244,3 +244,87 @@ Not verified
     leave the markers, which the healer walks as before. Not crash-injected.
   The live distribution of chunked-trie sizes, so the 340,000 is attributed by
     mechanism and order of magnitude, not reproduced count for count.
+
+----------------------------------------------------------------------
+Closure walk cost (branch closure-walk-cost, on 8933d407)
+
+Live
+
+Hoodi, revision aac5f762: with the closure step on, every account page that
+carried a chunked contract reported storageMs 90,000-142,000 ms in
+peer.snap.page_profile, against 448 ms on the revision before it, and page
+throughput fell about 3x. SNAP-SYNC-STORAGE-ROOT-CLOSURE-WALK issued one
+point read for each node's :STORAGE proof and one TRIE-NODE-STORE-GET for the
+node, up to a million nodes per contract, on a ~45 GB RocksDB store and on the
+page's own thread (the closure runs before the owning page resumes).
+
+The change
+
+The walk goes breadth first, a level at a time: the level's :STORAGE proofs,
+then its unproved nodes, both in +KV-GET-MANY-MAX-KEYS+ multi-gets
+(SNAP-SYNC-STORAGE-CLOSURE-READ-GROUPS), node bodies decoded a group at a time.
+N unproved nodes over D levels cost at most ceil(N/4096) + D multi-gets per
+kind. The width bound is judged after a level's proofs and before its nodes,
+so :TOO-WIDE never reads the level that would exceed it.
+
+  Visited set: unchanged (every node reachable without passing a :STORAGE
+    proof). Order: breadth first; each node follows the parent that first
+    reached it, root first. Nothing depended on depth-first order: the
+    publisher only deletes the visited nodes' markers.
+  Refusals: :MISSING-NODE, :INVALID-NODE, :TOO-WIDE, the uint256 leaf
+    ceiling, and the unknown-proof-version storage failure, as before. A trie
+    both too wide and broken may now report :TOO-WIDE where the depth-first
+    walk reported the break; both publish and delete nothing.
+  Publisher: unchanged except that it returns a closure profile as a second
+    value. The multi-source importer passes it to the storage-profile
+    callback, and the dialer logs one identity-free peer.snap.storage_closure
+    per attempt (outcome, nodesVisited, multiGets, levels, elapsedMs;
+    multiGets includes the cursor-set and marker lookups). The live gate's
+    `logs` reports its count next to peer.snap.storage_profile.
+
+RED controls (the walk at 8933d407 loaded into the warm image as the shipped
+walk; both tests fail on their point-read assertion)
+
+  SNAP-STORAGE-ROOT-CLOSURE-WALK-READS-A-LEVEL-PER-MULTI-GET, a 5,000-slot
+    trie, every node marked, one :STORAGE proof on a root child:
+      8933d407: 6,504 nodes, 13,009 point reads (6,504 node + 6,505 proof),
+                0 multi-gets
+      subject:  6,504 nodes, 0 point reads, 14 multi-gets (7 node,
+                7 proof) over 7 levels
+    Same visited set as the depth-first walk (kept in the test as
+    SNAP-CLOSURE-REFERENCE-WALK); publishing deletes the walked markers and
+    keeps exactly the proved subtree's; the profile reports 6,504 nodes and
+    1 + 14 + 2 multi-gets.
+  SNAP-STORAGE-ROOT-CLOSURE-REFUSES-TOO-WIDE-BEFORE-READING-THE-LEVEL, a
+    600-slot trie, bound one short of the third level's end:
+      8933d407: point reads through all but one of the third level's nodes
+      subject:  proofs, nodes, proofs, nodes, proofs -- 5 multi-gets, 0 point
+                reads, exactly the first two levels' nodes read; at the
+                third level's exact end the third level is read and the
+                fourth refused.
+
+Timing, RocksDB on the dev container's tmpfs, reopened store, two runs each:
+
+  trie        nodes    8933d407 point reads   level multi-gets
+  5,000 slots  6,878   13,757 in 32-36 ms     14 in 27-30 ms
+  30,000 slots 39,956  79,913 in 178-191 ms   30 in 168-183 ms
+
+On tmpfs with the store in cache both walks are CPU-bound (hash check and RLP
+decode, ~4.5 us a node), so wall time does not move. The live cost is read
+latency on a 45 GB store: 2 x 10^6 point reads in 90-142 s is ~45-70 us a
+read, which the multi-gets amortise. That is inferred, not measured here.
+
+Tests run (warm image, each by name, exit 0): the five in this file, the
+density test SNAP-CLOSED-ACCOUNT-WRITER-AT-PAGE-DENSITY-AND-AFTER-A-MID-RANGE-
+REBASE, DEVNET-SNAP-PIVOT-LOGS-EACH-DURABLE-STATE-PAGE (extended for the new
+event), and the fourteen snap tests that touch :STORAGE-ROOT proofs or the
+closed account writer (tests/snap-tests.lisp, tests/snap-heal-walk-tests.lisp).
+
+Not verified
+
+  No cold suite (left to the coordinator), no live run: the storageMs drop and
+    the peer.snap.storage_closure numbers on Hoodi are the claim to test.
+  Latency on a real disk-backed store; the tmpfs timing shows only that the
+    level walk costs no more CPU.
+  Peak memory of a million-node walk: the frontier and seen table are as
+    before, plus one level's hash vector and one multi-get's node bodies.

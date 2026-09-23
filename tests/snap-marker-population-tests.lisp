@@ -707,3 +707,339 @@ processed=~A fetched=~A root-proofs=~A created=~S deleted=~S census=~S~%"
       (is (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
            target root-bytes :storage-root))
       (is (zerop (hash-table-count (snap-marker-markers target)))))))
+
+;;; ------------------------------------------------------------------
+;;; The closure walk's read cost
+;;; ------------------------------------------------------------------
+
+(defvar *snap-closure-read-inside-multi-get* nil
+  "True inside a counted multi-get, whose generic fallback calls KV-GET.")
+
+(defclass snap-closure-read-counting-database (memory-key-value-database)
+  ((point-gets :initform (make-hash-table)
+               :accessor snap-closure-read-point-gets)
+   (multi-gets :initform (make-hash-table)
+               :accessor snap-closure-read-multi-gets)
+   (trie-node-keys :initform (make-hash-table :test #'equalp)
+                   :accessor snap-closure-read-trie-node-keys)
+   (calls :initform '() :accessor snap-closure-read-calls))
+  (:documentation
+   "A memory store counting point reads and native multi-gets by record kind.
+
+Every multi-get of the closure walk names one kind, so a call is attributed to
+its first key's.  CALLS keeps (KIND . KEY-COUNT) per multi-get, newest first;
+TRIE-NODE-KEYS every :TRIE-NODE key read by either path."))
+
+(defun snap-closure-read-kind (key)
+  (ethereum-lisp.database::kv-chain-record-key-kind key))
+
+(defun snap-closure-read-note-trie-node (database key)
+  (when (eq :trie-node (snap-closure-read-kind key))
+    (setf (gethash (copy-seq key) (snap-closure-read-trie-node-keys database))
+          t)))
+
+(defmethod kv-get :around
+    ((database snap-closure-read-counting-database) key &optional default)
+  (declare (ignore default))
+  (unless *snap-closure-read-inside-multi-get*
+    (incf (gethash (snap-closure-read-kind key)
+                   (snap-closure-read-point-gets database) 0))
+    (snap-closure-read-note-trie-node database key))
+  (call-next-method))
+
+(defmethod kv-get-many :around
+    ((database snap-closure-read-counting-database) keys &optional default)
+  (declare (ignore default))
+  (when (plusp (length keys))
+    (let ((kind (snap-closure-read-kind (elt keys 0))))
+      (incf (gethash kind (snap-closure-read-multi-gets database) 0))
+      (push (cons kind (length keys)) (snap-closure-read-calls database))
+      (map nil (lambda (key) (snap-closure-read-note-trie-node database key))
+           keys)))
+  (let ((*snap-closure-read-inside-multi-get* t))
+    (call-next-method)))
+
+(defun snap-closure-read-reset (database)
+  (clrhash (snap-closure-read-point-gets database))
+  (clrhash (snap-closure-read-multi-gets database))
+  (clrhash (snap-closure-read-trie-node-keys database))
+  (setf (snap-closure-read-calls database) '()))
+
+(defun snap-closure-read-count (database table kind)
+  (gethash kind (funcall table database) 0))
+
+(defun snap-closure-reference-walk (database storage-root)
+  "The depth-first closure walk as it stood at 8933d407: one point read of the
+:STORAGE proof and one of the node for every node visited.  Kept as the read
+count and visited set the level walk is judged against."
+  (let ((seen (make-hash-table :test #'equalp))
+        (visited '())
+        (stack (list (hash32-bytes storage-root))))
+    (flet ((refuse (reason)
+             (return-from snap-closure-reference-walk (values nil reason))))
+      (loop while stack
+            do (let ((hash (pop stack)))
+                 (unless (or (nth-value 1 (gethash hash seen))
+                             (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+                              database hash :storage))
+                   (setf (gethash hash seen) t)
+                   (multiple-value-bind (encoded present-p)
+                       (trie-node-store-get database hash)
+                     (unless present-p (refuse :missing-node))
+                     (unless (bytes= hash (keccak-256 encoded))
+                       (refuse :invalid-node))
+                     (push hash visited)
+                     (let ((items (rlp-list-items
+                                   (rlp-decode-one encoded :max-list-items 17))))
+                       (flet ((reference (item)
+                                (when (and (byte-vector-p item)
+                                           (= 32 (length item)))
+                                  (push (copy-seq item) stack))))
+                         (case (length items)
+                           (17 (loop for index below 16
+                                     do (reference (nth index items))))
+                           (2 (unless (logbitp 5 (aref (first items) 0))
+                                (reference (second items))))
+                           (otherwise (refuse :invalid-node))))))))))
+    (values (nreverse visited) :closed)))
+
+(defun snap-closure-read-wide-store (slots)
+  "An epoch-seven counting store holding one SLOTS-wide storage trie, every
+node marked, sixteen completed cursors, and one :STORAGE proof on the root's
+first hash child.  Values: the store, the storage root, the proved child, the
+state root and the account hash."
+  (let ((trie (make-mpt))
+        (target (make-instance 'snap-closure-read-counting-database))
+        (state-root (make-hash32 (keccak-256 (rlp-encode "state root"))))
+        (account-hash (keccak-256 (address-bytes (snap-density-address 1)))))
+    (loop for slot from 1 to slots
+          do (ethereum-lisp.trie::mpt-put
+              trie
+              (keccak-256 (hash32-bytes (snap-density-slot 1 slot)))
+              (rlp-encode (+ 90000 slot))))
+    (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p target))
+    (let* ((storage-root (ethereum-lisp.trie::mpt-persist target trie))
+           (root-bytes (hash32-bytes storage-root))
+           (proved (first (snap-marker-node-children
+                           (trie-node-store-get target root-bytes)))))
+      (let ((batch (make-kv-write-batch)))
+        (loop for hash being the hash-keys
+                of (snap-marker-reachable target root-bytes)
+              do (ethereum-lisp.snap-sync::snap-sync-populate-incomplete-node-batch
+                  batch hash))
+        (ethereum-lisp.snap-sync::snap-sync-populate-healed-subtree-batch
+         batch proved :storage)
+        (kv-apply-batch target batch))
+      (snap-marker-put-task-set
+       target state-root account-hash storage-root
+       (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+        :count ethereum-lisp.snap-sync::+snap-sync-storage-task-count+
+        :completed-p t))
+      (values target storage-root proved state-root account-hash))))
+
+(deftest snap-storage-root-closure-walk-reads-a-level-per-multi-get
+  (:layer :unit :module :p2p)
+  ;; Hoodi, revision aac5f762: the closure step made every account page that
+  ;; carried a chunked contract spend 90,000-142,000 ms in storage (448 ms on
+  ;; the revision before it), because the walk issued one point read for each
+  ;; node's :STORAGE proof and one for the node itself, on a ~45 GB RocksDB
+  ;; store and on the page's own thread.  RED (the walk at 8933d407, kept here
+  ;; as SNAP-CLOSURE-REFERENCE-WALK and loaded into the image as the shipped
+  ;; walk): 2N point reads and no multi-get.  Subject: no point read, and per
+  ;; kind at most ceil(N / 4096) + levels multi-gets, visiting the same set and
+  ;; deleting the same markers; the one :STORAGE proof still stops the descent.
+  (multiple-value-bind (target storage-root proved state-root account-hash)
+      (snap-closure-read-wide-store 5000)
+    (let* ((root-bytes (hash32-bytes storage-root))
+           (reachable (snap-marker-reachable target root-bytes))
+           (below-proof (snap-marker-reachable target proved)))
+      (snap-closure-read-reset target)
+      (multiple-value-bind (reference reference-reason)
+          (snap-closure-reference-walk target storage-root)
+        (is (eq :closed reference-reason))
+        (let ((n (length reference)))
+          ;; Wide enough to need several node multi-gets, and the proof cut a
+          ;; real subtree out of the walk.
+          (is (> n ethereum-lisp.database:+kv-get-many-max-keys+))
+          (is (> (hash-table-count below-proof) 1))
+          (is (= n (- (hash-table-count reachable)
+                      (hash-table-count below-proof))))
+          ;; The RED shape: a point read per node, and one per proof probe.
+          (is (= n (snap-closure-read-count
+                    target #'snap-closure-read-point-gets :trie-node)))
+          (is (= (1+ n) (snap-closure-read-count
+                         target #'snap-closure-read-point-gets :metadata)))
+          (is (zerop (hash-table-count (snap-closure-read-multi-gets target))))
+          (snap-closure-read-reset target)
+          (multiple-value-bind (visited reason calls levels nodes)
+              (ethereum-lisp.snap-sync::snap-sync-storage-root-closure-walk
+               target storage-root)
+            ;; RED at 8933d407: 2N + 1 point reads here.
+            (is (zerop (hash-table-count (snap-closure-read-point-gets target))))
+            (let ((bound (+ (ceiling n ethereum-lisp.database:+kv-get-many-max-keys+)
+                            levels))
+                  (node-gets (snap-closure-read-count
+                              target #'snap-closure-read-multi-gets :trie-node))
+                  (proof-gets (snap-closure-read-count
+                               target #'snap-closure-read-multi-gets :metadata)))
+              (format *standard-output*
+                      "~&; closure walk reads: nodes=~D reference-point-reads=~D ~
+level-multi-gets=~D (trie-node ~D, metadata ~D) levels=~D~%"
+                      n (+ n n 1) calls node-gets proof-gets levels)
+              (is (eq :closed reason))
+              (is (= n nodes))
+              (is (<= 2 node-gets bound))
+              (is (<= proof-gets (+ (ceiling (1+ n) ethereum-lisp.database:+kv-get-many-max-keys+)
+                                    levels)))
+              (is (= calls (+ node-gets proof-gets)))
+              (is (< calls (/ n 100))))
+            ;; The same set, and never a node under the proof.
+            (is (= n (length visited)))
+            (let ((set (make-hash-table :test #'equalp))
+                  (position (make-hash-table :test #'equalp)))
+              (dolist (hash reference) (setf (gethash hash set) t))
+              (is (every (lambda (hash) (gethash hash set)) visited))
+              (is (not (nth-value 1 (gethash proved set))))
+              ;; The order guaranteed: breadth first from the root, each node
+              ;; after a parent that reached it.
+              (loop for hash in visited for index from 0
+                    do (setf (gethash hash position) index))
+              (is (bytes= root-bytes (first visited)))
+              (let ((earliest-parent (make-hash-table :test #'equalp)))
+                (dolist (hash visited)
+                  (dolist (child (snap-marker-node-children
+                                  (trie-node-store-get target hash)))
+                    (when (gethash child position)
+                      (setf (gethash child earliest-parent)
+                            (min (gethash hash position)
+                                 (gethash child earliest-parent
+                                          most-positive-fixnum))))))
+                (is (every (lambda (hash)
+                             (or (bytes= hash root-bytes)
+                                 (< (gethash hash earliest-parent
+                                             most-positive-fixnum)
+                                    (gethash hash position))))
+                           visited))))
+            ;; The publisher deletes the markers of exactly that set, keeps
+            ;; the ones under the proof, publishes, and reports the attempt.
+            (multiple-value-bind (outcome profile)
+                (ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure
+                 target state-root account-hash storage-root)
+              (is (eq :closed outcome))
+              (is (ethereum-lisp.snap-sync::snap-sync-healed-subtree-present-p
+                   target root-bytes :storage-root))
+              (let ((markers (snap-marker-markers target)))
+                (is (= (hash-table-count below-proof)
+                       (hash-table-count markers)))
+                (is (loop for hash being the hash-keys of below-proof
+                          always (nth-value 1 (gethash hash markers)))))
+              (is (eq :closed
+                      (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-outcome
+                       profile)))
+              (is (= n (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-nodes-visited
+                        profile)))
+              (is (= levels (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-levels
+                             profile)))
+              ;; Cursor set, walk, and the grouped marker lookup.
+              (is (= (+ 1 calls
+                        (ceiling n ethereum-lisp.database:+kv-get-many-max-keys+))
+                     (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-multi-gets
+                      profile)))
+              (is (integerp
+                   (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-elapsed-ms
+                    profile))))
+            (multiple-value-bind (outcome profile)
+                (ethereum-lisp.snap-sync::snap-sync-publish-storage-root-closure
+                 target state-root account-hash storage-root)
+              (is (eq :already-closed outcome))
+              (is (zerop (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-nodes-visited
+                          profile))))))))))
+
+(defun snap-closure-level-widths (database root)
+  "Breadth-first node counts per level of the trie under ROOT, first reach wins."
+  (let ((seen (make-hash-table :test #'equalp))
+        (frontier (list (copy-seq root)))
+        (widths '()))
+    (setf (gethash (first frontier) seen) t)
+    (loop while frontier
+          do (push (length frontier) widths)
+             (let ((next '()))
+               (dolist (hash frontier)
+                 (dolist (child (snap-marker-node-children
+                                 (trie-node-store-get database hash)))
+                   (unless (nth-value 1 (gethash child seen))
+                     (setf (gethash child seen) t)
+                     (push child next))))
+               (setf frontier next)))
+    (nreverse widths)))
+
+(deftest snap-storage-root-closure-refuses-too-wide-before-reading-the-level
+  (:layer :unit :module :p2p)
+  ;; The width bound is judged once a level's proofs are known and before its
+  ;; nodes are read, so a trie too wide to close costs the levels that fit plus
+  ;; one proof lookup -- never the level that would exceed the bound.  RED (the
+  ;; walk at 8933d407): it counted node by node and read all but one of that
+  ;; level's nodes, one point read each, before refusing.
+  (let ((trie (make-mpt))
+        (target (make-instance 'snap-closure-read-counting-database)))
+    (loop for slot from 1 to 600
+          do (ethereum-lisp.trie::mpt-put
+              trie
+              (keccak-256 (hash32-bytes (snap-density-slot 1 slot)))
+              (rlp-encode (+ 90000 slot))))
+    (is (ethereum-lisp.snap-sync::snap-sync-enable-complete-node-scheme-p target))
+    (let* ((storage-root (ethereum-lisp.trie::mpt-persist target trie))
+           (widths (snap-closure-level-widths target (hash32-bytes storage-root)))
+           (prefix (+ (first widths) (second widths))))
+      (is (>= (length widths) 4))
+      ;; Every level fits one multi-get, so each costs exactly two.
+      (is (every (lambda (width)
+                   (<= width ethereum-lisp.database:+kv-get-many-max-keys+))
+                 widths))
+      ;; A bound one short of the third level's end.
+      (let ((ethereum-lisp.snap-sync::*snap-sync-storage-root-closure-max-nodes*
+              (+ prefix (third widths) -1)))
+        (snap-closure-read-reset target)
+        (multiple-value-bind (visited reason calls levels nodes)
+            (ethereum-lisp.snap-sync::snap-sync-storage-root-closure-walk
+             target storage-root)
+          (is (eq :too-wide reason))
+          (is (null visited))
+          ;; RED at 8933d407: 2 * (bound + 1) point reads here.
+          (is (zerop (hash-table-count (snap-closure-read-point-gets target))))
+          ;; Exactly the first two levels' nodes were read.
+          (is (= prefix (hash-table-count
+                         (snap-closure-read-trie-node-keys target))))
+          ;; proofs, nodes, proofs, nodes, proofs -- and no fourth read.
+          (is (equal '(:metadata :trie-node :metadata :trie-node :metadata)
+                     (mapcar #'car (reverse (snap-closure-read-calls target)))))
+          (is (= 5 calls))
+          (is (= 3 levels))
+          (is (= prefix nodes))))
+      ;; At exactly the third level's end the third level is read and the
+      ;; walk goes on: the bound admits, it does not stop short.
+      (let ((ethereum-lisp.snap-sync::*snap-sync-storage-root-closure-max-nodes*
+              (+ prefix (third widths))))
+        (snap-closure-read-reset target)
+        (multiple-value-bind (visited reason calls levels nodes)
+            (ethereum-lisp.snap-sync::snap-sync-storage-root-closure-walk
+             target storage-root)
+          (is (null visited))
+          (is (eq :too-wide reason))
+          (is (= 7 calls))
+          (is (= 4 levels))
+          (is (= (+ prefix (third widths)) nodes))))
+      ;; Unbounded, the calls alternate proofs and nodes, one pair per level,
+      ;; each as wide as the level.
+      (snap-closure-read-reset target)
+      (multiple-value-bind (visited reason calls levels nodes)
+          (ethereum-lisp.snap-sync::snap-sync-storage-root-closure-walk
+           target storage-root)
+        (is (eq :closed reason))
+        (is (= (length widths) levels))
+        (is (= (* 2 levels) calls))
+        (is (= (reduce #'+ widths) nodes (length visited)))
+        (is (equal (loop for width in widths
+                         append (list (cons :metadata width)
+                                      (cons :trie-node width)))
+                   (reverse (snap-closure-read-calls target))))))))
