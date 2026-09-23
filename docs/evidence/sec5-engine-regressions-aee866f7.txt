@@ -1,0 +1,160 @@
+Section 5: the two Hive Engine failures at aee866f7
+
+Status
+
+Branch engine-regressions-2, from 904103b8. One client defect (blob
+propagation between two clients) reproduced at the service level and fixed;
+the missing-ancestor failure is Hive's open setup race, and the client was
+never asked about the invalid block. Targeted cold unit and integration
+selectors are green. Not rerun in Hive (remote, the coordinator's); no cold-all.
+
+Hive run: hive dde4f59d, ethereum/engine, aee866f7, 401 of 403
+(/private/tmp/sec5-hive-evidence/aee866f7-engine-full-r1-20260923T192423Z).
+Earlier analysis at d203fee6: docs/evidence/sec5-engine-regressions-d203fee6.txt.
+
+================================================================================
+1. engine-api "Invalid Missing Ancestor Syncing ReOrg, Transaction GasPrice,
+   EmptyTxs=False, CanonicalReOrg=True, Invalid P9 (Paris)": Hive setup race
+================================================================================
+
+Transcript: details 1790191720-...-0.log offsets 10209446..10302297; simulator
+log 1790191720-simulator-...log lines 25412..25635; client log
+client-bba73417...log.
+
+What the client was asked and answered: for canonical blocks 1..13, with
+producers alternating between bba73417 (ours) and the Modified Geth Module,
+every engine_newPayloadV1 and engine_forkchoiceUpdatedV1 answered VALID with
+latestValidHash equal to the block. Hive expected exactly that, and each
+block was also VALID on the Modified Geth Module. Our client included every
+transaction Hive sent it (eth_sendRawTransaction before each of our
+payloads). The client was never sent the invalid P9 block, any side-chain
+block, or any syncing request.
+
+Where it failed: block 14's producer was the Modified Geth Module (Hive's
+in-process geth). The simulator log records "txsHash:
+0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421", the
+empty trie root, for that payload. The test then aborted in setup: "Unable to
+customize payload: no transactions available for modification". The Transaction
+GasPrice customiser needs a transaction in block 14 to corrupt.
+
+This is ethereum/hive#1351 (open): "Flaky 'Invalid Missing Ancestor Syncing
+ReOrg' tests fail when payload contains no transactions ... not related to the
+client". The open fix, ethereum/hive#1561, states the root cause: the harness
+sends the transaction and calls getPayload after a fixed 1 s delay, and the
+in-process producer's pending view sometimes misses it. The fix observed the
+flake against geth, erigon and reth.
+
+The d203fee6 failure is the same race. There the Modified Geth Module built
+side block 14 empty: its payload dump shows gasUsed 0, the empty receipts
+root, and its parent's stateRoot. The Incomplete Transactions customiser does
+not check for an empty list, so the empty block went through unchanged and our
+VALID was correct. In the same test the Modified Geth Module also built
+canonical block 14 empty (simulator log: txsHash 0x56e81f17..., the empty
+root), so the race hit twice there. The variants move
+around because the race lands on a random transaction-based test in the family,
+not because of our timing. Our client serves no transactions to the
+in-process producer that Hive depends on here: Hive submits the Modified Geth
+blocks' transactions to it directly, and none of them passed through
+bba73417.
+
+No client defect, so there is no RED test and no code change.
+
+================================================================================
+2. engine-cancun "Blob Transaction Ordering, Multiple Clients (Cancun)":
+   client defect in eth/72 blob propagation
+================================================================================
+
+Transcript: details 1790194683-...-4.log offsets 1184891..1288784; client logs
+client-bc578e8b (A, payload producer) and client-8a965448 (B, secondary,
+peered with A over eth/72, left at genesis).
+
+What was answered vs expected: step 3 sent A five 5-blob transactions (blob fee
+cap 120). Step 4 sent B five 1-blob transactions (cap 100). Step 5, payload 1:
+A's engine_getPayloadV3 returned one transaction with 5 blobs (blobGasUsed
+0xa0000). Hive expected 6 blobs, the 5-blob transaction plus a 1-blob
+transaction that can reach A only from B by gossip. It is the same answer as at
+d203fee6. The gossip-gate fix (747ca812 in aee866f7) was in place, so that gate
+was not the whole cause.
+
+Timing in the client logs:
+- A: eth_getTransactionByHash waited 1432 and 1348 ms, and eth_sendRawTransaction
+  1676 ms, during step 3.
+- A: forkchoiceUpdatedV3 took 708 ms and getPayloadV3 2696 ms.
+- B: eth_getTransactionByHash waited 520 ms.
+All of these are waits on each node's store guard.
+
+Mechanism, from the code:
+- B fetches each of A's announced 5-blob transactions over its one peer
+  session. eth/72 omits blobs from the pooled wrapper, so each transaction is
+  a GetPooledTransactions round trip plus a blocking GetCells round trip
+  (fetch.lisp ETH-PEER-FETCH-OMITTED-BLOB-TRANSACTION). While any cell fetch
+  is pending, the pump's urgent drain outranked a ready broadcast
+  (pump.lisp ETH-PUMP-NEXT-ACTION). So B's announcements of its own 1-blob
+  transactions waited behind the whole backlog.
+- A served those requests expensively (peer-sync.lisp at 904103b8):
+  - Each eth/72 pooled wrapper derived 128 cell proofs per blob with
+    COMPUTE-KZG-CELL-PROOFS inside the store guard.
+  - Each GetCells read the version-2 sidecar, deriving the proofs again under
+    the guard, and then ran KZG-COMPUTE-CELLS-AND-PROOFS again outside it.
+  - Measured in the warm image: 123 ms for cell proofs and 117-118 ms for cells
+    plus proofs, per blob. A 5-blob transaction therefore cost A about 1.2 s
+    per request pair here, most of it holding the guard that A's RPC and
+    Engine handlers wait on. That matches the 1.3-1.7 s waits above.
+- Pinned geth (references/go-ethereum 38271784): core/txpool/blobpool
+  newBlobTxForPool computes cells once when a transaction enters the pool, and
+  eth/protocols/eth handlers.go answerGetCells serves the stored cells. Its
+  announce loop (eth/protocols/eth/broadcast.go) runs independently of the
+  transaction fetcher.
+
+Fix (fd5846d4):
+- pump.lisp: when a broadcast is ready and an urgent fetch is pending, the
+  broadcast goes first. It is a bounded, non-blocking send, and the next turn
+  resumes the fetch. With no urgent fetch pending, the order is unchanged.
+- types.lisp / peer-sync.lisp: a bounded per-node cache
+  (DEVNET-BLOB-CELL-CACHE, 32 blobs, about 12 MiB) of cells and cell proofs,
+  with its own lock. Pooled wrappers read the stored entries under the guard
+  and derive or look up proofs after releasing it. GetCells reads the original
+  sidecar (no proof derivation) and takes cells from the same cache. One
+  derivation per blob per node, never under the store guard.
+
+RED at 904103b8 (6e145541, tests/eth-gossip-tests.lisp):
+- ETH-72-OWN-BROADCAST-IS-NOT-STARVED-BY-PENDING-CELL-FETCHES (the production
+  session pump, three pending cell fetches, one ready broadcast, two actions):
+  FAILED, Assertion (= 1 BROADCASTS). Both actions were fetches.
+- ETH-72-BLOB-SERVING-DERIVES-CELLS-ONCE-AND-OUTSIDE-THE-STORE-GUARD (the
+  shipped serve backend of a real devnet node, one pooled 1-blob transaction
+  with an RPC V1 proof; a pooled wrapper, then GetCells from two peers; KZG
+  functions replaced by counters that probe the guard from another thread):
+  FAILED, Assertion (= 1 COMPUTATIONS).
+
+GREEN at fd5846d4: both pass. So do eth-pump-next-action-truth-table (with a
+new row: ready broadcast + urgent drain -> :BROADCAST),
+devnet-pooled-blob-sidecar-serves-rpc-legacy-proof-to-eth-69,
+eth-72-get-cells-production-handoff-admits-pooled-blob and
+devnet-transaction-message-is-propagated-by-session-pump.
+
+Positive control for the guard probe: in the warm image the probe answered T
+with the guard free and NIL while this thread held it.
+
+What the reproduction does not cover: the two-client Hive schedule itself. The
+tests prove the ordering and the serving cost; that together they close the
+Hive window is inferred from the logs and the measured 0.12 s per blob, and the
+Hive rerun decides. The receiving side still verifies all 128 cells and
+derives one blob proof per blob on admission; that cost is unchanged.
+
+================================================================================
+3. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed.
+cold-unit --match GOSSIP --match ETH-72 --match PUMP --match POOLED --match BLOB
+  --match TXPOOL --match BROADCAST --match DEVNET-PEER --match DEVNET-TRANSACTION
+  --match SYNCING --match STORE-GUARD: 163 passed, EXIT 0.
+cold-integration, same selectors: 58 passed, EXIT 0.
+cold-unit --match ENGINE --match PAYLOAD --match FORKCHOICE --match DEVNET-NODE
+  --match KZG --match CELL: 198 passed, EXIT 0.
+cold-integration, same selectors: 83 passed, 2 skipped (optional EEST fixture
+  root unset), EXIT 0.
+No STYLE-WARNING in any run.
+
+Not verified: Hive rerun (remote); cold-all; cold-e2e; live Hoodi.

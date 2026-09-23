@@ -58,6 +58,12 @@
   (is (eq :drain
           (eth-pump-test-action :readable-p t :drainable-p t
                                 :urgent-drainable-p t :now 0)))
+  ;; A ready broadcast is a non-blocking send; an urgent fetch blocks the sole
+  ;; writer on the peer. The broadcast goes first so our own announcements are
+  ;; never held behind a peer's cell backlog.
+  (is (eq :broadcast
+          (eth-pump-test-action :readable-p t :drainable-p t
+                                :urgent-drainable-p t :broadcast-p t :now 0)))
   ;; ...and in particular, a peer whose data is already waiting can never be
   ;; timed out as idle.
   (is (eq :read (eth-pump-test-action :readable-p t :now 100000)))
