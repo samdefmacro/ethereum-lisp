@@ -1,0 +1,138 @@
+Section 5: the two Hive Engine failures at d203fee6
+
+Status
+
+Branch engine-regressions, from cab507ee (which contains d203fee6). One
+client defect found, reproduced in-process, fixed; one failure diagnosed as a
+harness race with a correct client answer (no code change). Targeted cold unit
+and integration selectors green. Not rerun in Hive (remote, the coordinator's);
+no cold-all (the coordinator runs it once at the end).
+
+Hive run: hive dde4f59d, ethereum/engine, d203fee6, 401 of 403
+(/private/tmp/sec5-hive-evidence/d203fee6-engine-full-r1-20260923T133220Z).
+Last full 403/403: 694667f9 (r29), not 6e3e9b1d; the regression window for
+the defect below is 694667f9..d203fee6.
+
+================================================================================
+1. engine-api "Invalid Missing Ancestor Syncing ReOrg, Incomplete Transactions,
+   EmptyTxs=False, CanonicalReOrg=False, Invalid P9 (Paris)" -- harness race
+================================================================================
+
+What the client answered (details log 1790170658-...-0.log, offsets
+9325083..9401159; client log client-c80db386...log):
+
+- newPayloadV1(block 15, parent 0x6ec528d9 = side block 14) -> SYNCING;
+  forkchoiceUpdatedV1(head 0x89db8890 = block 15) -> SYNCING.
+- The single-peer gap fill (dialer.lisp DEVNET-PEER-FILL-SYNC-GAPS, log
+  peer.sync.gap_filled blocks=15) fetched blocks 1..14 from the Modified Geth
+  secondary and imported each with :REQUIRE-VALID-P T. Not the forward batch
+  importer (c831c9a6 is not on this path).
+- The re-sent newPayloadV1(block 15) -> VALID, latestValidHash 0x89db8890;
+  forkchoiceUpdatedV1 -> VALID. Hive expected INVALID for the chain containing
+  side block 14 ("Client returned VALID on an invalid chain").
+
+Why VALID is the correct answer: the "invalid" payload 9 (block 14,
+0x6ec528d9) carries no transactions, gasUsed 0x0, receiptsRoot 0x56e81f17 (the
+empty trie) and stateRoot 0x80f0a50e -- exactly the stateRoot of its parent,
+side block 13 (0x6541110d, gasUsed 0xa860, one transaction). The Incomplete
+Transactions customisation only replaces the transaction list; had the
+producer built block 14 with a transaction, gasUsed and receiptsRoot would
+still show it. They show an empty block, so the producer (Modified Geth
+Module, the only payload producer after c80db386 was removed) built block 14
+without the test transaction, and removing "the" transaction removed nothing.
+A post-merge empty block with no withdrawals leaves the state unchanged, so
+block 14 is a genuinely valid block and every compliant client must answer
+VALID. This is the same harness race recorded at 92982442 for the Transaction
+Gas variant (ethereum/hive#1351, docs/evidence/sec5-92982442-hive-engine.txt):
+there the empty block 14 made the customiser fail outright; here it made the
+customisation a no-op. All 29 other Missing Ancestor cases in this run passed,
+including CanonicalReOrg=True of the same invalid field.
+
+No RED is possible: there is no client defect to reproduce. No code change.
+
+================================================================================
+2. engine-cancun "Blob Transaction Ordering, Multiple Clients (Cancun)" --
+   client defect in the transaction gossip gate
+================================================================================
+
+What the client answered (details log 1790173656-...-4.log, offsets
+1184891..1288784; client logs client-c771cbc9 = producer A, client-5dae9359 =
+secondary B):
+
+- Step 3 sent five 5-blob transactions (blob fee cap 120, account 0) to A;
+  step 4 sent five 1-blob transactions (cap 100, account 1) to B only; B is
+  peered with A over eth/72 and stays at genesis (not in the CL mock).
+- Step 5, payload 1: A's getPayloadV3 carried one transaction with 5 blobs
+  (blobGasUsed 0xa0000). Hive expected 6: the 5-blob transaction plus one
+  1-blob transaction from B, which can only reach A by gossip.
+- A's store guard was busy throughout steps 3-5: trivial RPCs waited on it
+  (eth_getTransactionByHash handlerMs 1392 and 1404, eth_sendRawTransaction
+  1580, eth_getBlockByNumber 680, forkchoiceUpdatedV3 1516, getPayloadV3 900).
+
+Code path: every inbound Transactions / NewPooledTransactionHashes /
+PooledTransactions message consults the serve backend's
+:ACCEPT-TRANSACTIONS-P (gossip.lisp ETH-ACCEPT-INBOUND-TRANSACTIONS-P) before
+decoding, which was peer-sync.lisp DEVNET-NODE-ACCEPT-INBOUND-TRANSACTIONS-P.
+Since 646da589 (2026-09-14, after 694667f9) that gate computed its verdict only
+when a try-lock found the store guard free and otherwise returned the cached
+verdict, NIL until the first success ("refuses gossip while a fresh node is
+still syncing"). A never received inbound transaction gossip before step 4
+(B had nothing to announce), so B's first announcements met a busy guard and a
+NIL verdict and were dropped before decoding. An announcement is sent once per
+peer and never repeated, so the transactions never reached A's pool. The same
+cache also kept a stale refusal after the head reached its target, for as long
+as every try-lock missed.
+
+Oracle: pinned geth (references/go-ethereum 38271784) eth/handler_eth.go
+AcceptTxs returns h.synced.Load(), an atomic read that never depends on a lock.
+
+Fix (01d43960): the gate now shares eth_syncing's lock-free answer,
+peer-table.lisp DEVNET-NODE-SYNC-VIEW-ANSWER-NOW (d203fee6's view published at
+every store-guard release, plus the live forkchoice-target count and the
+durable skeleton read), and admits gossip exactly when that answer is :FALSE.
+It still never waits for the guard. The cache slot is removed.
+
+RED at cab507ee (bd2742d0, tests/admin-rpc-tests.lisp; the gate reached
+through the shipped DEVNET-PEER-SERVE-BACKEND; the guard held by a real
+thread):
+- DEVNET-GOSSIP-GATE-ADMITS-TRANSACTIONS-ON-A-FRESH-NODE-UNDER-GUARD-CONTENTION
+  (the Hive case): FAILED, Assertion (EQ T ...), the gate returned NIL.
+- DEVNET-GOSSIP-GATE-FOLLOWS-THE-HEAD-PAST-THE-TARGET-UNDER-GUARD-CONTENTION
+  (the stale refusal): FAILED, Assertion (EQ T (AND DURING T)).
+- DEVNET-GOSSIP-GATE-STILL-REFUSES-BELOW-THE-TARGET-UNDER-GUARD-CONTENTION
+  (positive control): passed.
+
+GREEN at 01d43960: all three pass, as do
+DEVNET-TRANSACTION-GOSSIP-GATE-NEVER-WAITS-FOR-THE-STORE-GUARD (rewritten: the
+blocking guard errors, a busy try-lock answers from the published view, and a
+published target ahead refuses), both eth_syncing contention tests and the
+release-hook test.
+
+Mutation control (warm image): with the gate replaced by a constant T,
+DEVNET-GOSSIP-GATE-STILL-REFUSES-BELOW-THE-TARGET-UNDER-GUARD-CONTENTION and
+DEVNET-TRANSACTION-GOSSIP-GATE-NEVER-WAITS-FOR-THE-STORE-GUARD both FAILED;
+restored afterwards.
+
+What the reproduction does not cover: the two-client Hive timing itself. The
+local tests prove the gate's answer under contention; that the refused
+announcement was the only loss on A is inferred from the logs above (no gossip
+logging exists on this path). A slower-than-build eth/72 cell fetch would give
+the same symptom and is not excluded by this evidence; the Hive rerun decides.
+
+================================================================================
+3. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed.
+cold-unit --match GOSSIP --match SYNCING --match ETH-72 --match POOLED
+  --match TXPOOL --match BLOB --match ADMIN --match STORE-GUARD
+  --match PEER-SYNC --match FORKCHOICE --match NEW-PAYLOAD: 214 passed, EXIT 0.
+cold-integration, same selectors: 60 passed, EXIT 0.
+cold-unit --match DEVNET-PEER --match DEVNET-NODE --match DEVNET-TRANSACTION
+  --match DEVNET-STORE --match DEVNET-SYNC --match ENGINE --match PAYLOAD:
+  184 passed, EXIT 0.
+cold-integration, same selectors: 84 passed, 2 skipped (optional EEST
+  fixture root unset), EXIT 0.
+No STYLE-WARNING under /workspace/src in any run.
+
+Not verified: the Hive engine rerun (remote); cold-all; cold-e2e; live Hoodi.
