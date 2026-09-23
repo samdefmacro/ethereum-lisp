@@ -1,0 +1,85 @@
+Section 5 Hoodi run at aac5f762: the healer converges; the node dies later on a
+batch-import bug that has nothing to do with healing
+
+Status
+
+The run started at 2026-09-22T23:47:00Z (container hoodi-el-sec5-aac5f762,
+fresh datadir-aac5f762, 12 GiB) and exited 1 at 2026-09-23T04:34:14Z. It is
+the first live run on which snap healing completed, and it completed three
+times. The exit is a forward peer-sync defect, reproduced and fixed
+separately (sec5-false-completion-hunt.txt, merge 8e95b990). Not completion:
+the acceptance criteria were not checked with `complete` before the exit.
+
+Range phase
+
+23:47Z to about 03:23Z, one pivot rebase, zero import_failed. Slower than the
+75b0b7a7 run (about 3.6 h against 1.6 h): with the storage root closure step
+of 77ab2530 every account page's storageMs was 90,890 to 142,376 ms (was 448
+ms), because the closure walk did one RocksDB point read per node on the
+page's own thread. Replaced at 4a7e46a7 by a level-per-multi-get walk
+(sec5-marker-population.txt, last section) and a peer.snap.storage_closure
+event, not yet run live.
+
+Healer
+
+Every generation, from the raw peer.snap.heal_progress events:
+
+  time (UTC)  pivot     processed  fetched  skipped   frontier  knownIncompl  batches  works   completed
+  03:23:59    3678032          0        1        0         1           1         1       1     no (start)
+  03:24:29    3678032     26,682   26,845  274,041    37,092      26,845     4,390 108,791     no
+  03:24:33    3678032     38,560   38,466  298,423         0           0     4,546 135,051     yes
+  03:28:03    3678050          0        0        1         0           0         1       1     yes
+  03:29:04    3678055          0        0        1         0           0         1       1     yes
+  03:29:19    3678058          0        0        1         0           0         1       1     yes
+  04:02:00    3678201          0        1        0         1           1         1       1     no (start)
+  04:02:20    3678201      3,645    3,491   25,251         0           0     1,140  24,646     yes
+  04:05:50 .. 04:07:45  3678217, 3678223, 3678224, 3678225, 3678227, 3678229: root present, instant
+
+The first generation healed the whole state in 34 seconds: 38,466 nodes
+fetched (the withheld account spine, the page-boundary paths and the accounts
+the rebase changed), 298,423 present subtrees skipped, the frontier drained
+to zero, no marked node walked (knownIncompleteNodes went to zero with the
+frontier), and a mean local read width of 30. On 3305307d the same phase ran
+for four days at width one over 340,000 marked nodes and never finished.
+target_completed followed at 03:24 (pivot 3678032). The instant completions
+at 3678050/55/58 and 3678217..3678229 are the roots the post-pivot tail
+execution wrote over the healed base, so they are consistent, not suspicious.
+The 04:02 generation at 3678201 (143 blocks past the tail) fetched the 3,491
+nodes of state delta and completed in 20 seconds.
+
+The exit
+
+  04:27:38 .. 04:33:32  every Engine request exceeds the 30 s deadline
+  04:32:29, 04:33:39    peer.sync.multi_retry "all sync peers failed with block 3678317 still pending"
+  04:33:50              engine.rpc.http.listener.finish (orderly error exit begins)
+  04:34:13              "Persisted trie node 0x7cf22bf1659ccadc858b263eeb8ab6096ba4a3957a4026dfdf9b5874847b7d40 is missing"
+  04:34:14              exit 1, OOMKilled=false
+
+Forensics on the preserved datadir (copied; RocksDB opens read-write): a scan
+of every :trie-node record, 359,878,472 of them, found NO record that
+references 0x7cf22bf1...; the hash carries no marker and no proof. So no
+present node stands above it and the healed state has no hole. The hash is
+a storage root that existed only in memory: the forward peer-sync batch
+importer (devnet-peer-sync-import-batch) executes several blocks of one
+response before exporting, and a block two or more positions after the one
+that changed a contract's storage looked that storage trie up on disk, where
+its new root had never been written (chain-store-state-db and
+node-store-direct-storage-trie searched only the parent's pending tries;
+the account trie was carried forward, the storage tries were not). The error
+escapes the sync coordinator's handled set by design and takes the node down.
+Reproduced RED at the unit level and through the real batch importer with
+signed contract-writing blocks, fixed at aaeb549c (merge 8e95b990) by
+searching every unexported ancestor's pending tries on both paths.
+
+Unexplained and carried forward: the Engine deadline timeouts from 04:27Z,
+six minutes before the exit. Possibly the store guard held across batch
+retries; not investigated.
+
+What this run establishes
+
+- Under closure epoch seven with the stale storage markers cleared at write
+  time and the read width kept wide, a fresh-datadir Hoodi heal converges in
+  under a minute per generation, including after pivot rebases.
+- The remaining Section 5 work is downstream of healing: the forward batch
+  importer's overlay (fixed), the closure walk's cost (fixed, unmeasured
+  live), and the Engine timeouts during forward sync (open).
