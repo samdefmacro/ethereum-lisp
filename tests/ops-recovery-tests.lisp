@@ -671,7 +671,13 @@ out; the SIGTERM tests shorten it to a bounded, realistic stall.")
         ;; Assigned, not bound: the hold runs on an HTTP connection thread,
         ;; which would not see a LET binding made here.
         (when (search "sigterm" mode)
-          (setf *ops-recovery-hold-seconds* 8))
+          (setf *ops-recovery-hold-seconds*
+                ;; The override is for measuring the stop against a longer
+                ;; stall by hand (docs/evidence/sec5-ops-recovery.txt).
+                (or (ignore-errors
+                     (parse-integer
+                      (uiop:getenv "ETHEREUM_LISP_OPS_HOLD_SECONDS")))
+                    8)))
         (cond
           ((string= mode "snap-range") (ops-recovery-worker-snap-range workdir))
           ((string= mode "heal") (ops-recovery-worker-heal workdir))
@@ -1085,3 +1091,237 @@ Returns (VALUES SECONDS STATUS MARKER-AT-SIGNAL)."
                    (is (string= (hash32-to-hex (block-hash (car (last b))))
                                 (getf restarted :head-hash))))))))
       (ops-recovery-remove-workdir workdir))))
+
+;;; Operator metrics, read through the shipped endpoint.
+
+(deftest ops-rpc-latency-sink-files-requests-by-family
+  (:layer :unit :module :cli)
+  ;; The families the gauges are named after, and the record arithmetic.
+  (dolist (case '(("engine_newPayloadV4" "engine_new_payload")
+                  ("engine_forkchoiceUpdatedV3" "engine_forkchoice_updated")
+                  ("engine_getPayloadV4" "engine_get_payload")
+                  ("engine_getPayloadBodiesByHashV1" "engine_other")
+                  ("engine_exchangeCapabilities" "engine_other")
+                  ("eth_blockNumber" "rpc")
+                  ("eth_chainId,eth_blockNumber" "rpc_batch")))
+    (is (string= (second case)
+                 (ethereum-lisp.cli::devnet-rpc-latency-family (first case)))))
+  (let ((sink (ethereum-lisp.cli::make-devnet-rpc-latency-sink
+               :delegate (ethereum-lisp.telemetry:make-memory-telemetry-sink))))
+    (dolist (ms '(7 30 4))
+      (ethereum-lisp.telemetry:telemetry-log
+       :info "engine.rpc.http.request" :sink sink
+       :fields `(("rpcMethods" . "engine_newPayloadV3") ("handlerMs" . ,ms))))
+    ;; An event without timing, or another event, records nothing.
+    (ethereum-lisp.telemetry:telemetry-log
+     :info "engine.rpc.http.request" :sink sink
+     :fields '(("rpcMethods" . "engine_newPayloadV3")))
+    (ethereum-lisp.telemetry:telemetry-log :info "block.import" :sink sink)
+    (let ((gauges (ethereum-lisp.cli::devnet-rpc-latency-gauges sink)))
+      (flet ((gauge (name) (cdr (assoc name gauges :test #'string=))))
+        (is (= 4 (gauge "ethereum_lisp_engine_new_payload_last_ms")))
+        (is (= 30 (gauge "ethereum_lisp_engine_new_payload_max_ms")))
+        (is (= 41 (gauge "ethereum_lisp_engine_new_payload_ms_total")))
+        (is (= 3 (gauge "ethereum_lisp_engine_new_payload_requests_total")))
+        ;; Every family is reported from the start, at zero.
+        (is (= 0 (gauge "ethereum_lisp_rpc_requests_total")))
+        (is (= (* 4 (length ethereum-lisp.cli::*devnet-rpc-latency-families*))
+               (length gauges)))))
+    ;; Every event still reaches the delegate.
+    (is (= 5 (length (ethereum-lisp.telemetry:telemetry-events
+                      (ethereum-lisp.cli::devnet-rpc-latency-sink-delegate
+                       sink)))))))
+
+#+sbcl
+(defun ops-recovery-scrape (port)
+  "GET /metrics from 127.0.0.1:PORT; return the gauges as (NAME . INTEGER)
+pairs and the whole response text."
+  (let ((socket (make-instance 'sb-bsd-sockets:inet-socket
+                               :type :stream :protocol :tcp)))
+    (unwind-protect
+         (progn
+           (sb-bsd-sockets:socket-connect
+            socket (sb-bsd-sockets:make-inet-address "127.0.0.1") port)
+           (let ((stream (sb-bsd-sockets:socket-make-stream
+                          socket :input t :output t :element-type 'character
+                                 :external-format :utf-8 :buffering :none)))
+             (format stream "GET /metrics HTTP/1.1~C~CHost: x~C~C~C~C"
+                     #\Return #\Newline #\Return #\Newline #\Return #\Newline)
+             (finish-output stream)
+             (let ((text (with-output-to-string (out)
+                           (loop for char = (read-char stream nil nil)
+                                 while char do (write-char char out)))))
+               (values
+                (loop for line in (uiop:split-string text :separator '(#\Newline))
+                      for space = (position #\Space line)
+                      when (and space (plusp (length line))
+                                (char/= #\# (char line 0))
+                                (not (find #\{ line))
+                                (search "ethereum_lisp_" line :end2 (min 14 (length line))))
+                        collect (cons (subseq line 0 space)
+                                      (parse-integer line :start (1+ space)
+                                                          :junk-allowed t)))
+                text))))
+      (ignore-errors (sb-bsd-sockets:socket-close socket)))))
+
+(defun ops-recovery-directory-bytes (path)
+  "PATH's files' total size, read independently of the metrics code."
+  (reduce #'+ (uiop:directory-files (uiop:ensure-directory-pathname path))
+          :key (lambda (file)
+                 (or (ignore-errors
+                      (with-open-file (in file :element-type '(unsigned-byte 8))
+                        (file-length in)))
+                     0))))
+
+#+sbcl
+(deftest ops-metrics-endpoint-reports-sync-peers-storage-process-and-latency
+  (:layer :integration :module :cli :requires-local-sockets t
+   :estimated-seconds 10d0)
+  ;; A real node on RocksDB with --metrics, scraped over HTTP before and after
+  ;; it does the things the new gauges describe. The first scrape is the
+  ;; positive control: every value that later moves is at its idle value
+  ;; there, so a gauge that was a constant, or read from the wrong place,
+  ;; cannot pass the second.
+  (let* ((workdir (ops-recovery-workdir "metrics"))
+         (path (ops-recovery-chain-path workdir))
+         (controller (ethereum-lisp.cli::make-devnet-shutdown-controller))
+         (engine nil) (public nil) (server nil) (server-error nil)
+         (idle nil) (busy nil) (text nil) (independent-bytes nil))
+    (unwind-protect
+         (ops-recovery-call-with-rocksdb-node
+          path
+          (lambda (node)
+            (let ((blocks (ops-recovery-forward-blocks node)))
+              (setf server
+                    (sb-thread:make-thread
+                     (lambda ()
+                       (handler-case
+                           (ethereum-lisp.cli:start-devnet-node
+                            node :shutdown-controller controller
+                            :on-listeners-ready
+                            (lambda (engine-listener public-listener)
+                              (setf engine (engine-rpc-http-listener-endpoint
+                                            engine-listener)
+                                    public (engine-rpc-http-listener-endpoint
+                                            public-listener))))
+                         (serious-condition (condition)
+                           (setf server-error condition))))
+                     :name "ops-recovery-metrics-node"))
+              (unwind-protect
+                   (let ((port nil))
+                     (wait-for-test-condition "the node's listeners" 30
+                                              (lambda () (and engine public)))
+                     (setf port (ethereum-lisp.cli:devnet-node-metrics-port node))
+                     (setf idle (ops-recovery-scrape port))
+                     ;; Sync: the consensus client hands over block 3, whose
+                     ;; ancestors we lack. The head stays at 0; the target is 3.
+                     (ops-recovery-engine-call
+                      engine (ops-recovery-new-payload-request (third blocks)))
+                     (ops-recovery-engine-call
+                      engine (engine-fixture-forkchoice-request
+                              1 (block-hash
+                                 (ethereum-lisp.cli::devnet-node-genesis-block node))))
+                     (ignore-errors
+                      (ops-recovery-engine-call
+                       engine (ops-recovery-get-payload-request
+                               "0x0000000000000001")))
+                     ;; One public call whose handler takes at least 60 ms,
+                     ;; so the latency gauges must carry a real duration.
+                     (let ((real (fdefinition 'ethereum-lisp.rpc:rpc-handle-request)))
+                       (ops-recovery-call-with-overrides
+                        (list (cons 'ethereum-lisp.rpc:rpc-handle-request
+                                    (lambda (&rest arguments)
+                                      (sleep 0.06d0)
+                                      (apply real arguments))))
+                        (lambda ()
+                          (devnet-cli-http-endpoint-request
+                           public (devnet-cli-json-rpc-http-request
+                                   "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_blockNumber\",\"params\":[]}")))))
+                     ;; A SNAP session at pivot 6090, still downloading.
+                     (let ((batch (make-kv-write-batch)))
+                       (ethereum-lisp.snap-sync::snap-sync-populate-progress-batch
+                        batch (devnet-shutdown-deadline-heal-progress
+                               (hash32-bytes +empty-trie-hash+) 90))
+                       (kv-apply-batch
+                        (ethereum-lisp.node-store.persistence:database-engine-payload-store-database
+                         (ethereum-lisp.cli::devnet-node-store node))
+                        batch))
+                     ;; Two peers: inbound with snap/1, outbound eth only.
+                     (ethereum-lisp.cli::call-with-devnet-peer-table
+                      node
+                      (lambda ()
+                        (let ((table (ethereum-lisp.cli::devnet-node-peer-table node)))
+                          (ethereum-lisp.cli:devnet-peer-table-admit
+                           table (ethereum-lisp.cli:make-devnet-peer-entry
+                                  :id-hex "aa" :direction :inbound :eth-version 69
+                                  :snap-version 1)
+                           0)
+                          (ethereum-lisp.cli:devnet-peer-table-admit
+                           table (ethereum-lisp.cli:make-devnet-peer-entry
+                                  :id-hex "bb" :direction :outbound :eth-version 68)
+                           0))))
+                     (multiple-value-setq (busy text) (ops-recovery-scrape port))
+                     (setf independent-bytes (ops-recovery-directory-bytes path))
+                     ;; The fake peers own no socket; take them out before the
+                     ;; stop so teardown never meets them.
+                     (ethereum-lisp.cli::call-with-devnet-peer-table
+                      node
+                      (lambda ()
+                        (let ((table (ethereum-lisp.cli::devnet-node-peer-table node)))
+                          (ethereum-lisp.cli::devnet-peer-table-remove table "aa")
+                          (ethereum-lisp.cli::devnet-peer-table-remove table "bb")))))
+                (ethereum-lisp.cli:devnet-shutdown-request controller)
+                (sb-thread:join-thread server :timeout 60 :default nil))))
+          :metrics t :metrics-host "127.0.0.1" :metrics-port 0)
+      (ops-recovery-remove-workdir workdir))
+    (flet ((idle (name) (cdr (assoc name idle :test #'string=)))
+           (busy (name) (cdr (assoc name busy :test #'string=))))
+      (format t "~&;; idle ~S~%;; busy ~S~%;; independent database bytes ~D~%"
+              idle busy independent-bytes)
+      (is (null server-error))
+      ;; Positive control: the idle node.
+      (dolist (name '("ethereum_lisp_sync_lag_blocks"
+                      "ethereum_lisp_sync_target_number"
+                      "ethereum_lisp_snap_pivot_number"
+                      "ethereum_lisp_peers_inbound" "ethereum_lisp_peers_outbound"
+                      "ethereum_lisp_peers_eth" "ethereum_lisp_peers_snap"
+                      "ethereum_lisp_engine_new_payload_requests_total"
+                      "ethereum_lisp_engine_forkchoice_updated_requests_total"
+                      "ethereum_lisp_engine_get_payload_requests_total"
+                      "ethereum_lisp_rpc_requests_total"))
+        (is (eql 0 (idle name))))
+      ;; Sync lag = the consensus target minus the head, and the SNAP pivot.
+      (is (eql 0 (busy "ethereum_lisp_sync_head_number")))
+      (is (eql 3 (busy "ethereum_lisp_sync_target_number")))
+      (is (eql 3 (busy "ethereum_lisp_sync_lag_blocks")))
+      (is (eql 6090 (busy "ethereum_lisp_snap_pivot_number")))
+      (is (eql 0 (busy "ethereum_lisp_snap_state_complete")))
+      ;; Peers by direction and capability.
+      (is (eql 1 (busy "ethereum_lisp_peers_inbound")))
+      (is (eql 1 (busy "ethereum_lisp_peers_outbound")))
+      (is (eql 2 (busy "ethereum_lisp_peers_eth")))
+      (is (eql 1 (busy "ethereum_lisp_peers_snap")))
+      ;; Latency: one request of each Engine family and one public call.
+      (is (eql 1 (busy "ethereum_lisp_engine_new_payload_requests_total")))
+      (is (eql 1 (busy "ethereum_lisp_engine_forkchoice_updated_requests_total")))
+      (is (eql 1 (busy "ethereum_lisp_engine_get_payload_requests_total")))
+      (is (eql 1 (busy "ethereum_lisp_rpc_requests_total")))
+      (is (<= 60 (busy "ethereum_lisp_rpc_last_ms")
+              (busy "ethereum_lisp_rpc_max_ms")
+              (busy "ethereum_lisp_rpc_ms_total")))
+      (is (<= (busy "ethereum_lisp_engine_new_payload_last_ms")
+              (busy "ethereum_lisp_engine_new_payload_max_ms")
+              (busy "ethereum_lisp_engine_new_payload_ms_total")))
+      (is (search "# TYPE ethereum_lisp_rpc_requests_total counter" text))
+      (is (search "# TYPE ethereum_lisp_sync_lag_blocks gauge" text))
+      ;; Storage: the RocksDB directory, within the WAL's growth of an
+      ;; independent measurement taken right after.
+      (is (plusp (busy "ethereum_lisp_database_bytes")))
+      (is (<= (* 1/2 independent-bytes) (busy "ethereum_lisp_database_bytes")
+              (* 2 independent-bytes)))
+      ;; Process: a Lisp image with the node loaded is tens of MB at least.
+      (is (> (busy "ethereum_lisp_process_resident_bytes") (* 50 1024 1024)))
+      (is (plusp (busy "ethereum_lisp_heap_used_bytes")))
+      (is (>= (busy "ethereum_lisp_heap_allocated_bytes_total")
+              (idle "ethereum_lisp_heap_allocated_bytes_total")))
+      (is (integerp (busy "ethereum_lisp_gc_ms_total"))))))
