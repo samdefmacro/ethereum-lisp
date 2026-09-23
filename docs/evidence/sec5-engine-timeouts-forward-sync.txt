@@ -1,0 +1,137 @@
+Section 5: Engine requests timing out while the forward batch importer runs
+
+Status
+
+Branch engine-timeouts-forward-sync, from 8e95b990. Reproduced in-process,
+fixed, targeted tests green in the warm image. Not deployed, not run live, no
+cold run (the coordinator runs cold-all once at the end).
+
+Live boundary (Hoodi, aac5f762, 2026-09-23)
+
+From 04:27:38Z to 04:33:32Z every Engine request from Lighthouse failed with
+"HTTP request exceeded the 30 second deadline" (engine.rpc.http.connection.error)
+while the node was in forward peer sync (peer.sync.multi_retry, "all sync peers
+failed with block 3678317 still pending"). One forkchoiceUpdatedV3 that got
+through took handlerMs 3404 and answered SYNCING.
+
+================================================================================
+1. The hold
+================================================================================
+
+- src/app/cli/devnet/node.lisp MAKE-DEVNET-NODE passes the node store guard
+  (MAKE-DEVNET-STORE-GUARD-FUNCTION, mutex "ethereum-lisp-node-store") to the
+  Engine service as :REQUEST-GUARD-FUNCTION. src/api/rpc/router.lisp
+  RPC-HANDLE-REQUEST runs every method under it except eth_syncing and
+  engine_getBlobsV3. So engine_forkchoiceUpdated*, engine_newPayload* and
+  engine_getPayload* all wait on that one mutex.
+- src/transport/http/server.lisp wraps the whole request, handler included,
+  in ENGINE-RPC-HTTP-WITH-REQUEST-DEADLINE (30 s); SBCL's mutex wait honours
+  that deadline, so a handler still waiting on the guard at 30 s is reported
+  as "HTTP request exceeded the 30 second deadline". The text alone does not
+  distinguish a slow read from a slow guard wait.
+- src/app/cli/devnet/peer-sync.lisp DEVNET-PEER-SYNC-IMPORT-BATCH (pre-fix)
+  took that guard ONCE and, inside one CHAIN-STORE-ATOMIC-COMMIT, executed every
+  block of the response before releasing it. It is the :IMPORT-BATCH of
+  ETH-SYNC-DOWNLOAD-BLOCKS-MULTI in DEVNET-NODE-MULTI-SYNC-PASS (dialer.lisp,
+  the peer.sync.multi path) and of the single-peer forward range. Responses are
+  +ETH-SYNC-DEFAULT-BATCH-SIZE+ = 192 blocks.
+- Retries do not hold the guard: ETH-SYNC-DOWNLOAD-BLOCKS-MULTI calls the
+  importer only with a complete delivery, and the coordinator pass takes the
+  guard only for short reads (DEVNET-NODE-CONSENSUS-FORWARD-TARGET). But a
+  response that failed mid-way (the 04:34 pending-storage-overlay bug fixed at
+  8e95b990) rolled the whole response back, and each retry re-executed it from
+  its first block under one hold again, so the holds repeated.
+
+So the exact hold: the node store mutex, held by
+DEVNET-PEER-SYNC-IMPORT-BATCH across executing up to 192 blocks. At Hoodi
+block execution cost this exceeds 30 s per response.
+
+================================================================================
+2. Reproduction (RED)
+================================================================================
+
+tests/cli-devnet-node-tests.lisp
+DEVNET-ENGINE-REQUEST-IS-NOT-HELD-BEHIND-A-FORWARD-BATCH (integration, p2p):
+a real devnet node (memory store), 8 empty Paris blocks, each block's
+IMPORT-P2P-BLOCK-CANDIDATE slowed by 250 ms; the importer runs on its own thread
+and an engine_forkchoiceUpdatedV1 goes through the node's own Engine service
+rpc-context (RPC-HANDLE-REQUEST, same guard as HTTP) once the first block
+starts. Bound: 3 x 250 ms.
+
+  pre-fix (da0c1cd4, two runs): waited 2.033 s, 2.037 s  -> RED (whole batch)
+
+================================================================================
+3. Fix
+================================================================================
+
+- DEVNET-PEER-SYNC-IMPORT-BATCH commits a response in consecutive guard holds
+  (DEVNET-PEER-SYNC-IMPORT-BATCH-CHUNK). Before each block it decides whether
+  that block ends the hold: the last block, an Engine request waiting, or
+  *DEVNET-PEER-SYNC-BATCH-GUARD-SECONDS* (1 s) used. Each hold is one
+  CHAIN-STORE-ATOMIC-COMMIT whose last candidate carries the durable exporter
+  and the resume cursor, so every hold is one WAL batch of whole executed
+  candidates; a failure rolls back that hold only. Candidates stay
+  noncanonical; only Engine forkchoice publishes. A single block is never
+  split. An intermediate INVALID still persists its verdict and stops.
+- MAKE-DEVNET-STORE-GUARD-FUNCTION also returns a PRIORITY-GUARD over the same
+  mutex (counting its waiters until they own the mutex) and a PENDING-P reader.
+  The Engine service uses the priority guard; the public service does not.
+  Between holds the importer waits off the guard until no Engine request is
+  waiting (bounded by *DEVNET-STORE-GUARD-PRIORITY-YIELD-SECONDS*, 2 s).
+- Snap/heal code is unchanged.
+
+Behaviour change: a response that fails in its Nth hold keeps holds 1..N-1
+(durable, cursor at their end) instead of rolling the whole response back.
+DEVNET-PEER-RANGE-BATCH-ROLLS-BACK-ONLY-THE-FAILING-GUARD-HOLD pins this; the
+single-hold case DEVNET-PEER-RANGE-BATCH-FAILURE-ROLLS-BACK-EARLIER-BLOCKS is
+unchanged and green.
+
+================================================================================
+4. GREEN and controls
+================================================================================
+
+  post-fix (three runs): waited 0.505 s, 0.501 s, 0.502 s -> GREEN
+    = the block in flight plus at most one more, then the hold commits.
+  mutation control, priority signal disabled (1 s budget kept):
+    waited 2.044 s -> RED. SBCL mutexes are unfair: the importer re-acquires
+    before the woken Engine thread does, so a time budget alone does not help.
+  durability: the RED/GREEN test asserts >= 2 durable boundaries, the last
+  naming the final block, and every block's state available.
+
+Wiring: DEVNET-LIVE-PERSISTENCE-DEV-PERIOD-GUARD-HIDES-TENTATIVE-PUBLICATION
+used to assert the Engine guard is EQ to the node store guard; it now asserts
+the Engine guard is distinct but excludes the node's try-guard (same mutex).
+
+================================================================================
+5. Verification of record (targeted, warm image)
+================================================================================
+
+cl-workbench doctor --strict: passed. Warm image restarted after the defstruct
+slot change; the reloaded files emitted no warnings.
+
+  (ethereum-lisp.test::run-tests :match '("ENGINE-" "FORKCHOICE"
+    "DEVNET-PEER-SYNC" "DEVNET-PEER-RANGE" "BLOCK-IMPORT" "GUARD" "LOCK"
+    "ENGINE-REQUEST"))
+  500 tests passed, 6 skipped, 1 failed (at 9f84d312; "LOCK" also matches
+  every *BLOCK* test, which widened the selection).
+  The one failure, DEVNET-SMOKE-GATE-SCRIPT-ENGINE-ONLY-SERVE-MODE ("Invalid
+  JSON at byte 0" reading its sbcl --script readiness output under the
+  selection's load), passed 3 of 3 when rerun alone in the same image. Treated
+  as a load flake, not cleared by a cold run.
+  Earlier run of the same selectors (without "LOCK"): 272 passed, 2 skipped;
+  its two failures were the updated wiring assertion and the per-hold test
+  before the first-block fix, both green after.
+
+================================================================================
+6. Not verified
+================================================================================
+
+- No cold run on this branch; no live Hoodi run. Whether the live timeouts
+  disappear depends on per-block execution time staying well under 15 s (the
+  Engine now waits for about two blocks, not 192).
+- The 3.4 s forkchoiceUpdatedV3 handler time itself is not explained here.
+- Gap fill and the snap target tail import block by block and already
+  released the guard between blocks; unchanged. Other long guard holders
+  (snap state import, heal) were not audited.
+- Hold budget (1 s) and yield bound (2 s) are our policy, not taken from a
+  reference client.
