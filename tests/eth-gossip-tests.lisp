@@ -1969,3 +1969,164 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                          (error "eth gossip server side failed: ~A" server-error))
                        (is (= 2 announced))))))
             (ignore-errors (sb-bsd-sockets:socket-close listener)))))))))
+
+;;; Hive engine-cancun "Blob Transaction Ordering, Multiple Clients" (d203fee6,
+;;; aee866f7): client B received five 1-blob transactions while its only peer
+;;; session was still fetching client A's five 5-blob transactions, one blocking
+;;; GetCells round trip at a time, and A served every GetPooledTransactions and
+;;; GetCells by recomputing EIP-7594 cells and proofs (about 0.12 s per blob in
+;;; the warm image), the pooled wrapper's share of it under A's store guard.
+;;; B's own announcements queued behind that backlog, A built its payload
+;;; without them, and the bundle carried 5 blobs instead of 6.
+
+(deftest eth-72-own-broadcast-is-not-starved-by-pending-cell-fetches
+  (:layer :unit :module :p2p)
+  ;; Pinned geth runs its announce loop independently of the transaction
+  ;; fetcher (eth/protocols/eth/broadcast.go vs eth/fetcher/tx_fetcher.go), so
+  ;; a peer's slow cell responses never hold back what we announce to it. Our
+  ;; single writer must interleave: a ready broadcast goes out before the next
+  ;; blocking cell fetch.
+  (let ((fetches 0)
+        (broadcasts 0)
+        (pending-fetches 3)
+        (offered nil)
+        (order '())
+        (peer (ethereum-lisp.eth-sync::%make-eth-peer
+               :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+)))
+    (eth-gossip-test-call-with-function-overrides
+     (list
+      (cons 'ethereum-lisp.eth-sync::eth-peer-pending-blob-cell-fetch-count
+            (lambda (seen) (declare (ignore seen)) pending-fetches))
+      (cons 'ethereum-lisp.eth-sync::eth-peer-fetch-omitted-blob-transaction
+            (lambda (seen)
+              (declare (ignore seen))
+              (decf pending-fetches)
+              (incf fetches)
+              (push :fetch order)
+              1))
+      (cons 'ethereum-lisp.eth-sync::eth-peer-request-announced-transactions
+            (lambda (seen &key now) (declare (ignore seen now)) 0))
+      (cons 'ethereum-lisp.eth-sync::eth-peer-fetch-announced-block
+            (lambda (seen) (declare (ignore seen)) nil))
+      (cons 'ethereum-lisp.eth-sync:eth-peer-broadcast-transactions
+            (lambda (seen transactions)
+              (declare (ignore seen transactions))
+              (incf broadcasts)
+              (push :broadcast order)
+              nil))
+      (cons 'ethereum-lisp.eth-sync:eth-peer-announce-transactions
+            (lambda (seen transactions)
+              (declare (ignore seen transactions))
+              0)))
+     (lambda ()
+       (eth-peer-run-session
+        peer
+        :readable-function (lambda (timeout) (declare (ignore timeout)) nil)
+        :pending-broadcast
+        (lambda ()
+          (unless offered
+            (setf offered t)
+            (list :own-transaction)))
+        :max-actions 2)))
+    (is (= 1 broadcasts))
+    (is (eq :broadcast (car (last order))))))
+
+(defun eth-gossip-test-pooled-blob-node ()
+  "A devnet node whose pool holds one 1-blob transaction with an RPC (V1) proof.
+Returns the node, the transaction and the blob."
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (blob (make-byte-vector +blob-byte-size+ :initial-element 3))
+         (commitment (make-byte-vector +kzg-commitment-size+ :initial-element 4))
+         (proof (make-byte-vector +kzg-proof-size+))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1 :nonce 0 :max-fee-per-gas 1000
+            :max-priority-fee-per-gas 1 :gas-limit 21000
+            :max-fee-per-blob-gas 10
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003001")
+            :blob-versioned-hashes
+            (list (kzg-commitment-to-versioned-hash commitment))
+            :y-parity 0 :r 8 :s 9)))
+    (let ((*kzg-blob-proof-verifier* (lambda (b c p) (declare (ignore b c p)) t)))
+      (engine-payload-store-put-blob-sidecar
+       store
+       (make-blob-sidecar :blobs (list blob)
+                          :commitments (list commitment)
+                          :proofs (list proof))))
+    (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
+     store transaction)
+    (values node transaction blob)))
+
+(deftest eth-72-blob-serving-derives-cells-once-and-outside-the-store-guard
+  (:layer :integration :module :p2p)
+  ;; Serving one pooled blob transaction to an eth/72 peer (its pooled wrapper,
+  ;; then its cells) and then its cells to a second peer must run the EIP-7594
+  ;; derivation once, like geth's blobpool which computes cells at insertion
+  ;; and serves stored cells, and never while the store guard is held: that
+  ;; guard also serializes every Engine request.
+  #-sbcl
+  (skip-test "Store-guard probe requires SBCL threads")
+  #+sbcl
+  (multiple-value-bind (node transaction blob) (eth-gossip-test-pooled-blob-node)
+    (let* ((backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+           (hash (eth-gossip-transaction-hash-bytes transaction))
+           (mask (make-byte-vector 16 :initial-element #xff))
+           (computations 0)
+           (guard-held-during-computation 0)
+           (cells (loop for index below +cell-proofs-per-blob+
+                        collect (make-byte-vector +bytes-per-cell+
+                                                  :initial-element
+                                                  (mod index 256))))
+           (proofs (loop repeat +cell-proofs-per-blob+
+                         collect (make-byte-vector +kzg-proof-size+
+                                                   :initial-element 9))))
+      (flet ((note-computation (actual-blob)
+               (is (bytes= blob actual-blob))
+               (incf computations)
+               ;; Probe from another thread: a guard held by this one refuses.
+               (let ((ran-p
+                       (sb-thread:join-thread
+                        (sb-thread:make-thread
+                         (lambda ()
+                           (handler-case
+                               (nth-value
+                                1
+                                (ethereum-lisp.cli::call-with-devnet-node-store-guard-if-free
+                                 node (lambda () t)))
+                             (serious-condition () nil)))))))
+                 (unless ran-p (incf guard-held-during-computation)))))
+        (eth-gossip-test-call-with-function-overrides
+         (list
+          (cons 'ethereum-lisp.kzg:kzg-cell-computation-available-p
+                (lambda () t))
+          (cons 'ethereum-lisp.kzg::compute-kzg-cell-proofs
+                (lambda (actual-blob)
+                  (note-computation actual-blob)
+                  (copy-list proofs)))
+          (cons 'ethereum-lisp.kzg::kzg-compute-cells-and-proofs
+                (lambda (actual-blob)
+                  (note-computation actual-blob)
+                  (values (copy-list cells) (copy-list proofs)))))
+         (lambda ()
+           (let ((wrapper
+                   (funcall
+                    (ethereum-lisp.eth-sync::eth-serve-backend-pooled-blob-sidecar
+                     backend)
+                    transaction)))
+             (is wrapper)
+             (is (= +cell-proofs-per-blob+
+                    (length (blob-sidecar-proofs wrapper)))))
+           (dotimes (peer 2)
+             (multiple-value-bind (hashes groups)
+                 (funcall (ethereum-lisp.eth-sync::eth-serve-backend-blob-cells
+                           backend)
+                          (list hash) mask)
+               (is (= 1 (length hashes)))
+               (is (= +cell-proofs-per-blob+ (length (first groups))))
+               (is (every #'bytes= cells (first groups))))))))
+      (is (= 1 computations))
+      (is (zerop guard-held-during-computation)))))
