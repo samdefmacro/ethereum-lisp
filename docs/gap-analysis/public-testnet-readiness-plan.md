@@ -412,15 +412,17 @@ The implementation boundary is split deliberately:
   and 636 named format-inapplicable blockchain cases excluded as expected.
   The adjacent cold-unit layer passed 1,337 tests with three optional,
   corpus-inapplicable skips. Exact selectors, counts, hashes, retained-container
-  results, and the separately disclosed aggregate caller timeout are archived
-  in `docs/evidence/sec5-d9e0e2dd-eest-v20.0.2.txt`. The exact live
+  results, and the separately disclosed aggregate caller timeout (the aggregate
+  cold-integration run printed all six manifest lines, then its 420-second
+  command window ended it before the executors; exit 143, not OOM-killed) are archived
+  in the source record listed at `docs/evidence/gates.md`, row d9e0e2dd. The exact live
   application revision `0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae` later
   repeated the three non-vacuity manifests and all five aggregate fixture
   executors against the same checksum-matched corpus. The counts were unchanged:
   15,393 state cases, 11,382 Engine blockchain-replay cases, and 10,257 RLP
   blockchain-replay cases, with zero unexpected skips; all eight focused gates
   exited zero without OOM. Exact selectors and durable log hashes are archived
-  in `docs/evidence/sec5-0c6b51bf-eest-v20.0.2.txt`. This closes the stable
+  in the source record listed at `docs/evidence/gates.md`, row 0c6b51bf. This closes the stable
   current-fork EEST prerequisite for the revision under fresh Hoodi validation,
   but not its live/soak gates.
 
@@ -431,7 +433,7 @@ The implementation boundary is split deliberately:
   cases across London through Osaka with zero unexpected skips. The adjacent
   cold layers passed 1,360 unit tests with three optional skips and 573
   integration tests. The generated six-line manifest is archived in
-  `docs/evidence/sec5-81446d47-eest-v20.0.2.txt`. This proves no EEST regression
+  the source record listed at `docs/evidence/gates.md`, row 81446d47. This proves no EEST regression
   at the exact branch revision; it does not substitute for the still-open Hive,
   Hoodi completion, shadow, or validator gates.
 
@@ -446,7 +448,7 @@ The implementation boundary is split deliberately:
   evidence documentation, so no source, test, build input, or fixture adapter
   differed from the exact runtime used by the pinned Hive devp2p run. Exact
   selectors, hashes, container identities, and counts are archived in
-  `docs/evidence/sec5-03957929-eest-v20.0.2.txt`. This closes the stable
+  the source record listed at `docs/evidence/gates.md`, row 03957929. This closes the stable
   current-fork EEST prerequisite for that application tree; the live Hoodi,
   shadow, and validator gates remain open.
 
@@ -458,7 +460,7 @@ The implementation boundary is split deliberately:
   there was no passed-to-failed regression. The bounded runner exited zero
   without OOM or restart and retained its unique evidence directory. Exact
   artifact, result, log, and runner hashes are archived in
-  `docs/evidence/sec5-6e3e9b1d-hive-rpc-compat.txt`. This closes the required
+  the source record listed at `docs/evidence/gates.md`, row 6e3e9b1d. This closes the required
   rpc-compat rerun; the live completion, shadow, and validator-soak gates remain
   open.
 
@@ -488,7 +490,7 @@ The implementation boundary is split deliberately:
   evidence manifest. This closes the pinned Engine/auth zero-failure gate for
   the exact revision. Exact per-suite counts, artifact hashes, and all retained
   evidence roots are archived in
-  `docs/evidence/sec5-694667f9-hive-engine-r25-r26.txt`.
+  the source record listed at `docs/evidence/gates.md`, row 694667f9.
 
   The first complete Hive devp2p discovery baseline at exact client revision
   `b7bdb6daa2073ece9fd595dfa3e27faf882230a8` executed 33 entries and passed
@@ -525,7 +527,7 @@ The implementation boundary is split deliberately:
   simulator-source preparation is recorded in
   `docs/evidence/sec5-f19ee8d5-hive-devp2p-geth-pin.txt`; exact artifact
   identities and gates are in
-  `docs/evidence/sec5-7b3e9d35-amd64-artifacts.txt`.
+  the source record listed at `docs/evidence/gates.md`, row 7b3e9d35.
 
   A later exact-`f79f5b2e` bounded run passed discv4 16/16 and 14/19 eth
   entries; its intentionally refused, unsupported discv5 launch failed.
@@ -539,7 +541,7 @@ The implementation boundary is split deliberately:
   available against the fail-closed 12,884,901,888-byte precondition. The
   devp2p gate therefore remains open; exact results, artifact hashes, preserved
   paths, and rejection evidence are in
-  `docs/evidence/sec5-f79f5b2e-hive-devp2p-r39.txt`.
+  the source record listed at `docs/evidence/gates.md`, row f79f5b2e.
 
   Revision `8b92d05edb3504c58b0def68dc02c7384051db2f` adds a deterministic
   local LargeTxRequest integration regression over the real eth codecs,
@@ -699,7 +701,7 @@ The implementation boundary is split deliberately:
   945/945 evidence hashes. This closes the Section 5 required Hive devp2p
   surface; it does not implement discv5 or close the live Hoodi, shadow, or
   validator-soak gates. Exact artifacts, counts, and retained paths are in
-  `docs/evidence/sec5-03957929-hive-devp2p-r54.txt`.
+  the source record listed at `docs/evidence/gates.md`, row 03957929.
 
   Exact revision `085d03c38b783208489c15175c41bf8f266510c4` adds the
   deterministic local regression for pinned geth `TestGetCells`. Two peers
@@ -955,7 +957,7 @@ The implementation boundary is split deliberately:
   validation state. This is exact local regression, artifact, and fail-closed
   identity evidence; a successor full Hive devp2p rerun using the portable
   digest remains required. Exact evidence is in
-  `docs/evidence/sec5-b147ade6-amd64-runtime.txt`.
+  the source record listed at `docs/evidence/gates.md`, row b147ade6.
 
   Exact accepted revision `970a04b06c85b0e5f733103782da072821250829`
   has a verified linux/amd64 runtime image and fresh export. Image
@@ -966,7 +968,7 @@ The implementation boundary is split deliberately:
   the 72,018,944-byte export has SHA-256
   `c22b41e3bb9e46c04ac352997e8adb5d14981a213b5291beb82123824dd7a6fd`.
   This artifact was not deployed; exact evidence is in
-  `docs/evidence/sec5-970a04b0-amd64-runtime.txt`.
+  the source record listed at `docs/evidence/gates.md`, row 970a04b0.
 
   Exact accepted revision `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80`
   has a verified linux/amd64 runtime image and export. Its image ID is
@@ -977,8 +979,12 @@ The implementation boundary is split deliberately:
   runtime user, and platform all matched. The Workbench runtime-smoke gate
   passed packaged Hoodi genesis, public RPC, JWT rejection/acceptance, Engine
   capabilities and version identity, and `eth_syncing`. This local artifact was
-  not uploaded or deployed; exact commands and the corrected broker invocation
-  are in `docs/evidence/sec5-4cd40480-amd64-runtime.txt`.
+  not uploaded or deployed. The first two build attempts used an unsupported nested
+  `runtime build` spelling and the first smoke attempt an unsupported `--image`
+  option; the broker refused each with exit 2 before running, and the documented
+  `runtime-build TAG` and positional `runtime-smoke IMAGE` forms passed. Exact
+  commands and the corrected broker invocation
+  are in the source record listed at `docs/evidence/gates.md`, row 4cd40480.
 
   Exact accepted application revision `dba597c98cb5e974fde2c8d2ba26ffe885bde0b6`
   also has a verified linux/amd64 runtime image and export, including every
@@ -991,7 +997,7 @@ The implementation boundary is split deliberately:
   not uploaded or deployed because the remote filesystem remains below the
   reviewed Hive capacity precondition. Exact commands, identities, live
   boundary, and capacity evidence are archived in
-  `docs/evidence/sec5-dba597c9-amd64-runtime.txt`.
+  the source record listed at `docs/evidence/gates.md`, row dba597c9.
 
   Exact predecessor revision `c93389e762b9a4e32f2cbb0cf86ed2be5b892453`
   now has a verified linux/amd64 runtime image and export. Its image ID is
@@ -1001,7 +1007,7 @@ The implementation boundary is split deliberately:
   and all seven runtime-smoke checks passed, including exact revision identity.
   It has not been uploaded or deployed; exact build commands, identities, and
   live limits are archived in
-  `docs/evidence/sec5-c93389e7-amd64-runtime.txt`.
+  the source record listed at `docs/evidence/gates.md`, row c93389e7.
 
   Exact predecessor revision `e96a5cc8908214f7d769f41c959a691fa6517b89`
   has a verified linux/amd64 runtime image and export. Its seven-check
@@ -1011,7 +1017,7 @@ The implementation boundary is split deliberately:
   runtime revision, so the runtime-sensitive tree is identical. The artifact
   has not been uploaded or deployed; exact identities, commands, live boundary,
   and capacity blocker are archived in
-  `docs/evidence/sec5-e96a5cc8-amd64-runtime.txt`.
+  the source record listed at `docs/evidence/gates.md`, row e96a5cc8.
 
   The fresh `d9e0e2dd` run also exposed an Engine HTTP clock-placement defect.
   In a bounded live sample, all 28 authenticated 401 responses completed request
@@ -1081,7 +1087,7 @@ The implementation boundary is split deliberately:
   `99fc93388c1fe3df7f9c5358217d56858af6cf73113488d4e49b86d2767dc8ab`.
   It has not been uploaded or deployed; exact identities and the live capacity
   boundary are archived in
-  `docs/evidence/sec5-16fe6962-amd64-runtime.txt`.
+  the source record listed at `docs/evidence/gates.md`, row 16fe6962.
 
   Exact revision `616709b5d901c0df46f1b9e53de91efa28ecf097` closes a
   continuous-sync lifecycle race in hash-origin gap filling. A live-peer snapshot
@@ -1170,7 +1176,7 @@ The implementation boundary is split deliberately:
   free space than the existing Hoodi datadir footprint, so the required fresh
   additive datadir cannot be created safely. Exact commands, identities, and
   the live boundary are archived in
-  `docs/evidence/sec5-f8aa7575-amd64-runtime.txt`.
+  the source record listed at `docs/evidence/gates.md`, row f8aa7575.
 
   When a later account or partitioned StorageRanges page proves closure for a
   node first observed on an open boundary, its atomic proof/record/cursor batch
@@ -1508,7 +1514,7 @@ or persistence, matching pinned Execution APIs `e5d1bb60`;
 and zero import/persistence callbacks. The later exact-`6e3e9b1d` 234-case Hive
 rerun passes this boundary; see
 `docs/evidence/sec5-7b86ca24-rpc-engine-compat.txt` and
-`docs/evidence/sec5-6e3e9b1d-hive-rpc-compat.txt`.
+the source record listed at `docs/evidence/gates.md`, row 6e3e9b1d.
 
 ### 6. Make txpool and payload building bounded and proposer-safe
 

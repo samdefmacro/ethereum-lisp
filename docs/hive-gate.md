@@ -190,13 +190,13 @@ Refusal matrix, each checked before any change:
 | archive is not one `docker image save` image, lacks the `sec5-<rev8>-amd64` tag, or carries another revision or platform | upload |
 
 Transcribed from the records: runner bounds 2 CPU, 3g/3584m for rpc-compat
-(r19, `sec5-6e3e9b1d-hive-rpc-compat.txt`) and 8g/10g for Engine (r29,
-`sec5-3305307d-hive-engine-auth.txt`) and devp2p (r54,
-`sec5-03957929-hive-devp2p-r54.txt`), 1,024 PIDs, read-only root, no published
+(r19, `docs/evidence/gates.md`, row 6e3e9b1d) and 8g/10g for Engine (r29,
+`docs/evidence/gates.md`, row 694667f9) and devp2p (r54,
+`docs/evidence/gates.md`, row 03957929), 1,024 PIDs, read-only root, no published
 port, not on the Hoodi networks, binds limited to the evidence root and the
 nested-Docker path, bounded tmpfs. The runtime archive is loaded into the
 runner's nested daemon, not the host's (r35/r43,
-`sec5-4097bbd4-amd64-artifacts.txt`, `sec5-b147ade6-amd64-runtime.txt`).
+`docs/evidence/gates.md`, rows 4097bbd4 and b147ade6).
 The inner call comes from the 3305307d records: `RUNTIME_PREBUILT=1`,
 `HIVE_WORKDIR=/evidence/hive-gate`, `HIVE_RESULTS=/evidence/results`, the
 pinned Hive binary `cff9f5c0…` via `HIVE_PREBUILT_BINARY_SHA256`,
@@ -368,12 +368,12 @@ cases and passed 401. One failure is ethereum/hive#1351's known harness race:
 the detail log removes ethereum-lisp before the Modified Geth payload producer
 fails to include the transaction that the test setup needs. The other is a
 client-visible Cancun blob-ordering failure (`expected 6 blob, got 5`). Both
-remain failures in `docs/evidence/sec5-92982442-hive-engine.txt`.
+remain failures in the source record listed at `docs/evidence/gates.md`, row 92982442.
 
 The first rpc-compat run that actually supplied the pinned Execution APIs
 commit selected 234 cases, not the older 243-case moving-main baseline. It
 passed 125 and failed 109. The immutable discovery evidence is archived in
-`docs/evidence/sec5-92982442-hive-rpc-inventory.txt`; the runner now pins 234
+the source record listed at `docs/evidence/gates.md`, row 92982442; the runner now pins 234
 and requires a fresh confirmation result rather than retroactively treating the
 discovery run as a passing inventory check.
 
@@ -381,7 +381,7 @@ The reviewed exact-revision rerun at `6e3e9b1d` selected the same 234 unique
 cases and passed 234/234 with no failure or passed-to-failed regression. All
 four `testing_buildBlockV1` cases passed. Artifact identities, resource bounds,
 result/log hashes, and the preserved remote evidence path are archived in
-`docs/evidence/sec5-6e3e9b1d-hive-rpc-compat.txt`. This closes rpc-compat only;
+the source record listed at `docs/evidence/gates.md`, row 6e3e9b1d. This closes rpc-compat only;
 the Engine, EELS, devp2p, full-sync, snap, and live/soak gates retain their
 independent status above.
 
@@ -408,7 +408,7 @@ verifies that exact commit, and passes the same value through
 runtime archive (SHA-256
 `84111e9e69e7d09ee3d04d171fc5c80bb46a73c5d9db39efe770e8b1b614c54a`)
 and matching source archive ready for the rerun; see
-`docs/evidence/sec5-7b3e9d35-amd64-artifacts.txt`. No local repair or artifact
+the source record listed at `docs/evidence/gates.md`, row 7b3e9d35. No local repair or artifact
 build closes the devp2p gate before a fresh pinned Linux rerun.
 
 Revision `63408ce2` repaired the remaining pinned `eth_config/get-config`

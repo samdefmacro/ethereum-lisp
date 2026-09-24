@@ -24,7 +24,7 @@ engine_forkchoiceUpdatedV3 3,564-20,421 ms. The node was synced and following
 the head, with 0 forward gap fills, so the forward batch importer was not
 holding the store guard (sec5-d203fee6-hoodi-complete.txt). At the 8e95b990
 restart the tail also executed at about 3 s per block
-(sec5-8e95b990-hoodi-run.txt).
+(docs/evidence/gates.md, row 8e95b990).
 
 ================================================================================
 1. Fixture

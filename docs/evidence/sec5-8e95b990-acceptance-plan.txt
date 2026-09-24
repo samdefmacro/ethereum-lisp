@@ -114,7 +114,7 @@ The plan requires the same revision to pass the selected current-fork EEST
 and required Hive suites with zero unexpected skips before its shadow
 comparison can count. No 8e95b990 cold-all or EEST v20.0.2 record exists on
 this branch (the latest are sec5-aac5f762-amd64-runtime.txt and
-sec5-3305307d-eest-v20.0.2.txt). If the coordinator does not already hold
+docs/evidence/gates.md, row 3305307d). If the coordinator does not already hold
 them, run from a clean checkout at REV (this agent did not run cold lanes):
 
   cl-workbench doctor --strict
@@ -122,7 +122,15 @@ them, run from a clean checkout at REV (this agent did not run cold lanes):
   grep -E "^not ok|tests passed|skipped" cold-all-8e95b990.log
   scripts/dev.sh eest-fixtures stable-v20.0.2 .eest-fixtures-sec5-8e95b990
   # then the eight single-test cold-integration gates exactly as in
-  # sec5-3305307d-eest-v20.0.2.txt, with
+  # docs/evidence/gates.md, row 3305307d, one retained container each, in this
+  # order: phase-a-eest-state-conformance-is-non-vacuous,
+  # phase-a-eest-blockchain-conformance-is-non-vacuous,
+  # phase-a-eest-blockchain-rlp-conformance-is-non-vacuous,
+  # optional-phase-a-eest-state-test-root-vectors-execute,
+  # optional-phase-a-eest-blockchain-replay-executes,
+  # optional-phase-a-eest-engine-late-payload-replay-executes,
+  # optional-phase-a-eest-engine-payload-rejection-executes,
+  # optional-phase-a-eest-blockchain-rlp-replay-executes; with
   #   ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<checkout>/.eest-fixtures-sec5-8e95b990/tests-v20.0.2
   #   ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS=auto
   #   ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS=London,Shanghai,Cancun,Prague,Osaka

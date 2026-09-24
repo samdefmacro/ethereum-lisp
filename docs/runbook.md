@@ -7,7 +7,7 @@ source before trusting them.
 
 The evidence behind this page:
 `docs/evidence/sec5-d203fee6-hoodi-complete.txt` (the first complete Hoodi
-fresh-datadir run), `sec5-8e95b990-hoodi-run.txt`, `sec5-aac5f762-hoodi-run.txt`,
+fresh-datadir run), the 8e95b990 run (`docs/evidence/gates.md`, row 8e95b990), `sec5-aac5f762-hoodi-run.txt`,
 `sec5-sigterm-during-heal.txt` and `sec5-ops-recovery.txt` (stop and kill
 behaviour, metrics).
 
