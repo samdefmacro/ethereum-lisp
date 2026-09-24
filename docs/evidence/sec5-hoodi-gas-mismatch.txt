@@ -1,0 +1,334 @@
+Section 5: the gas-used mismatch on Hoodi block 3684027, and a rejection that outlived its cause
+
+Status
+
+Branch hoodi-gas-mismatch, from 04a3aff4. Found, reproduced exactly, fixed.
+
+  Live (R4 = b5161312, 2026-09-24T01:33:55Z, Lighthouse hoodi-lighthouse-public):
+    "Gas used mismatch at block 3684027: header=4348360 computed=4329758"
+    block 0x8da352f3828ff869665cd28959140b57d541ac688733cafc0e645e065e465476
+  Then 113 descendants answered INVALID "links to previously rejected block",
+  and the upgraded 04a3aff4 on the same datadir refused the block again
+  (04:54:12Z) without executing it.
+
+It is NOT a gas rule and NOT the fork schedule. Our EVM charges exactly what
+go-ethereum charges for all eleven transactions. The defect is a storage READ
+on the lazily-backed state the node executes on: a slot first read after its
+account's journal entry lost its value when a call frame reverted, and read
+as zero for the rest of the state's life. Transaction 9 of the block
+(0xff0ed042a61bbb2000141154f326a90488a4d19c30e7d91e15592300a143025d, six
+reverted frames) then took another path and used 323,810 gas instead of
+geth's 342,412: 18,602 less, the whole difference. A second defect made the
+verdict permanent: INVALID verdicts were persisted and restored at startup,
+so the fixed binary could never re-execute the block. go-ethereum keeps its
+verdicts in memory only. Not deployed; no live run; no cold-all (the
+coordinator runs it once at the end).
+
+Revision
+
+  72d148aa  state: a slot read after its account's journal entry survives the revert
+  eb3acb3c  test: a lazily-backed state reads what the in-memory oracle reads, Hoodi block 3684027 included
+  60fb6e91  node: a restarted node re-executes a block an earlier process rejected
+  70409b12  test: a restart re-executes a rejected block, and startup discards every persisted verdict
+  (the commit adding this record follows them)
+
+================================================================================
+1. Which transaction, and what it is not
+================================================================================
+
+Per-transaction gas from go-ethereum's receipts (public RPC
+ethereum-hoodi-rpc.publicnode.com, eth_getTransactionReceipt; cumulative
+differences), block gasUsed 0x4259c8 = 4,348,360, blobGasUsed 0x80000,
+timestamp 0x6ab47d6c = 1790213484, producer geth 1.17.2:
+
+  idx type  gas       idx type  gas
+  0   3     21,000    6   2     475,287
+  1   3     21,000    7   2     320,010
+  2   3     21,000    8   2     2,601,921
+  3   3     21,000    9   2     342,412
+  4   2     98,148    10  2     320,058
+  5   2     106,524
+
+Oracle for our EVM: go-ethereum's own pre-state of each transaction
+(debug_traceTransaction with prestateTracer on rpc.hoodi.ethpandaops.io,
+which serves debug_*), each signed envelope
+(eth_getRawTransactionByHash), our Hoodi chain config at (3684027,
+1790213484), and APPLY-SIGNED-MESSAGE on an in-memory STATE-DB (the state
+EEST drives). Result: every transaction equal to geth, per transaction and
+as one block from the merged pre-state (first occurrence of each account and
+slot across the eleven traces): 4,348,360, difference 0.
+
+Fork schedule: 1790213484 is past Hoodi BPO2. Ours (presets.lisp
+HOODI-CHAIN-CONFIG: prague 1742999832, osaka 1761677592, bpo1 1762365720,
+bpo2 1762955544, no Amsterdam) equals go-ethereum's HoodiChainConfig
+(params/config.go, same four times, BogotaTime nil). The precompiles the
+block calls are ecrecover, sha256 and identity (callTracer), at their
+unchanged prices. So no EIP-7623 / 7702 / 7883 / 2537 / 4844 / 2929 rule
+is involved, and none was changed.
+
+Candidate that was ruled out: stale slot values from the ten SNAP pivots the
+b5161312 run rebased through (3682991 ... 3683637, "retainedStateProgress
+T"). All 402 slots the block touches were read at every pivot and at 3684026
+(eth_getStorageAt on ethpandaops, archive). Of the 8 slots whose value moved
+between pivots and stayed put afterwards, none, set to any older value,
+changes block gas by 18,602 (4,576 / 112,461 / 137,707 / 137,658 / 0).
+
+================================================================================
+2. Mechanism
+================================================================================
+
+The node executes on MAKE-LAZY-STATE-DB (src/application/services/
+execution.lisp CHAIN-STORE-STATE-DB): accounts come from a loader, storage
+from each account's persisted storage trie, and each account's STORAGE hash
+table is only a cache of the slots read so far. Which slots had been read
+was recorded in ONE state-wide table, LOADED-STORAGE, as "address:slot".
+
+A journal entry (STATE-DB-RECORD-CHANGE) stores a clone of the account
+object, storage cache included, at its first write. When a call frame
+reverts, STATE-DB-REVERT-TO-SNAPSHOT puts that clone back. A slot FIRST READ
+after the clone was taken is in the reverted object's cache but not in the
+clone, while LOADED-STORAGE, which no revert touches, still says it was
+read. STATE-DB-GET-STORAGE therefore skipped the backing and answered
+(gethash slot storage 0): zero, for as long as the state object lived (the
+node keeps it across blocks).
+
+go-ethereum separates the two on purpose (core/state/state_object.go):
+originStorage caches committed values and is never journaled;
+dirtyStorage/pendingStorage hold writes and are reverted
+(core/state/journal.go storageChange.revert).
+
+Minimal shape (test BACKED-STATE-READ-IN-A-REVERTED-FRAME-SURVIVES-THE-
+REVERT): a contract CALLs itself; the inner frame writes slot 1 (journals the
+account), reads slot 2 = 42 for the first time, and REVERTs; the outer frame
+copies slot 2 to slot 3. At 04a3aff4:
+
+  state                      status  gas     slot 3
+  in-memory (EEST's state)   1       69,578  42
+  lazy, flat storage loader  1       49,678  0
+  lazy, storage trie (node)  1       49,678  0
+
+The in-memory state never shows it: all of its storage sits in the table
+from the start, so every clone has every slot. That is why EEST v20.0.2
+passed 8/8 on the same revision.
+
+================================================================================
+3. Reproduction of the live number
+================================================================================
+
+The block, run from go-ethereum's merged pre-state served the way the node
+serves it (accounts through a loader, storage through per-account tries,
+test HOODI-3684027-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE):
+
+  04a3aff4   total 4,329,758   tx 9: 323,810   (live: computed=4329758)
+  fixed      total 4,348,360   tx 9: 342,412   (= header, = geth receipt)
+
+Every other transaction equal in both. The live value is reproduced to the
+unit, from a fresh state, so no earlier block's cache was needed for it.
+
+The fixture is 1.3 MB of contract code and is fetched, not committed; the
+test skips when it is absent. To rebuild it in a checkout (control plane:
+curl and jq only):
+
+  B=block-3684027.json   # eth_getBlockByNumber 0x3836bb true, publicnode
+  mkdir -p .eest-fixtures-hoodi-3684027 && cd .eest-fixtures-hoodi-3684027
+  for h in $(jq -r '.result.transactions[].hash' ../$B); do
+    curl -s -X POST -H 'content-type: application/json' --data \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"debug_traceTransaction\",\"params\":[\"$h\",{\"tracer\":\"prestateTracer\"}]}" \
+      https://rpc.hoodi.ethpandaops.io > pre-$h.json
+    curl -s -X POST -H 'content-type: application/json' --data \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getRawTransactionByHash\",\"params\":[\"$h\"]}" \
+      https://ethereum-hoodi-rpc.publicnode.com | jq -r .result >> transactions.txt
+  done
+  jq -s 'reduce (.[] | .result) as $p ({}; reduce ($p|to_entries[]) as $e (.;
+    if has($e.key) then .[$e.key].storage = (($e.value.storage // {}) + (.[$e.key].storage // {}))
+    else .[$e.key] = $e.value end))' $(for h in $(jq -r '.result.transactions[].hash' ../$B); do echo pre-$h.json; done) > prestate.json
+
+(in block order; the first trace that touches an account or slot wins, which
+is the block's pre-state.)
+
+================================================================================
+4. Fix
+================================================================================
+
+72d148aa (src/runtime/state/types.lisp, db.lisp). What an account object
+knows about its slots now lives on the object and travels with its clone:
+
+  STATE-OBJECT BACKED-P   true only for an object the account loader made;
+                          its STORAGE is a partial cache of a backing
+  STATE-OBJECT ZERO-SLOTS slots of a backed object known to hold zero (read
+                          as zero, or deleted here)
+
+STATE-DB-GET-STORAGE: in STORAGE -> that value; not backed -> 0; in
+ZERO-SLOTS -> 0; else read the backing (the object's storage trie, else the
+flat loader) and remember it on the object. CLONE-STATE-OBJECT copies both.
+The state-wide LOADED-STORAGE table is gone. A revert that restores a clone
+now restores exactly what that clone knew; a slot first read after it is
+read from the backing again, which is correct because every write reads its
+slot first (STATE-DB-SET-STORAGE preserves the before-image), so a slot
+first read after the clone was unwritten when the clone was taken. A slot
+deleted before a snapshot stays deleted (ZERO-SLOTS is in the clone). Clones
+copy one more (usually empty) table; the per-slot "address:slot" FORMAT
+string on every storage read is gone.
+
+60fb6e91 (src/storage/node-store/persistence/import/side-data.lisp,
+orchestrator.lisp, src/app/cli/devnet/persistence.lisp). A verdict belongs
+to the process that reached it:
+
+  - direct (RocksDB) startup, DEVNET-CLI-IMPORT-DIRECT-CHAIN-DATABASE, calls
+    the new NODE-STORE-DISCARD-INVALID-TIPSETS-FROM-KV instead of
+    NODE-STORE-IMPORT-BOUNDED-INVALID-TIPSETS-FROM-KV: every persisted
+    :invalid-tipset record is deleted in the existing bounded,
+    BAL-owner-atomic pages (NODE-STORE-CLEAN-BOUNDED-INVALID-RECOVERY-
+    RECORDS), before any request is served;
+  - the hydrating startup (DEVNET-CLI-IMPORT-CHAIN-DATABASE) passes the new
+    NODE-STORE-IMPORT-FROM-KV :IMPORT-INVALID-TIPSETS-P NIL.
+
+Within a process nothing changed: ENGINE-PAYLOAD-STORE-MARK-INVALID, the
+invalid-ancestor walk, the 128-hit eviction and the export of verdicts are
+as before (the Hive "invalid ancestor" semantics are within one process).
+Reference: go-ethereum v1.17 (checked in the v1.17.6 reference tree)
+eth/catalyst/api.go invalidBlocksHits / invalidTipsets, "Ephemeral cache",
+invalidBlockHitEviction = 128, invalidTipsetsCap = 512; core/blockchain.go
+reportBadBlock -> rawdb.WriteBadBlock (core/rawdb/accessors_chain.go,
+badBlockToKeep = 10) is read only by debug_getBadBlocks and the tracers
+(eth/api_debug.go, eth/tracers/api.go), never on import.
+
+Not changed: the staged-import hydration (staged-import.lisp) still imports
+verdicts; it runs inside a live process, not at startup.
+
+================================================================================
+5. Operational recovery for /data/hoodi-sec5-20260814/datadir-b5161312
+================================================================================
+
+No store operation is needed and chaindata must not be deleted. Start a
+runtime built from this branch (both fixes) on the same datadir: direct
+startup deletes every persisted verdict, 0x8da352f3 included, before the
+Engine endpoint serves, and the next newPayload / peer range re-executes the
+block with the fixed state read (expected: VALID, gasUsed 4,348,360). Do NOT
+start a binary without 60fb6e91 on it again: it restores the verdict. Do not
+start one without 72d148aa either: it deletes the verdict, re-executes, and
+rejects the block again.
+
+Read-only checks after the start (ssh, docker logs / curl on the host):
+  - docker logs <container> | grep -c "links to previously rejected block"
+    stops growing;
+  - eth_getBlockByNumber "0x3836bb" returns hash 0x8da352f3... once the
+    node has imported it.
+
+State written before the rejection is sound: blocks up to 3684026 were each
+accepted against their header state root, receipts root and gasUsed, and the
+rejected block wrote nothing. Note for the coordinator: after the
+rejection, 04a3aff4 ran SNAP again on this datadir (pivots 3684218 ...
+3684393, snap-tail-import at 3684889-3684908) and exited 1 at 05:00:49Z with
+"Snap target tail block 0x5b842608... returned SYNCING instead of VALID"; the
+datadir head is therefore no longer 3684026.
+
+================================================================================
+6. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0 (before the first run).
+
+RED at 04a3aff4 (state files reverted, image restarted, probe checked that
+STATE-OBJECT-MARK-ZERO-SLOT was unbound), GREEN on the fix:
+  STATE-JOURNAL-REVERT-KEEPS-A-LAZILY-READ-FLAT-STORAGE-SLOT
+  STATE-JOURNAL-REVERT-KEEPS-A-LAZILY-READ-TRIE-STORAGE-SLOT
+    RED "Assertion failed: (= 9 (STATE-DB-GET-STORAGE STATE ADDRESS READ-LATER))"
+  BACKED-STATE-READ-IN-A-REVERTED-FRAME-SURVIVES-THE-REVERT
+    RED "(EQUAL (REST MEMORY) (REST LAZY))" (numbers in section 2)
+  HOODI-3684027-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE
+    RED "(= 342412 ...)" (numbers in section 3)
+Guards, green before and after:
+  STATE-JOURNAL-REVERT-KEEPS-A-SLOT-DELETED-BEFORE-THE-SNAPSHOT-DELETED
+    positive control: the fix with the ZERO-SLOTS mark on delete removed
+    -> RED "(= 0 (STATE-DB-GET-STORAGE STATE ADDRESS DELETED))"
+  STATE-RECREATED-ACCOUNT-DOES-NOT-READ-ITS-PREDECESSOR-STORAGE
+    (a cleared, recreated account starts empty; also green at 04a3aff4,
+    where the storage-root rebuild on SET-ACCOUNT happened to shield it)
+RED on the 04a3aff4 persistence code, GREEN on the fix:
+  DIRECT-RESTART-RE-EXECUTES-A-BLOCK-AN-EARLIER-PROCESS-REJECTED
+    (replaces DIRECT-RESTART-RESTORES-BOUNDED-INVALID-VERDICT-WITHOUT-
+    REEXECUTION). Positive control inside: in the process that marked it,
+    the block is refused with zero executor calls. Then the hydrating
+    startup has no verdict (RED at 04a3aff4: "Assertion failed: (NULL ...)"),
+    the direct startup has none and has deleted the record, and the import
+    calls the executor once and returns its own INVALID.
+  DIRECT-STARTUP-DISCARDS-EVERY-PERSISTED-INVALID-TIPSET-IN-BOUNDED-PAGES
+    (replaces DIRECT-STARTUP-STREAMS-AND-DURABLY-BOUNDS-LEGACY-INVALID-
+    TIPSETS): 2 x 256 + 1 records plus a finalized one, all deleted, the
+    staged owner's BAL kept. RED at 04a3aff4 "Assertion failed: (ZEROP ...)".
+
+Cold (the verification of record):
+  cl-workbench validation run cold-unit --match EVM --match GAS --match INTRINSIC
+    --match PRECOMPILE --match FORK --match HOODI --match STATE-JOURNAL
+    --match BACKED-STATE --match STATE-RECREATED --match STATE-
+      409 tests passed, 1 skipped (PINNED-V5.4.0-LATE-FORK-STATE-TEST-FAMILIES-
+      EXECUTE: no corpus root in this lane), 0 not ok, EXIT=0
+  cl-workbench validation run cold-unit --match STATE --match STORE --match BOUNDARY
+    --match PACKAGE --match INVALID --match DIRECT --match SNAP --match PERSIST
+    --match LAZY --match PROJECT
+      452 tests passed, 1 skipped, 0 not ok, EXIT=0
+  cl-workbench validation run cold-integration --match EVM --match FIXTURE
+    --match NEW-PAYLOAD --match HOODI --match INVALID --match DIRECT
+    --match REMOTE-BLOCK --match STATE
+      151 tests passed, 2 skipped (the two EEST state gates: no corpus root in
+      this lane; they ran below), 0 not ok, EXIT=0; includes
+      HOODI-3684027-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE (fixture
+      present, not skipped) and both DIRECT-* tests above
+  cl-workbench validation run cold-e2e --match RESTART --match DATABASE
+    --match PERSIST --match ROCKSDB --match RESTORE
+      1 + 8 tests passed, 0 not ok, EXIT=0 (RocksDB restart/SIGKILL and
+      serve-mode restore paths through a spawned node)
+  EEST tests@v20.0.2 (archive sha256 1280540950a4...1788, the tree cloned
+  copy-on-write from <main checkout>/.eest-fixtures-stable-v20.0.2 into
+  <worktree>/.eest-fixtures-stable-v20.0.2/tests-v20.0.2), selectors and
+  commands as in sec5-591f700e-eest-v20.0.2.txt, one retained container per
+  gate (COLD_TEST_CONTAINER=ethereum-lisp-cold-eest-hgm-<slug>), sequential,
+  output redirected to a file, 2026-09-24T05:33Z-05:50Z, on the tree of
+  70409b12 (uncommitted then, identical content):
+
+    slug                 cmd  container  OOM    wall  result
+    state-manifest       0    0          false   75s  1 test passed
+    blockchain-manifest  0    0          false   83s  1 test passed
+    rlp-manifest         0    0          false   86s  1 test passed
+    state                0    0          false  109s  1 test passed
+    blockchain           0    0          false   91s  1 test passed
+    engine-late          0    0          false  127s  1 test passed
+    engine-reject        0    0          false   81s  1 test passed
+    rlp                  0    0          false  142s  1 test passed
+
+  8/8, zero "not ok", zero skip lines in any gate log.
+
+For docs/evidence/gates.md and README.md (they do not exist at 04a3aff4;
+they arrived on sec5-public-bootstrap-sync with 584f019b, so they are left
+to the merge):
+  gates.md row: | 70409b12 | 2026-09-24 | — | 8/8 | — | — | — | — |
+    hoodi-gas-mismatch: lazy-state slot lost on revert (Hoodi 3684027 gas
+    mismatch) and persisted INVALID verdicts; record
+    sec5-hoodi-gas-mismatch.txt |
+  README index (Section 5): Hoodi block 3684027 rejected with a gas-used
+    mismatch, and the verdict survived the upgrade: a lazily read storage
+    slot read as zero after a reverted frame; verdicts were restored at
+    startup → sec5-hoodi-gas-mismatch.txt → 72d148aa, 60fb6e91
+
+================================================================================
+Not verified
+================================================================================
+
+- Nothing was deployed; the live block has not been re-imported by a fixed
+  node.
+- Which slot of transaction 9 was read as zero. The reproduction proves the
+  whole 18,602 comes from this defect (same total to the unit, zero
+  difference after the fix), not which of its six reverted frames lost which
+  slot.
+- Whether earlier live blocks read a zero this way and happened to produce
+  the same writes: each was accepted against its header's state root,
+  receipts root and gasUsed, so none diverged in consensus output.
+- Staged-import hydration still restores verdicts (not a startup path).
+- cold-all was not run (fleet rule; the coordinator runs it), nor the full
+  cold-e2e lane. The discard itself is exercised through DEVNET-CLI-IMPORT-
+  DIRECT-CHAIN-DATABASE and DEVNET-CLI-IMPORT-CHAIN-DATABASE in integration
+  tests; no spawned-node test restarts over a persisted verdict.
+- The branch is on 04a3aff4 and was not run merged with the interpreter
+  work (5fee5219) now on sec5-public-bootstrap-sync; this change touches
+  src/runtime/state and the persistence import, not the interpreter.
