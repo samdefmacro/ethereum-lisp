@@ -1,0 +1,199 @@
+Section 5: the snap tail exited the node on SYNCING
+
+Status
+
+Branch snap-tail-syncing, from 5fee5219 (sec5-public-bootstrap-sync head,
+5fee5219678be86ba0ad3e4806526c8a8a4ea8f2). Found, reproduced and fixed
+locally. Not deployed, no live run, no cold-all (the coordinator runs it
+once at the end).
+
+The cause is not a race with the Engine API. Block 3684909 reads BLOCKHASH
+below the snap pivot, and the snap skeleton had never made those blocks
+known; the tail then treated the resulting SYNCING answer as a storage
+failure, which stops the node.
+
+Revision
+
+  7f079d8f  cli: the snap tail knows the blocks its BLOCKHASH reads, and a
+            SYNCING tail block is a phase outcome
+
+================================================================================
+1. Live evidence (container hoodi-el-sec5-04a3aff4, docker logs -t)
+================================================================================
+
+  04:58:31Z  peer.snap.pivot_rebased fromPivot 3683637 -> pivot 3684866,
+             target 3684930, retainedStateProgress T
+  04:58-05:00 heal from the retained state (36,033 processed nodes)
+  05:00:03-05:00:36Z node.store_guard.long_hold holder snap-tail-import,
+             blocks 3684867 .. 3684908 (odd blocks ~1.4 s logged; the even
+             ones held ~0.7 s, visible only in guardWaitedFor, e.g.
+             "snap-tail-import:720[blocks=3684880]")
+  05:00:13Z  engine_newPayloadV4 SYNCING, guardWaitMs 596 behind
+             snap-tail-import:720[blocks=3684880]
+  05:00:15Z  engine_forkchoiceUpdatedV3 SYNCING, guardWaitMs 884 behind
+             snap-tail-import:1232[blocks=3684881]
+  05:00:36.25Z last long hold, blocks 3684908
+  05:00:36.40Z engine.rpc.http.listener.finish on 8545 and 8551 (shutdown)
+  05:00:49Z  "Snap target tail block 0x5b842608...8e6f returned SYNCING
+             instead of VALID"; exit 1
+
+3684909 answered within ~150 ms of 3684908's hold (no long hold for it),
+and the shutdown began right after: the failure is the fast SYNCING answer
+and the error printed at 05:00:49 is the end of the teardown it started.
+
+Block 3684909 (hash 0x5b842608759ca225f599bcce58592a78fee7f58739ea27e429ce
+9d4941398e6f), read from a public Hoodi RPC with eth_getBlockByNumber: its
+eighth transaction 0x031a310d...b2d9cf (to 0xd930e0cebd52d7c77b8f900de242e8
+18506c5474, selector 0x1011f377, receipt status 1 on the canonical chain)
+carries in its calldata the pair (0x81c592ef...345c1a, 0x3839e7), which is
+block 3684839 and its canonical hash: 70 blocks below 3684909 and 27 below
+the pivot 3684866. Across all 65 blocks 3684866..3684930 this is the only
+transaction to that contract and the only calldata that names a block below
+the pivot (scratch scan of the same RPC). The public endpoint has no debug
+API and no state at that height, so the BLOCKHASH call itself is inferred
+from the calldata, not traced; the local reproduction below proves the
+mechanism.
+
+================================================================================
+2. Mechanism
+================================================================================
+
+1. DEVNET-NODE-SNAP-SYNC-PIVOT-ATTEMPT downloads the skeleton from
+   anchor+1 = pivot to the target. Nothing below the pivot is a known block
+   (the node's own head was 3684026, 840 blocks lower).
+2. CHAIN-STORE-BLOCK-HASHES-FOR-HEADER builds the 256-block BLOCKHASH window
+   by walking known blocks from the parent; the first unknown ancestor (the
+   pivot's parent) ends the walk and every lower number is marked
+   :UNAVAILABLE.
+3. BLOCKHASH-WORD on an :UNAVAILABLE number signals STATE-UNAVAILABLE-ERROR
+   ("BLOCK hash history is unavailable").
+4. IMPORT-P2P-BLOCK-CANDIDATE maps STATE-UNAVAILABLE-ERROR for a block that
+   is already known (a skeleton block) to SYNCING with no candidate.
+5. The tail loop required VALID and called STORAGE-FAIL for anything else.
+   STORAGE-ERROR is deliberately not contained by
+   DEVNET-NODE-SYNC-COORDINATOR-PASS, so the coordinator thread's outer
+   boundary requested a node shutdown: exit 1.
+
+A block N of the tail fails when it reads a block at or below pivot-2,
+i.e. deeper than N - pivot + 1, so a contract that reads a fixed older block
+fails on the first tail block that executes it.
+
+Candidates from the brief, ruled out:
+  (a) Engine busy-guard SYNCING: the tail takes the plain guard (GUARD), not
+      the priority guard, and only the priority guard's bounded wait answers
+      SYNCING; the import's SYNCING comes from IMPORT-P2P-BLOCK-CANDIDATE.
+  (b) parent state not yet visible: in the reproduction block 21 executes
+      and its state stays available (asserted by the policy test) while 22
+      answers SYNCING, and the one-deep control executes 22 from the same
+      parent with the same code.
+  (c) the CL's newPayload/fcU: they answered SYNCING for the head, 20+
+      blocks above; the reproduction fails with no Engine request involved
+      (it sends one only to mirror the live timeline).
+  (d) the target moving: TAIL-HEADERS is fixed for the attempt.
+
+go-ethereum holds these ancestors because its skeleton sync fills the header
+chain backwards from the head; our bounded skeleton does not.
+
+================================================================================
+3. Reproduction (RED at 5fee5219 + the new test file)
+================================================================================
+
+DEVNET-SNAP-TAIL-EXECUTES-A-BLOCK-THAT-READS-HASHES-BELOW-THE-PIVOT
+(tests/cli-devnet-snap-tail-tests.lisp, integration): a RocksDB devnet node,
+a 24-block chain whose genesis holds a contract PUSH1 10 NUMBER SUB
+BLOCKHASH PUSH1 0 SSTORE STOP, block 22 calling it (reads block 12), pivot
+20, target 23. Target resolution, pivot selection, block download and the
+state import are doubles; the skeleton export, pivot installation and every
+tail import are the shipped code. Warm image, before the fix:
+
+  LISP-ERROR: The snap tail failed: Snap target tail block
+  0x50301192eb75d54c5662f3c5202387df6e61f77531a5e0aaa374526fb2e902b5
+  returned SYNCING instead of VALID
+  (block 22 of that chain; EXIT=1)
+
+Control, same code: the same fixture with a one-deep read (BLOCKHASH(21),
+above the pivot) completes the tail and returns 3 (temporary probe, not
+committed).
+
+================================================================================
+4. Fix
+================================================================================
+
+(i) The cause. DEVNET-NODE-SNAP-BACKFILL-BLOCKHASH-WINDOW runs before the
+tail: it walks back from the pivot's parent through known blocks and, if the
+window [max(1, pivot-255), pivot-1] is incomplete, downloads the missing
+part with EXPECTED-TARGET-HASH set to the hash the pivot's own ancestry names
+(the downloader checks hash contiguity across batches, so the whole range is
+authenticated from the pivot down). The blocks are collected in memory (at
+most 255) and written in one batch by NODE-STORE-EXPORT-SNAP-HISTORY-BLOCKS-
+TO-KV: the skeleton's body and receipt checks, contiguity and the terminal
+hash re-checked, immutable block/header/receipt records only, no state and
+no cursor. Logged as peer.snap.history_backfilled. It runs on every attempt
+(also the restart-at-the-pivot path), and costs one guarded walk when the
+window is already known.
+
+(ii) The policy. DEVNET-NODE-SNAP-IMPORT-TAIL-BLOCK: ACCEPTED or SYNCING is
+logged as peer.snap.tail_retry, the ancestry is refreshed from the live
+peers, and the block is imported again, at most *DEVNET-SNAP-TAIL-ATTEMPTS*
+(3); then DEVNET-SNAP-TAIL-INCOMPLETE (block, hash, status, attempts). The
+coordinator pass contains it as peer.snap.tail_failed and returns NIL, so
+the next pass resumes the tail at the first block without state. INVALID
+still escapes at once as DEVNET-PEER-SYNC-INVALID (logged
+peer.sync.invalid_ancestor by the same pass). A skeleton block that
+disappeared is still a storage failure.
+
+================================================================================
+5. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0.
+
+RED/GREEN and mutations (warm image, cl-workbench test NAME)
+  DEVNET-SNAP-TAIL-EXECUTES-A-BLOCK-THAT-READS-HASHES-BELOW-THE-PIVOT
+    5fee5219 source: EXIT=1, the Hoodi message (section 3); fixed: EXIT=0.
+    Mutation M3 (the backfill call before the tail removed, and the retry's
+    refresh removed): EXIT=1 "Snap target tail block 22 (0x5030...) answered
+    SYNCING 3 times" -- the typed outcome, naming the BLOCKHASH reader.
+  DEVNET-SNAP-TAIL-SYNCING-BLOCK-IS-A-PHASE-OUTCOME-NOT-A-NODE-FAILURE
+    fixed: EXIT=0 (3 imports of block 22, 2 tail_retry, 1 tail_failed, the
+    coordinator pass returns NIL, block 21 stays executed; the next pass
+    with the ancestry served returns 3 and logs target_completed).
+    Mutation M1 (the old STORAGE-FAIL restored in the retry loop): EXIT=1
+    "The coordinator pass let a tail outcome escape: Snap target tail block
+    0x5030... returned SYNCING instead of VALID".
+  DEVNET-SNAP-TARGET-DOWNLOADS-ONLY-THE-BOUNDED-PIVOT-TAIL (updated): the
+    ACCEPTED tail ends with DEVNET-SNAP-TAIL-INCOMPLETE after exactly 3
+    imports and 3 backfill calls (retry bound asserted); INVALID positive
+    control: DEVNET-PEER-SYNC-INVALID after 1 import, no completion event;
+    VALID: 64 blocks and one completion. EXIT=0.
+  DEVNET-SYNC-COORDINATOR-KEEPS-SERVING-AFTER-INVALID-ANCESTOR and
+  DEVNET-SYNC-COORDINATOR-REFRESHES-AFTER-SNAP-SOURCE-EXHAUSTION: EXIT=0.
+
+Cold, on the committed tree:
+  cl-workbench validation run cold-unit --match SNAP --match STORE-GUARD
+    --match FORWARD --match RESTART-BEHIND --match PACKAGE
+    --match ARCHITECTURE --match DEVNET-SYNC-COORDINATOR
+      203 tests passed, EXIT=0 (includes PROJECT-PACKAGE-DEPENDENCY-GRAPH-
+      IS-ACYCLIC and -INCLUDES-SOURCE-REFERENCES); no WARNING in the log
+  cl-workbench validation run cold-integration --match SNAP-STATE-IMPORT
+    --match DEVNET-PEER-SYNC --match FORWARD --match GAP
+    --match RESTART-BEHIND --match DEVNET-ENGINE-AVAILABILITY
+    --match DEVNET-MULTI-SYNC --match DEVNET-SNAP
+    --match DEVNET-SYNC-COORDINATOR
+      51 tests passed, EXIT=0 (18 SNAP-STATE-IMPORT, 7 DEVNET-PEER-SYNC,
+      12 DEVNET-SNAP, both new tests by name, no duplicated ok lines)
+
+Not verified
+
+- Live: nothing deployed. The next Hoodi run should show
+  peer.snap.history_backfilled once per pivot (about 255 blocks) and no
+  tail_retry.
+- The BLOCKHASH call inside 0xd930e0ce... is inferred from its calldata
+  (section 1); only the local reproduction exercises BLOCKHASH itself.
+- The backfill against real peers: the download path is the shipped
+  multi-peer downloader, but here it is a double serving a local chain.
+- Memory: up to 255 Hoodi blocks with receipts are held until the batch is
+  written (a few tens of MB at Hoodi block sizes; not measured).
+- The separate 04:54Z forward-sync refusal ("links to previously rejected
+  block") is Agent X's gas-used mismatch, not touched here.
+- EEST was not rerun: no execution, root or receipt code changed.

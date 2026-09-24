@@ -1080,7 +1080,14 @@ The implementation boundary is split deliberately:
   with nine optional skips pass. This repairs the event's local trust boundary;
   live target execution, canonical catch-up, and `eth_syncing=false` remain open.
   Exact commands, retained log hashes, and review result are archived in
-  `docs/evidence/sec5-40be2940-snap-tail-completion.txt`. Exact documentation
+  `docs/evidence/sec5-40be2940-snap-tail-completion.txt`. On Hoodi
+  (2026-09-24) that exact-`VALID` rule stopped the node: tail block 3684909
+  read BLOCKHASH below the pivot, where the skeleton had made nothing known, and
+  answered SYNCING. The tail now first downloads the ancestors in its 256-block
+  BLOCKHASH window, retries an `ACCEPTED`/`SYNCING` block three times, and then
+  ends the phase with `peer.snap.tail_failed` for the next coordinator pass;
+  only `INVALID` ends it at once, as in forward range import
+  (`docs/evidence/sec5-snap-tail-syncing.txt`). Exact documentation
   successor `16fe6962837be612281e2659aa91ad100f85d9c1` has a verified
   linux/amd64 runtime image and export containing that guard. Its seven-check
   runtime smoke passed, and the 72,015,360-byte archive has SHA-256

@@ -1291,6 +1291,23 @@ off, to keep waiting. The forward-batch control slows each block past the
 hold budget and requires one block per hold after the first; fast blocks must
 still share a hold. The record is `docs/evidence/sec5-engine-availability.txt`.
 
+### Snap tail: BLOCKHASH ancestry and phase outcomes
+
+```sh
+cl-workbench validation run cold-integration --match DEVNET-SNAP-TAIL-
+cl-workbench validation run cold-integration \
+  --match DEVNET-SNAP-TARGET-DOWNLOADS-ONLY-THE-BOUNDED-PIVOT-TAIL
+```
+
+The first case executes the real snap tail over a chain whose tail block reads
+BLOCKHASH ten blocks back, below the pivot: the ancestors in the first tail
+block's 256-block window must be downloaded and written before the tail runs,
+or the import answers SYNCING. The second withholds that ancestry and drives
+the coordinator pass: the block is imported three times, the pass logs
+`peer.snap.tail_failed` and returns, and the next pass finishes the tail. The
+bounded-pivot case asserts the retry bound and that INVALID ends the phase
+after one import. The record is `docs/evidence/sec5-snap-tail-syncing.txt`.
+
 ### Bounded snap/1 serving and peer-session holds
 
 ```sh
