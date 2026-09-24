@@ -78,7 +78,9 @@
            (= 1 (sbit bitmap destination))
            (code-position-p code destination))))
 
-(defun opcode-base-gas (op &optional context)
+(defun %opcode-base-gas-by-schedule (op &optional context)
+  "The base-gas schedule as rules: the reference OPCODE-BASE-GAS reads through
+its table for every opcode outside +CONTEXT-DEPENDENT-BASE-GAS-OPCODES+."
   (let ((amsterdam-p
           (and context
                (evm-context-chain-rules context)
@@ -139,3 +141,29 @@
     ((member op '(#xf3 #xfd) :test #'=) 0)
     ((= op #xff) (if (context-eip150-p context) 5000 0))
     (t 0))))
+
+;;; The interpreter charges base gas once per executed instruction, so the
+;;; lookup is on the hottest path of block execution.  A CPU profile of a
+;;; Hoodi gas-burner loop (docs/evidence/sec5-newpayload-six-second-cpu.txt)
+;;; spent 43% of the time in the MEMBER/= chains of the schedule above.  The
+;;; opcodes whose base gas depends on the fork (the account-access, call,
+;;; create and selfdestruct families) keep reading the schedule with their
+;;; context; every other opcode's base gas is fork-independent and is read
+;;; from a table computed once from the same schedule.
+(defparameter +context-dependent-base-gas-opcodes+
+  '(#x31 #x3b #x3c #x3f #xf0 #xf1 #xf2 #xf4 #xf5 #xfa #xff)
+  "Opcodes whose base gas the schedule derives from the frame's fork rules.")
+
+(declaim (type (simple-array t (256)) *opcode-base-gas-table*))
+(defparameter *opcode-base-gas-table*
+  (let ((table (make-array 256 :initial-element nil)))
+    (dotimes (op 256 table)
+      (unless (member op +context-dependent-base-gas-opcodes+)
+        (setf (svref table op) (%opcode-base-gas-by-schedule op nil)))))
+  "Base gas per opcode, NIL where the schedule needs the frame's context.")
+
+(declaim (inline opcode-base-gas))
+(defun opcode-base-gas (op &optional context)
+  (declare (type (unsigned-byte 8) op))
+  (or (svref *opcode-base-gas-table* op)
+      (%opcode-base-gas-by-schedule op context)))

@@ -2,6 +2,7 @@
 
 (defun execute-opcode (machine opcode)
   "Dispatch OPCODE to its semantic family."
+  (declare (type evm-machine machine) (type (unsigned-byte 8) opcode))
   (cond
     ((<= #x00 opcode #x20)
      (execute-arithmetic-opcode machine opcode))
@@ -21,6 +22,7 @@
 
 (defun step-evm-machine (machine)
   "Fetch and execute one opcode, enforcing tree-wide step and frame gas limits."
+  (declare (type evm-machine machine))
   (incf (evm-machine-steps machine))
   (let ((budget (evm-machine-step-budget machine)))
     (when budget
