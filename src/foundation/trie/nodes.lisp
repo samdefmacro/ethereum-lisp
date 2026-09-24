@@ -237,17 +237,36 @@ miss. Tests use this to guard the dirty-path complexity contract.")
 
 (declaim (ftype (function (t) t) encoded-node node-reference))
 
+(defvar *trie-transient-resolutions* nil
+  "NIL, or an EQUALP hash table that takes the place of HASH-NODE memoization.
+
+TRIE-RESOLVE-NODE normally stores a resolved node in its HASH-NODE, so the
+decoded node lives as long as the trie graph holding it -- and a state's graph
+is shared with every later state copied from it. A reader that visits nodes of
+a graph it does not own (a snap/1 server answering a peer from the live head
+state) binds this to a fresh table: resolutions are then kept only in the table,
+keyed by node hash, and are garbage once the binding ends. Nodes are
+content-addressed, so one hash names one node whichever resolver loaded it.")
+
 (defun trie-resolve-node (node)
-  "Resolve one HASH-NODE, validating that its loader returns a concrete node."
+  "Resolve one HASH-NODE, validating that its loader returns a concrete node.
+
+The resolution is memoized in NODE, or only in *TRIE-TRANSIENT-RESOLUTIONS*
+while that is bound to a table."
   (if (hash-node-p node)
       (or (hash-node-resolved node)
-          (let ((resolved (funcall (hash-node-resolver node)
-                                   (hash-node-hash node))))
+          (let* ((transient *trie-transient-resolutions*)
+                 (resolved (or (and transient
+                                    (gethash (hash-node-hash node) transient))
+                               (funcall (hash-node-resolver node)
+                                        (hash-node-hash node)))))
             (unless (or (leaf-node-p resolved)
                         (extension-node-p resolved)
                         (branch-node-p resolved))
               (error "Persisted trie resolver returned an invalid node"))
-            (setf (hash-node-resolved node) resolved)))
+            (if transient
+                (setf (gethash (hash-node-hash node) transient) resolved)
+                (setf (hash-node-resolved node) resolved))))
       node))
 
 (defun node-cache-value (node leaf-reader extension-reader branch-reader)

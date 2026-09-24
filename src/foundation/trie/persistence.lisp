@@ -609,6 +609,99 @@ page boundary resumable without repeating an entry."
             (values key (copy-seq (cdr entry)) key t))
           (values nil nil nil nil)))))
 
+(defun %mpt-walk-extend (prefix path)
+  "PREFIX followed by PATH, without PATH's terminator nibble, as octets."
+  (let* ((count (if (has-terminator-p path) (1- (length path)) (length path)))
+         (result (make-byte-vector (+ (length prefix) count))))
+    (replace result prefix)
+    (replace result path :start1 (length prefix) :end2 count)
+    result))
+
+(defun %mpt-walk-child-prefix (prefix nibble)
+  (let ((result (make-byte-vector (1+ (length prefix)))))
+    (replace result prefix)
+    (setf (aref result (length prefix)) nibble)
+    result))
+
+(defun %mpt-walk-order (path bound depth)
+  "Compare PATH, the nibbles below DEPTH, with BOUND from DEPTH on.
+
+Returns :BELOW or :ABOVE at the first nibble that differs, and :PREFIX when
+they agree over their common length."
+  (let ((count (min (length path) (max 0 (- (length bound) depth)))))
+    (dotimes (index count :prefix)
+      (let ((a (aref path index))
+            (b (aref bound (+ depth index))))
+        (cond ((< a b) (return :below))
+              ((> a b) (return :above)))))))
+
+(defun mpt-map-entries-from (trie start function)
+  "Call FUNCTION with KEY and VALUE for every entry of TRIE whose key is at or
+after START, in ascending key order, until FUNCTION returns true.
+
+Returns true when FUNCTION ended the walk. MPT-ENTRY-RANGE enumerates and
+sorts the whole trie before it filters; this walk resolves only the nodes on
+START's path and those of the entries it visits, so a caller that stops after
+N entries pays for N entries whatever the size of TRIE. START is NIL (the first
+key) or a key; keys are ordered as byte strings."
+  (let ((bound (and start (keybytes-to-nibbles start :terminator nil))))
+    (labels ((visit (node prefix bounded-p)
+               ;; BOUNDED-P: PREFIX is a proper prefix of BOUND, so keys below
+               ;; NODE can still fall on either side of it. Otherwise every
+               ;; key below NODE is at or after BOUND.
+               (when (hash-node-p node)
+                 (setf node (trie-resolve-node node)))
+               (etypecase node
+                 (null nil)
+                 (leaf-node
+                  (let* ((path (leaf-node-path node))
+                         (full (%mpt-walk-extend prefix path)))
+                    (when (or (not bounded-p)
+                              (ecase (%mpt-walk-order
+                                      (subseq full (length prefix))
+                                      bound (length prefix))
+                                (:below nil)
+                                (:above t)
+                                (:prefix (>= (length full) (length bound)))))
+                      (funcall function
+                               (nibbles-to-keybytes full)
+                               (copy-seq (leaf-node-value node))))))
+                 (extension-node
+                  (let* ((path (extension-node-path node))
+                         (next (%mpt-walk-extend prefix path))
+                         (child (extension-node-child node)))
+                    (if (not bounded-p)
+                        (visit child next nil)
+                        (ecase (%mpt-walk-order path bound (length prefix))
+                          (:below nil)
+                          (:above (visit child next nil))
+                          (:prefix
+                           (visit child next
+                                  (< (length next) (length bound))))))))
+                 (branch-node
+                  (let* ((depth (length prefix))
+                         (first-child (if bounded-p (aref bound depth) 0)))
+                    (or (and (not bounded-p)
+                             (plusp (length (branch-node-value node)))
+                             ;; The key PREFIX itself precedes every child.
+                             (funcall function
+                                      (nibbles-to-keybytes prefix)
+                                      (copy-seq (branch-node-value node))))
+                        (loop for index from first-child below 16
+                              for child = (aref (branch-node-children node)
+                                                index)
+                              thereis
+                              (and child
+                                   (visit child
+                                          (%mpt-walk-child-prefix prefix index)
+                                          (and bounded-p
+                                               (= index first-child)
+                                               (< (1+ depth)
+                                                  (length bound))))))))))))
+      (and (visit (mpt-root trie) (make-byte-vector 0)
+                  (and bound (plusp (length bound))))
+           t))))
+
 (defun mpt-get-range-proof (trie &key start end limit)
   "Return a bounded range and its compact Merkle boundary proof.
 
