@@ -186,6 +186,18 @@ producer dropped its peer's first announcements that way, and a dropped
 announcement is never repeated."
   (eq :false (devnet-node-sync-view-answer-now node)))
 
+(defconstant +devnet-tx-admission-chunk+ 64
+  "Transactions admitted under one store-guard hold. Our policy: sender recovery
+dominates admission (about a millisecond each), so a chunk holds the guard for
+tens of milliseconds, well inside an Engine request's budget.")
+
+(defun devnet-peer-admission-chunks (transactions)
+  "TRANSACTIONS in order, as lists of at most +DEVNET-TX-ADMISSION-CHUNK+."
+  (loop while transactions
+        collect (loop repeat +devnet-tx-admission-chunk+
+                      while transactions
+                      collect (pop transactions))))
+
 (defun devnet-peer-serve-backend (node)
   "A serve backend answering a peer's requests and gossip from NODE's store.
 
@@ -194,7 +206,8 @@ whole query, so a peer asking for a thousand headers cannot stall the RPC
 services. A query may then span a store that moved underneath it, which is
 harmless: every block it returns was a real block of ours, and the peer
 validates what it receives regardless. Admitting a gossiped transaction does
-take the guard for the whole admission, since that mutates the pool."
+take the guard for the whole admission, since that mutates the pool; a wire
+batch is admitted in chunks of +DEVNET-TX-ADMISSION-CHUNK+, one hold each."
   (let ((store (devnet-node-store node))
         (config (devnet-node-config node))
         (policy (devnet-peer-txpool-policy node)))
@@ -247,10 +260,16 @@ take the guard for the whole admission, since that mutates the pool."
        (lambda () (devnet-node-accept-inbound-transactions-p node))
        :accept-transactions
        (lambda (transactions)
-         (guarded "tx-admission"
-          (lambda ()
-            (txpool-admit-transactions
-             transactions store config policy :admitted-at (unix-time)))))
+         ;; One guard hold per chunk, not per wire batch: admission recovers
+         ;; each sender under the guard, and a Transactions message can carry
+         ;; thousands. Between chunks the guard defers to a waiting Engine
+         ;; request (step aside between chunks, as the forward importer does).
+         (loop for chunk in (devnet-peer-admission-chunks transactions)
+               sum (guarded "tx-admission"
+                            (lambda ()
+                              (txpool-admit-transactions
+                               chunk store config policy
+                               :admitted-at (unix-time))))))
        :accept-transaction
        (lambda (transaction)
          (guarded "tx-admission"
@@ -343,7 +362,14 @@ NIL keeps snap out of Hello on other backends."
          (let ((backend
                  (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
                   (database-engine-payload-store-database store) state
-                  :state-provider (devnet-node-snap-state-provider node))))
+                  :state-provider (devnet-node-snap-state-provider node)
+                  ;; Each request is one guard hold. Like the forward batch
+                  ;; importer, it steps aside for a waiting Engine request:
+                  ;; the server answers the part it has (snap/1 allows a
+                  ;; proved prefix) and releases the guard.
+                  :yield-predicate
+                  (lambda ()
+                    (devnet-node-store-guard-priority-pending-p node)))))
            (ethereum-lisp.snap:make-snap-state-backend
             :account-range
             (lambda (request)

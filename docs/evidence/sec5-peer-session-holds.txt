@@ -1,0 +1,245 @@
+Section 5: peer-session store-guard holds and the post-01:50Z heap growth
+
+Status
+
+Branch peer-session-holds, from 886afd05. The R4 Hoodi run (container
+hoodi-el-sec5-b5161312) showed peer-session store-guard holds of 20-134 s
+from 00:26Z, and from 01:50:17Z one hold that never ended while the Lisp heap
+grew from ~0.5 GB to 3.95 GB until the OOM kill at 02:25:29Z.
+
+Found, reproduced and fixed: the snap/1 server answered GetAccountRange and
+GetStorageRanges through MPT-ENTRY-RANGE, which enumerates and sorts EVERY
+leaf of a lazily persisted trie before it looks at the request's origin,
+limit or byte budget, and it resolved those nodes into the served state's own
+(shared, retained) node graph. One request therefore read and decoded the
+whole account trie (or a contract's whole storage trie) under the store
+guard, and kept about 1.4 KB per account in the heap afterwards. Serving now
+walks from the origin and stops at the limit key, the byte budget, a 1 s
+per-request time budget, or as soon as an Engine request waits, answering the
+proved prefix snap/1 allows; resolutions are per-request, never memoized into
+the served state. GetByteCodes and GetTrieNodes gained geth's lookup and
+soft-byte caps, and inbound transaction batches are admitted 64 per hold.
+Not deployed, no live run, no cold-all (the coordinator runs it once).
+
+Revision (branch peer-session-holds)
+
+  6dae34ea  snap: serve a range from its origin and stop at the request's
+            bounds, and step aside for a waiting Engine request
+  510db9a9  test: snap serving reads what it returns, ends within its
+            budget, and yields to an Engine request
+  (this record and the docs/validation.md selectors follow them)
+
+================================================================================
+1. What the live run shows (read-only, Hoodi host, 2026-09-24)
+================================================================================
+
+docker logs -t hoodi-el-sec5-b5161312 (exited, OOMKilled true, 02:25:29Z):
+  - node.store_guard.long_hold, holder ethereum-lisp-devnet-dial-session:
+    first 00:26:12Z (3,416 ms), last 01:50:17Z (110,731 ms); 165 of them,
+    engineWaiting=true on most. No per-request serving event exists at
+    b5161312, and the holds carry no activity label (labels came in
+    886afd05), so the log cannot say which request each was.
+  - The p2p.peer.session_failed lines that cluster at each hold's release are
+    OTHER sessions' handshakes (ECIES tag / stream ended / network mismatch)
+    that waited behind the hold (the 479c1e5b inbound-auth effect); none is
+    the holding session failing, so each hold ended in a normal answer.
+  - heapMb on the Engine request lines: 350-680 MB from 00:20Z to 01:50:17Z,
+    then a steady climb with no sawtooth back down: 794 (01:51:56), 1,022
+    (01:54:11), 1,353 (01:57:03), 1,565 (01:59:45), 2,029 (02:02:09), 2,296
+    (02:04:58) ... 3.95 GB before the kill: about 60 MB a minute of RETAINED
+    heap. forkchoiceUpdatedV3 and newPayloadV4 completed at 01:50:20-21Z, so
+    the hold that never ended began just after (the /proc sample in
+    sec5-engine-availability.txt found a thread created ~01:50:20Z reading
+    the page cache at ~31% of a CPU).
+
+================================================================================
+2. Mechanism
+================================================================================
+
+(a) Unbounded range walks. SNAP-SYNC-ACCOUNT-RESPONSE and SNAP-SYNC-STORAGE-
+    RESPONSE (src/networking/snap-sync/backend.lisp at 886afd05) called
+    (MPT-ENTRY-RANGE TRIE :START ORIGIN). For a lazy trie (MPT-LAZY-P: every
+    trie the RocksDB direct provider serves) MPT-ENTRY-PAIRS walks the whole
+    tree with TRIE-COLLECT-ENTRY-PAIRS, conses every (key . value), sorts the
+    list by a hex string per key, and only then MPT-ENTRY-RANGE filters by
+    START; the byte budget and Limit were applied to that list afterwards.
+    The work of one GetAccountRange was the whole account trie, whatever the
+    peer asked for. geth v1.17.x ServiceGetAccountRangeQuery and
+    ServiceGetStorageRangesQuery (eth/protocols/snap/handler.go) iterate a
+    flat snapshot from Origin and stop at Limit or once the response passes
+    Bytes (capped at softResponseLimit = 2 MiB): their work is the response.
+(b) Retention. TRIE-RESOLVE-NODE memoizes every resolved node in its
+    HASH-NODE. The served trie is COPY-MPT of the state's trie, which shares
+    the node graph -- with the chain store's committed tries for that block
+    (CHAIN-STORE-STATE-DB copies (FIRST COMMITTED-TRIES)) and with every later
+    state built from it. The backend also pins the session-open head state
+    and a per-session cache of every root a peer asked for
+    (DEVNET-NODE-SNAP-STATE-PROVIDER). So everything a walk resolved stayed
+    in the heap: a full walk left ~1.4 KB per account resident, and even
+    bounded requests from a peer syncing the whole key space would, over
+    time, pin the whole decoded trie.
+(c) Other kinds. GetByteCodes had no maxCodeLookups (1024) cap and no soft
+    byte cap; GetTrieNodes had no soft byte cap and no clock (geth:
+    maxTrieNodeLookups 1024, maxTrieNodeTimeSpent 5 s, softResponseLimit).
+    Their work was still bounded (1024 lookups, request-sized hashes).
+(d) Nothing inside a serving hold looked at the Engine priority signal; the
+    forward batch importer does (e313f198). Transaction admission ran a whole
+    wire batch (one sender recovery per transaction) under one hold.
+
+What explains the live observations, and how firmly:
+  - The hold from ~01:50:20Z that never ended, with page-cache reads and a
+    steadily RETAINED heap climb: one GetAccountRange (or GetStorageRanges on
+    a large contract) walking the whole trie under the guard, memoizing as it
+    went. Measured locally (section 4): 1,425-1,463 B retained per account,
+    plus ~1.6 KB per account live for the entry list until the walk ends.
+    3.5 GB of growth is on the order of 1.1-1.2 million accounts walked; at
+    the observed ~60 MB/min that is ~700 accounts a second, a plausible rate
+    for RocksDB point reads from a cgroup with 190 MB of page cache left. The
+    Hoodi account count was not measured, so "the walk would have needed more
+    than the 12 GiB limit" is an inference, not a measurement.
+  - The 20-134 s holds that did end: walks that finished (storage walks of
+    large contracts, or account walks while the page cache was still warm),
+    or bounded trie-node requests on a cold cache. Not attributable per hold
+    from the b5161312 log (no labels, no per-request event).
+  - Not eth serving: every eth lookup is its own hold of one block
+    (+ETH-MAX-HEADERS/BODIES/RECEIPTS-SERVE+, 2 MiB soft limit), and the gap
+    filler / forward importer carry their own labels (none in R4).
+
+================================================================================
+3. Fix
+================================================================================
+
+a. MPT-MAP-ENTRIES-FROM (src/foundation/trie/persistence.lisp): an ordered
+   walk from START that resolves only START's path and the entries it visits
+   and stops when the caller's function returns true. The account and
+   storage handlers walk with it and stop at: the first key at or past Limit
+   (included, as geth does), the byte budget (min Bytes 2 MiB), the time
+   budget, or the yield predicate -- always after at least one item, so the
+   requester progresses. The origin and last-key proofs are unchanged, so a
+   cut range verifies as a partial range. Storage: a new account's range is
+   not opened once the byte or time budget is spent (geth: "size >=
+   req.Bytes"), and a cut inside an account is proved like a byte cut.
+b. *TRIE-TRANSIENT-RESOLUTIONS* (src/foundation/trie/nodes.lisp): while bound
+   to a table, TRIE-RESOLVE-NODE keeps resolutions in that table only. Each
+   served request binds a fresh one (SNAP-SYNC-CALL-SERVING), so nothing a
+   peer asks for stays in the served state's graph.
+c. *SNAP-SYNC-SERVE-SECONDS* = 1 (our policy): per-request time budget for
+   all four kinds. MAKE-PERSISTENT-SNAP-STATE-BACKEND takes :YIELD-PREDICATE;
+   DEVNET-PEER-SNAP-BACKEND passes DEVNET-NODE-STORE-GUARD-PRIORITY-PENDING-P,
+   so a serving hold ends within one item of an Engine request arriving.
+d. geth caps: GetByteCodes serves at most 1024 hashes (maxCodeLookups) and
+   caps Bytes at 2 MiB; GetTrieNodes caps Bytes at 2 MiB (the 1024-lookup cap
+   already existed). Unknown roots still answer empty.
+e. A lazy (direct) state's in-memory objects are no longer scanned for a
+   flat storage entry on every requested account (O(objects) per account);
+   only a flat, non-lazy state serves storage from memory.
+f. Transaction admission: a wire batch is admitted in chunks of 64
+   (+DEVNET-TX-ADMISSION-CHUNK+), one "tx-admission" hold each; the guard's
+   Engine deferral (6fe683b0) runs between chunks.
+
+Unknown-root, empty-root and cardinality behaviour is unchanged (the older
+SNAP-SERVER/SNAP-BACKEND/SNAP-TRIE-NODE-SERVER tests are in the runs below).
+
+================================================================================
+4. Reproduction and verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed (EXIT=0).
+
+RED at 886afd05 (new tests, source unchanged):
+  cl-workbench validation run cold-integration --match SNAP-SERVER-   EXIT=1
+    # bounded account range: 16 accounts, 1382 node reads
+    not ok SNAP-SERVER-ACCOUNT-RANGE-READS-ONLY-THE-NODES-IT-RETURNS
+    # bounded storage range: 15 slots, 1383 node reads
+    not ok SNAP-SERVER-STORAGE-RANGE-READS-ONLY-THE-SLOTS-IT-RETURNS
+    # time-bounded account range: 512 accounts in 3298 ms
+    not ok SNAP-SERVER-STOPS-AT-ITS-TIME-BUDGET-AND-PROVES-THE-PARTIAL-RANGE
+    not ok SNAP-SERVER-BYTECODES-STOP-AT-THE-GETH-LOOKUP-CAP (1100 served)
+    0 passed, 4 failed.
+
+GREEN (this branch):
+  cl-workbench validation run cold-integration --match SNAP-SERVER-
+    --match DEVNET-PEER-SNAP-SERVE --match DEVNET-PEER-TX-ADMISSION  EXIT=0
+    # bounded account range: 16 accounts, 22 node reads
+    # bounded storage range: 15 slots, 24 node reads
+    # time-bounded account range: 53 accounts in 302 ms (budget 0.3 s)
+    # snap serve behind an Engine request: fixed 6 accounts, served 303 ms,
+      Engine waited 2 ms; ignoring the signal 44 accounts, served 2242 ms,
+      Engine waited 1941 ms
+    7 tests passed.
+  cl-workbench validation run cold-unit --match SNAP-SERVE-TRIE-WALK  EXIT=0
+    SNAP-SERVE-TRIE-WALK-MATCHES-THE-FULL-ENUMERATION: 1 passed (104 starts
+    on a 300-key trie, in memory and lazily from a database, plus 11 starts
+    over mixed-length keys with branch values, against MPT-ENTRY-RANGE).
+
+Mutation / positive controls:
+  - One cold run with the pre-fix devnet wiring (peer-sync.lisp from
+    886afd05) and SNAP-SYNC-CALL-SERVING binding no transient table   EXIT=1:
+      SNAP-SERVER-ACCOUNT-RANGE-... fails on
+        (NOT (SNAP-SERVE-BOUNDS-ROOT-RESOLVED-P STATE))  -- retention seen;
+      DEVNET-PEER-SNAP-SERVE-... "fixed 44 accounts, served 2271 ms, Engine
+        waited 1971 ms" -> (< FIXED-ACCOUNTS OLD-ACCOUNTS) fails;
+      DEVNET-PEER-TX-ADMISSION-... one hold -> (= 3 ...) fails.
+  - In-test controls: a full-range request reads every leaf (>= 1024 reads,
+    1024 accounts) so the read counter counts; a never-firing yield
+    predicate serves all 64 accounts / 64 slots (no proof for a whole storage
+    trie); the devnet test's control arm ignores the priority signal.
+
+Heap measurement (temporary cold probe, removed before commit; memory
+database, arm64 image, full GC before each reading):
+  old walk  5,000 accounts:  6,904 reads, 73 ms, consed 45.3 MB, live with
+            the entry list 8.2 MB, retained in the state's graph 7.3 MB
+            (1,463 B/account)
+  old walk 20,000 accounts: 26,876 reads, 248 ms, consed 176 MB, live with
+            the entry list 32.0 MB, retained 28.5 MB (1,426 B/account)
+  new, 512 KiB request over 20,000 accounts: 13,450 accounts (cut by the
+            1 s budget), 18,063 reads, consed 130 MB; the state's graph root
+            stayed unresolved (asserted); dynamic usage 5.5 MB above the
+            baseline after the response was dropped (not attributed; the
+            state's graph holds none of it).
+
+Cold runs of record (same tree as the commits; nothing edited during a run):
+  cl-workbench validation run cold-unit --match SNAP --match SERVE
+    --match STORE-GUARD --match TRIE --match PACKAGE
+      298 tests passed, 2 skipped (the optional EEST trie-vector roots),
+      EXIT=0; includes the walker test, the five DEVNET-STORE-GUARD tests,
+      8 ETH-SERVE tests and both package-graph tests.
+  cl-workbench validation run cold-integration --match SNAP-SERV
+    --match SNAP-TRIE-NODE-SERVER --match SNAP-BACKEND
+    --match SNAP-BYTECODE-SERVER --match SNAP-STORAGE-RANGE
+    --match SNAP-ACCOUNT-RANGE --match ETH-SYNC-SERVE --match DEVNET-PEER
+    --match DEVNET-ENGINE-AVAILABILITY --match ETH-SYNC-MULTIPLEXES
+    --match SNAP-STATE-IMPORT --match ETH-GOSSIP
+      54 tests passed, EXIT=0, no duplicated ok line (ETH-SYNC-SERVE selects
+      no integration test; the eth serve tests are unit tests, above).
+  No cold-all (coordinator).
+
+Fresh compile-file of every changed source and new test file (temporary
+probe): no WARNING or STYLE-WARNING except the probe's own macro
+redefinition.
+
+================================================================================
+Not verified
+================================================================================
+
+- Nothing was deployed. That the post-01:50Z hold was a full account (or
+  storage) walk is inferred from the code path, the retained-heap slope and
+  the page-cache reads; the b5161312 log has no per-request serving event.
+  The Hoodi account count was not measured.
+- Hive devp2p snap suite (6 tests, geth cmd/devp2p/internal/ethtest/snap.go)
+  was not run. Expected unchanged: its state is small, so neither the 1 s
+  budget nor the Engine yield fires, and Limit/Bytes accounting and proofs
+  are unchanged. Two deliberate geth alignments could move a case: at most
+  1024 bytecodes per request, and a storage request whose byte budget is
+  spent no longer opens (and proves one slot of) the next account.
+- A time- or yield-cut response is smaller than the peer asked for; geth's
+  syncer treats a proved partial range as progress and re-asks from the last
+  key. A peer that marks us slow for short answers would prefer other
+  sources; not measured.
+- eth serving and blob admission were read, not changed (one block or one
+  transaction per hold). The per-session DEVNET-NODE-SNAP-STATE-PROVIDER
+  cache still pins every state root a peer resolved for the session's life
+  (small objects now that nothing is memoized into them).
+- EEST/Hive consensus fixtures were not rerun: no execution, root or receipt
+  code changed; the trie change is read-only walking and an opt-in
+  non-memoizing resolution.

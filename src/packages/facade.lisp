@@ -176,6 +176,8 @@
    #:trie-node-store-get
    #:mpt-get-node-by-compact-path
    #:make-mpt-iterator
+   #:mpt-map-entries-from
+   #:*trie-transient-resolutions*
    #:mpt-get-range-proof
    #:mpt-verify-range-proof)
   (#:ethereum-lisp.blocks

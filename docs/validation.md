@@ -1290,6 +1290,31 @@ off, to keep waiting. The forward-batch control slows each block past the
 hold budget and requires one block per hold after the first; fast blocks must
 still share a hold. The record is `docs/evidence/sec5-engine-availability.txt`.
 
+### Bounded snap/1 serving and peer-session holds
+
+```sh
+cl-workbench validation run cold-unit \
+  --match SNAP-SERVE-TRIE-WALK-MATCHES-THE-FULL-ENUMERATION
+cl-workbench validation run cold-integration --match SNAP-SERVER-
+cl-workbench validation run cold-integration \
+  --match DEVNET-PEER-SNAP-SERVE-STEPS-ASIDE-FOR-A-WAITING-ENGINE-REQUEST
+cl-workbench validation run cold-integration \
+  --match DEVNET-PEER-TX-ADMISSION-HOLDS-THE-GUARD-PER-CHUNK
+```
+
+A served account or storage range over a lazily persisted trie reads only the
+proof paths and the entries it returns (a 600-byte request over 1,024 accounts
+or slots reads fewer than 100 nodes; a full-range control reads every leaf),
+leaves no resolved node in the served state's graph, ends within the
+per-request time budget with a proved partial range, stops between items when
+its yield predicate fires, and serves at most geth's 1,024 bytecodes. The trie
+walk is checked against the full enumeration from many starts, in memory, from
+a database and over mixed-length keys. On a RocksDB devnet node the real snap
+backend steps aside for a waiting Engine request (control: the priority signal
+ignored, the Engine request waits out the range), and a wire batch of 150
+transactions is admitted under three holds. The record is
+`docs/evidence/sec5-peer-session-holds.txt`.
+
 ### Hoodi shadow Engine fan-out
 
 A seven-day EL comparison cannot attach two execution clients directly to one

@@ -483,6 +483,7 @@
      (:file "p2p-connection-tests")
      (:file "p2p-session-tests")
      (:file "snap-tests")
+     (:file "snap-serve-bounds-tests")
      (:file "snap-closure-tests")
      (:file "snap-heal-walk-tests")
      (:file "snap-closure-density-tests")
