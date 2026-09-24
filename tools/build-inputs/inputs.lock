@@ -1,0 +1,86 @@
+# Pinned build inputs of ./Dockerfile (test image) and Dockerfile.runtime.
+#
+# One line per input: NAME ARCH SCOPE SHA256 PURL
+#
+#   NAME    what the Dockerfiles pass to verify-inputs.sh (ql-archive/FILE for
+#           a Quicklisp release archive)
+#   ARCH    any, or the Debian architecture a binary input belongs to
+#   SCOPE   runtime  compiled into or copied into the shipped runtime image
+#           build    used to build the runtime image, not shipped in it
+#           test     used by the test image
+#   SHA256  file SHA-256, or the tree/package digest verify-inputs.sh defines
+#   PURL    package URL: the version (a commit for a git input, the Debian
+#           version for a package) is enforced; the SBOM reads it as well
+#
+# Enforced inside the build by tools/build-inputs/verify-inputs.sh, which runs
+# after each download and before anything downloaded is loaded, executed or
+# compiled; a mismatch fails the build. scripts/pins-check.sh checks from the
+# control plane that the vendored RocksDB archive and the digest written into
+# both Dockerfiles agree with this file.
+#
+# Refreshing an input: change the version in the Dockerfile and here, build,
+# and copy the `record:` line the failing check prints -- only after checking
+# the new bytes against the upstream's own published digest (the Quicklisp
+# client-info.sexp and the dist's releases.txt carry digests; the Debian
+# archive signs its Packages files; a git input names its commit). Keep the
+# list sorted by kind as below.
+
+# Vendored in tools/rocksdb (also checked inline by both Dockerfiles, whose
+# RocksDB layer runs before this file is copied so its build cache survives).
+rocksdb-source            any    runtime,test   d5e78b69e0fb2960576fd5f21c9f3d1a02f635da61159b01942ff285e891c9c0  pkg:github/facebook/rocksdb@v11.1.2
+
+# c-kzg-4844 v2.1.1 and the blst v0.3.14 submodule it pins, cloned by tag;
+# the checkout must be exactly these commits. libethckzg and libethbls link
+# blst statically.
+c-kzg-4844                any    runtime,test   23e6e5a76cce9505e1b6a1beb79fd4f75dcada6da524dcf7b167e247ce4fe11c  pkg:github/ethereum/c-kzg-4844@28743bc8a2d89d737e63e8d9ca63fe23fdccdd80
+blst                      any    runtime,test   927519925190b1431f917ee14bec36861d6e141b24f13b30470dd3a30a799525  pkg:github/supranational/blst@8c7db7fe8d2ce6e76dc398ebd4d475c0ec564355
+
+# SBCL from Debian bookworm, per architecture. Its runtime is embedded in the
+# shipped executable.
+sbcl                      amd64  runtime,test   47fdeb7f26041217dde6ee0ae33a70be364fca086a8d57ccbee6f3f80174c4be  pkg:deb/debian/sbcl@2:2.2.9-1?arch=amd64&distro=debian-12
+sbcl                      arm64  runtime,test   93fbb6fc65e07e3bc27ae208d0c23876899c647378d7b55fb7dc8b379f609799  pkg:deb/debian/sbcl@2:2.2.9-1?arch=arm64&distro=debian-12
+
+# Quicklisp client 2021-02-13 (digests as published in its client-info.sexp),
+# fetched over HTTPS instead of through the quicklisp.lisp bootstrap.
+quicklisp-client          any    build,test     a8a3c8c91b51dd185175abad4d7c3999ebb4e2520be5a6cee2127035ac6c87be  pkg:generic/quicklisp-client@2021-02-13?download_url=https://beta.quicklisp.org/client/2021-02-13/quicklisp.tar
+quicklisp-setup           any    build,test     549fe3e7e0f2669daede98437c99cd60e02c0b8536d3d135c9aa9d346ed951b6  pkg:generic/quicklisp-setup@2021-02-11?download_url=https://beta.quicklisp.org/client/2021-02-11/setup.lisp
+quicklisp-asdf            any    build,test     51912f3f7c2c62c204f515d97346d56011528399bbf0a76a123318343ebd8bf0  pkg:generic/asdf@3.2.1?download_url=https://beta.quicklisp.org/asdf/3.2.1/asdf.lisp
+
+# The Quicklisp dist 2026-01-01 index files.
+quicklisp-dist-distinfo   any    build,test     fc436eb7582c8b69f2ec87d77bdaa4087502328dec09f21c576d78fac8bf5e15  pkg:generic/quicklisp-dist@2026-01-01?download_url=http://beta.quicklisp.org/dist/quicklisp/2026-01-01/distinfo.txt
+quicklisp-dist-systems    any    build,test     cb8309321840887b542fa853dc4fe95f9a4ea2d7ca028c521d32b67d2bdf51c7  pkg:generic/quicklisp-dist@2026-01-01?download_url=http://beta.quicklisp.org/dist/quicklisp/2026-01-01/systems.txt
+quicklisp-dist-releases   any    build,test     9cad59398e760032de0053cafcfdcf16eb437caf1a20d65668a8e3b726485da4  pkg:generic/quicklisp-dist@2026-01-01?download_url=http://beta.quicklisp.org/dist/quicklisp/2026-01-01/releases.txt
+
+# Every Quicklisp release archive either image installs: the ironclad and cffi
+# closure (compiled into the runtime executable) and, for the test image only,
+# the mgl-pax/full closure used by scripts/docs-check.lisp.
+ql-archive/3bmd-20250622-git.tgz                           any    test           4c051d1d4e1b91e055a143f930ee5ca566cf661934522c7ff52a5bc7f89dd428  pkg:generic/3bmd@20250622-git?download_url=http://beta.quicklisp.org/archive/3bmd/2025-06-22/3bmd-20250622-git.tgz
+ql-archive/alexandria-20241012-git.tgz                     any    runtime,test   dcdfc5bac229a952358dfe661f0860e8a02480e406d0d95dee4300cdc3d45b31  pkg:generic/alexandria@20241012-git?download_url=http://beta.quicklisp.org/archive/alexandria/2024-10-12/alexandria-20241012-git.tgz
+ql-archive/babel-20260101-git.tgz                          any    runtime,test   e30d399fdcdf6f540ba28185fb6d9e3ebb4219c1df314d861ef3ed26be38d08d  pkg:generic/babel@20260101-git?download_url=http://beta.quicklisp.org/archive/babel/2026-01-01/babel-20260101-git.tgz
+ql-archive/bordeaux-threads-v0.9.4.tgz                     any    runtime,test   7646fe243a5f12274e7d3296b03b178c12c21d03f8eab4805147d6f1ecac3024  pkg:generic/bordeaux-threads@v0.9.4?download_url=http://beta.quicklisp.org/archive/bordeaux-threads/2024-10-12/bordeaux-threads-v0.9.4.tgz
+ql-archive/cffi-20260101-git.tgz                           any    runtime,test   c4935fbb8ed96a062e9f2315f6566b53d3ec90a1d00c001cac908d242a8d84e6  pkg:generic/cffi@20260101-git?download_url=http://beta.quicklisp.org/archive/cffi/2026-01-01/cffi-20260101-git.tgz
+ql-archive/chunga-20260101-git.tgz                         any    test           5eb170dc8e25244788fefa54fda0b987d265301f3a76b6e5f9775d6967565c9b  pkg:generic/chunga@20260101-git?download_url=http://beta.quicklisp.org/archive/chunga/2026-01-01/chunga-20260101-git.tgz
+ql-archive/cl-base64-20201016-git.tgz                      any    test           3ff50faf5ddccd409f8954eb70c2d4e76329cc916f070de95f79c7ecf6d3a2f1  pkg:generic/cl-base64@20201016-git?download_url=http://beta.quicklisp.org/archive/cl-base64/2020-10-16/cl-base64-20201016-git.tgz
+ql-archive/cl-fad-20220220-git.tgz                         any    test           91faa900b70d369b8646d6d8b5b560d5fe10c10985132290278f8a9c094f4224  pkg:generic/cl-fad@20220220-git?download_url=http://beta.quicklisp.org/archive/cl-fad/2022-02-20/cl-fad-20220220-git.tgz
+ql-archive/cl-ppcre-20250622-git.tgz                       any    test           a9d6a9ca9eb862283f6079856629c8b19254f108fcde065d61f280e7c2c6ec39  pkg:generic/cl-ppcre@20250622-git?download_url=http://beta.quicklisp.org/archive/cl-ppcre/2025-06-22/cl-ppcre-20250622-git.tgz
+ql-archive/cl+ssl-20260101-git.tgz                         any    test           a64ce3951b1046961b7005b941b2438f65fd0d250996bce0f3bc8f5e8c9b0e6f  pkg:generic/cl+ssl@20260101-git?download_url=http://beta.quicklisp.org/archive/cl+ssl/2026-01-01/cl+ssl-20260101-git.tgz
+ql-archive/colorize-20250622-git.tgz                       any    test           b7695635cf57e070724a86700dd3a31c67deeb5e4fa9de2e26980f8bdd583520  pkg:generic/colorize@20250622-git?download_url=http://beta.quicklisp.org/archive/colorize/2025-06-22/colorize-20250622-git.tgz
+ql-archive/esrap-20260101-git.tgz                          any    test           f58d5c62c315ea71d18b82c8e406eddf1359f97c035bddeb1a0ebf241ebac674  pkg:generic/esrap@20260101-git?download_url=http://beta.quicklisp.org/archive/esrap/2026-01-01/esrap-20260101-git.tgz
+ql-archive/flexi-streams-20241012-git.tgz                  any    test           f0437d3f4432e1ddab720da7de0df277baa7a05ec86fad297e00ec8045a3dd54  pkg:generic/flexi-streams@20241012-git?download_url=http://beta.quicklisp.org/archive/flexi-streams/2024-10-12/flexi-streams-20241012-git.tgz
+ql-archive/global-vars-20141106-git.tgz                    any    runtime,test   f294843bb31144034e1370df1634dd74f24e617e3abb9c00c17927eda2ae4f2e  pkg:generic/global-vars@20141106-git?download_url=http://beta.quicklisp.org/archive/global-vars/2014-11-06/global-vars-20141106-git.tgz
+ql-archive/html-encode-1.2.tgz                             any    test           8e3da4ad3416b5b9969a76bad7c6a08e7a923bb89bcc5f21d7c5f9922c47ae1a  pkg:generic/html-encode@1.2?download_url=http://beta.quicklisp.org/archive/html-encode/2010-10-06/html-encode-1.2.tgz
+ql-archive/hunchentoot-v1.3.1.tgz                          any    test           e8202750298a9dea1c0c4ee98d9287ae9e140c5a6286b9f7fbc0f263cdbef319  pkg:generic/hunchentoot@v1.3.1?download_url=http://beta.quicklisp.org/archive/hunchentoot/2024-10-12/hunchentoot-v1.3.1.tgz
+ql-archive/ironclad-v0.61.tgz                              any    runtime,test   f731a1d4d4377d1eba9f13cf4200743698ae2dea28053890e0f145a403ea988b  pkg:generic/ironclad@v0.61?download_url=http://beta.quicklisp.org/archive/ironclad/2024-10-12/ironclad-v0.61.tgz
+ql-archive/md5-20210630-git.tgz                            any    test           9bfde89ed7e0464204b66b9b9f6699d4234aeabe1d00695d711d993bf8a2719a  pkg:generic/md5@20210630-git?download_url=http://beta.quicklisp.org/archive/md5/2021-06-30/md5-20210630-git.tgz
+ql-archive/mgl-pax-20260101-git.tgz                        any    test           2c7efd402c1814ae4bb4d809e704a6b1f547841725b80e8c4203ee3185a523ad  pkg:generic/mgl-pax@20260101-git?download_url=http://beta.quicklisp.org/archive/mgl-pax/2026-01-01/mgl-pax-20260101-git.tgz
+ql-archive/named-readtables-20260101-git.tgz               any    test           d6ce94191b559d9b1cc521aca026161a6b67d9d51676ef9daee8c50bdfa04491  pkg:generic/named-readtables@20260101-git?download_url=http://beta.quicklisp.org/archive/named-readtables/2026-01-01/named-readtables-20260101-git.tgz
+ql-archive/pythonic-string-reader-20180711-git.tgz         any    test           ddd7d2cf024b9057ee9471c3e2715efa264daafc6c17d5414e8a7157e7d2263f  pkg:generic/pythonic-string-reader@20180711-git?download_url=http://beta.quicklisp.org/archive/pythonic-string-reader/2018-07-11/pythonic-string-reader-20180711-git.tgz
+ql-archive/rfc2388-20180831-git.tgz                        any    test           63fc3346a0bae5acd3c9d1cd658947f45a4f869b762a51d70882728169defbe4  pkg:generic/rfc2388@20180831-git?download_url=http://beta.quicklisp.org/archive/rfc2388/2018-08-31/rfc2388-20180831-git.tgz
+ql-archive/split-sequence-v2.0.1.tgz                       any    test           ca47962ad1e2275e9c9092abedb392459c93b25b1f6f0565057e715bfa6dd274  pkg:generic/split-sequence@v2.0.1?download_url=http://beta.quicklisp.org/archive/split-sequence/2021-05-31/split-sequence-v2.0.1.tgz
+ql-archive/trivial-backtrace-20230214-git.tgz              any    test           e34a3355ca15c2e0ed84160046c2b16680a7e8b164d67d5a049656786af6c84f  pkg:generic/trivial-backtrace@20230214-git?download_url=http://beta.quicklisp.org/archive/trivial-backtrace/2023-02-14/trivial-backtrace-20230214-git.tgz
+ql-archive/trivial-features-20250622-git.tgz               any    runtime,test   d8c9686e0425ea6f2cc8e18139a80bb082c44a23ac68fd455e5c74848b42257a  pkg:generic/trivial-features@20250622-git?download_url=http://beta.quicklisp.org/archive/trivial-features/2025-06-22/trivial-features-20250622-git.tgz
+ql-archive/trivial-garbage-20231021-git.tgz                any    runtime,test   b29529bc3615ef373bcd8705b991709939dbcdf1071da494b1bf8e33c46d006a  pkg:generic/trivial-garbage@20231021-git?download_url=http://beta.quicklisp.org/archive/trivial-garbage/2023-10-21/trivial-garbage-20231021-git.tgz
+ql-archive/trivial-gray-streams-20241012-git.tgz           any    test           be7c33e82fdc8f4834b93b697df98a3b06486e6492928841dc26bb824d091cca  pkg:generic/trivial-gray-streams@20241012-git?download_url=http://beta.quicklisp.org/archive/trivial-gray-streams/2024-10-12/trivial-gray-streams-20241012-git.tgz
+ql-archive/trivial-utf-8-20250622-git.tgz                  any    test           be994ffc197c981254c16f98b40a1a2d6c62c614d55db4dd35a769b8e83e0e32  pkg:generic/trivial-utf-8@20250622-git?download_url=http://beta.quicklisp.org/archive/trivial-utf-8/2025-06-22/trivial-utf-8-20250622-git.tgz
+ql-archive/trivial-with-current-source-form-20260101-git.tgz any    test           afe2d4b5f811de1e72f6096d76f3140079bd5384aec7e7b1a26b178d7a2f7d7a  pkg:generic/trivial-with-current-source-form@20260101-git?download_url=http://beta.quicklisp.org/archive/trivial-with-current-source-form/2026-01-01/trivial-with-current-source-form-20260101-git.tgz
+ql-archive/usocket-0.8.9.tgz                               any    test           36759258e392359aa88fb026009949dadd2d46b108492dece1b90d937cf873e7  pkg:generic/usocket@0.8.9?download_url=http://beta.quicklisp.org/archive/usocket/2026-01-01/usocket-0.8.9.tgz

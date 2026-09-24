@@ -333,3 +333,61 @@ complete` line and runtime faults) is written but not yet in the broker; see
 `docs/evidence/sec5-gate-tooling.txt`. Until it lands, stop with `docker stop
 --time 120` and read the store's `chaindata/LOG` tail for `Shutdown
 complete`.
+
+## Release verification
+
+A runtime release is five files that travel together, plus the signer's
+public key, which travels separately (from the signer, never from next to the
+archive):
+
+| file | what it is |
+|---|---|
+| `ethereum-lisp-runtime-REV-amd64.tar` | `docker image save` of the non-root runtime image |
+| `….tar.sbom.cdx.json` | CycloneDX 1.5 SBOM: the image (revision, image ID), its 95 Debian packages, the 14 files dpkg does not own (client executable, RocksDB, libethckzg, libethbls, io_uring probe, KZG setup, genesis allocations) with SHA-256, and every pinned build input from `tools/build-inputs/inputs.lock` |
+| `….tar.provenance.json` | in-toto v1 statement, SLSA v1 provenance predicate: subject = the archive's SHA-256; source commit; inputs.lock SHA-256; base image digest; builder; the SBOM's SHA-256 |
+| `….tar.SHA256SUMS` | SHA-256 of the three files above |
+| `….tar.SHA256SUMS.sig` | cosign signature over `SHA256SUMS` |
+
+Verify before loading an archive anywhere (Docker on the control plane; the
+digest-pinned cosign and CycloneDX validator images are pulled once, then run
+with no network; no JSON tool is needed):
+
+```
+scripts/release-verify.sh /private/tmp/ethereum-lisp-runtime-REV-amd64.tar cosign.pub
+```
+
+It exits 0 and ends with `release-verify: PASS …` only when all of these hold:
+the signature verifies with that key; `SHA256SUMS` names exactly the archive,
+SBOM and provenance and every digest matches; every blob in the archive hashes
+to its name, the SBOM's image ID is the archive's index entry and reaches the
+image config, and the config's revision label is the recorded revision; the
+provenance subject, commit, inputs.lock digest, invocation and SBOM byproduct
+agree; the SBOM is valid CycloneDX 1.5; and, when your checkout holds that
+commit, `tools/build-inputs/inputs.lock` there hashes to the recorded digest.
+Any other outcome is exit 1 with one `release-verify: FAIL:` line naming what
+differed. `scripts/release-verify.sh --self-test` shows it refusing six kinds
+of tampering (another key, a changed archive, a changed SBOM with rewritten
+checksums, and three re-signed but inconsistent releases).
+
+Producing a release (see docs/validation.md, "Supply-chain pins and release
+artifacts"): `scripts/dev.sh runtime-build` then `runtime-export` write the
+first four files; `COSIGN_KEY=/path/outside/the/checkout/cosign.key
+COSIGN_PASSWORD=… scripts/dev.sh runtime-sign ARTIFACT` writes the signature.
+The key never enters the repository: a key path inside the checkout is refused,
+the password reaches the cosign container only through the environment, and
+nothing is uploaded to a transparency log. `scripts/release-artifacts.sh
+generate-key DIR` makes an encrypted key pair for a local signer.
+
+What a PASS does not mean:
+
+- The builder is self-attested: the provenance records who built it and from
+  what, from a developer machine (SLSA Build L1), not a hosted, isolated
+  builder.
+- Bit-for-bit reproducibility of the SBCL executable has not been measured;
+  the SBOM is reproducible (the same image gives the same SBOM bytes).
+- The runtime stage's Debian shared libraries are installed from bookworm by
+  name, not by version: they are listed with versions in the SBOM, but not
+  pinned in `inputs.lock` (SBCL, RocksDB, c-kzg-4844, blst and the Quicklisp
+  systems are).
+
+Evidence: `docs/evidence/sec10-packaging.txt`.

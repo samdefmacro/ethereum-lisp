@@ -15,6 +15,24 @@ env:
   TEST_IMAGE: ethereum-lisp-sbcl-test:go1.24-bookworm
 
 jobs:
+  # Plan section 10: every Dockerfile FROM is image:tag@sha256 and every action
+  # here and in hive.yml is a full commit SHA. The self-test runs first and
+  # feeds each rule an input it must reject, so a checker that silently stopped
+  # matching cannot turn this job green. Pure shell and git; no image needed.
+  pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Self-test the pin checker
+        run: scripts/pins-check.sh --self-test
+      - name: Check digest and commit pins
+        run: scripts/pins-check.sh
+      # Signs a synthetic release with a throwaway key and requires it to
+      # verify, and six tampered variants not to (docs/runbook.md, Release
+      # verification). Pulls the digest-pinned cosign and CycloneDX images.
+      - name: Self-test release verification
+        run: scripts/release-verify.sh --self-test
+
   layers:
     strategy:
       fail-fast: false
@@ -27,14 +45,16 @@ jobs:
     env:
       DOCKER_E2E_JOBS: 4
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Built with buildx against a cache shared by every job in the matrix, so
       # the c-kzg and blst compile happens once per Dockerfile change rather
       # than once per job. load: true puts it in the daemon under the tag the
       # Makefile expects, and DOCKER_TEST_IMAGE_PREBUILT stops make from
       # rebuilding it with the default builder, which would not see this cache.
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -63,9 +83,11 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -84,9 +106,11 @@ jobs:
   conformance:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -97,7 +121,7 @@ jobs:
       # Keyed on the pinned release, so a pin bump fetches rather than reusing
       # the previous corpus. The checksum in the script is what makes reuse safe.
       - name: Cache fixture corpus
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .eest-fixtures
           key: eest-${{ hashFiles('scripts/fetch-eest-fixtures.sh') }}
@@ -172,7 +196,7 @@ jobs:
           exit "$rc"
       - name: Archive conformance report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eest-conformance-report
           path: ${{ runner.temp }}/conformance/eest-conformance-report.txt
@@ -191,9 +215,11 @@ jobs:
   conformance-late-forks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -205,7 +231,7 @@ jobs:
       # not the v5.4.0 baseline the blocking job fetches, so pull that one. A
       # distinct cache key keeps the two corpora from evicting each other.
       - name: Cache fixture corpus
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .eest-fixtures
           key: eest-stable-${{ hashFiles('scripts/fetch-eest-fixtures.sh') }}
@@ -262,7 +288,7 @@ jobs:
           exit "$rc"
       - name: Archive late-fork conformance report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eest-conformance-report-late-forks
           path: ${{ runner.temp }}/conformance/eest-conformance-report-late-forks.txt

@@ -1,0 +1,245 @@
+Section 10: pinned inputs, SBOM, provenance and a signed runtime release
+
+Status
+
+Branch packaging-section10, from a07c912e. Plan section 10, first bullet
+("digest-pinned ... SBOM, provenance, and signed release artifact.
+Vendor/checksum c-kzg/blst/Quicklisp inputs and pin CI actions") and the
+"signed" half of the exit criterion "Runtime artifact is reproducible,
+non-root, signed, and diagnosable". Done and verified locally at the layer
+it touches (Dockerfiles, CI workflows, release scripts, docs); no src/
+change, no CLI change. A signed amd64 release set was built, exported,
+signed with an evidence-only key and verified offline
+(sec10-709616fc-amd64-runtime.txt). Not deployed, no remote host touched,
+no cold-all (the coordinator runs it once at the end). "Reproducible" is
+NOT established (see Not verified).
+
+Revision
+
+  7a2ea963  ci: pin every action to a commit and check every FROM and uses
+            line
+  85e453e2  build: check every downloaded input against a lock before it
+            runs
+  ed61958d  release: runtime-export writes a CycloneDX SBOM next to the
+            archive
+  38b1abbe  release: SLSA provenance, a cosign signature, and an offline
+            verifier
+  709616fc  release: name the provenance base image as a docker package URL
+  (docs)    docs: Release verification runbook section, validation.md
+            section, this record and the 709616fc runtime record
+
+================================================================================
+1. What was missing (inventory at a07c912e)
+================================================================================
+
+  Dockerfile FROMs    already image:tag@sha256 in every stage of all six
+                      Dockerfiles, except two FROM ${ARG} lines that build on
+                      this repository's own images (tools/hive, the discv5
+                      interop test) -- nothing checked that it stays so.
+  GitHub Actions      24 `uses:` lines in test.yml and hive.yml by movable
+                      major tag (@v4, @v3, @v6, @v5); hive.yml said pinning
+                      was "plan section 10 work". setup-buildx pulled an
+                      unpinned BuildKit (moby/buildkit:buildx-stable-1).
+  RocksDB             vendored tarball, sha256-checked inline. Fine.
+  c-kzg-4844 / blst   `git clone --branch v2.1.1` (a tag can move); the blst
+                      submodule followed whatever that tag pointed at.
+  SBCL                Debian `sbcl`, unversioned.
+  Quicklisp           quicklisp.lisp bootstrap over HTTPS, then the client,
+                      a DEFAULT (moving) dist, the pinned 2026-01-01 dist,
+                      and every release archive over plain HTTP, each loaded
+                      and compiled as soon as it arrived; nothing verified.
+  SBOM / provenance / none.
+  signature
+  runtime-export      `docker image save` + sha256, nothing else.
+
+================================================================================
+2. Mechanism of the fix
+================================================================================
+
+(1) Pins (7a2ea963). Every action is `owner/repo@<40-hex>  # vX.Y.Z`
+(checkout v4.4.0 11d5960a, setup-buildx v3.12.0 8d2750c6, build-push v6.19.2
+10e90e36, cache v4.3.0 0057852b, upload-artifact v4.6.2 ea165f8d, setup-go
+v5.6.0 40f1582b, each resolved with `git ls-remote` against its major tag on
+2026-09-24); setup-buildx runs moby/buildkit:buildx-stable-1@sha256:28a89871.
+The two project-image FROMs carry "# pins-check: project-image". The inline
+image:tag@sha256 form was kept (the brief's "tag as a comment"): Docker
+resolves the digest and ignores the tag, and the tag stays readable.
+scripts/pins-check.sh (bash 3.2+, git, grep/awk; no container) fails on any
+movable FROM/uses/image/driver image, and the new `pins` job in tests.yml
+runs its --self-test and then the check.
+
+(2) Inputs lock (85e453e2). tools/build-inputs/inputs.lock: 41 lines
+NAME ARCH SCOPE SHA256 PURL. tools/build-inputs/verify-inputs.sh runs inside
+both builds, after each download and BEFORE anything loads, executes or
+compiles it:
+  - git c-kzg-4844 / blst: HEAD must be 28743bc8 (v2.1.1) / 8c7db7fe
+    (v0.3.14), and a content tree digest (sha256 over the sorted sha256sum
+    listing, .git excluded) must match -- identical on arm64 and amd64;
+  - deb sbcl: installed version 2:2.2.9-1 (also pinned in the runtime apt
+    line), plus a per-arch digest of its /usr/bin and /usr/lib/sbcl files
+    (amd64 47fdeb7f.., arm64 93fbb6fc..);
+  - Quicklisp: client 2021-02-13, setup.lisp, asdf.lisp over HTTPS, checked
+    against their client-info.sexp sha256 BEFORE SBCL loads them; laid out
+    as quickstart would, with dists/ pre-created so the moving default dist
+    is never installed; then install-dist 2026-01-01 and only a DOWNLOAD of
+    the releases QUICKLOAD would load (ql::compute-load-strategy +
+    ql-dist:ensure-installed); then distinfo/systems/releases and every
+    archives/*.tgz checked (an archive without a line fails, and so does an
+    empty archives/). 8 archives in the runtime image, 30 in the test image.
+  - the steps that compile afterwards run `RUN --network=none` (the test
+    image's QUICKLOAD of ironclad, cffi, mgl-pax/full; the runtime image's
+    SAVE-LISP-AND-DIE), so nothing unverified can be fetched late.
+The quicklisp.lisp bootstrap is gone. The lock is COPYed after the RocksDB
+layer, so a lock change never recompiles RocksDB; scripts/dev.sh folds the
+lock and verifier into the dev/cold image fingerprint; .dockerignore admits
+them. pins-check.sh also checks the lock from the control plane: well-formed
+lines, every digest recorded (no TBD), no duplicate, every name a Dockerfile
+verifies is listed, and the vendored RocksDB tarball and both inline RocksDB
+digests equal the lock.
+
+(3) SBOM (ed61958d). scripts/release-artifacts.sh sbom, called by
+runtime-export, writes ARTIFACT.sbom.cdx.json (CycloneDX 1.5) with no SBOM
+tool: the image itself is run (no network, read-only, no capabilities, its
+own non-root user) to list dpkg packages and sha256 every file under
+/usr/local and /opt; build inputs come from inputs.lock AT THE IMAGE'S
+REVISION (git show), marked "required" (in the image) or "excluded"
+(build-only). Deterministic: commit-time timestamp, serial derived from the
+image ID. validate-sbom runs the CycloneDX project's validator
+(cyclonedx/cyclonedx-cli:0.33.1 by index digest, no network).
+
+(4) Provenance, signing, verification (38b1abbe, 709616fc). runtime-export
+also writes ARTIFACT.provenance.json (in-toto Statement v1, SLSA provenance
+v1: subject = archive name + sha256; source repo + commit; inputs.lock
+sha256; base image as pkg:docker/debian@sha256:..?tag=bookworm-slim;
+builder = scripts/dev.sh runtime-build at that commit + Docker server
+version; invocationId = image ID; SBOM sha256 as byproduct) and
+ARTIFACT.SHA256SUMS over the three. `scripts/dev.sh runtime-sign ARTIFACT`
+signs SHA256SUMS with cosign v2.6.5 (gcr.io/projectsigstore/cosign by index
+digest; no network, read-only, no capabilities, host uid) and the key file
+COSIGN_KEY, unlocked by COSIGN_PASSWORD from the environment; a key inside
+the checkout is refused; no transparency-log upload. generate-key makes an
+encrypted pair outside the checkout. scripts/release-verify.sh ARTIFACT
+PUBKEY checks offline, in order: signature; SHA256SUMS names exactly the
+three files and each matches; every archive blob hashes to its name, the
+SBOM's image ID is the archive's index entry and reaches the config that
+manifest.json names, whose revision label is the recorded revision;
+provenance subject/commit/lock/invocation/SBOM byproduct agree; SBOM valid
+CycloneDX 1.5; inputs.lock at that commit hashes to the recorded digest when
+the checkout has the commit. No JSON tool on the host (the documents are read
+in the exact layout the generator writes; anything else fails).
+
+================================================================================
+3. RED before GREEN (reproduction of each rule firing)
+================================================================================
+
+pins-check on the tree before 7a2ea963's workflow edits: EXIT=1, 26
+PIN-VIOLATION lines (24 `uses: ...@vN is not pinned to a full commit SHA`,
+2 FROM ${...} through a build argument). After: EXIT=0.
+
+verify-inputs.sh, first builds with unrecorded values (lock entries TBD or
+absent) -- each failed the build at its own step and printed the observed
+value (log lines quoted):
+  test image pass 1: INPUT-MISMATCH: sbcl (arm64) expected sha256 TBD, got
+    93fbb6fc...; ERROR: process ".../verify-inputs.sh deb sbcl sbcl" did not
+    complete successfully: exit code: 1
+  pass 2: INPUT-MISMATCH c-kzg-4844 ... got 23e6e5a7..., blst ... got
+    92751992... (both HEAD checks passed: no "HEAD is" message)
+  pass 3: 30 x "ql-archive/<file> has no entry in inputs.lock"
+  runtime amd64 pass 1: INPUT-MISMATCH: sbcl (amd64) ... got 47fdeb7f...
+The same c-kzg/blst digests were then computed independently by the amd64
+build ("input ok: c-kzg-4844 (amd64) sha256 23e6e5a7...").
+
+Independent check of the 30 archive digests (control plane, curl over
+HTTPS, not the in-build HTTP fetch): 30 agree, 0 differ on sha256, and each
+MD5 equals the dist's releases.txt; the three dist index files fetched over
+HTTPS on the control plane have the lock's sha256.
+
+pins-check lock rules: the self-test fixture with seven planted faults
+reports exactly those seven (TBD digest, duplicate sbcl/amd64, scope
+"shipped", a 4-field line, tampered RocksDB archive, stale inline digest,
+verified name c-kzg-4844 missing from the lock).
+
+SBOM validator control: the real SBOM with one component scope changed to
+"shipped" -> "BOM is not valid.", EXIT=1; the unmodified SBOM -> "BOM
+validated successfully.", EXIT=0.
+
+Signing control: COSIGN_KEY pointing inside the checkout ->
+"ERROR: the signing key must live outside the repository", EXIT=2.
+
+release-verify controls: --self-test (committed) refuses six variants, each
+for its own reason: another signer's key ("signature over"); a byte
+appended to the archive ("SHA256SUMS says"); SBOM changed after signing
+with SHA256SUMS rewritten ("signature over"); re-signed provenance naming
+another commit ("provenance lacks"); re-signed SBOM naming an image ID the
+archive lacks ("is not the archive's index entry"); re-signed archive whose
+image config carries another revision ("does not carry revision"). On the
+real 38b1abbe release set, a copy with one byte appended to the archive:
+"FAIL: ... has sha256 184a6524..., SHA256SUMS says 25c9756d...", EXIT=1.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed (EXIT=0).
+
+scripts/pins-check.sh --self-test: 6 cases ok (0/5/0/6/0/7 violations as
+  expected), "pins-check self-test PASSED", EXIT=0 (macOS /bin/bash 3.2).
+scripts/pins-check.sh at 709616fc: "6 Dockerfiles (12 FROM lines, 2
+  verifying inputs), 2 workflows (25 uses lines), 41 inputs.lock entries, 0
+  violations", EXIT=0.
+scripts/release-verify.sh --self-test: clean synthetic release verifies,
+  6 refusals, "release-verify self-test PASSED", EXIT=0 (run at 38b1abbe
+  and again after 709616fc).
+
+Test image (./Dockerfile, native arm64): scripts/dev.sh build EXIT=0
+  ("input ok: 30 Quicklisp archives checked"; the --network=none QUICKLOAD
+  of ironclad, cffi and mgl-pax/full succeeded).
+cl-workbench validation run cold-docs: GREEN ok @RLP-MANUAL, RED ok,
+  "docs-check PASSED", EXIT=0 (image ethereum-lisp-sbcl-test:
+  go1.24-bookworm-4855ab39fa48, the lock as committed).
+cl-workbench validation run cold-unit --match KECCAK: 6 tests passed, EXIT=0
+  (ironclad from the verified archives, through CL_SOURCE_REGISTRY).
+cl-workbench validation run cold-integration --match KZG: 3 tests passed,
+  EXIT=0 (libethckzg from the verified c-kzg-4844/blst checkout).
+
+Runtime image (Dockerfile.runtime, linux/amd64 via Docker Desktop
+emulation; the whole build took minutes, so the amd64 path was used, not the
+native fallback): RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build
+at 85e453e2, 38b1abbe and 709616fc, EXIT=0 each; runtime-export,
+runtime-sign, release-verify PASS and runtime-smoke PASS at 709616fc -- see
+sec10-709616fc-amd64-runtime.txt. SBOM determinism: two sbom runs over the
+85e453e2 image gave the same sha256 (d59c7798...).
+
+Not run, and why: cold-all and the full cold layers (the coordinator runs
+cold-all; no src/ or test changed, but the test image's Quicklisp install
+path did, so cold-all is the check that every suite still finds its
+systems); cold-e2e (no CLI or option change); hive-adapter-smoke (the only
+tools/hive change is a comment above FROM); the CI jobs themselves (not
+pushed; the pinned action SHAs were resolved but not executed on a runner).
+
+================================================================================
+Not verified
+================================================================================
+
+- Reproducibility. Two builds of the same revision were not compared bit for
+  bit, and the SBCL executable (SAVE-LISP-AND-DIE) is not known to be
+  reproducible. Only the SBOM is shown deterministic.
+- The runtime stage's Debian libraries (libsecp256k1-1, libstdc++6, ...) are
+  installed by name from bookworm, not pinned: the SBOM lists their exact
+  versions, the lock does not hold them, and apt's own signature checks are
+  the only authentication. Same for the builder stages' toolchains
+  (build-essential, git) and the golang base's apt layer in the test image.
+- The test image's first apt layer still installs `sbcl` unversioned (pinning
+  it there would rebuild RocksDB for every developer); the later
+  verify-inputs.sh deb check fails that build closed if the version or files
+  drift.
+- The Quicklisp client and dist fetch the dist indexes and archives over
+  HTTP; integrity rests on the lock digests checked before use, not on the
+  transport.
+- Keyless (OIDC/Fulcio/Rekor) signing is not implemented; only the key-file
+  path is, and no real release key exists yet. The provenance is
+  self-attested (SLSA Build L1), not from a hosted builder.
+- setup-go resolves go-version '1.24' to the newest 1.24.x at run time, and
+  setup-buildx uses the runner's buildx binary: both remain runner-side
+  inputs outside the pins.
+- The CI `pins` job has not run on GitHub.

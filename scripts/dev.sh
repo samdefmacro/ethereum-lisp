@@ -28,7 +28,9 @@ IMAGE_FINGERPRINT="$(
     tools/rocksdb/io-uring-kernel-compat.patch \
     tools/rocksdb/io-uring-probe.c \
     tools/ckzg-ffi/shim.c \
-    tools/bls-ffi/shim.c
+    tools/bls-ffi/shim.c \
+    tools/build-inputs/inputs.lock \
+    tools/build-inputs/verify-inputs.sh
   do
     printf '%s ' "$input"
     git hash-object "$input"
@@ -70,6 +72,13 @@ Commands:
   runtime-build TAG  Build the reviewed non-root Dockerfile.runtime image
   runtime-export TAG ARTIFACT
                      Export an exact-revision linux/amd64 runtime archive
+                     with ARTIFACT.sbom.cdx.json (CycloneDX SBOM),
+                     ARTIFACT.provenance.json (SLSA provenance) and
+                     ARTIFACT.SHA256SUMS
+  runtime-sign ARTIFACT
+                     Sign ARTIFACT.SHA256SUMS with the cosign key file
+                     COSIGN_KEY (outside the checkout); verify the set with
+                     scripts/release-verify.sh
   runtime-smoke TAG  Run the reviewed runtime image smoke gate
   shadow-proxy-format
                      Format the Engine shadow proxy in a narrow container mount
@@ -810,12 +819,39 @@ runtime_export() {
     echo "ERROR: runtime export requires linux/amd64, got $platform" >&2
     return 1
   }
+  local sidecar
+  for sidecar in sbom.cdx.json provenance.json SHA256SUMS SHA256SUMS.sig; do
+    [ ! -e "$artifact.$sidecar" ] || {
+      echo "ERROR: refusing existing runtime release file: $artifact.$sidecar" >&2
+      return 1
+    }
+  done
   "$DOCKER" image save --output "$artifact" "$image"
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$artifact"
   else
     shasum -a 256 "$artifact"
   fi
+  # The SBOM, the provenance and the checksum file travel next to the archive
+  # (plan section 10); runtime-sign signs the checksum file.
+  "$ROOT/scripts/release-artifacts.sh" sbom "$image" "$artifact"
+  "$ROOT/scripts/release-artifacts.sh" provenance "$image" "$artifact"
+  "$ROOT/scripts/release-artifacts.sh" checksums "$artifact"
+}
+
+runtime_sign() {
+  [ "$#" -eq 1 ] || {
+    echo "ERROR: runtime-sign requires ARTIFACT (COSIGN_KEY and COSIGN_PASSWORD in the environment)" >&2
+    return 2
+  }
+  case "$1" in
+    /private/tmp/ethereum-lisp-runtime-*.tar) ;;
+    *)
+      echo "ERROR: runtime artifact must be a named tar below /private/tmp" >&2
+      return 2
+      ;;
+  esac
+  "$ROOT/scripts/release-artifacts.sh" sign "$1"
 }
 
 runtime_smoke() {
@@ -1070,6 +1106,7 @@ case "$cmd" in
   eest-fixtures) eest_fixtures "$@" ;;
   runtime-build) runtime_build "$@" ;;
   runtime-export) runtime_export "$@" ;;
+  runtime-sign) runtime_sign "$@" ;;
   runtime-smoke) runtime_smoke "$@" ;;
   shadow-proxy-format) shadow_proxy_format "$@" ;;
   shadow-proxy-test) shadow_proxy_test "$@" ;;
