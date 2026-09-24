@@ -118,9 +118,12 @@
    store
    :expected-chain-id expected-chain-id
    :chain-config chain-config)
+  ;; The call above has just removed every transaction whose sender does not
+  ;; recover for this chain; revalidation need not walk the pool for it again.
   (engine-payload-store-revalidate-pending-transactions
    store
-   :expected-chain-id expected-chain-id)
+   :expected-chain-id expected-chain-id
+   :remove-invalid-senders-p nil)
   (engine-payload-store-promote-queued-transactions
    store
    :expected-chain-id expected-chain-id)

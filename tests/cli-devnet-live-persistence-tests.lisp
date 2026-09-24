@@ -2139,3 +2139,121 @@ Returns the newPayload status, its wait fields and its handler milliseconds."
              ;; At most the hold in progress and one that raced it.
              (is (<= (count #\Space (waited-for new)) 1))))
       (sb-int:unencapsulate slow 'gap-fill-engine-wait))))
+
+;;;; forkchoiceUpdated's txpool reconciliation and the size of the pool.
+
+#+sbcl
+(defun devnet-fcu-txpool-counted-calls (functions thunk)
+  "Call THUNK with every function in FUNCTIONS counted; return the counts in
+the order of FUNCTIONS."
+  (let ((counts (make-list (length functions) :initial-element 0)))
+    (loop for function in functions
+          for index from 0
+          do (let ((index index))
+               (sb-int:encapsulate function 'devnet-fcu-txpool-count
+                                   (lambda (original &rest arguments)
+                                     (incf (nth index counts))
+                                     (apply original arguments)))))
+    (unwind-protect (funcall thunk)
+      (dolist (function functions)
+        (sb-int:unencapsulate function 'devnet-fcu-txpool-count)))
+    counts))
+
+(deftest devnet-forkchoice-txpool-reconciliation-reads-each-pooled-transaction-once
+  (:layer :integration)
+  ;; Hoodi (b5161312): once the node accepted gossip, fcuCanonicalMs rose from
+  ;; 1.2 s to a 2.8-3.3 s plateau as the pool filled, all of it CPU, while
+  ;; persistence stayed 4-40 ms. The head's txpool reconciliation walked the
+  ;; pool five times, each walk sorting every subpool by a transaction hash it
+  ;; recomputed per comparison (a full RLP re-encoding each time), and read the
+  ;; sender's nonce and code once per transaction. Measured on this fixture's
+  ;; shape through the same Engine path: 1,000 pooled transactions from 250
+  ;; senders cost 280 ms per forkchoiceUpdated (58 encodings and 1.25 nonce
+  ;; reads per pooled transaction), 4,000 cost 1.3-1.5 s; after the change
+  ;; 25-30 ms and 120-145 ms. The bound is on the work, not the clock: an
+  ;; update that installs a block whose transactions are not in the pool may
+  ;; encode each pooled transaction a small constant number of times and read
+  ;; each sender's nonce at most twice (the cleanup and the revalidation).
+  #-sbcl (skip-test "counting calls requires SBCL encapsulation")
+  #+sbcl
+  (let* ((block-keys '(1 2 3 4))
+         (senders 250)
+         (per-sender 4)
+         (pool-keys (loop for index from 1 to senders collect (+ 2000 index)))
+         (genesis-json (devnet-np-latency-genesis-json
+                        (append block-keys pool-keys) 64))
+         (blocks (devnet-np-latency-build-blocks
+                  genesis-json block-keys 64 3))
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json genesis-json :port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (config (ethereum-lisp.cli:devnet-node-config node))
+         (context (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-service node)))
+         (pool (loop for key in pool-keys
+                     append (loop for nonce below per-sender
+                                  collect (fixture-sign-legacy-transaction
+                                           (make-legacy-transaction
+                                            :nonce nonce
+                                            :gas-price 2000000000
+                                            :gas-limit 21000
+                                            :to (devnet-np-latency-account 7)
+                                            :value 1)
+                                           key
+                                           (chain-config-chain-id config)))))
+         (pool-size (length pool))
+         (counted '(ethereum-lisp.transactions:transaction-encoding
+                    ethereum-lisp.chain-store:chain-store-account-nonce)))
+    (is (= pool-size
+           (ethereum-lisp.cli::txpool-admit-transactions
+            pool store config
+            (ethereum-lisp.cli::devnet-peer-txpool-policy node)
+            :admitted-at 1)))
+    (flet ((pending-count ()
+             (length (ethereum-lisp.txpool:engine-payload-store-pending-transactions
+                      store)))
+           (import-block (block)
+             (ethereum-lisp.rpc:rpc-handle-request
+              (engine-fixture-payload-request
+               1 (execution-payload-envelope-execution-payload
+                  (block-to-executable-data block)))
+              context))
+           (update-forkchoice (block)
+             (let ((ethereum-lisp.engine-api:*engine-rpc-phase-timings* nil))
+               (ethereum-lisp.rpc:rpc-handle-request
+                (engine-fixture-forkchoice-request 2 (block-hash block))
+                context)
+               (is (hash32= (block-hash block)
+                            (block-hash (chain-store-head-block store))))
+               (cdr (assoc "fcuCanonicalMs"
+                           ethereum-lisp.engine-api:*engine-rpc-phase-timings*
+                           :test #'string=)))))
+      (is (= pool-size (pending-count)))
+      ;; The first update after admission is not measured: it pays once per
+      ;; newly admitted transaction, not per head.
+      (import-block (first blocks))
+      (update-forkchoice (first blocks))
+      (dolist (block (rest blocks))
+        (import-block block)
+        (let ((canonical-ms nil))
+          (destructuring-bind (encodings nonce-reads)
+              (devnet-fcu-txpool-counted-calls
+               counted
+               (lambda () (setf canonical-ms (update-forkchoice block))))
+            (is (integerp canonical-ms))
+            ;; Nothing in the blocks touches the pool's senders.
+            (is (= pool-size (pending-count)))
+            (is (<= encodings (* 3 pool-size)))
+            (is (<= nonce-reads (* 2 senders))))))
+      ;; Positive control: the counter sees an encoding per pooled
+      ;; transaction when each one's hash is asked for.
+      (destructuring-bind (encodings nonce-reads)
+          (devnet-fcu-txpool-counted-calls
+           counted
+           (lambda ()
+             (dolist (transaction
+                      (ethereum-lisp.txpool:engine-payload-store-pending-transactions
+                       store))
+               (transaction-hash transaction))))
+        (is (>= encodings pool-size))
+        (is (zerop nonce-reads))))))
