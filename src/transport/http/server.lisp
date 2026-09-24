@@ -145,7 +145,12 @@ the supervising node treats it as a shutdown request."
        "engine.rpc.http.connection.error"
        :sink sink
        :fields (append fields
-                       (list (cons "error" (format nil "~A" condition))))))))
+                       (list (cons "error" (format nil "~A" condition)))
+                       ;; A fixed token, so a counter can tell a request that
+                       ;; ran out of time from a peer that went away.
+                       (when (typep condition
+                                    'engine-rpc-http-request-deadline-error)
+                         (list (cons "reason" "request-deadline"))))))))
 
 (defun engine-rpc-http-worker-drain-timeout-seconds (&optional stopping-p)
   "Return the shutdown budget for in-flight connection workers.

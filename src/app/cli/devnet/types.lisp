@@ -832,13 +832,8 @@ appear and vanish.")
                                              family suffix)
                                      (or (getf entry key) 0))))))
 
-(defun devnet-node-rpc-latency-sink (node)
-  "NODE's latency sink, or NIL when --metrics is off."
-  (let ((sink (devnet-node-telemetry-sink node)))
-    (when (counting-telemetry-sink-p sink)
-      (let ((delegate (counting-telemetry-sink-delegate sink)))
-        (when (devnet-rpc-latency-sink-p delegate)
-          delegate)))))
+;;; DEVNET-NODE-RPC-LATENCY-SINK lives in observability.lisp, beside the sink
+;;; layered above this one.
 
 (defun devnet-node-enode (node)
   "Our own enode URL, or NIL when we are not listening.

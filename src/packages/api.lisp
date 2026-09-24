@@ -78,6 +78,7 @@
    #:engine-rpc-deadline-predicate
    #:make-engine-rpc-get-blobs-v3-snapshot-function
    #:engine-rpc-engine-method-p
+   #:engine-rpc-registered-method-p
    #:engine-rpc-required-eth-method-p
    #:+engine-rpc-required-eth-methods+
    #:engine-rpc-public-method-p

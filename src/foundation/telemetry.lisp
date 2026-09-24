@@ -159,12 +159,132 @@ than one that never existed."
                    (t (write-char char out)))))
       value))
 
+;;;; Histograms and labelled metric families.
+;;;;
+;;;; A histogram counts observations into fixed upper-bound buckets, the shape
+;;;; Prometheus aggregates across scrapes and restarts. The bounds are chosen by
+;;;; the caller once; an observation is one integer comparison per bound and
+;;;; one short mutex hold, so it is cheap enough for every request.
+
+(defstruct (telemetry-histogram
+            (:constructor %make-telemetry-histogram (bounds counts lock)))
+  "Observation counts by upper bound. BOUNDS is an ascending simple-vector of
+non-negative integers; COUNTS has one more element, the last being the +Inf
+bucket, and is NOT cumulative (the renderer accumulates)."
+  (bounds #() :type simple-vector :read-only t)
+  (counts #() :type simple-vector :read-only t)
+  (sum 0 :type integer)
+  (count 0 :type integer)
+  lock)
+
+(defun make-telemetry-histogram (bounds)
+  "A histogram with the ascending non-negative integer upper BOUNDS."
+  (unless (and (listp bounds)
+               bounds
+               (every (lambda (bound) (and (integerp bound) (<= 0 bound)))
+                      bounds)
+               (apply #'< bounds))
+    (error "Telemetry histogram bounds must be ascending non-negative ~
+integers, got ~S" bounds))
+  (%make-telemetry-histogram
+   (coerce bounds 'simple-vector)
+   (make-array (1+ (length bounds)) :initial-element 0)
+   #+sbcl (sb-thread:make-mutex :name "telemetry histogram")
+   #-sbcl nil))
+
+(defun call-with-telemetry-histogram-lock (histogram thunk)
+  #+sbcl
+  (sb-thread:with-mutex ((telemetry-histogram-lock histogram)) (funcall thunk))
+  #-sbcl
+  (progn histogram (funcall thunk)))
+
+(defun telemetry-histogram-observe (histogram value)
+  "Count VALUE, an integer; a negative value counts as zero. A value equal to a
+bound falls in that bound's bucket (Prometheus buckets are `le`)."
+  (let* ((value (max 0 value))
+         (bounds (telemetry-histogram-bounds histogram))
+         (index (or (position-if (lambda (bound) (<= value bound)) bounds)
+                    (length bounds))))
+    (call-with-telemetry-histogram-lock
+     histogram
+     (lambda ()
+       (incf (svref (telemetry-histogram-counts histogram) index))
+       (incf (telemetry-histogram-sum histogram) value)
+       (incf (telemetry-histogram-count histogram))))
+    value))
+
+(defun telemetry-histogram-snapshot (histogram)
+  "A consistent copy: (:BOUNDS list :CUMULATIVE list :SUM integer :COUNT
+integer). CUMULATIVE has one entry per bound plus the +Inf total."
+  (call-with-telemetry-histogram-lock
+   histogram
+   (lambda ()
+     (list :bounds (coerce (telemetry-histogram-bounds histogram) 'list)
+           :cumulative (loop with running = 0
+                             for count across (telemetry-histogram-counts
+                                               histogram)
+                             collect (incf running count))
+           :sum (telemetry-histogram-sum histogram)
+           :count (telemetry-histogram-count histogram)))))
+
+(defun telemetry-prometheus-label-text (labels &optional extra)
+  "`{a=\"x\",b=\"y\"}` for the alist LABELS followed by the alist EXTRA, or the
+empty string when both are empty."
+  (let ((all (append labels extra)))
+    (if all
+        (format nil "{~{~A~^,~}}"
+                (loop for (name . value) in all
+                      collect (format nil "~A=\"~A\"" name
+                                      (telemetry-prometheus-escape
+                                       (princ-to-string value)))))
+        "")))
+
+(defun telemetry-prometheus-family-text (out family)
+  "Write one metric FAMILY to OUT.
+
+FAMILY is a plist (:NAME string :TYPE (:counter :gauge :histogram) :HELP string
+:SAMPLES list). Each sample is (LABELS . VALUE): LABELS an alist of label name
+to value, VALUE an integer, or for a histogram the plist
+TELEMETRY-HISTOGRAM-SNAPSHOT returns. A family with no samples still gets its
+HELP and TYPE lines, so a scraper knows the series exists before its first
+observation."
+  (let ((name (getf family :name))
+        (type (getf family :type)))
+    (when (getf family :help)
+      (format out "# HELP ~A ~A~%" name (getf family :help)))
+    (format out "# TYPE ~A ~(~A~)~%" name type)
+    (dolist (sample (getf family :samples))
+      (let ((labels (car sample))
+            (value (cdr sample)))
+        (if (eq type :histogram)
+            (progn
+              (loop for bound in (getf value :bounds)
+                    for cumulative in (getf value :cumulative)
+                    do (format out "~A_bucket~A ~D~%" name
+                               (telemetry-prometheus-label-text
+                                labels (list (cons "le" bound)))
+                               cumulative))
+              (format out "~A_bucket~A ~D~%" name
+                      (telemetry-prometheus-label-text
+                       labels (list (cons "le" "+Inf")))
+                      (car (last (getf value :cumulative))))
+              (format out "~A_sum~A ~D~%" name
+                      (telemetry-prometheus-label-text labels)
+                      (getf value :sum))
+              (format out "~A_count~A ~D~%" name
+                      (telemetry-prometheus-label-text labels)
+                      (getf value :count)))
+            (format out "~A~A ~D~%" name
+                    (telemetry-prometheus-label-text labels) value))))))
+
 (defun telemetry-prometheus-text
-    (snapshot &key (metric "ethereum_lisp_events_total") gauges)
+    (snapshot &key (metric "ethereum_lisp_events_total") gauges families)
   "SNAPSHOT rendered in the Prometheus text exposition format.
 
 SNAPSHOT is what COUNTING-TELEMETRY-SINK-SNAPSHOT returns: an alist of event
-name to count, sorted by name.
+name to count, sorted by name. GAUGES is an alist of unlabelled metric name to
+integer; FAMILIES a list of labelled or histogram families, each rendered by
+TELEMETRY-PROMETHEUS-FAMILY-TEXT after the gauges.
 
 THE EVENT NAME IS A LABEL, NOT PART OF THE METRIC NAME. Our event names contain
 dots -- `peer.dial.connected` -- and a Prometheus metric name cannot, so turning
@@ -190,7 +310,9 @@ was emitted, and no mangling can collide."
                          (string= "_total" name :start2 (- (length name) 6)))
                     "counter"
                     "gauge")))
-      (format out "~A ~D~%" (car entry) (cdr entry)))))
+      (format out "~A ~D~%" (car entry) (cdr entry)))
+    (dolist (family families)
+      (telemetry-prometheus-family-text out family))))
 
 ;;;; Runtime accounting: where one thread's wall time went.
 ;;;;

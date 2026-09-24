@@ -48,6 +48,11 @@ Availability flags (see ENGINE-RPC-METHOD-AVAILABLE-P):
 (defun engine-rpc-method-spec (method)
   (assoc method +engine-rpc-method-registry+ :test #'string=))
 
+(defun engine-rpc-registered-method-p (method)
+  "Whether METHOD names an Engine API method this client knows, available on
+this build or not. A fixed vocabulary, unlike a request's method string."
+  (and (stringp method) (engine-rpc-method-spec method) t))
+
 (defun engine-rpc-registered-methods (&key kzg-p advertised-p)
   (loop for (method . properties) in +engine-rpc-method-registry+
         when (and (or (null kzg-p)

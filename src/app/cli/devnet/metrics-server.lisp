@@ -106,11 +106,13 @@ arrives next on the same socket."
     (unless head-p
       (write-string body out))))
 
-(defun devnet-metrics-http-response (request-line snapshot &optional gauges)
+(defun devnet-metrics-http-response
+    (request-line snapshot &optional gauges families)
   "The whole HTTP response to REQUEST-LINE, as a string.
 
 Pure, so which paths answer and what a wrong method gets are testable without
-binding a socket. SNAPSHOT is what COUNTING-TELEMETRY-SINK-SNAPSHOT returns.
+binding a socket. SNAPSHOT is what COUNTING-TELEMETRY-SINK-SNAPSHOT returns;
+GAUGES and FAMILIES are passed to TELEMETRY-PROMETHEUS-TEXT.
 
 Both `/metrics` and geth's `/debug/metrics/prometheus` are served: the first is
 the Prometheus convention, the second is where a scrape config written for geth
@@ -129,7 +131,8 @@ already points, and answering both costs one clause."
              (string= path "/debug/metrics/prometheus"))
          (devnet-metrics-http-reply
           200 "OK"
-          (telemetry-prometheus-text snapshot :gauges gauges)
+          (telemetry-prometheus-text snapshot :gauges gauges
+                                              :families families)
           :content-type "text/plain; version=0.0.4; charset=utf-8"
           :head-p (string= method "HEAD")))
         (t
@@ -144,8 +147,8 @@ GET or HEAD `/health/live` and `/health/ready` call HEALTH-FUNCTION with :LIVE
 or :READY; it returns (VALUES OK-P JSON), answered 200 when OK-P and 503
 otherwise, so a probe needs only the status code and an operator reading the
 body sees which check failed. Every other request is the metrics endpoint's:
-METRICS-FUNCTION returns (VALUES SNAPSHOT GAUGES) and is called only for
-those, so a health probe never pays for a scrape."
+METRICS-FUNCTION returns (VALUES SNAPSHOT GAUGES FAMILIES) and is called only
+for those, so a health probe never pays for a scrape."
   (multiple-value-bind (method target)
       (devnet-metrics-request-method-and-target request-line)
     (let* ((path (devnet-metrics-target-path target))
@@ -159,9 +162,10 @@ those, so a health probe never pays for a scrape."
              body
              :content-type "application/json"
              :head-p (string= method "HEAD")))
-          (multiple-value-bind (snapshot gauges)
+          (multiple-value-bind (snapshot gauges families)
               (funcall metrics-function)
-            (devnet-metrics-http-response request-line snapshot gauges))))))
+            (devnet-metrics-http-response
+             request-line snapshot gauges families))))))
 
 (defun devnet-metrics-read-line (stream timeout-seconds)
   "One line from STREAM without its CRLF, or NIL on timeout, EOF or overlong input.
@@ -311,17 +315,76 @@ between the listing and the size read counts as zero."
       ("ethereum_lisp_heap_allocated_bytes_total" . ,(or consed 0))
       ("ethereum_lisp_gc_ms_total" . ,(or gc-ms 0)))))
 
+(defun devnet-metrics-store-guard-gauges (node)
+  "The current store-guard hold's age, whether an Engine request waits, and
+how long ago the last Engine request arrived -- racy ledger reads, never the
+guard itself."
+  (let ((ledger (devnet-node-store-guard-ledger node))
+        (now (get-internal-real-time)))
+    (when ledger
+      (let ((engine-age (devnet-store-guard-ledger-engine-age-ms ledger now)))
+        `(("ethereum_lisp_store_guard_hold_age_ms"
+           . ,(devnet-store-guard-ledger-hold-age-ms ledger now))
+          ("ethereum_lisp_store_guard_engine_waiting"
+           . ,(if (devnet-node-store-guard-priority-pending-p node) 1 0))
+          ;; Absent until the first Engine request: a series that starts at a
+          ;; made-up age would look like a consensus client that went away.
+          ,@(when engine-age
+              `(("ethereum_lisp_engine_last_request_age_ms" . ,engine-age))))))))
+
+(defun devnet-metrics-runtime-gauges ()
+  "Thread count and the SBCL dynamic-space limit the heap gauges sit under."
+  (list (cons "ethereum_lisp_process_threads"
+              #+sbcl (length (sb-thread:list-all-threads)) #-sbcl 0)
+        (cons "ethereum_lisp_heap_limit_bytes"
+              #+sbcl (sb-ext:dynamic-space-size) #-sbcl 0)))
+
+(defparameter *devnet-metrics-rocksdb-gauges*
+  '(("rocksdb.compaction-pending" . "ethereum_lisp_rocksdb_compaction_pending")
+    ("rocksdb.estimate-pending-compaction-bytes"
+     . "ethereum_lisp_rocksdb_pending_compaction_bytes")
+    ("rocksdb.num-running-compactions"
+     . "ethereum_lisp_rocksdb_running_compactions")
+    ("rocksdb.background-errors"
+     . "ethereum_lisp_rocksdb_background_errors_total"))
+  "RocksDB integer properties published as gauges, and their names.")
+
+(defun devnet-metrics-rocksdb-gauges (node)
+  "RocksDB's own compaction and background-error counters, when the node's
+store is RocksDB. Each is one native counter read (no key, no guard)."
+  (let ((store (devnet-node-store node)))
+    (when (database-engine-payload-store-p store)
+      (let ((database (database-engine-payload-store-database store)))
+        (when (typep database 'rocksdb-key-value-database)
+          (loop for (property . name) in *devnet-metrics-rocksdb-gauges*
+                for value = (ethereum-lisp.database:rocksdb-key-value-database-int-property
+                             database property)
+                when value collect (cons name value)))))))
+
 (defun devnet-node-operator-gauges (node)
   "Every operator gauge group, each one omitted if computing it failed."
   (loop for group in (list (lambda () (devnet-metrics-sync-gauges node))
                            (lambda () (devnet-metrics-peer-gauges node))
                            (lambda () (devnet-metrics-database-gauges node))
+                           (lambda () (devnet-metrics-rocksdb-gauges node))
+                           (lambda () (devnet-metrics-store-guard-gauges node))
                            #'devnet-metrics-process-gauges
+                           #'devnet-metrics-runtime-gauges
                            (lambda ()
                              (let ((sink (devnet-node-rpc-latency-sink node)))
-                               (and sink (devnet-rpc-latency-gauges sink)))))
+                               (and sink (devnet-rpc-latency-gauges sink))))
+                           (lambda ()
+                             (let ((sink (devnet-node-observability-sink node)))
+                               (and sink (devnet-observability-gauges sink)))))
         append (handler-case (funcall group)
                  (error () nil))))
+
+(defun devnet-node-metric-families (node)
+  "The labelled counters and histograms, or NIL when --metrics is off."
+  (let ((sink (devnet-node-observability-sink node)))
+    (and sink
+         (handler-case (devnet-observability-families sink)
+           (error () nil)))))
 
 (defun devnet-node-metrics-endpoint (node)
   "(VALUES HOST PORT) for the metrics endpoint, or NIL when it is off.
@@ -385,7 +448,8 @@ does not ask for metrics pays nothing for them."
                                       (lambda ()
                                         (values
                                          (devnet-node-metrics node)
-                                         (devnet-node-metric-gauges node)))
+                                         (devnet-node-metric-gauges node)
+                                         (devnet-node-metric-families node)))
                                       (lambda (kind)
                                         (devnet-node-health
                                          node kind

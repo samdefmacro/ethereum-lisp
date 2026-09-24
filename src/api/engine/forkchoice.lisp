@@ -595,18 +595,29 @@ pool was not fully considered."
               (engine-rpc-error (condition)
                 (setf payload-attributes-error condition)))))
         (engine-rpc-with-phase-timing ("fcuCanonicalMs")
-          (publish-canonical-block
-           store
-           (forkchoice-state-head-block-hash state)
-           config
-           :authority :engine-forkchoice
-           :forkchoice-state state
-           :durability-function
-           (and
-            forkchoice-persistence-function
-            (lambda (callback-store transition)
-              (engine-rpc-persist-forkchoice
-               callback-store transition forkchoice-persistence-function))))))
+          (multiple-value-bind (head transition)
+              (publish-canonical-block
+               store
+               (forkchoice-state-head-block-hash state)
+               config
+               :authority :engine-forkchoice
+               :forkchoice-state state
+               :durability-function
+               (and
+                forkchoice-persistence-function
+                (lambda (callback-store transition)
+                  (engine-rpc-persist-forkchoice
+                   callback-store transition forkchoice-persistence-function))))
+            ;; fcuReorgDepth: how many previously canonical blocks this
+            ;; publication displaced, present only when it displaced any. A
+            ;; plain extension or a repeated head is not a reorg. The request
+            ;; log carries it, and the metrics endpoint turns it into the reorg
+            ;; count and depth histogram.
+            (let ((depth (length (canonical-chain-transition-displaced-blocks
+                                  transition))))
+              (when (plusp depth)
+                (engine-rpc-record-phase-duration "fcuReorgDepth" depth)))
+            head)))
         (when payload-attributes-error
           (error payload-attributes-error))
       (when (and payload-attributes
