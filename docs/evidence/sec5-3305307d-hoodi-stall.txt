@@ -2,7 +2,11 @@ Section 5 Hoodi run at 3305307d: healing stalls, promotion streaming is unreacha
 
 Status
 
-Not completion. The fresh-datadir run recorded in sec5-3305307d-hoodi-start.txt
+Not completion. The fresh-datadir run at 3305307d (docs/evidence/gates.md, row
+3305307d; runtime artifact sha256
+73a88be3d217045e2298805c4eb604c90eca062a1bfb47d3a7b06ed0753126f4, started
+through scripts/hoodi-live-gate.sh from a worktree detached at 3305307d,
+replacing the 05c13ad5 run)
 reached the healing phase and shows the same non-convergence as every earlier
 run. The container is left running; it is not expected to converge.
 

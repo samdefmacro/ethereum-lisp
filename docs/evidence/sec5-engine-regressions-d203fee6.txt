@@ -43,7 +43,7 @@ without the test transaction, and removing "the" transaction removed nothing.
 A post-merge empty block with no withdrawals leaves the state unchanged, so
 block 14 is a genuinely valid block and every compliant client must answer
 VALID. This is the same harness race recorded at 92982442 for the Transaction
-Gas variant (ethereum/hive#1351, docs/evidence/sec5-92982442-hive-engine.txt):
+Gas variant (ethereum/hive#1351, docs/evidence/gates.md, row 92982442):
 there the empty block 14 made the customiser fail outright; here it made the
 customisation a no-op. All 29 other Missing Ancestor cases in this run passed,
 including CanonicalReOrg=True of the same invalid field.

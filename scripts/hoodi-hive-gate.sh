@@ -141,14 +141,14 @@ while [ $# -gt 0 ]; do
 done
 
 # The per-suite contract, transcribed from the accepted records:
-#   rpc-compat  r19 (sec5-6e3e9b1d-hive-rpc-compat.txt): 2 CPU, 3 GiB,
+#   rpc-compat  r19 (docs/evidence/gates.md, row 6e3e9b1d): 2 CPU, 3 GiB,
 #               3.5 GiB with swap; HIVE_EXPECTED_TESTS unset, hive-run.sh
 #               enforces 234.
-#   engine      r29 (sec5-3305307d-hive-engine-auth.txt): 2 CPU, 8 GiB,
+#   engine      r29 (docs/evidence/gates.md, row 694667f9): 2 CPU, 8 GiB,
 #               10 GiB with swap (3 GiB OOM-killed, 4 GiB produced resets);
 #               unset, hive-run.sh enforces 403 for an unlimited run, whose
 #               count contains no per-suite loader entries.
-#   devp2p      r54 (sec5-03957929-hive-devp2p-r54.txt): 2 CPU, 8 GiB,
+#   devp2p      r54 (docs/evidence/gates.md, row 03957929): 2 CPU, 8 GiB,
 #               10 GiB with swap; HIVE_EXPECTED_TESTS=48 is mandatory because
 #               hive-run.sh has no built-in devp2p inventory.
 # The MemAvailable preconditions are the acceptance plan's step-3 decision.

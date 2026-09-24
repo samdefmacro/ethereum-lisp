@@ -10,7 +10,7 @@ non-root, signed, and diagnosable". Done and verified locally at the layer
 it touches (Dockerfiles, CI workflows, release scripts, docs); no src/
 change, no CLI change. A signed amd64 release set was built, exported,
 signed with an evidence-only key and verified offline
-(sec10-709616fc-amd64-runtime.txt). Not deployed, no remote host touched,
+(docs/evidence/gates.md, row 709616fc). Not deployed, no remote host touched,
 no cold-all (the coordinator runs it once at the end). "Reproducible" is
 NOT established (see Not verified).
 
@@ -206,8 +206,11 @@ Runtime image (Dockerfile.runtime, linux/amd64 via Docker Desktop
 emulation; the whole build took minutes, so the amd64 path was used, not the
 native fallback): RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build
 at 85e453e2, 38b1abbe and 709616fc, EXIT=0 each; runtime-export,
-runtime-sign, release-verify PASS and runtime-smoke PASS at 709616fc -- see
-sec10-709616fc-amd64-runtime.txt. SBOM determinism: two sbom runs over the
+runtime-sign, release-verify PASS and runtime-smoke PASS at 709616fc (archive
+sha256 f1e023e093a4b0973f4bcf733fa2a26d223fb0cb264bcccf20a2ea1a27ab9d31,
+evidence-only cosign.pub sha256
+4c3ce1ebb3377e702961ae4373d4d31e983a7c3d2c46ff91eabd036e2af8b7fb; see
+docs/evidence/gates.md, row 709616fc). SBOM determinism: two sbom runs over the
 85e453e2 image gave the same sha256 (d59c7798...).
 
 Not run, and why: cold-all and the full cold layers (the coordinator runs
