@@ -94,6 +94,8 @@ record names no fix.
 - newPayload latency at the head: the parent's rewritten trie nodes were re-read → [sec5-newpayload-latency.txt](sec5-newpayload-latency.txt) → 9a9b872f, 52d0aa46
 - The six-second newPayload quantum; background guard takers jumped ahead of waiting Engine requests → [sec5-newpayload-six-second-quantum.txt](sec5-newpayload-six-second-quantum.txt) → 82b217e6, 6fe683b0
 - The six seconds are EVM interpreter throughput on Hoodi gas-burner blocks → [sec5-newpayload-six-second-cpu.txt](sec5-newpayload-six-second-cpu.txt) → 43be69c5
+- A full gas-burner block still cost ~1 s: list stack, generic arithmetic, byte-wise memory → [sec5-evm-throughput.txt](sec5-evm-throughput.txt) → 94a0ade3, 0db8897f, 3e56d398, e8f58512
+- Hoodi block 3684027 rejected with a gas-used mismatch, and the verdict survived the upgrade: a lazily read storage slot read as zero after a reverted frame; verdicts were restored at startup → [sec5-hoodi-gas-mismatch.txt](sec5-hoodi-gas-mismatch.txt) → 72d148aa, 60fb6e91
 - Engine requests timed out behind long store-guard holds (R4) → [sec5-engine-availability.txt](sec5-engine-availability.txt) → 1b84073c, 28721a06
 - Peer-session holds of 20-134 s and heap growth: snap serving enumerated whole tries → [sec5-peer-session-holds.txt](sec5-peer-session-holds.txt) → 6dae34ea
 - forkchoiceUpdated's growing CPU cost was the txpool reconciliation → [sec5-fcu-canonical-cost.txt](sec5-fcu-canonical-cost.txt) → 80da9d7c

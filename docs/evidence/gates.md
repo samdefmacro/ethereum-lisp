@@ -66,6 +66,9 @@ upstream `abbe05777ab83fb94ce18c425daaa7ab79e779c1`); Hive
 | b5161312 | 2026-09-23 | `53b77bf3597b` pass | 8/8 (at 37e34068, src identical) | — | — | — | heal converged; Engine 30 s timeouts after 208 VALID payloads; `complete` exit 1; OOM-killed at 12 GiB | milestone R4: its telemetry drove the 2026-09-24 fleet |
 | 709616fc | 2026-09-24 | `f1e023e09392` pass | — | — | — | — | — | Section 10 signed release set; release-verify PASS; src identical to a07c912e |
 | 591f700e | 2026-09-24 | — | 8/8 | — | — | — | — | wave-1 merges (886afd05) plus a test-stub fix; latest EEST record |
+| 04a3aff4 | 2026-09-24 | f192550ac742 + smoke PASS (SBOM, provenance, SHA256SUMS exported) | 8/8 | — | — | — | upgrade on datadir-b5161312 (12 GiB): forward sync refused at 3684027 (persisted INVALID), pivot rebased to 3684866, healed from retained state in ~90 s, tail 3684877-3684908 at ~0.7 s/block, RSS 788 MB; exit 1 at 05:00:49Z on "tail block 3684909 returned SYNCING" | wave 1 + F fcu-canonical-cost + N peer-session-holds; records sec5-b5161312-hoodi-run.txt (addenda), sec5-snap-tail-syncing.txt |
+| cbfe2c63 | 2026-09-24 | — | 8/8 | — | — | — | — | evm-throughput branch (P2) on 886afd05: manifest lines identical to b5161312; merged as 5fee5219 |
+| 70409b12 | 2026-09-24 | — | 8/8 | — | — | — | — | hoodi-gas-mismatch branch (X) on 04a3aff4: lazy-state slot lost on revert (Hoodi 3684027) and persisted INVALID verdicts; record sec5-hoodi-gas-mismatch.txt |
 
 ## Revisions and source records
 
@@ -109,6 +112,9 @@ one with
 | b5161312 | `b51613129ad17a6ef22513e06a80abda41a6dd08` | sec5-b5161312-amd64-runtime.txt, sec5-b5161312-eest-v20.0.2.txt, sec5-b5161312-hoodi-run.txt |
 | 709616fc | `709616fc386d7abd0d8084e6bbd311a42c075a2a` | sec10-709616fc-amd64-runtime.txt ‡ |
 | 591f700e | `591f700eb14346251d3b0f51e0a62b4d3e7bdcf0` | sec5-591f700e-eest-v20.0.2.txt |
+| 04a3aff4 | `04a3aff4f1bf6e68856131e641e9ddcedeb3f6fa` | coordinator run logs (scratchpad eest-04a3aff4, r5b-runtime-*.log, r5b-gate-upgrade2.log); sec5-b5161312-hoodi-run.txt addendum 2 |
+| cbfe2c63 | `cbfe2c633129d644b020e43cbdde0f9e52134296` | sec5-evm-throughput.txt |
+| 70409b12 | `70409b12184b5577da44e158d5d819c5d533183d` | sec5-hoodi-gas-mismatch.txt |
 
 Full revisions that the records give only in short form (d203fee6, aee866f7,
 880319df, b5161312) were resolved with `git rev-parse` on this repository.
