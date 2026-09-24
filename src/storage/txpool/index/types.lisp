@@ -21,6 +21,12 @@
                        (make-hash-table :test 'equalp))
                       (transaction-admitted-at
                        (make-hash-table :test 'equalp))
+                      (authority-transactions
+                       (make-hash-table :test 'equalp))
+                      (transaction-authorities
+                       (make-hash-table :test 'equalp))
+                      (blob-hash-owners
+                       (make-hash-table :test 'equalp))
                       account-slot-limit
                       global-slot-limit
                       local-transaction-predicate
@@ -38,6 +44,15 @@
   blob-transactions
   blob-transactions-by-sender
   transaction-admitted-at
+  ;; Derived lookups over every pooled transaction, maintained where a
+  ;; transaction enters or leaves a subpool table (txpool/index/lookups.lisp).
+  ;; AUTHORITY-TRANSACTIONS: EIP-7702 authority hex -> {transaction key}.
+  ;; TRANSACTION-AUTHORITIES: transaction key -> the authorities it named, so
+  ;; a removal never recovers a signature again. BLOB-HASH-OWNERS: versioned
+  ;; hash hex -> how many pooled transactions reference that blob.
+  authority-transactions
+  transaction-authorities
+  blob-hash-owners
   account-slot-limit
   global-slot-limit
   local-transaction-predicate

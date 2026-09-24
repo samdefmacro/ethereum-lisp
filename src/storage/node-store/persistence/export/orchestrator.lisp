@@ -471,8 +471,8 @@ durable validation."
        "Forkchoice transition left a transaction in multiple txpool subpools"))
     (when entries
       (values
-       (chain-store-txpool-transaction-record-rlp
-        (caar entries) (cdar entries))
+       (node-store-txpool-transaction-record-rlp
+        store (caar entries) (cdar entries))
        (cdar entries)))))
 
 (defun node-store-current-state-anchor-identifiers (store)

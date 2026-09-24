@@ -69,3 +69,19 @@
                         :expected-chain-id expected-chain-id)))
           do (incf next-nonce)
         finally (return next-nonce)))
+
+(defun engine-payload-store-authority-reserved-p (store address)
+  "Whether a pooled EIP-7702 transaction names ADDRESS as an authority. One
+index read; the authorities were recovered when those transactions entered."
+  (engine-pending-txpool-authority-reserved-p
+   (engine-payload-store-txpool store) address))
+
+(defun engine-payload-store-owned-blob-count (store)
+  "How many distinct blobs the pooled blob transactions reference."
+  (engine-pending-txpool-owned-blob-count (engine-payload-store-txpool store)))
+
+(defun engine-payload-store-blob-owned-p (store versioned-hash)
+  "Whether a pooled transaction references the blob VERSIONED-HASH."
+  (engine-pending-txpool-blob-hash-owned-p
+   (engine-payload-store-txpool store)
+   (engine-pending-txpool-blob-hash-key versioned-hash)))

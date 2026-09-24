@@ -1,12 +1,14 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
 (defun chain-store-txpool-transaction-record-values (record)
+  "Decode a durable txpool RECORD into its subpool, transaction and admission
+time (NIL for a record written before admission times were kept)."
   (handler-case
       (let ((fields (rlp-list-field (rlp-decode-one record)
                                     "Txpool transaction record")))
-        (unless (= (length fields) 2)
+        (unless (<= 2 (length fields) 3)
           (block-validation-fail
-           "Txpool transaction record must contain 2 fields"))
+           "Txpool transaction record must contain 2 or 3 fields"))
         (let* ((subpool
                  (chain-store-txpool-subpool-label
                   (rlp-bytes-field (first fields)
@@ -18,7 +20,10 @@
           (unless (bytes= encoded (transaction-encoding transaction))
             (block-validation-fail
              "Txpool transaction record does not round-trip"))
-          (values subpool transaction)))
+          (values subpool transaction
+                  (and (third fields)
+                       (rlp-uint-field (third fields)
+                                       "Txpool transaction admission time")))))
     (rlp-error (condition)
       (block-validation-fail
        "Invalid KV txpool transaction record RLP: ~A" condition))))
@@ -31,16 +36,20 @@
       (engine-pending-txpool-blob-conflict txpool transaction)))
 
 (defun chain-store-import-txpool-transaction-to-subpool
-    (txpool subpool transaction)
+    (txpool subpool transaction &optional admitted-at)
   (ecase subpool
     (:pending
-     (engine-pending-txpool-put-pending-transaction txpool transaction))
+     (engine-pending-txpool-put-pending-transaction
+      txpool transaction :admitted-at admitted-at))
     (:queued
-     (engine-pending-txpool-put-queued-transaction txpool transaction))
+     (engine-pending-txpool-put-queued-transaction
+      txpool transaction :admitted-at admitted-at))
     (:basefee
-     (engine-pending-txpool-put-basefee-transaction txpool transaction))
+     (engine-pending-txpool-put-basefee-transaction
+      txpool transaction :admitted-at admitted-at))
     (:blob
-     (engine-pending-txpool-put-blob-transaction txpool transaction))))
+     (engine-pending-txpool-put-blob-transaction
+      txpool transaction :admitted-at admitted-at))))
 
 (defun chain-store-import-txpool-transaction-rules
     (store transaction chain-config)
@@ -82,7 +91,7 @@
     (store transaction-identifier record &key expected-chain-id chain-config)
   (let ((transaction-hash (make-hash32 transaction-identifier))
         (txpool (engine-payload-store-txpool store)))
-    (multiple-value-bind (subpool transaction)
+    (multiple-value-bind (subpool transaction admitted-at)
         (chain-store-txpool-transaction-record-values record)
       (unless (hash32= transaction-hash (transaction-hash transaction))
         (block-validation-fail
@@ -111,7 +120,7 @@
         (block-validation-fail
          "KV txpool record duplicates a sender nonce"))
       (chain-store-import-txpool-transaction-to-subpool
-       txpool subpool transaction))))
+       txpool subpool transaction admitted-at))))
 
 (defun node-store-import-txpool-records-from-kv
     (store database &key expected-chain-id chain-config

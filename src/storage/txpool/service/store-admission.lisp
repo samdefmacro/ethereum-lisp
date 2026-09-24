@@ -43,14 +43,16 @@
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           account-slot-limit
           global-slot-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (engine-payload-store-insert-transaction
    store transaction :pending
    #'engine-pending-txpool-put-pending-transaction
    (list :price-bump-percent price-bump-percent
          :account-slot-limit account-slot-limit
          :global-slot-limit global-slot-limit
-         :admitted-at admitted-at)
+         :admitted-at admitted-at
+         :base-fee base-fee)
    :notify-pending-filters-p t))
 
 (defun engine-payload-store-put-queued-transaction
@@ -58,38 +60,44 @@
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           account-queue-limit
           global-queue-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (engine-payload-store-insert-transaction
    store transaction :queued
    #'engine-pending-txpool-put-queued-transaction
    (list :price-bump-percent price-bump-percent
          :account-queue-limit account-queue-limit
          :global-queue-limit global-queue-limit
-         :admitted-at admitted-at)))
+         :admitted-at admitted-at
+         :base-fee base-fee)))
 
 (defun engine-payload-store-put-basefee-transaction
     (store transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           global-slot-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (engine-payload-store-insert-transaction
    store transaction :basefee
    #'engine-pending-txpool-put-basefee-transaction
    (list :price-bump-percent price-bump-percent
          :global-slot-limit global-slot-limit
-         :admitted-at admitted-at)))
+         :admitted-at admitted-at
+         :base-fee base-fee)))
 
 (defun engine-payload-store-put-blob-transaction
     (store transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           global-slot-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (engine-payload-store-insert-transaction
    store transaction :blob
    #'engine-pending-txpool-put-blob-transaction
    (list :price-bump-percent price-bump-percent
          :global-slot-limit global-slot-limit
-         :admitted-at admitted-at)))
+         :admitted-at admitted-at
+         :base-fee base-fee)))
 
 (defun engine-payload-store-basefee-promotable-transaction-p
     (store transaction base-fee &key expected-chain-id)

@@ -29,6 +29,7 @@
    #:chain-store-cache-entry-metadata-inserted-at
    #:chain-store-cache-entry-metadata-encoded-bytes
    #:chain-store-cache-entry-metadata-block-number
+   #:chain-store-cache-entry-metadata-pool-owned-p
    #:engine-log-filter
    #:engine-log-filter-p
    #:make-engine-log-filter
@@ -68,6 +69,7 @@
    #:make-memory-chain-store
    #:chain-store-component
    #:chain-store-require-memory-store
+   #:chain-store-blob-sidecar-pinned-p
    #:memory-chain-store-blocks
    #:memory-chain-store-number-blocks
    #:memory-chain-store-canonical-hashes

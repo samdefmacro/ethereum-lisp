@@ -631,7 +631,7 @@
    #:eth-serve-backend-pooled-transaction-sidecar
    #:eth-serve-backend-known-transaction-p
    #:eth-serve-backend-accept-transaction
-   #:eth-serve-backend-accept-blob-sidecar
+   #:eth-serve-backend-accept-blob-transaction
    #:eth-serve-backend-accept-block
    #:eth-serve-backend-block-access-list
    #:eth-serve-backend-blob-cells

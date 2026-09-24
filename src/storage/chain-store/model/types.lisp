@@ -25,17 +25,23 @@
 
 (defstruct (chain-store-cache-entry-metadata
             (:constructor make-chain-store-cache-entry-metadata
-                (&key inserted-at encoded-bytes block-number)))
+                (&key inserted-at encoded-bytes block-number pool-owned-p)))
   "Deterministic accounting attached to one bounded chain-store cache entry.
 
 INSERTED-AT is a store-observed Unix timestamp rather than an untrusted block
 timestamp.  ENCODED-BYTES is the exact number of retained protocol bytes used
 by the cache budget.  BLOCK-NUMBER is optional: caches whose value can be tied
 to an execution block use it for finality pruning, while content-only entries
-leave it NIL until their owner supplies an inclusion height."
+leave it NIL until their owner supplies an inclusion height.
+POOL-OWNED-P marks a blob the transaction pool admitted: it lives exactly as
+long as a pooled transaction references it (CHAIN-STORE-BLOB-SIDECAR-PINNED-P),
+so it is neither aged out nor pressure-evicted while pinned and it leaves at
+once when the last referencing transaction does, unless an inclusion height
+has made it block data."
   (inserted-at 0 :type (integer 0 *))
   (encoded-bytes 0 :type (integer 0 *))
-  (block-number nil :type (or null (integer 0 *))))
+  (block-number nil :type (or null (integer 0 *)))
+  (pool-owned-p nil :type boolean))
 
 (defstruct (engine-log-filter
             (:constructor make-engine-log-filter

@@ -133,17 +133,22 @@
             (mapcar #'set-code-authorization-authority
                     (transaction-authorization-list transaction)))))
 
-(defun txpool-address= (left right)
-  (and left right
-       (bytes= (address-bytes left) (address-bytes right))))
-
 (defun txpool-authority-reserved-p (store authority)
-  (some
-   (lambda (pooled)
-     (some (lambda (reserved)
-             (txpool-address= authority reserved))
-           (txpool-set-code-authorities pooled)))
-   (engine-payload-store-pooled-transactions store)))
+  "Whether a pooled set-code transaction names AUTHORITY. This used to recover
+every authorization of every pooled set-code transaction on every admission;
+the pool now indexes authorities as transactions enter it."
+  (engine-payload-store-authority-reserved-p store authority))
+
+(defun txpool-child-base-fee (config head)
+  "The base fee of the block that would follow HEAD, which is what a pooled
+transaction would pay; NIL when that block has none."
+  (let ((header (and head (block-header head))))
+    (when header
+      (let ((parent-base-fee (block-header-base-fee-per-gas header)))
+        (if (chain-config-london-p config (1+ (block-header-number header)))
+            (expected-base-fee-per-gas
+             header :london-parent-p (not (null parent-base-fee)))
+            parent-base-fee)))))
 
 (defun validate-txpool-delegation-reservations
     (store sender transaction config &optional admission-state
@@ -306,7 +311,11 @@
         (price-bump
           (txpool-admission-policy-price-bump-percent policy))
         (local-predicate
-          (txpool-local-transaction-predicate config policy)))
+          (txpool-local-transaction-predicate config policy))
+        ;; Full-pool eviction ranks by what the NEXT block would earn.
+        (child-base-fee
+          (txpool-child-base-fee
+           config (txpool-admission-state-head admission-state))))
     (validate-admission-policy transaction local-transaction-p policy)
     (validate-txpool-admission
      transaction sender store config admission-state
@@ -323,14 +332,16 @@
                           :global-slot-limit
                           (unless local-transaction-p
                             (txpool-admission-policy-global-slot-limit policy))
-                          :admitted-at admitted-at))
+                          :admitted-at admitted-at
+                          :base-fee child-base-fee))
       ((txpool-basefee-ineligible-p store transaction admission-state)
        (engine-payload-store-put-basefee-transaction
         store transaction :price-bump-percent price-bump
                           :global-slot-limit
                           (unless local-transaction-p
                             (txpool-admission-policy-global-slot-limit policy))
-                          :admitted-at admitted-at))
+                          :admitted-at admitted-at
+                          :base-fee child-base-fee))
       ((if queued-nonce-gap-p-supplied-p
            queued-nonce-gap-p
            (txpool-queued-nonce-gap-p
@@ -338,6 +349,7 @@
        (engine-payload-store-put-queued-transaction
         store transaction :price-bump-percent price-bump
                           :admitted-at admitted-at
+                          :base-fee child-base-fee
         :account-queue-limit
         (unless local-transaction-p
           (txpool-admission-policy-account-queue-limit policy))
@@ -348,6 +360,7 @@
        (engine-payload-store-put-pending-transaction
         store transaction :price-bump-percent price-bump
                           :admitted-at admitted-at
+                          :base-fee child-base-fee
         :account-slot-limit
         (unless local-transaction-p
           (txpool-admission-policy-account-slot-limit policy))
@@ -370,8 +383,17 @@
         (txpool-admission-policy-global-slot-limit policy)
         :local-transaction-predicate local-predicate)))))
 
+(defun txpool-refuse-blob-transaction-without-sidecar (transaction)
+  "A blob transaction enters the pool only with its sidecar, through
+TXPOOL-ADMIT-BLOB-TRANSACTION: admitting it here would leave a pending
+transaction whose blobs nothing owns."
+  (when (typep transaction 'blob-transaction)
+    (block-validation-fail
+     "Blob transaction admission requires its sidecar")))
+
 (defun txpool-admit-transaction
     (transaction store config policy &key admitted-at)
+  (txpool-refuse-blob-transaction-without-sidecar transaction)
   (validate-txpool-encoded-size transaction)
   (validate-set-code-transaction-fields transaction)
   (validate-set-code-authorization-signatures transaction)
@@ -482,6 +504,7 @@ and contiguous-nonce context per sender."
                 (txpool-admit-transaction
                  transaction store config policy :admitted-at admitted-at)
                 (progn
+                  (txpool-refuse-blob-transaction-without-sidecar transaction)
                   (validate-txpool-encoded-size transaction)
                   (validate-set-code-transaction-fields transaction)
                   (validate-set-code-authorization-signatures transaction)

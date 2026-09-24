@@ -38,6 +38,16 @@
    #:engine-pending-txpool-note-admission-time
    #:engine-pending-txpool-clear-admission-time
    #:engine-pending-txpool-admission-time
+   #:engine-pending-txpool-authority-transactions
+   #:engine-pending-txpool-transaction-authorities
+   #:engine-pending-txpool-blob-hash-owners
+   #:engine-pending-txpool-note-transaction-lookups
+   #:engine-pending-txpool-forget-transaction-lookups
+   #:engine-pending-txpool-blob-hash-key
+   #:engine-pending-txpool-authority-reserved-p
+   #:engine-pending-txpool-blob-hash-owned-p
+   #:engine-pending-txpool-owned-blob-count
+   #:engine-pending-txpool-effective-tip
    #:engine-payload-store-pending-sender-key
    #:engine-payload-store-pending-nonce-key
    #:engine-pending-txpool-pending-conflict

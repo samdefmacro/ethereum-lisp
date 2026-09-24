@@ -80,7 +80,9 @@
               :encoded-bytes
               (chain-store-cache-entry-metadata-encoded-bytes metadata)
               :block-number
-              (chain-store-cache-entry-metadata-block-number metadata))))
+              (chain-store-cache-entry-metadata-block-number metadata)
+              :pool-owned-p
+              (chain-store-cache-entry-metadata-pool-owned-p metadata))))
      table)
     copy))
 

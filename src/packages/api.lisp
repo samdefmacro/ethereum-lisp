@@ -9,6 +9,14 @@
         #:ethereum-lisp.consensus
         #:ethereum-lisp.chain-store
         #:ethereum-lisp.txpool)
+  (:import-from #:ethereum-lisp.crypto #:+kzg-commitment-size+)
+  (:import-from #:ethereum-lisp.kzg
+                #:+blob-byte-size+
+                #:+kzg-proof-size+
+                #:+cell-proofs-per-blob+
+                #:compute-kzg-blob-proof
+                #:validate-blob-sidecar-fields)
+  (:import-from #:ethereum-lisp.node-store #:chain-store-atomic-commit)
   (:export
    #:txpool-admission-policy
    #:make-txpool-admission-policy
@@ -24,7 +32,15 @@
    #:txpool-local-transaction-p
    #:txpool-local-transaction-predicate
    #:txpool-admit-transaction
-   #:txpool-admit-transactions))
+   #:txpool-admit-transactions
+   #:+txpool-max-pooled-blobs+
+   #:txpool-invalid-blob-sidecar
+   #:txpool-verified-blob-sidecar
+   #:txpool-check-blob-admission
+   #:txpool-check-blob-sidecar-shape
+   #:txpool-verify-blob-sidecar
+   #:txpool-admit-verified-blob-transaction
+   #:txpool-admit-blob-transaction))
 
 (defpackage #:ethereum-lisp.engine-api
   (:use #:cl
