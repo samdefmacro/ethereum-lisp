@@ -148,6 +148,27 @@ the live gate's revision fence: `HOODI_HIVE_REVISION` (default `HEAD`) must be
 builds `/private/tmp/ethereum-lisp-source-<rev8>.tar` with
 `git archive --format=tar <rev>` and checks that an existing one matches.
 
+`upload` normally reads the runtime image's revision and platform from the
+local Docker daemon. When that daemon is down (a Docker Desktop outage on the
+control plane), an archive already exported by `scripts/dev.sh
+runtime-export` can be staged instead:
+
+```sh
+HOODI_GATE_ALLOW_MUTATION=1 \
+HOODI_HIVE_IMAGE_TAR=/private/tmp/ethereum-lisp-runtime-sec5-<rev8>-amd64.tar \
+HOODI_HIVE_IMAGE_SHA256=<the sha256 runtime-export printed> \
+  scripts/hoodi-hive-gate.sh upload
+```
+
+The archive's SHA-256 must equal the pin (`prepare` checks it again when the
+variables are set), and its single image's `RepoTags` must include
+`ethereum-lisp-runtime:sec5-<rev8>-amd64` and its configuration must carry
+exactly one `org.opencontainers.image.revision` label equal to the revision
+and the platform `linux/amd64`, read from `manifest.json` and the
+configuration blob with `tar`, `grep` and `sed`. The revision fence runs
+before any of this and is unchanged, and the nested runner still checks the
+loaded image's revision, platform and user at load time.
+
 Refusal matrix, each checked before any change:
 
 | Condition | Refused actions |
@@ -164,6 +185,9 @@ Refusal matrix, each checked before any change:
 | runner image absent; staged archive, source, or Hive binary checksum mismatch | prepare |
 | evidence root not freshly prepared, results non-empty, runner script changed | run |
 | runner still running, no `hive-status.txt`, local directory exists | collect |
+| `HOODI_HIVE_IMAGE_TAR` without `HOODI_HIVE_IMAGE_SHA256` (or the reverse), a pin that is not 64 lowercase hex digits, or an archive other than `HOODI_HIVE_RUNTIME_ARTIFACT` | all |
+| archive checksum differs from the pin | upload, prepare |
+| archive is not one `docker image save` image, lacks the `sec5-<rev8>-amd64` tag, or carries another revision or platform | upload |
 
 Transcribed from the records: runner bounds 2 CPU, 3g/3584m for rpc-compat
 (r19, `sec5-6e3e9b1d-hive-rpc-compat.txt`) and 8g/10g for Engine (r29,
@@ -198,10 +222,12 @@ status in `hive-status.txt` (r54).
 `scripts/hoodi-hive-gate-selftest.sh` runs the broker against stubbed
 `ssh`/`scp`/`docker`/`git`/`free`/`df` (the ssh stub runs the remote half
 locally). It covers argument parsing and every refusal above except the
-staging-checksum and runner-script ones, each with a positive control. It runs
+staging-checksum and runner-script ones, each with a positive control, and
+the archive upload with the local daemon stubbed down (70 checks). It runs
 as the integration test `HOODI-HIVE-GATE-SELFTEST-COVERS-REFUSALS`
-(`tests/control-plane-broker-tests.lisp`). The broker has not yet run against
-the real host.
+(`tests/control-plane-broker-tests.lisp`). `scripts/hoodi-fleet-status.sh`
+calls `status` for the newest run of each suite, identified from the
+runner's labels.
 
 ## The `HIVE_*` contract, as this client implements it
 

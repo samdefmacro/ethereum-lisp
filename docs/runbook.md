@@ -185,7 +185,8 @@ Against the live gate (read-only unless noted; see scripts/hoodi-live-gate.sh):
 
 ```
 scripts/hoodi-live-gate.sh status     # container state, eth_syncing, eth_blockNumber, peers, disk
-scripts/hoodi-live-gate.sh logs       # recent log window with the snap/engine signals
+scripts/hoodi-live-gate.sh logs       # recent log window with the snap/engine/guard signals
+scripts/hoodi-fleet-status.sh         # live, Hive and shadow gates, host memory and /data, in one call
 scripts/hoodi-live-gate.sh complete   # the Section 5 completion check; exit 0 = complete
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
 ```
@@ -193,4 +194,45 @@ HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
 `complete` checks: `peer.snap.target_completed` present, the healer's last
 report completed=T with frontier 0, `eth_syncing` false, and
 `eth_blockNumber` at or past the CL-authorised target (d203fee6: target
-3680599, head 3680709).
+3680599, head 3680709). When `eth_syncing` is not false it still fails, and
+prints one `completion-why=` line: current and highest block and their gap,
+the Docker timestamp, age and status of the last newPayload, and the store
+guard's last observable release. A hold is logged only when it ends, so an
+open hold shows up as `guard=no-release-logged-since:<ts>` once the last
+release (long_hold, newPayload or forkchoiceUpdated line) is at least the
+30 s Engine deadline old, next to the last long_hold's holder and length.
+For example, from b5161312 on 2026-09-24T02:24Z:
+
+```
+completion-why=syncing current=3684026 highest=3684118 gap=92 last-new-payload=2026-09-24T01:50:27.243535660Z age=2066s np-status=SYNCING guard=no-release-logged-since:2026-09-24T01:50:27.391393628Z guard-release-age=2066s last-long-hold=ethereum-lisp-devnet-dial-session:110731ms@2026-09-24T01:50:17.789708979Z
+```
+
+`logs` reduces the Engine and store-guard telemetry of the last 10,000 log
+lines (the fields are described in
+`docs/evidence/sec5-newpayload-six-second-quantum.txt`) to key=value lines:
+
+| line | what it says |
+|---|---|
+| `el-engine-requests method=M count=N`, `el-engine-requests-total` | requests per `rpcMethods` |
+| `el-engine-latency series=handlerMs\|npExecuteMs method=M samples= min= p50= p90= max=` | nearest-rank distribution per method |
+| `el-engine-np-cpu-gc samples= npExecuteCpuMs-sum= npExecuteGcMs-sum=` | newPayload execution: own CPU against collector time |
+| `el-engine-guard-wait samples= maxMs=` | the longest `guardWaitMs` |
+| `el-engine-last-new-payload timestamp= method= status=` | Docker's receive time of the last newPayload (`none-in-window` if older) |
+| `el-guard-long-hold holder=H count= maxMs=`, `-total`, `-last` | `node.store_guard.long_hold` by holder |
+| `el-connection-error port=P class=C count=`, `-total` | `engine.rpc.http.connection.error` by listener port and class `request-deadline-Ns`, `idle-deadline-Ns` or `other`; the event carries no method, because a request that hits its deadline writes no request line |
+
+Only numbers, method names, holder labels and the error class leave the host.
+
+`scripts/hoodi-fleet-status.sh` (read-only, no variables needed) prints host
+memory and `/data` usage, then live-gate `status` and `logs` for every
+running live-gate container, Hive `status` for the newest run of each suite
+and shadow-gate `status`, each discovered from container labels. It strips
+every mutation allowance from the brokers it calls, retries a dropped ssh
+session up to three times, and exits non-zero if any section failed.
+
+A `stop` action for the live gate (SIGTERM with a parameterised grace,
+default 120 s, then the exit code, OOMKilled, the RocksDB `Shutdown
+complete` line and runtime faults) is written but not yet in the broker; see
+`docs/evidence/sec5-gate-tooling.txt`. Until it lands, stop with `docker stop
+--time 120` and read the store's `chaindata/LOG` tail for `Shutdown
+complete`.

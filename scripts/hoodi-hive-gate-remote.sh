@@ -130,7 +130,15 @@ upload_artifacts() {
     fi
     local_artifacts
     verify_source_archive
-    inspect_local_runtime_image
+    if [ -n "$image_tar" ]; then
+        # HOODI_HIVE_IMAGE_TAR: the archive's pinned checksum was verified by
+        # local_artifacts; its tag, revision and platform come from the
+        # archive, with the same revision fence as the local-image path.
+        note "runtime image identity read from $runtime_artifact (local Docker daemon not used)"
+        inspect_runtime_tar
+    else
+        inspect_local_runtime_image
+    fi
     printf 'source=%s sha256=%s\n' "$source_artifact" "$source_sha256"
     printf 'runtime=%s sha256=%s\n' "$runtime_artifact" "$runtime_sha256"
     upload_one "$source_artifact" "$remote_source" "$source_sha256"

@@ -141,6 +141,13 @@ if [ "$actual_head" != "$revision" ]; then
         "$revision" "$actual_head" -- . \
         ':(exclude)docs/**' \
         ':(exclude)scripts/hoodi-live-gate.sh' \
+        ':(exclude)scripts/hoodi-live-gate-selftest.sh' \
+        ':(exclude)scripts/hoodi-fleet-status.sh' \
+        ':(exclude)scripts/hoodi-fleet-status-selftest.sh' \
+        ':(exclude)scripts/hoodi-hive-gate.sh' \
+        ':(exclude)scripts/hoodi-hive-gate-remote.sh' \
+        ':(exclude)scripts/hoodi-hive-gate-selftest.sh' \
+        ':(exclude)tests/control-plane-broker-tests.lisp' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
     # An old runtime may remain live while a later revision changes production
@@ -951,13 +958,17 @@ gate_logs() {
     ssh "$host" bash -s -- "$container" "$lighthouse_container" <<'REMOTE'
 set -eu
 container="$1"; lighthouse="$2"
-el_log="$(mktemp)"; cl_log="$(mktemp)"
-trap 'rm -f "$el_log" "$cl_log"' EXIT HUP INT TERM
+el_log="$(mktemp)"; el_log_ts="$(mktemp)"; cl_log="$(mktemp)"
+engine_samples="$(mktemp)"
+trap 'rm -f "$el_log" "$el_log_ts" "$cl_log" "$engine_samples"' EXIT HUP INT TERM
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
 # Discovery and dial telemetry may be much noisier than the throttled SNAP
 # progress records.  Retain a wider *local temporary* window, but continue to
-# publish only the schema-whitelisted aggregate fields below.
-docker logs --tail 10000 "$container" >"$el_log" 2>&1
+# publish only the schema-whitelisted aggregate fields below.  Docker's own
+# receive timestamps date the Engine telemetry; every other reader below sees
+# the lines exactly as the node wrote them.
+docker logs --timestamps --tail 10000 "$container" >"$el_log_ts" 2>&1
+sed 's/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]*Z //' "$el_log_ts" >"$el_log"
 docker logs --tail 1000 "$lighthouse" >"$cl_log" 2>&1
 printf 'el-lines=%s\n' "$(wc -l <"$el_log" | tr -d ' ')"
 for event in \
@@ -1212,6 +1223,118 @@ if [ -n "$source_refresh" ]; then
         fi
     done
 fi
+# Engine and store-guard telemetry, read the way
+# docs/evidence/sec5-newpayload-six-second-quantum.txt describes it.  Only
+# numeric fields, Engine method names, guard holder labels (an Engine method,
+# a named background job, or a thread name) and a fixed connection-error
+# taxonomy leave the host; guardWaitedFor lists and raw error text never do.
+# The node writes request fields as bare integers and long_hold fields as
+# strings, so every numeric reader accepts both.
+awk -v samples="$engine_samples" '
+function num(line, name,    s) {
+    if (!match(line, "[(]\"" name "\" [.] \"?-?[0-9]+")) return ""
+    s = substr(line, RSTART, RLENGTH)
+    sub(/^[^.]*[.] "?/, "", s)
+    return s
+}
+function str(line, name,    s) {
+    if (!match(line, "[(]\"" name "\" [.] \"[^\"]*\"")) return ""
+    s = substr(line, RSTART, RLENGTH)
+    sub(/^[^.]*[.] "/, "", s)
+    sub(/"$/, "", s)
+    gsub(/[^A-Za-z0-9_.:,-]/, "_", s)
+    return s
+}
+{
+    ts = "unknown"
+    if ($1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T/) ts = $1
+}
+index($0, "\"engine.rpc.http.request\"") {
+    method = str($0, "rpcMethods")
+    if (method == "") method = "none"
+    requests[method]++
+    v = num($0, "handlerMs")
+    if (v != "") print "handlerMs", method, v > samples
+    v = num($0, "npExecuteMs")
+    if (v != "") print "npExecuteMs", method, v > samples
+    v = num($0, "npExecuteCpuMs")
+    if (v != "") { cpu_samples++; cpu_sum += v }
+    v = num($0, "npExecuteGcMs")
+    if (v != "") { gc_samples++; gc_sum += v }
+    v = num($0, "guardWaitMs")
+    if (v != "") { guard_samples++; if (v + 0 > guard_max) guard_max = v + 0 }
+    if (method ~ /^engine_newPayload/) {
+        last_np_ts = ts
+        last_np_method = method
+        last_np_status = str($0, "rpcPayloadStatus")
+        if (last_np_status == "") last_np_status = "none"
+    }
+    next
+}
+index($0, "\"node.store_guard.long_hold\"") {
+    holder = str($0, "holder")
+    if (holder == "") holder = "unknown"
+    v = num($0, "holdMs") + 0
+    if (!(holder in hold_count) || v > hold_max[holder]) hold_max[holder] = v
+    hold_count[holder]++
+    hold_total++
+    if (v > hold_total_max) hold_total_max = v
+    last_hold_ts = ts
+    last_hold_holder = holder
+    last_hold_ms = v
+    next
+}
+index($0, "\"engine.rpc.http.connection.error\"") {
+    port = num($0, "port")
+    if (port == "") port = "unknown"
+    class = "other"
+    if (match($0, /exceeded the [0-9]+ second idle deadline/)) {
+        s = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", s)
+        class = "idle-deadline-" s "s"
+    } else if (match($0, /exceeded the [0-9]+ second deadline/)) {
+        s = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", s)
+        class = "request-deadline-" s "s"
+    }
+    errors[port " " class]++
+    error_total++
+    next
+}
+END {
+    for (m in requests) printf "el-engine-requests method=%s count=%d\n", m, requests[m]
+    for (h in hold_count)
+        printf "el-guard-long-hold holder=%s count=%d maxMs=%d\n", h, hold_count[h], hold_max[h]
+    for (k in errors) {
+        split(k, part, " ")
+        printf "el-connection-error port=%s class=%s count=%d\n", part[1], part[2], errors[k]
+    }
+    printf "el-engine-requests-total count=%d\n", total_requests()
+    printf "el-guard-long-hold-total count=%d maxMs=%d\n", hold_total, hold_total_max
+    if (hold_total)
+        printf "el-guard-long-hold-last timestamp=%s holder=%s holdMs=%d\n", last_hold_ts, last_hold_holder, last_hold_ms
+    else
+        print "el-guard-long-hold-last timestamp=none-in-window"
+    printf "el-connection-error-total count=%d\n", error_total
+    printf "el-engine-np-cpu-gc samples=%d npExecuteCpuMs-sum=%d npExecuteGcMs-sum=%d\n", cpu_samples, cpu_sum, gc_sum
+    printf "el-engine-guard-wait samples=%d maxMs=%d\n", guard_samples, guard_max
+    if (last_np_ts != "")
+        printf "el-engine-last-new-payload timestamp=%s method=%s status=%s\n", last_np_ts, last_np_method, last_np_status
+    else
+        print "el-engine-last-new-payload timestamp=none-in-window"
+}
+function total_requests(    m, t) { t = 0; for (m in requests) t += requests[m]; return t }
+' "$el_log_ts" | LC_ALL=C sort
+# Distribution per series and method: nearest-rank percentiles over the window.
+LC_ALL=C sort -k1,1 -k2,2 -k3,3n "$engine_samples" | awk '
+function rank(q,    r) { r = int(q * n); if (r < q * n) r++; if (r < 1) r = 1; return r }
+function flush() {
+    if (n == 0) return
+    printf "el-engine-latency series=%s method=%s samples=%d min=%d p50=%d p90=%d max=%d\n",
+           series, method, n, value[1], value[rank(0.5)], value[rank(0.9)], value[n]
+    n = 0
+}
+$1 != series || $2 != method { flush(); series = $1; method = $2 }
+{ value[++n] = $3 }
+END { flush() }'
 # Profiler rows are deliberately schema-bounded and contain no peer or network
 # identity. Never print any other raw EL/CL line from this evidence broker,
 # except the runtime-fault lines immediately below.
@@ -1248,7 +1371,9 @@ trap 'rm -f "$el_log"' EXIT HUP INT TERM
 # target_completed and final heal_progress lines sit far above the last ten
 # thousand lines, and a tail reported them missing on a node that was already
 # serving eth_syncing=false at the head (d203fee6, 2026-09-23T13:10Z).
-docker logs "$container" >"$el_log" 2>&1
+# Docker's receive timestamps date the lines for the not-at-head explanation;
+# every pattern below is unanchored, so the prefix changes no other check.
+docker logs --timestamps "$container" >"$el_log" 2>&1
 
 # Runtime integrity faults fail completion before anything else is considered.
 # SBCL's SIGSEGV handler prints "CORRUPTION WARNING", signals a
@@ -1294,9 +1419,73 @@ rpc() {
         --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":[]}" \
         "http://127.0.0.1:$rpc_port"
 }
+# Why a node is not yet at the head, in one line, from eth_syncing and the
+# log alone.  A store-guard hold is logged only when it is released
+# (node.store_guard.long_hold), so a hold that is still open is not
+# observable; what is observable is the last release: the latest long_hold
+# line or the latest newPayload/forkchoiceUpdated completion, each of which
+# took and released the guard.  No release for at least the 30 s Engine
+# request deadline is reported as "no-release-logged-since:<ts>".
+epoch_of() {
+    date -u -d "${1%%.*}Z" +%s 2>/dev/null || echo unknown
+}
+age_of() {
+    case "$1" in
+        none) echo unknown ;;
+        *) since="$(epoch_of "$1")"
+           case "$since" in unknown) echo unknown ;; *) echo "$(( now - since ))" ;; esac ;;
+    esac
+}
+completion_why() {
+    now="$(date -u +%s)"
+    current_hex="$(echo "$1" | sed -n 's/.*"currentBlock":"0x\([0-9a-fA-F][0-9a-fA-F]*\)".*/\1/p')"
+    highest_hex="$(echo "$1" | sed -n 's/.*"highestBlock":"0x\([0-9a-fA-F][0-9a-fA-F]*\)".*/\1/p')"
+    if [ -n "$current_hex" ] && [ -n "$highest_hex" ]; then
+        current="$((16#$current_hex))"; highest="$((16#$highest_hex))"
+        gap="$(( highest - current ))"
+    else
+        current=unknown; highest=unknown; gap=unknown
+    fi
+    np_line="$(grep -F '"engine.rpc.http.request"' "$el_log" |
+        grep -F '("rpcMethods" . "engine_newPayload' | tail -1 || true)"
+    np_ts=none; np_status=none
+    if [ -n "$np_line" ]; then
+        np_ts="$(echo "$np_line" | awk '{print $1}')"
+        np_status="$(echo "$np_line" |
+            sed -n 's/.*("rpcPayloadStatus" \. "\([A-Z_]*\)").*/\1/p')"
+        [ -n "$np_status" ] || np_status=none
+    fi
+    hold_line="$(grep -F '"node.store_guard.long_hold"' "$el_log" | tail -1 || true)"
+    hold=none
+    if [ -n "$hold_line" ]; then
+        hold_holder="$(echo "$hold_line" |
+            sed -n 's/.*("holder" \. "\([A-Za-z0-9_.:-]*\)").*/\1/p')"
+        hold_ms="$(echo "$hold_line" |
+            sed -n 's/.*("holdMs" \. "\{0,1\}\([0-9][0-9]*\)"\{0,1\}).*/\1/p')"
+        hold="${hold_holder:-unknown}:${hold_ms:-unknown}ms@$(echo "$hold_line" | awk '{print $1}')"
+    fi
+    release_line="$(grep -E '"node\.store_guard\.long_hold"|[(]"rpcMethods" [.] "engine_(newPayload|forkchoiceUpdated)' "$el_log" |
+        tail -1 || true)"
+    release_ts=none
+    [ -z "$release_line" ] || release_ts="$(echo "$release_line" | awk '{print $1}')"
+    release_age="$(age_of "$release_ts")"
+    case "$release_age" in
+        unknown) guard="no-release-logged" ;;
+        *) if [ "$release_age" -ge 30 ]; then
+               guard="no-release-logged-since:$release_ts"
+           else
+               guard="released:$release_ts"
+           fi ;;
+    esac
+    printf 'completion-why=syncing current=%s highest=%s gap=%s last-new-payload=%s age=%ss np-status=%s guard=%s guard-release-age=%ss last-long-hold=%s\n' \
+        "$current" "$highest" "$gap" "$np_ts" "$(age_of "$np_ts")" "$np_status" \
+        "$guard" "$release_age" "$hold"
+}
 syncing="$(rpc eth_syncing)"
 echo "$syncing" | grep -Eq '"result"[[:space:]]*:[[:space:]]*false[[:space:]]*}' || {
-    echo "completion-eth-syncing=not-false" >&2; exit 1;
+    echo "completion-eth-syncing=not-false" >&2
+    completion_why "$syncing" >&2
+    exit 1
 }
 block_response="$(rpc eth_blockNumber)"
 block_hex="$(echo "$block_response" | sed -n 's/.*"result":"0x\([0-9a-fA-F][0-9a-fA-F]*\)".*/\1/p')"
