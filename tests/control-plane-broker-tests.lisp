@@ -52,5 +52,5 @@ check count it printed after MARKER (NIL when it printed none)."
     (is (= 0 status))
     (is (search ", 0 failed" stdout))
     (is (null (search "not ok" stdout)))
-    ;; The logs summary alone checks more than twenty lines; 37 in all.
-    (is (and count (>= count 35)))))
+    ;; The logs summary alone checks more than twenty lines; 49 in all.
+    (is (and count (>= count 45)))))

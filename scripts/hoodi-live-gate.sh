@@ -1371,7 +1371,9 @@ trap 'rm -f "$el_log"' EXIT HUP INT TERM
 # target_completed and final heal_progress lines sit far above the last ten
 # thousand lines, and a tail reported them missing on a node that was already
 # serving eth_syncing=false at the head (d203fee6, 2026-09-23T13:10Z).
-docker logs "$container" >"$el_log" 2>&1
+# Docker's receive timestamps date the lines for the not-at-head explanation;
+# every pattern below is unanchored, so the prefix changes no other check.
+docker logs --timestamps "$container" >"$el_log" 2>&1
 
 # Runtime integrity faults fail completion before anything else is considered.
 # SBCL's SIGSEGV handler prints "CORRUPTION WARNING", signals a
@@ -1417,9 +1419,73 @@ rpc() {
         --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":[]}" \
         "http://127.0.0.1:$rpc_port"
 }
+# Why a node is not yet at the head, in one line, from eth_syncing and the
+# log alone.  A store-guard hold is logged only when it is released
+# (node.store_guard.long_hold), so a hold that is still open is not
+# observable; what is observable is the last release: the latest long_hold
+# line or the latest newPayload/forkchoiceUpdated completion, each of which
+# took and released the guard.  No release for at least the 30 s Engine
+# request deadline is reported as "no-release-logged-since:<ts>".
+epoch_of() {
+    date -u -d "${1%%.*}Z" +%s 2>/dev/null || echo unknown
+}
+age_of() {
+    case "$1" in
+        none) echo unknown ;;
+        *) since="$(epoch_of "$1")"
+           case "$since" in unknown) echo unknown ;; *) echo "$(( now - since ))" ;; esac ;;
+    esac
+}
+completion_why() {
+    now="$(date -u +%s)"
+    current_hex="$(echo "$1" | sed -n 's/.*"currentBlock":"0x\([0-9a-fA-F][0-9a-fA-F]*\)".*/\1/p')"
+    highest_hex="$(echo "$1" | sed -n 's/.*"highestBlock":"0x\([0-9a-fA-F][0-9a-fA-F]*\)".*/\1/p')"
+    if [ -n "$current_hex" ] && [ -n "$highest_hex" ]; then
+        current="$((16#$current_hex))"; highest="$((16#$highest_hex))"
+        gap="$(( highest - current ))"
+    else
+        current=unknown; highest=unknown; gap=unknown
+    fi
+    np_line="$(grep -F '"engine.rpc.http.request"' "$el_log" |
+        grep -F '("rpcMethods" . "engine_newPayload' | tail -1 || true)"
+    np_ts=none; np_status=none
+    if [ -n "$np_line" ]; then
+        np_ts="$(echo "$np_line" | awk '{print $1}')"
+        np_status="$(echo "$np_line" |
+            sed -n 's/.*("rpcPayloadStatus" \. "\([A-Z_]*\)").*/\1/p')"
+        [ -n "$np_status" ] || np_status=none
+    fi
+    hold_line="$(grep -F '"node.store_guard.long_hold"' "$el_log" | tail -1 || true)"
+    hold=none
+    if [ -n "$hold_line" ]; then
+        hold_holder="$(echo "$hold_line" |
+            sed -n 's/.*("holder" \. "\([A-Za-z0-9_.:-]*\)").*/\1/p')"
+        hold_ms="$(echo "$hold_line" |
+            sed -n 's/.*("holdMs" \. "\{0,1\}\([0-9][0-9]*\)"\{0,1\}).*/\1/p')"
+        hold="${hold_holder:-unknown}:${hold_ms:-unknown}ms@$(echo "$hold_line" | awk '{print $1}')"
+    fi
+    release_line="$(grep -E '"node\.store_guard\.long_hold"|[(]"rpcMethods" [.] "engine_(newPayload|forkchoiceUpdated)' "$el_log" |
+        tail -1 || true)"
+    release_ts=none
+    [ -z "$release_line" ] || release_ts="$(echo "$release_line" | awk '{print $1}')"
+    release_age="$(age_of "$release_ts")"
+    case "$release_age" in
+        unknown) guard="no-release-logged" ;;
+        *) if [ "$release_age" -ge 30 ]; then
+               guard="no-release-logged-since:$release_ts"
+           else
+               guard="released:$release_ts"
+           fi ;;
+    esac
+    printf 'completion-why=syncing current=%s highest=%s gap=%s last-new-payload=%s age=%ss np-status=%s guard=%s guard-release-age=%ss last-long-hold=%s\n' \
+        "$current" "$highest" "$gap" "$np_ts" "$(age_of "$np_ts")" "$np_status" \
+        "$guard" "$release_age" "$hold"
+}
 syncing="$(rpc eth_syncing)"
 echo "$syncing" | grep -Eq '"result"[[:space:]]*:[[:space:]]*false[[:space:]]*}' || {
-    echo "completion-eth-syncing=not-false" >&2; exit 1;
+    echo "completion-eth-syncing=not-false" >&2
+    completion_why "$syncing" >&2
+    exit 1
 }
 block_response="$(rpc eth_blockNumber)"
 block_hex="$(echo "$block_response" | sed -n 's/.*"result":"0x\([0-9a-fA-F][0-9a-fA-F]*\)".*/\1/p')"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Network-free self-test for the read-only evidence actions of
-# scripts/hoodi-live-gate.sh (logs).
+# scripts/hoodi-live-gate.sh (logs and complete).
 #
 # Copies the broker into a scratch checkout and puts stub git, ssh, docker,
 # curl and date first on PATH.  The ssh stub runs the broker's remote script
@@ -10,7 +10,8 @@
 # integer fields, node.store_guard.long_hold with string fields,
 # engine.rpc.http.connection.error), so the host-side awk/sed runs for real.
 # Every summary line is checked against a value computed by hand from the
-# fixture, and the raw-line boundary is checked with marker text
+# fixture, the not-at-head explanation has a positive control on each side of
+# its 30 s threshold, and the raw-line boundary is checked with marker text
 # that must never reach the output.  No stub lets a container be stopped,
 # started, run or loaded: the final check asserts none was reached.
 #
@@ -239,6 +240,34 @@ has "el-engine-requests-total count=0"
 has "el-guard-long-hold-total count=0 maxMs=0"
 has "el-engine-last-new-payload timestamp=none-in-window"
 has "el-connection-error-total count=0"
+cp "$saved_log" "$el_log"
+
+# --- complete: why the node is not at the head ----------------------------------
+export STUB_SYNCING='{"jsonrpc":"2.0","id":1,"result":{"startingBlock":"0x10","currentBlock":"0x10","highestBlock":"0x5c"}}'
+export STUB_BLOCK='{"jsonrpc":"2.0","id":1,"result":"0x10"}'
+export STUB_NOW="$(( $(epoch_of_second 20) + 100 ))"
+run 1 "complete while syncing" -- "$broker" complete
+has "completion-eth-syncing=not-false"
+has "completion-why=syncing current=16 highest=92 gap=76 last-new-payload=$(ts 10) age=110s np-status=SYNCING guard=no-release-logged-since:$(ts 20) guard-release-age=100s last-long-hold=engine_newPayloadV4:5844ms@$(ts 20)"
+lacks "leakmarker"
+
+# Control on the other side of the 30 s threshold: a recent release.
+export STUB_NOW="$(( $(epoch_of_second 20) + 10 ))"
+run 1 "complete while syncing after a recent release" -- "$broker" complete
+has "completion-why=syncing current=16 highest=92 gap=76 last-new-payload=$(ts 10) age=20s np-status=SYNCING guard=released:$(ts 20) guard-release-age=10s last-long-hold=engine_newPayloadV4:5844ms@$(ts 20)"
+
+# Control: at the head, complete passes and gives no explanation.
+export STUB_SYNCING='{"jsonrpc":"2.0","id":1,"result":false}'
+export STUB_BLOCK='{"jsonrpc":"2.0","id":1,"result":"0x400000"}'
+run 0 "complete at the head" -- "$broker" complete
+has "completion-eth-syncing=false"
+has "completion-canonical-block=4194304"
+lacks "completion-why"
+
+# A runtime fault still fails completion first, timestamps and all.
+printf '%s CORRUPTION WARNING in SBCL pid 7: Memory fault at 0x10\n' "$(ts 36)" >> "$el_log"
+run 1 "complete with a runtime fault" -- "$broker" complete
+has "completion-runtime-fault=1"
 cp "$saved_log" "$el_log"
 
 # --- mutating actions stay behind the flag --------------------------------------
