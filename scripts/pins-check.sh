@@ -411,6 +411,6 @@ EOF
 case "${1:-}" in
   "") check_repository ;;
   --self-test) self_test ;;
-  -h|--help) sed -n '2,31p' "${BASH_SOURCE[0]}" ;;
+  -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" ;;
   *) echo "usage: scripts/pins-check.sh [--self-test]" >&2; exit 2 ;;
 esac

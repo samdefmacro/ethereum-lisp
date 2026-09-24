@@ -72,6 +72,7 @@ Commands:
   runtime-build TAG  Build the reviewed non-root Dockerfile.runtime image
   runtime-export TAG ARTIFACT
                      Export an exact-revision linux/amd64 runtime archive
+                     and its CycloneDX SBOM (ARTIFACT.sbom.cdx.json)
   runtime-smoke TAG  Run the reviewed runtime image smoke gate
   shadow-proxy-format
                      Format the Engine shadow proxy in a narrow container mount
@@ -812,12 +813,18 @@ runtime_export() {
     echo "ERROR: runtime export requires linux/amd64, got $platform" >&2
     return 1
   }
+  [ ! -e "$artifact.sbom.cdx.json" ] || {
+    echo "ERROR: refusing existing runtime SBOM: $artifact.sbom.cdx.json" >&2
+    return 1
+  }
   "$DOCKER" image save --output "$artifact" "$image"
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$artifact"
   else
     shasum -a 256 "$artifact"
   fi
+  # The SBOM travels next to the archive (plan section 10).
+  "$ROOT/scripts/release-artifacts.sh" sbom "$image" "$artifact"
 }
 
 runtime_smoke() {
