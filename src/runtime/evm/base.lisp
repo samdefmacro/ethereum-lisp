@@ -3,9 +3,11 @@
 (defun word (value)
   ;; Every stack push reduces its value; a non-negative fixnum is already a
   ;; word, and skipping the bignum MOD for it keeps pushes allocation-free.
-  (if (typep value '(and fixnum unsigned-byte))
-      value
-      (mod value +word-modulus+)))
+  ;; A bignum already below 2^256 (a PUSH32 immediate, an MLOAD result) is
+  ;; returned as well: MOD would divide and allocate a copy of it.
+  (cond ((typep value '(and fixnum unsigned-byte)) value)
+        ((and (typep value 'unsigned-byte) (< value +word-modulus+)) value)
+        (t (mod value +word-modulus+))))
 
 (defun fail (control &rest args)
   (error 'evm-error :message (apply #'format nil control args)))

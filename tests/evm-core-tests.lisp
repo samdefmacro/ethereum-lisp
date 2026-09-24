@@ -535,6 +535,99 @@
     (is (find #x31 (evm-base-gas-table-disagreements fork-blind)
               :key #'first))))
 
+(defun evm-memory-word-reference-bytes (value)
+  "VALUE as 32 big-endian bytes, one LDB per byte: the MSTORE oracle."
+  (loop for i below 32
+        collect (ldb (byte 8 (* 8 (- 31 i))) value)))
+
+(deftest evm-mstore-and-mload-match-a-byte-by-byte-reference
+  ;; MSTORE/MLOAD write and read the word through the memory's backing
+  ;; vector in 32-bit pieces, with a separate fixnum path; both paths and
+  ;; both memory shapes (a displaced view after growth, a plain vector that
+  ;; is already large enough) must give the reference bytes and value.
+  (let ((values (list 0 1 255 256 #x1234567890abcdef
+                      (1- (expt 2 62)) (expt 2 62) (1- (expt 2 64))
+                      (expt 2 64) (1- (expt 2 255)) (expt 2 255)
+                      (1- (expt 2 256))
+                      (bytes-to-integer (make-byte-vector 32 :initial-element #xab))
+                      (+ (expt 2 200) 7)))
+        (mstore #'ethereum-lisp.evm.internal::mstore)
+        (mload #'ethereum-lisp.evm.internal::mload))
+    (dolist (value values)
+      (dolist (offset '(0 1 31 33 100))
+        (dolist (initial (list (make-byte-vector 0)
+                               (make-byte-vector 256 :initial-element #xee)))
+          (let* ((memory (funcall mstore initial offset value))
+                 (stored (loop for i from offset below (+ offset 32)
+                               collect (aref memory i))))
+            (is (equal (evm-memory-word-reference-bytes value) stored))
+            (is (= value (funcall mload memory offset)))))))
+    ;; MLOAD of arbitrary bytes, including a word just below and at 2^62.
+    (dolist (bytes (list (make-byte-vector 32 :initial-element #xab)
+                         (let ((b (make-byte-vector 32)))
+                           (setf (aref b 24) 63 (aref b 31) 1)
+                           b)
+                         (let ((b (make-byte-vector 32)))
+                           (setf (aref b 24) 64)
+                           b)
+                         (let ((b (make-byte-vector 32)))
+                           (setf (aref b 0) 1)
+                           b)))
+      (let ((memory (make-byte-vector 64)))
+        (replace memory bytes :start1 7)
+        (is (= (bytes-to-integer bytes) (funcall mload memory 7)))))))
+
+(deftest evm-push-immediates-match-a-byte-by-byte-reference
+  ;; READ-PUSH-IMMEDIATE has a fixnum path (PUSH1..PUSH7) and a 32-bit piece
+  ;; path (PUSH8..PUSH32); both must equal the plain big-endian read, with
+  ;; bytes past the end of the code reading as zero.
+  (let ((code (make-byte-vector 40)))
+    (dotimes (i 40)
+      (setf (aref code i) (mod (+ 1 (* 37 i)) 256)))
+    (flet ((reference (pc size)
+             (let ((value 0))
+               (dotimes (i size value)
+                 (let ((index (+ pc 1 i)))
+                   (setf value (+ (* value 256)
+                                  (if (< index 40) (aref code index) 0))))))))
+      (loop for size from 1 to 32
+            do (dolist (pc (list 0 3 (- 39 size) 20 39))
+                 (is (= (reference pc size)
+                        (ethereum-lisp.evm.internal::read-push-immediate
+                         code pc size))))))))
+
+(deftest evm-memory-word-loop-executes-without-per-byte-bignums
+  ;; A loop that stores and reloads a full 256-bit word (0xabab...ab) at
+  ;; offset 0 until less than 10,000 gas is left.  Shifting the word one byte
+  ;; at a time consed 320 MB over this 2.47M-gas frame (a bignum per byte,
+  ;; 64 per iteration); split into 32-bit pieces 82 MB, the intermediate
+  ;; integers of PUSH32 and MLOAD.  The loop's result is checked against the
+  ;; stored bytes.
+  (let* ((code (hex-to-bytes
+                (concatenate
+                 'string "0x5b7f"
+                 (apply #'concatenate 'string (loop repeat 32 collect "ab"))
+                 "600052600051506127105a106034576000565b00")))
+         (best-bytes nil))
+    (loop repeat 3
+          do (let* ((bytes-before (sb-ext:get-bytes-consed))
+                    (result
+                      (execute-bytecode
+                       code
+                       :context (make-evm-context
+                                 :state (make-state-db)
+                                 :address (address-from-hex
+                                           "0x6b3f1c2aa4f0a2a49bb782a4e83db5a0764326ec"))
+                       :gas-limit 2469015
+                       :max-steps nil))
+                    (bytes (- (sb-ext:get-bytes-consed) bytes-before)))
+               (is (eq :stopped (evm-result-status result)))
+               (is (< (- 2469015 (evm-result-gas-used result)) 10000))
+               (is (every (lambda (byte) (= byte #xab))
+                          (subseq (evm-result-memory result) 0 32)))
+               (setf best-bytes (min bytes (or best-bytes bytes)))))
+    (is (< best-bytes (* 150 1000 1000)))))
+
 (deftest evm-gas-burner-loop-executes-without-per-instruction-garbage
   ;; The Hoodi gas burner at 0x6b3f1c2aa4f0a2a49bb782a4e83db5a0764326ec, whose
   ;; transactions filled most blocks the Section 5 head-follower executed
@@ -543,8 +636,11 @@
   ;; iteration, until less than 10,000 gas is left.  Before the base-gas table
   ;; and the allocation-free regular charge one 2.47M-gas frame consed 45 MB
   ;; and took 250 ms of CPU on arm64 (a 24-transaction block: about 6 s);
-  ;; after, 9 MB and 40 ms.  Consing is the deterministic assertion; the CPU
-  ;; bound is loose, best of three on this thread's own clock.
+  ;; after, 9 MB and 40 ms.  With the vector stack and the fixnum fast paths
+  ;; (docs/evidence/sec5-evm-throughput.txt) it conses under 0.1 MB and takes
+  ;; 7-9 ms.  Consing is the deterministic assertion (the list stack alone
+  ;; consed 9 MB); the CPU bound is loose, best of three on this thread's own
+  ;; clock.
   (let* ((code (hex-to-bytes
                 "0x5f5a5f600e565b5f5260205fa1005b6127105a1060065760010161133750600e56"))
          (state (make-state-db))
@@ -572,5 +668,5 @@
                  (setf best-bytes (min bytes (or best-bytes bytes))
                        best-cpu-microseconds
                        (min cpu (or best-cpu-microseconds cpu))))))
-    (is (< best-bytes (* 20 1000 1000)))
-    (is (< best-cpu-microseconds 150000))))
+    (is (< best-bytes (* 1 1000 1000)))
+    (is (< best-cpu-microseconds 40000))))
