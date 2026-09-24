@@ -27,6 +27,11 @@ jobs:
         run: scripts/pins-check.sh --self-test
       - name: Check digest and commit pins
         run: scripts/pins-check.sh
+      # Signs a synthetic release with a throwaway key and requires it to
+      # verify, and six tampered variants not to (docs/runbook.md, Release
+      # verification). Pulls the digest-pinned cosign and CycloneDX images.
+      - name: Self-test release verification
+        run: scripts/release-verify.sh --self-test
 
   layers:
     strategy:
