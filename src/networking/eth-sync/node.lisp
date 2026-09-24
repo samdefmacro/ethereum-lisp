@@ -152,6 +152,7 @@ not to dial us back, which is the right answer when we are not listening."
           serve-backend
           snap-backend
           (snap-client-enabled-p t)
+          stream-timeout-seconds
           (capabilities nil capabilities-supplied-p))
   "Run the recipient side of the RLPx, Hello, and eth Status handshake on an
 already-accepted SOCKET, returning the ETH-PEER.
@@ -159,9 +160,14 @@ already-accepted SOCKET, returning the ETH-PEER.
 Unlike ETH-SYNC-CONNECT-PEER this does NOT close SOCKET on failure: the caller
 accepted it and owns its lifetime, and it usually has cleanup of its own to run
 in the same place. The peer's static key is learned from the handshake, so
-nothing about the remote identity is known before this returns."
-  (let ((connection (rlpx-accept-stream (eth-sync-socket-stream socket)
-                                        private-key))
+nothing about the remote identity is known before this returns.
+
+STREAM-TIMEOUT-SECONDS bounds every read and write on the session's stream,
+the handshake included, exactly as it does for ETH-SYNC-CONNECT-PEER."
+  (let ((connection (rlpx-accept-stream
+                     (eth-sync-socket-stream socket
+                                             :timeout stream-timeout-seconds)
+                     private-key))
         (capabilities
           (eth-sync-session-capabilities
            capabilities capabilities-supplied-p

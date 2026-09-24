@@ -28,6 +28,15 @@ nothing would hold a thread and a descriptor indefinitely.")
 (defconstant +devnet-peer-accept-tick-seconds+ 1
   "How long one accept waits before returning to check for shutdown. Our policy.")
 
+(defparameter *devnet-inbound-session-stream-timeout-seconds* 30
+  "How long a single read or write on an ACCEPTED session may stall, handshake
+included. The same 30 s bound dialed sessions get from
++DEVNET-SESSION-STREAM-TIMEOUT-SECONDS+ (dialer.lisp, loaded later). Before it,
+an inbound stream had no bound at all: a peer that sent part of an auth, or a
+legacy pre-EIP-8 auth that reads as a 1024-1279 byte size, held its session
+thread and its reservation until the peer chose to hang up. A parameter rather
+than a constant so a test can shorten it for session threads it cannot bind.")
+
 (defconstant +devnet-snap-min-request-bytes+ (* 64 1024)
   "Smallest adaptive account/storage request, matching geth's lower cap.")
 
@@ -861,7 +870,8 @@ a dial knows who it is calling before it connects and so never reserves."
   #+sbcl
   (let ((table (devnet-node-peer-table node))
         (closeable nil)
-        (admitted nil))
+        (admitted nil)
+        (reservation-held reserved-slot-p))
     (unwind-protect
          (progn
            ;; Registered BEFORE the handshake: a shutdown while a peer is still
@@ -874,6 +884,14 @@ a dial knows who it is calling before it connects and so never reserves."
              (multiple-value-bind (peer entry refusal)
                  (funcall admit-function socket)
                (setf admitted entry)
+               ;; The reservation bounds handshakes in flight, and this one is
+               ;; over: an admitted peer is counted by its table entry from now
+               ;; on. Holding it for the whole session counted every inbound
+               ;; peer twice against the limit (geth's listenLoop likewise
+               ;; returns its pending slot when SetupConn returns).
+               (when reservation-held
+                 (setf reservation-held nil)
+                 (devnet-peer-release-reservation node reserved-host))
                (cond
                  ((and peer entry)
                   ;; Install before ON-SESSION-START and before the pump.  The
@@ -935,13 +953,18 @@ a dial knows who it is calling before it connects and so never reserves."
          (lambda ()
            (devnet-peer-table-remove table
                                      (devnet-peer-entry-id-hex admitted)))))
-      (when reserved-slot-p
-        (call-with-devnet-peer-table
-         node
-         (lambda ()
-           (devnet-peer-table-release-slot table reserved-host))))
+      ;; A handshake that failed or was cut short still holds it.
+      (when reservation-held
+        (devnet-peer-release-reservation node reserved-host))
       (devnet-shutdown-controller-remove-closeable shutdown-controller closeable)
       (ignore-errors (sb-bsd-sockets:socket-close socket)))))
+
+(defun devnet-peer-release-reservation (node remote-host)
+  "Give back the handshake reservation the accept loop took for REMOTE-HOST."
+  (call-with-devnet-peer-table
+   node
+   (lambda ()
+     (devnet-peer-table-release-slot (devnet-node-peer-table node) remote-host))))
 
 (defun devnet-peer-inbound-admit-function (node remote-host remote-port)
   "The admission half of an INBOUND session: bound the handshake, run the
@@ -963,11 +986,15 @@ on the session thread rather than on the accept loop."
                 (sb-bsd-sockets:socket-file-descriptor socket)
                 :input +devnet-peer-handshake-timeout-seconds+ nil))
           (values nil nil nil)
-          (multiple-value-bind (status head-number chain-context)
-              (devnet-peer-sync-status node)
-            (declare (ignore head-number))
+          ;; Never the store guard here: our ack is due within the initiator's
+          ;; handshake deadline (geth: 5 s), and the guard can be held for
+          ;; minutes. The published status is at most one guard hold old.
+          (multiple-value-bind (status chain-context)
+              (devnet-peer-published-sync-status node)
             (let* ((peer (eth-sync-accept-peer
                           socket (devnet-node-node-key node) status
+                          :stream-timeout-seconds
+                          *devnet-inbound-session-stream-timeout-seconds*
                           :chain-context chain-context
                           :serve-backend (devnet-peer-serve-backend node)
                           :snap-backend (devnet-peer-snap-backend node)
@@ -1064,59 +1091,68 @@ Only an error escaping the loop itself is fail-stop."
                          listener
                          :timeout-seconds +devnet-peer-accept-tick-seconds+)
                       (when socket
-                        (if (eq :reserve
-                                (call-with-devnet-peer-table
-                                 node
+                        (destructuring-bind (verdict peers pending)
+                            (call-with-devnet-peer-table
+                             node
+                             (lambda ()
+                               (let ((verdict
+                                       (devnet-peer-table-slot-verdict
+                                        table remote-host)))
+                                 (when (eq verdict :reserve)
+                                   (devnet-peer-table-reserve-slot
+                                    table remote-host))
+                                 (list verdict
+                                       (devnet-peer-table-count table)
+                                       (devnet-peer-table-pending table)))))
+                          (if (eq :reserve verdict)
+                              ;; Spawn and move on: the handshake must never run
+                              ;; on this thread, or one silent peer stops the
+                              ;; listener noticing anything, shutdown included.
+                              (let ((thread
+                                      (sb-thread:make-thread
+                                       (lambda ()
+                                         ;; A session must NEVER let a condition
+                                         ;; escape its thread. Under `sbcl
+                                         ;; --script`, which is how the node and
+                                         ;; the whole test suite run, the disabled
+                                         ;; debugger turns an unhandled condition
+                                         ;; in ANY thread into (exit 1) for the
+                                         ;; entire process -- so one peer sending
+                                         ;; garbage, closing mid-handshake, or
+                                         ;; failing the fork-id check would take
+                                         ;; the node down. Measured, not assumed.
+                                         (devnet-call-with-peer-session-thread-guard
+                                          node remote-host
+                                          (lambda ()
+                                            (devnet-peer-run-session
+                                             node socket shutdown-controller
+                                             (devnet-peer-inbound-admit-function
+                                              node remote-host remote-port)
+                                             :reserved-slot-p t
+                                             :reserved-host remote-host
+                                             :pending-broadcast
+                                             (devnet-peer-pending-broadcast node)))))
+                                       :name "ethereum-lisp-devnet-peer-session")))
+                                (call-with-devnet-mutex
+                                 sessions-lock
                                  (lambda ()
-                                   (let ((verdict
-                                           (devnet-peer-table-slot-verdict
-                                            table remote-host)))
-                                     (when (eq verdict :reserve)
-                                       (devnet-peer-table-reserve-slot
-                                        table remote-host))
-                                     verdict))))
-                            ;; Spawn and move on: the handshake must never run
-                            ;; on this thread, or one silent peer stops the
-                            ;; listener noticing anything, shutdown included.
-                            (let ((thread
-                                    (sb-thread:make-thread
-                                     (lambda ()
-                                       ;; A session must NEVER let a condition
-                                       ;; escape its thread. Under `sbcl
-                                       ;; --script`, which is how the node and
-                                       ;; the whole test suite run, the disabled
-                                       ;; debugger turns an unhandled condition
-                                       ;; in ANY thread into (exit 1) for the
-                                       ;; entire process -- so one peer sending
-                                       ;; garbage, closing mid-handshake, or
-                                       ;; failing the fork-id check would take
-                                       ;; the node down. Measured, not assumed.
-                                       (devnet-call-with-peer-session-thread-guard
-                                        node remote-host
-                                        (lambda ()
-                                          (devnet-peer-run-session
-                                           node socket shutdown-controller
-                                           (devnet-peer-inbound-admit-function
-                                            node remote-host remote-port)
-                                           :reserved-slot-p t
-                                           :reserved-host remote-host
-                                           :pending-broadcast
-                                           (devnet-peer-pending-broadcast node)))))
-                                     :name "ethereum-lisp-devnet-peer-session")))
-                              (call-with-devnet-mutex
-                               sessions-lock
-                               (lambda ()
-                                 (setf sessions
-                                       (cons thread
-                                             (remove-if-not
-                                              #'sb-thread:thread-alive-p
-                                              sessions))))))
-                            (progn
-                              (devnet-peer-manager-log
-                               node "p2p.listener.rejected"
-                               "host" remote-host "reason" "no-slot")
-                              (ignore-errors
-                               (sb-bsd-sockets:socket-close socket))))))
+                                   (setf sessions
+                                         (cons thread
+                                               (remove-if-not
+                                                #'sb-thread:thread-alive-p
+                                                sessions))))))
+                              (progn
+                                ;; The verdict itself (no-slot, ip-throttled,
+                                ;; subnet-throttled, netrestrict) and the counts
+                                ;; it was taken on: every refusal used to read
+                                ;; "no-slot".
+                                (devnet-peer-manager-log
+                                 node "p2p.listener.rejected"
+                                 "host" remote-host
+                                 "reason" (string-downcase (symbol-name verdict))
+                                 "peers" peers "pending" pending)
+                                (ignore-errors
+                                 (sb-bsd-sockets:socket-close socket)))))))
                   (error (condition)
                     (devnet-peer-manager-log node "p2p.listener.accept_failed"
                                              "error" condition))))

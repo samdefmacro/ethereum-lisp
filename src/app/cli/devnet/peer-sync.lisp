@@ -724,35 +724,49 @@ hash32 objects; the Status wants
 raw bytes, so genesis and best hashes are converted with hash32-bytes. The head
 reads run under the store guard, since the store is shared with the RPC and
 dev-period workers and its hash tables are not internally synchronized."
-  (let* ((store (devnet-node-store node))
-         (config (devnet-node-config node))
+  (multiple-value-call #'devnet-peer-status-from-head
+    node
+    (call-with-devnet-node-store-guard
+     node
+     (lambda () (devnet-node-read-status-head node)))))
+
+(defun devnet-peer-published-sync-status (node)
+  "Return STATUS and CHAIN-CONTEXT for an inbound handshake without waiting for
+the store guard.
+
+Built from the head the last guard release published
+(DEVNET-NODE-PUBLISH-STATUS-VIEW), so it trails a hold in progress by at most
+that hold. Only before the first publication, or after a failed one, does it
+fall back to DEVNET-PEER-SYNC-STATUS and the guard."
+  (let ((view (devnet-node-status-view node)))
+    (multiple-value-bind (status head-number chain-context)
+        (if view
+            (devnet-peer-status-from-head node
+                                          (getf view :head-number)
+                                          (getf view :head-timestamp)
+                                          (getf view :genesis-hash)
+                                          (getf view :best-hash))
+            (devnet-peer-sync-status node))
+      (declare (ignore head-number))
+      (values status chain-context))))
+
+(defun devnet-peer-status-from-head
+    (node head-number head-timestamp genesis-hash best-hash)
+  "The DEVNET-PEER-SYNC-STATUS values for a head read from NODE's store."
+  (let* ((config (devnet-node-config node))
          (genesis-block (devnet-node-genesis-block node))
          (genesis-timestamp (block-header-timestamp (block-header genesis-block))))
-    (multiple-value-bind (head-number head-timestamp genesis-hash best-hash)
-        (call-with-devnet-node-store-guard
-         node
-         (lambda ()
-           (let ((head-number (chain-store-head-number store)))
-             ;; chain-store-latest-block is the canonical block at the head
-             ;; number (genesis before any sync); chain-store-head-block is the
-             ;; forkchoice head, unset until a consensus client drives
-             ;; forkchoiceUpdated.
-             (values head-number
-                     (block-header-timestamp
-                      (block-header (chain-store-latest-block store)))
-                     (hash32-bytes (chain-store-canonical-hash store 0))
-                     (hash32-bytes (chain-store-canonical-hash store head-number))))))
-      (values (eth-build-status config genesis-hash head-number head-timestamp
-                                best-hash
-                                (or (chain-config-terminal-total-difficulty config) 0)
-                                ;; Advertise the operator's network id (which may
-                                ;; differ from the chain id via --networkid).
-                                :network-id (devnet-node-network-id node)
-                                :genesis-timestamp genesis-timestamp)
-              head-number
-              (make-eth-chain-context config genesis-hash head-number
-                                      head-timestamp genesis-timestamp)
-              (make-hash32 best-hash)))))
+    (values (eth-build-status config genesis-hash head-number head-timestamp
+                              best-hash
+                              (or (chain-config-terminal-total-difficulty config) 0)
+                              ;; Advertise the operator's network id (which may
+                              ;; differ from the chain id via --networkid).
+                              :network-id (devnet-node-network-id node)
+                              :genesis-timestamp genesis-timestamp)
+            head-number
+            (make-eth-chain-context config genesis-hash head-number
+                                    head-timestamp genesis-timestamp)
+            (make-hash32 best-hash))))
 
 (defun devnet-peer-fetch-gossiped-transactions (node peer enode)
   "Fetch what PEER announced during the sync, and return how many the pool took.

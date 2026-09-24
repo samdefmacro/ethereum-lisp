@@ -390,10 +390,47 @@ following the chain."
     #+sbcl (sb-thread:barrier (:write))
     (setf (devnet-node-read-view node) view)))
 
+(defun devnet-node-read-status-head (node)
+  "Return HEAD-NUMBER, HEAD-TIMESTAMP, GENESIS-HASH and BEST-HASH (raw bytes)
+for NODE's eth Status. Guard held."
+  (let* ((store (devnet-node-store node))
+         (head-number (chain-store-head-number store)))
+    ;; chain-store-latest-block is the canonical block at the head number
+    ;; (genesis before any sync); chain-store-head-block is the forkchoice
+    ;; head, unset until a consensus client drives forkchoiceUpdated.
+    (values head-number
+            (block-header-timestamp
+             (block-header (chain-store-latest-block store)))
+            (hash32-bytes (chain-store-canonical-hash store 0))
+            (hash32-bytes (chain-store-canonical-hash store head-number)))))
+
+(defun devnet-node-publish-status-view (node)
+  "Publish what an inbound eth Status needs from NODE's guarded store. Guard
+held.
+
+Runs as the store guard's release hook, like DEVNET-NODE-PUBLISH-SYNC-VIEW, so
+the published head is never older than the last completed hold. Inbound
+admission reads it without a lock: on Hoodi (b5161312, 2026-09-24) it read the
+head under the guard BEFORE the RLPx handshake, and 10-134 s guard holds made
+initiators time out before our ack. A failure clears the view, so readers fall
+back to the guard rather than advertise a head that stopped following."
+  (let ((view (handler-case
+                  (multiple-value-bind (head-number head-timestamp
+                                        genesis-hash best-hash)
+                      (devnet-node-read-status-head node)
+                    (list :head-number head-number
+                          :head-timestamp head-timestamp
+                          :genesis-hash genesis-hash
+                          :best-hash best-hash))
+                (serious-condition () nil))))
+    #+sbcl (sb-thread:barrier (:write))
+    (setf (devnet-node-status-view node) view)))
+
 (defun devnet-node-publish-guarded-views (node)
   "Everything the store-guard release hook republishes, each independently."
   (handler-case (devnet-node-publish-sync-view node)
     (serious-condition () nil))
+  (devnet-node-publish-status-view node)
   (devnet-node-publish-read-view node))
 
 (defparameter *devnet-public-read-view-methods*

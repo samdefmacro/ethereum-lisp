@@ -195,10 +195,19 @@ cl-workbench validation run cold-unit \
 cl-workbench validation run cold-unit --match EIP1459
 cl-workbench validation run cold-unit --match DNS-TXT-DECODER
 cl-workbench validation run cold-unit --match DISCV4-
+# Inbound RLPx auth reading against geth v1.17.4 readMsg and the EIP-8
+# vectors: whole-packet reads, the 2048-byte size cap, legacy pre-EIP-8 refusal,
+# the misaddressed-auth tag failure, and concurrent handshakes.
+cl-workbench validation run cold-unit --match RLPX-
 
 # Persistent CLI identity/discovery behavior, verified snap client/server, durable
 # pivot progress, bounded multi-peer failover, sole-writer request queues, and
 # eth+snap multiplexing over one RLPx socket.
+# Inbound sessions: the ack does not wait for the store guard, every failure
+# path returns its handshake reservation (and an admitted peer holds none), a
+# stalled auth hits the stream timeout, and a refusal names its verdict.
+cl-workbench validation run cold-integration --match DEVNET-INBOUND-
+cl-workbench validation run cold-integration --match DEVNET-LISTENER-REJECTION
 cl-workbench validation run cold-integration --match DEVNET-DATADIR-PERSISTS
 cl-workbench validation run cold-integration \
   --match DISCV4-LOOKUP-CRAWLS-A-BOOTNODE-AND-DISCOVERS-A-PEER
