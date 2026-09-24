@@ -3423,6 +3423,7 @@ transfer that leaves the contract untouched."
                         (persistence
                           (ethereum-lisp.cli::devnet-node-persistence-state node))
                         (tail-imports 0)
+                        (backfills 0)
                         (tail-status +payload-status-accepted+)
                         (target-completed-events 0)
                         (durable-state-progress nil)
@@ -3511,10 +3512,21 @@ transfer that leaves the contract untouched."
                       (lambda (callback-node block &rest arguments)
                         (declare (ignore callback-node arguments))
                         (incf tail-imports)
+                        (when (string= +payload-status-invalid+ tail-status)
+                          (error 'ethereum-lisp.cli::devnet-peer-sync-invalid
+                                 :message "injected tail INVALID"))
                         (values
                          (make-payload-status
                           :status tail-status)
                          block nil)))
+                     (cons
+                      'ethereum-lisp.cli::devnet-node-snap-backfill-blockhash-window
+                      (lambda (callback-node pivot-header)
+                        (is (eq node callback-node))
+                        (is (hash32= pivot-hash
+                                     (block-header-hash pivot-header)))
+                        (incf backfills)
+                        0))
                      (cons
                       'ethereum-lisp.cli::devnet-peer-manager-log
                       (lambda (callback-node name &rest fields)
@@ -3525,10 +3537,44 @@ transfer that leaves the contract untouched."
                     (lambda ()
                       ;; State completion at the pivot is not target completion.
                       ;; Every post-pivot block must execute before this path may
-                      ;; publish the Section 5 completion event.
-                      (signals ethereum-lisp.validation:storage-error
+                      ;; publish the Section 5 completion event.  A tail block
+                      ;; that keeps answering ACCEPTED is retried a bounded
+                      ;; number of times and then ends the phase with a typed
+                      ;; outcome, never the storage failure that stopped the
+                      ;; Hoodi node.
+                      (let ((attempts
+                              ethereum-lisp.cli::*devnet-snap-tail-attempts*)
+                            (outcome
+                              (handler-case
+                                  (progn
+                                    (ethereum-lisp.cli::devnet-node-snap-sync-target
+                                     node target-hash)
+                                    nil)
+                                (ethereum-lisp.cli::devnet-snap-tail-incomplete
+                                    (condition)
+                                  condition))))
+                        (is (typep outcome
+                                   'ethereum-lisp.cli::devnet-snap-tail-incomplete))
+                        (is (= 3 attempts))
+                        (is (= attempts tail-imports))
+                        ;; One backfill before the tail, one refresh per retry.
+                        (is (= attempts backfills))
+                        (when outcome
+                          (is (= 101
+                                 (ethereum-lisp.cli::devnet-snap-tail-incomplete-block-number
+                                  outcome)))
+                          (is (string= +payload-status-accepted+
+                                       (ethereum-lisp.cli::devnet-snap-tail-incomplete-status
+                                        outcome)))))
+                      (is (= 0 target-completed-events))
+                      ;; Positive control: a deterministic INVALID ends the
+                      ;; phase at once, without a retry.
+                      (setf tail-status +payload-status-invalid+
+                            tail-imports 0)
+                      (signals ethereum-lisp.cli::devnet-peer-sync-invalid
                         (ethereum-lisp.cli::devnet-node-snap-sync-target
                          node target-hash))
+                      (is (= 1 tail-imports))
                       (is (= 0 target-completed-events))
                       (setf tail-status +payload-status-valid+
                             tail-imports 0)

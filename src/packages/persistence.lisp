@@ -69,6 +69,7 @@
    #:node-store-delete-snap-skeleton-progress
    #:node-store-populate-snap-skeleton-rebase-batch
    #:node-store-export-snap-skeleton-batch-to-kv
+   #:node-store-export-snap-history-blocks-to-kv
    #:+node-store-content-addressed-code-schema-version+
    #:node-store-chain-schema-version
    #:node-store-migrate-chain-schema

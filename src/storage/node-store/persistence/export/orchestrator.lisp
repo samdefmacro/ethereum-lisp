@@ -179,6 +179,44 @@ candidate's block and state batch is staged, then consumed by forkchoice."
       (when changed-p (kv-apply-batch database batch))
       progress)))
 
+(defun node-store-export-snap-history-blocks-to-kv
+    (database blocks last-hash)
+  "Persist verified blocks below a snap pivot as known, stateless blocks.
+
+The skeleton starts at the pivot, but executing its tail reads BLOCKHASH up to
+256 blocks back, below the pivot. BLOCKS are those ancestors, oldest first;
+LAST-HASH is the hash the pivot's own ancestry names for the newest of them,
+so the hash-contiguous range is authenticated from the pivot downwards. Each
+block passes the skeleton's body and receipt checks and is written in one
+batch, with no state and no cursor. Returns the number of blocks."
+  (unless (and (listp blocks) blocks)
+    (block-validation-fail "Snap history batch must contain a block"))
+  (loop for previous = nil then block
+        for block in blocks
+        do (node-store-validate-snap-skeleton-block block)
+           (when previous
+             (unless (and
+                      (= (block-header-number (block-header block))
+                         (1+ (block-header-number (block-header previous))))
+                      (hash32= (block-header-parent-hash (block-header block))
+                               (block-hash previous)))
+               (block-validation-fail
+                "Snap history batch is not hash-contiguous"))))
+  (unless (hash32= last-hash (block-hash (car (last blocks))))
+    (block-validation-fail
+     "Snap history batch does not end at the pivot's ancestor"))
+  (let ((batch (make-kv-write-batch))
+        (changed-p nil))
+    (dolist (block blocks)
+      (when (node-store-put-immutable-block-records
+             database batch block "Snap history"
+             :allow-missing-committed-p t)
+        (setf changed-p t)))
+    (when changed-p
+      (kv-batch-put-chain-schema-version batch)
+      (kv-apply-batch database batch))
+    (length blocks)))
+
 (defun node-store-sync-chain-record
     (database batch kind identifier desired-value)
   (multiple-value-bind (existing-value present-p)

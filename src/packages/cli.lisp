@@ -113,6 +113,7 @@
                 #:node-store-delete-snap-skeleton-progress
                 #:node-store-populate-snap-skeleton-rebase-batch
                 #:node-store-export-snap-skeleton-batch-to-kv
+                #:node-store-export-snap-history-blocks-to-kv
                 #:node-store-delete-peer-sync-progress
                 #:node-store-export-payload-candidate-to-kv
                 #:node-store-export-buffered-candidate-to-kv

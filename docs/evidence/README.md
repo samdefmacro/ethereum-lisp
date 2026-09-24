@@ -55,6 +55,7 @@ record names no fix.
 - Runtime artifact of the productive local-healer expansion repair → [sec5-21a41c04-productive-healer-runtime.txt](sec5-21a41c04-productive-healer-runtime.txt) → 9f697ec6 (functional), 21a41c04
 - Hoodi EL OOM-killed: SNAP storage results were buffered without a memory bound → [sec5-7f03aed4-snap-memory-bound.txt](sec5-7f03aed4-snap-memory-bound.txt) → — (the record names only its base, 7f03aed4; git shows it was added by e27db183 "Bound SNAP memory under Hoodi cgroup")
 - Completing SNAP needs an executable target tail → [sec5-40be2940-snap-tail-completion.txt](sec5-40be2940-snap-tail-completion.txt) → 40be2940
+- The snap tail exited the node on SYNCING: a tail block read BLOCKHASH below the pivot, where nothing was known → [sec5-snap-tail-syncing.txt](sec5-snap-tail-syncing.txt) → 7f079d8f
 - Continuous-sync gap queue closed a peer queue and never retried it → [sec5-616709b5-gap-queue-lifecycle.txt](sec5-616709b5-gap-queue-lifecycle.txt) → 616709b5
 - Forkchoice target dropped before publication → [sec5-ade47e78-forkchoice-publication.txt](sec5-ade47e78-forkchoice-publication.txt) → ade47e78
 - A completed durable SNAP target was scheduled again → [sec5-bb9cf83d-completed-snap-scheduling.txt](sec5-bb9cf83d-completed-snap-scheduling.txt) → bb9cf83d

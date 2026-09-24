@@ -2289,6 +2289,119 @@ root identity, so the live-gate broker may expose its numeric fields."
                   (devnet-node-peer-table node)
                   (devnet-peer-entry-id-hex entry) -50))))))))))))
 
+(defconstant +devnet-snap-blockhash-window+ 256
+  "How many ancestors BLOCKHASH can read (the opcode's 256-block window).")
+
+(defparameter *devnet-snap-tail-attempts* 3
+  "How many times the snap tail imports one block that answers ACCEPTED or
+SYNCING before it ends the phase. Our policy: the retry refreshes the
+BLOCKHASH ancestry from the live peers, and any cause it does not fix is not
+fixed by trying longer inside one coordinator pass.")
+
+(define-condition devnet-snap-tail-incomplete (error)
+  ((block-hash :initarg :block-hash
+               :reader devnet-snap-tail-incomplete-block-hash)
+   (block-number :initarg :block-number
+                 :reader devnet-snap-tail-incomplete-block-number)
+   (status :initarg :status :reader devnet-snap-tail-incomplete-status)
+   (attempts :initarg :attempts :reader devnet-snap-tail-incomplete-attempts))
+  (:report
+   (lambda (condition stream)
+     (format stream "Snap target tail block ~D (~A) answered ~A ~D time~:P"
+             (devnet-snap-tail-incomplete-block-number condition)
+             (hash32-to-hex (devnet-snap-tail-incomplete-block-hash condition))
+             (devnet-snap-tail-incomplete-status condition)
+             (devnet-snap-tail-incomplete-attempts condition))))
+  (:documentation
+   "The bounded snap tail could not execute a block within its retry bound.
+
+A sync phase outcome, not a node failure: the pivot state, the skeleton and
+every tail block already executed stay durable, and the coordinator's next
+pass resumes the tail from the first block without state. A deterministic
+INVALID verdict ends the phase as DEVNET-PEER-SYNC-INVALID instead."))
+
+(defun devnet-node-snap-backfill-blockhash-window (node pivot-header)
+  "Make every ancestor in the first tail block's BLOCKHASH window a known block.
+
+The skeleton starts at the pivot, so without this nothing below it is known,
+and a tail block whose code reads BLOCKHASH deeper than the pivot fails with
+the history unavailable; the import then answers SYNCING (Hoodi block
+3684909, a transaction naming block 3684839, 70 deep, below the pivot
+3684866). go-ethereum holds these headers because its skeleton sync fills the
+header chain backwards from the head. Walks back from the pivot's parent
+through known blocks and downloads only the missing part of the window,
+anchored at the hash the pivot's own ancestry names, and writes it in one
+batch after the whole range is verified. Returns the number of blocks
+written, 0 when the window is already known."
+  (let* ((store (devnet-node-store node))
+         (pivot-number (block-header-number pivot-header))
+         (low (max 1 (- (1+ pivot-number) +devnet-snap-blockhash-window+))))
+    (multiple-value-bind (missing-number missing-hash)
+        (call-with-devnet-node-store-guard
+         node
+         (lambda ()
+           (let ((number (1- pivot-number))
+                 (hash (block-header-parent-hash pivot-header)))
+             (loop while (>= number low)
+                   do (let ((block (chain-store-known-block store hash)))
+                        (unless block
+                          (return (values number hash)))
+                        (setf hash (block-header-parent-hash
+                                    (block-header block))
+                              number (1- number)))))))
+      (if (null missing-number)
+          0
+          (let ((blocks '()))
+            (eth-sync-download-blocks-multi
+             (devnet-node-sync-peer-sources node)
+             (lambda (block) (declare (ignore block)))
+             :start-number low
+             :target-number missing-number
+             :expected-target-hash missing-hash
+             :request-timeout-seconds 10
+             :import-batch
+             (lambda (batch)
+               (setf blocks (append blocks (copy-list batch)))))
+            (let ((count
+                    (node-store-export-snap-history-blocks-to-kv
+                     (database-engine-payload-store-database store)
+                     blocks missing-hash)))
+              (devnet-peer-manager-log
+               node "peer.snap.history_backfilled"
+               "pivot" pivot-number "from" low "to" missing-number
+               "blocks" count)
+              count))))))
+
+(defun devnet-node-snap-import-tail-block (node block pivot-header target-hash)
+  "Execute one bounded snap tail BLOCK, retrying ACCEPTED and SYNCING.
+
+The pivot state exists, so every tail block must execute before the target
+is complete. ACCEPTED or SYNCING (the parent state or the BLOCKHASH ancestry
+not readable) is logged as peer.snap.tail_retry, the ancestry is refreshed
+from the live peers and the block is imported again, at most
+*DEVNET-SNAP-TAIL-ATTEMPTS* times; then DEVNET-SNAP-TAIL-INCOMPLETE ends the
+phase. A deterministic INVALID escapes at once as DEVNET-PEER-SYNC-INVALID.
+Returns the VALID status."
+  (let ((hash (block-hash block))
+        (number (block-header-number (block-header block))))
+    (loop for attempt from 1
+          for status = (payload-status-status
+                        (devnet-peer-sync-import-block
+                         node block :require-valid-p t
+                         :invalid-head-hash target-hash
+                         :label "snap-tail-import"))
+          do (when (string= +payload-status-valid+ status)
+               (return status))
+             (when (>= attempt *devnet-snap-tail-attempts*)
+               (error 'devnet-snap-tail-incomplete
+                      :block-hash hash :block-number number
+                      :status status :attempts attempt))
+             (devnet-peer-manager-log
+              node "peer.snap.tail_retry"
+              "block" number "hash" (hash32-to-hex hash)
+              "status" status "attempt" attempt)
+             (devnet-node-snap-backfill-blockhash-window node pivot-header))))
+
 (defun devnet-node-snap-sync-pivot-attempt (node target-hash)
   "Download and execute the conventional target-64 pivot for TARGET-HASH."
   (let ((store (devnet-node-store node)))
@@ -2404,6 +2517,9 @@ root identity, so the live-gate broker may expose its numeric fields."
                       store pivot-hash target-hash (devnet-node-config node)
                       :consensus-authorized-p t
                       :durability-function persistence-function)))))
+              ;; The tail reads BLOCKHASH below the pivot, where the skeleton
+              ;; has nothing.
+              (devnet-node-snap-backfill-blockhash-window node pivot-header)
               ;; The direct provider can now execute only the <=64 post-pivot
               ;; blocks. Already executed blocks are skipped after a restart.
               (dolist (header (rest tail-headers))
@@ -2422,23 +2538,8 @@ root identity, so the live-gate broker may expose its numeric fields."
                         (storage-fail
                          "Snap skeleton block ~A disappeared"
                          (hash32-to-hex header-hash)))
-                      (multiple-value-bind (status)
-                          (devnet-peer-sync-import-block
-                           node block :require-valid-p t
-                           :invalid-head-hash target-hash
-                           :label "snap-tail-import")
-                        ;; REQUIRE-VALID-P is shared with forward acquisition,
-                        ;; where ACCEPTED and SYNCING are legitimate durable
-                        ;; buffering outcomes.  After the pivot state exists,
-                        ;; however, every bounded tail block must execute before
-                        ;; TARGET-COMPLETED can be published.
-                        (unless
-                            (string= +payload-status-valid+
-                                     (payload-status-status status))
-                          (storage-fail
-                           "Snap target tail block ~A returned ~A instead of VALID"
-                           (hash32-to-hex header-hash)
-                           (payload-status-status status))))))))
+                      (devnet-node-snap-import-tail-block
+                       node block pivot-header target-hash)))))
               (devnet-peer-manager-log
                node "peer.snap.target_completed"
                "pivot" pivot-number "target" target-number)
@@ -2881,6 +2982,16 @@ escape to the coordinator's outer serious-condition boundary."
       ;; coordinator supervisor.
       (devnet-peer-manager-log
        node "peer.sync.invalid_ancestor" "error" condition)
+      nil)
+    (devnet-snap-tail-incomplete (condition)
+      ;; A phase outcome: the tail resumes on the next pass. Before this, the
+      ;; Hoodi tail's SYNCING answer was a storage failure and stopped the node.
+      (devnet-peer-manager-log
+       node "peer.snap.tail_failed"
+       "block" (devnet-snap-tail-incomplete-block-number condition)
+       "hash" (hash32-to-hex (devnet-snap-tail-incomplete-block-hash condition))
+       "status" (devnet-snap-tail-incomplete-status condition)
+       "attempts" (devnet-snap-tail-incomplete-attempts condition))
       nil)
     (eth-sync-multi-peer-error (condition)
       (devnet-peer-manager-log
