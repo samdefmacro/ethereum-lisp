@@ -55,12 +55,17 @@
     (nreverse demoted-transactions)))
 
 (defun engine-payload-store-revalidate-pending-transactions
-    (store &key expected-chain-id)
+    (store &key expected-chain-id (remove-invalid-senders-p t))
+  "Demote the pending transactions HEAD's nonces and balances no longer make
+executable, and return them. REMOVE-INVALID-SENDERS-P NIL skips the leading
+whole-pool sender pass, for a caller that has just run it: the canonical
+new-head reconciliation removes those transactions one step earlier."
   (let ((head (chain-store-latest-block store))
         (demoted-transactions nil))
-    (engine-payload-store-remove-invalid-sender-txpool-transactions
-     store
-     :expected-chain-id expected-chain-id)
+    (when remove-invalid-senders-p
+      (engine-payload-store-remove-invalid-sender-txpool-transactions
+       store
+       :expected-chain-id expected-chain-id))
     (when (and head
                (chain-store-state-available-p store (block-hash head)))
       (let* ((header (block-header head))

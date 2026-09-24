@@ -17,14 +17,21 @@
            (engine-pending-txpool-blob-transactions txpool)))
 
 (defun engine-pending-txpool-transaction-list (transactions)
-  (sort
-   (loop for transaction
-           being the hash-values of
-             transactions
-         collect transaction)
-   #'string<
-   :key (lambda (transaction)
-          (hash32-to-hex (transaction-hash transaction)))))
+  "The transactions of subpool table TRANSACTIONS, in transaction-hash order.
+
+Every subpool table is keyed by the hash's hex (ENGINE-PENDING-TXPOOL-HASH-KEY),
+so the order comes from the keys already stored. Sorting by a freshly computed
+TRANSACTION-HASH instead re-encoded the transaction twice per comparison: with
+a full pool, the five whole-pool passes of one forkchoiceUpdated spent seconds
+of CPU here (Hoodi b5161312, fcuCanonicalMs 2.8-3.3 s)."
+  (mapcar
+   #'cdr
+   (sort
+    (loop for key being the hash-keys of transactions
+            using (hash-value transaction)
+          collect (cons key transaction))
+    #'string<
+    :key #'car)))
 
 (defun engine-pending-txpool-pending-transactions (txpool)
   (engine-pending-txpool-transaction-list

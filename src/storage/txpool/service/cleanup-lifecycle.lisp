@@ -35,30 +35,29 @@
             (push transaction removed-transactions)))))
     (nreverse removed-transactions)))
 
-(defun engine-payload-store-stale-txpool-transaction-p
-    (store head transaction &key expected-chain-id)
-  (let ((sender (transaction-sender
-                 transaction
-                 :expected-chain-id expected-chain-id)))
-    (and sender
-         (chain-store-state-available-p store (block-hash head))
-         (< (transaction-nonce transaction)
-            (chain-store-account-nonce
-             store
-             (block-hash head)
-             sender)))))
+(defun engine-payload-store-sender-memo-value (memo sender compute)
+  "COMPUTE's value for SENDER, computed at most once per MEMO.
 
-(defun engine-payload-store-remove-stale-txpool-transactions
-    (store &key expected-chain-id)
-  (let ((head (chain-store-latest-block store)))
-    (when (and head
-               (chain-store-state-available-p store (block-hash head)))
-      (engine-payload-store-remove-txpool-transactions-if
-       store
-       (lambda (transaction)
-         (engine-payload-store-stale-txpool-transaction-p
-          store head transaction
-          :expected-chain-id expected-chain-id))))))
+A whole-pool pass asks the head state the same question for every pooled
+transaction of a sender. The head does not change during the pass, so MEMO
+(an EQUAL table owned by the pass) keeps the answer per sender and the state is
+read once per sender, as go-ethereum's demoteUnexecutables reads one nonce and
+one balance per pending account."
+  (let ((key (address-to-hex sender)))
+    (multiple-value-bind (value present-p) (gethash key memo)
+      (if present-p
+          value
+          (setf (gethash key memo) (funcall compute))))))
+
+(defun engine-payload-store-stale-txpool-transaction-p
+    (store head transaction sender account-nonces)
+  "True when TRANSACTION's nonce is below SENDER's nonce at HEAD, whose state
+must be available. ACCOUNT-NONCES is the pass's sender memo."
+  (< (transaction-nonce transaction)
+     (engine-payload-store-sender-memo-value
+      account-nonces sender
+      (lambda ()
+        (chain-store-account-nonce store (block-hash head) sender)))))
 
 (defun engine-payload-store-expired-txpool-transaction-p
     (store transaction lifetime-seconds now)

@@ -1160,3 +1160,58 @@
                   (transaction-encoding copy-indexed-transaction)))
       (is (not (bytes= original-encoding
                        (transaction-encoding transaction)))))))
+
+(deftest txpool-new-head-cleanup-removes-by-the-first-failing-check-in-pass-order
+  ;; The new-head cleanup is one walk over the pool (it was four whole-pool
+  ;; passes, one per check). A transaction failing several checks is removed
+  ;; by the first in the old pass order -- wrong-chain sender, stale nonce,
+  ;; over the head gas limit, sender with code -- and the result lists the
+  ;; removals grouped in that order, each group in pool order, as the four
+  ;; passes returned them. E is both stale and over the gas limit: it must be
+  ;; reported with the stale group, after A.
+  (let* ((store (make-engine-payload-memory-store))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (head
+           (make-block
+            :header (make-block-header :number 0 :timestamp 0
+                                       :gas-limit 30000000))))
+    (flet ((signed (key nonce &key (gas-limit 21000) (chain-id 1))
+             (fixture-sign-legacy-transaction
+              (make-legacy-transaction
+               :nonce nonce :gas-price 1 :gas-limit gas-limit
+               :to recipient :value 0)
+              key chain-id)))
+      (chain-store-put-block store head :state-available-p t)
+      (chain-store-set-canonical-head store (block-hash head))
+      (let* ((stale-a (signed 11 1))
+             (over-gas-b (signed 12 0 :gas-limit 40000000))
+             (code-c (signed 13 0))
+             (wrong-chain-d (signed 14 0 :chain-id 2))
+             (stale-and-over-gas-e (signed 15 0 :gas-limit 40000000))
+             (valid-f (signed 16 0))
+             (head-hash (block-hash head)))
+        (chain-store-put-account-nonce
+         store head-hash (fixture-private-key-address 11) 5)
+        (chain-store-put-account-nonce
+         store head-hash (fixture-private-key-address 15) 3)
+        (chain-store-put-account-code
+         store head-hash (fixture-private-key-address 13) #(96 42 0))
+        (dolist (transaction (list stale-a over-gas-b code-c wrong-chain-d
+                                   stale-and-over-gas-e valid-f))
+          (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+           store transaction))
+        (flet ((hex (transaction) (hash32-to-hex (transaction-hash transaction))))
+          (let ((removed
+                  (ethereum-lisp.txpool:engine-payload-store-remove-new-head-invalid-txpool-transactions
+                   store :expected-chain-id 1)))
+            (is (equal (append
+                        (list (hex wrong-chain-d))
+                        (sort (list (hex stale-a) (hex stale-and-over-gas-e))
+                              #'string<)
+                        (list (hex over-gas-b) (hex code-c)))
+                       (mapcar #'hex removed)))
+            (is (equal (list (hex valid-f))
+                       (mapcar #'hex
+                               (ethereum-lisp.txpool:engine-payload-store-pending-transactions
+                                store))))))))))

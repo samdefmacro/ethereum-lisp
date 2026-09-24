@@ -1,0 +1,217 @@
+Section 5: forkchoiceUpdated's growing CPU cost is the txpool reconciliation
+
+Status
+
+Branch fcu-canonical-cost, from 886afd05. In the b5161312 Hoodi run (R4)
+fcuCanonicalMs rose from 1.2 s to a 2.8-3.3 s plateau while
+fcuPersistenceMs stayed at 4-40 ms. Found, reproduced and fixed locally:
+the head's txpool reconciliation walked the whole pool five times, and each
+walk sorted every subpool by a transaction hash recomputed for each
+comparison (a full RLP re-encoding each time). It also read the sender's
+nonce and code from state once for each transaction. The cost grew with the
+pool, and the pool filled once the node began accepting gossip at 00:26Z.
+Not deployed and no live run. No cold-all: the coordinator runs it once at
+the end.
+
+Revision
+
+  80da9d7c  txpool: forkchoiceUpdated reconciles the pool in one walk,
+            sorted by stored keys
+
+================================================================================
+1. The live series (R4, docker logs -t hoodi-el-sec5-b5161312, read-only)
+================================================================================
+
+165 engine_forkchoiceUpdatedV3 lines carry fcuCanonicalMs, 00:26:00Z to
+01:33:55Z. Before 00:26 every fcU answered SYNCING with no canonical phase.
+Samples, one per sixth line:
+
+  time      fcuCanonicalMs  fcuPersistenceMs  handlerCpuMs  handlerGcMs  heapMb
+  00:26:00       1156             672             1147           31        341
+  00:29:43       1604              52             1607          372        546
+  00:33:08       2084              12             2082           30        564
+  00:38:13       2496               4             2495           36        543
+  00:42:41       2876               8             2872           72        309
+  00:49:41       3024              12             2980          165        515
+  01:00:53       2740               8             2738          101        650
+  01:13:51       3072              16             3070          423        465
+  01:21:46       3340              12             3338          305        555
+  01:33:55       3188              16             3190          188        370
+
+- fcuCanonicalMs is nearly all handler CPU: in the sampled rows above,
+  handlerCpuMs is within 2% of it. GC is 1-14% of it and the heap stays flat
+  at 250-650 MB, so the cost is work, not collection or waiting.
+- fcuPersistenceMs was at most 40 ms on 161 of the 164 lines with a
+  canonical phase. The exceptions are the first line (672 ms), 00:29:43
+  (52 ms), and an outlier at 01:29:39 (canonical 7,784 ms, persistence
+  484 ms, CPU 6,754 ms).
+- No log event reports the pool size, so a direct correlation cannot be
+  made. The timing is consistent with the pool filling: inbound transactions
+  are refused until the node is current (DEVNET-NODE-ACCEPT-INBOUND-
+  TRANSACTIONS-P), the first VALID fcU was at 00:26, and the cost rose
+  steadily until about 00:50 and then held. The pool caps (5,120 pending,
+  1,024 queued) would produce that plateau. This is an inference from the
+  timing; the pool size was not measured live.
+
+================================================================================
+2. Reproduction (warm image, SBCL 2.2.9 arm64, temporary probe)
+================================================================================
+
+A RocksDB devnet node (the live store) with a Shanghai genesis. A builder
+node makes four transfer blocks from four block senders. Before import, the
+pool is filled through the gossip admission path
+(TXPOOL-ADMIT-TRANSACTIONS with DEVNET-PEER-TXPOOL-POLICY) with 4 pending
+transactions each from S other senders. None of them is in the blocks. Each
+block then goes through newPayload and fcU on the node's Engine rpc-context.
+Values are fcuCanonicalMs for the four fcUs:
+
+  pool                       before (886afd05)          after (80da9d7c)
+  0                          4    3    2    2           1   2   2   2
+  1,000 (250 senders)      319  286  284  279          79  27  29  25
+  4,000 (1,000 senders)   1543 1287 1294 1412         406 138 116 145
+
+The before and after rows come from one run in one image, with the
+pre-change files loaded, then the current ones. A loaded-docstring probe
+confirmed which variant was live. The first fcU after admission costs more
+in both variants (section 5). At 4,000 transactions the old path spends
+1.3-1.5 s on this Apple-silicon container. On the Hoodi host, with a pool
+of up to about 6,000, the 3 s plateau is in line with that.
+
+Profile (sb-sprof in a spawned thread, 1,000 pooled, eight fcUs): REPLACE,
+bignum truncation, RLP list encoding, CONCAT-BYTES and Keccak together were
+about 60% of samples, i.e. transaction re-encoding. The attribution comes
+from sb-int:encapsulate counters over one run of four fcUs with 1,000
+pooled transactions (the counters add some overhead):
+
+  ENGINE-PAYLOAD-STORE-PENDING-TRANSACTIONS   20 calls   1138 ms
+    (five whole-pool walks x four subpools, each a sorted list)
+  TRANSACTION-HASH                        213,788 calls  1085 ms
+  TRANSACTION-ENCODING                    231,604 calls  1100 ms
+  CHAIN-STORE-ACCOUNT-NONCE                 5,000 calls    57 ms
+  CANONICAL-CHAIN-RECONCILE-TXPOOL              4 calls  1469 ms
+
+Mechanism. ENGINE-PENDING-TXPOOL-TRANSACTION-LIST sorted a subpool with
+:KEY (hash32-to-hex (transaction-hash tx)). SORT calls the key function for
+every comparison. TRANSACTION-HASH calls TRANSACTION-REFRESH-COMPUTATION-
+CACHE, which re-encodes the transaction on every call so that it can detect
+mutation of the (deliberately mutable) transaction struct, and hashes it the
+first time. For n pooled transactions that is about 2 n log n encodings per
+list. The new-head cleanup (ENGINE-PAYLOAD-STORE-REMOVE-NEW-HEAD-INVALID-
+TXPOOL-TRANSACTIONS) ran four whole-pool walks: invalid sender, stale nonce,
+over the gas limit and sender code. The pending revalidation repeated the
+invalid-sender walk. Each walk rebuilt all four sorted subpool lists. The
+stale and sender-code walks read the head state once for each transaction.
+
+geth v1.17.6 (references/go-ethereum, legacypool.go runReorg and
+demoteUnexecutables) does this work per pooled account, not per
+transaction: one nonce and one balance read per pending address, with
+tx.Hash() cached. It also runs the work in the pool's reorg goroutine, not
+inside SetCanonical. The brief pins geth v1.17.4; the local reference
+checkout is v1.17.6, and this part was read from it.
+
+================================================================================
+3. Fix
+================================================================================
+
+- ENGINE-PENDING-TXPOOL-TRANSACTION-LIST sorts by the table key. Every
+  subpool table is keyed by ENGINE-PENDING-TXPOOL-HASH-KEY, the hash's hex,
+  so the order is the same and no hash is recomputed. Every pool view gains
+  from this, not only the fcU (payload building and the txpool RPCs too).
+- The new-head cleanup is one walk. Each transaction has one sender lookup.
+  The first check that fails, in the old pass order, names the removal. The
+  returned list keeps the old grouping (invalid sender, stale, over gas
+  limit, sender code), each group in pool order. The nonce and the code
+  answer are memoized per sender for the walk
+  (ENGINE-PAYLOAD-STORE-SENDER-MEMO-VALUE). The per-transaction walks
+  REMOVE-STALE-, REMOVE-SENDER-CODE-INVALID- and
+  REMOVE-OVER-GAS-LIMIT-TXPOOL-TRANSACTIONS had no other callers and are
+  gone.
+- CANONICAL-CHAIN-RECONCILE-TXPOOL calls the revalidation with
+  :REMOVE-INVALID-SENDERS-P NIL, because the cleanup one step earlier has
+  already done that walk with the same chain id or a stricter one. Other
+  callers keep the default.
+
+Unchanged: which transactions are removed, demoted, promoted or evicted;
+nonce-gap, replacement and eviction rules (Section 6, 7eaba543); the
+pending/queued/basefee/blob split; and the order of every pool view.
+
+What remains per head is O(pool) with a small constant: one cached sender
+lookup (one encoding) per pooled transaction, and at most two nonce reads
+(cleanup and revalidation) plus one code read per sender. This is geth's
+complexity class. It is not O(changed transactions). That would need the set
+of accounts the new blocks touched, and neither this code nor geth's
+legacypool uses one.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed (EXIT=0).
+
+New tests
+  DEVNET-FORKCHOICE-TXPOOL-RECONCILIATION-READS-EACH-POOLED-TRANSACTION-ONCE
+    (integration, tests/cli-devnet-live-persistence-tests.lisp). A devnet
+    node, 1,000 pooled transactions from 250 senders admitted through the
+    gossip path, three blocks through newPayload and fcU. For the second and
+    third fcU the test counts TRANSACTION-ENCODING and
+    CHAIN-STORE-ACCOUNT-NONCE calls and asserts encodings <= 3 x pool and
+    nonce reads <= 2 x senders, with the pool intact. Positive control: the
+    same counter sees >= 1 encoding per pooled transaction when each hash is
+    requested, and no nonce reads. RED on the pre-change files (loaded into
+    the warm image): "Assertion failed: (<= ENCODINGS (* 3 POOL-SIZE))". The
+    old path measured about 58 encodings and 1.25 nonce reads per pooled
+    transaction per fcU (1,250 reads against the 500 bound). GREEN on
+    80da9d7c.
+  TXPOOL-NEW-HEAD-CLEANUP-REMOVES-BY-THE-FIRST-FAILING-CHECK-IN-PASS-ORDER
+    (unit, tests/core-txpool-tests.lisp). One transaction per reason, one
+    that is both stale and over the gas limit, and one valid transaction.
+    The test asserts the exact removal list and order, and that only the
+    valid transaction remains. This is an equivalence oracle: it passes on
+    the pre-change files and on 80da9d7c. Mutation control: swapping the
+    stale and over-gas-limit groups in the result turns it RED.
+
+Cold
+  cl-workbench validation run cold-unit --match TXPOOL --match FORKCHOICE
+    --match ENGINE
+      206 tests passed, 1 failed, EXIT=1. The failure,
+      DEVNET-MULTI-SYNC-DOWNLOADS-ONLY-LOCAL-ENGINE-TARGET-ANCESTORS
+      ("Unknown &KEY argument: :LABEL"), was already there before this
+      branch. Its stub for DEVNET-PEER-SYNC-IMPORT-BLOCK does not accept the
+      :label keyword that dialer.lisp has passed since 28721a06, an ancestor
+      of 886afd05. This branch changes neither file. The new unit test is in
+      the 206.
+  cl-workbench validation run cold-integration --match TXPOOL
+    --match FORKCHOICE --match PAYLOAD-BUILDING --match DEVNET-NEW-PAYLOAD
+      36 tests passed, EXIT=0 (the new integration test included)
+  cl-workbench validation run cold-unit --match CANONICAL --match REINSERT
+    --match REORG --match PENDING
+      68 tests passed, EXIT=0
+  cl-workbench validation run cold-integration --match REORG
+    --match CANONICAL --match REINSERT
+      18 tests passed, EXIT=0
+
+================================================================================
+5. Not verified, and what is left
+================================================================================
+
+- The live effect. Nothing was deployed. The next run's fcuCanonicalMs
+  should stay near the 0-pool cost plus about 30 us per pooled transaction.
+  Its plateau at a full pool should be in the low hundreds of ms, not
+  seconds.
+- The live pool size. No event reports it. A txpool size field on the fcU
+  request log, or a periodic txpool gauge, would allow a direct check.
+- The first fcU after admission still costs more (79 ms against 27 ms at
+  1,000; 406 ms against 116-145 ms at 4,000). Two per-new-transaction costs
+  cause it, and neither is per-head work:
+  (a) TRANSACTION-SENDER caches one sender per expected-chain-id. The pool
+      index asks with no chain id and the reconciliation asks with the
+      chain's id, so each newly admitted transaction is ecrecovered once more
+      at its first fcU. Admission itself recovers it three times.
+  (b) The first fcU persists the newly admitted transactions (persistence
+      86-107 ms at 4,000).
+  Fixing (a) means changing the protocol-layer computation cache (a
+  defstruct slot); it was left alone here.
+- The 01:29:39 outlier (7.8 s canonical, 484 ms persistence) was not
+  explained.
+- EEST fixtures were not rerun. No execution, root, receipt or encoding code
+  changed.
