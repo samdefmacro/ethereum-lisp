@@ -57,3 +57,8 @@ Commands (read-only, from .claude/worktrees/gate-b5161312):
     scripts/hoodi-live-gate.sh status | logs | complete
   ssh test-ethereum-sophon2-symbiosis 'docker logs -t hoodi-el-sec5-b5161312' (grep npExecuteMs,
     long_hold, connection.error, session_failed)
+
+Addendum (02:50Z): the container was OOM-killed by the 12 GiB cgroup limit at
+2026-09-24T02:25:29Z (docker inspect: exited, exit=137, OOMKilled=true), about 35 minutes after
+the last completed Engine request and with heapMb still ~0.5 GB on the last logged requests.
+Host free memory afterwards: 10 GB. The exited container is kept for `docker logs`.
