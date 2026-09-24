@@ -394,3 +394,132 @@
              (setf (block-header-gas-used header) 0))
            "Gas used mismatch"
            :expected-gas-used 0))))))
+
+(defparameter *hoodi-gas-burner-code*
+  "0x5f5a5f600e565b5f5260205fa1005b6127105a1060065760010161133750600e56"
+  "Runtime code of the Hoodi gas burner at
+0x6b3f1c2aa4f0a2a49bb782a4e83db5a0764326ec (eth_getCode, 2026-09-24).")
+
+(defun gas-burner-block-transaction (private-key nonce burner)
+  (let ((unsigned
+          (make-dynamic-fee-transaction
+           :chain-id 1 :nonce nonce
+           :max-priority-fee-per-gas 1 :max-fee-per-gas 1000
+           :gas-limit 2500000 :to burner :value 0)))
+    (let* ((signature
+             (secp256k1-sign
+              (hash32-bytes (dynamic-fee-transaction-signing-hash unsigned))
+              private-key))
+           (r (bytes-to-integer (subseq signature 0 32)))
+           (s (bytes-to-integer (subseq signature 32 64))))
+      (make-dynamic-fee-transaction
+       :chain-id 1 :nonce nonce
+       :max-priority-fee-per-gas 1 :max-fee-per-gas 1000
+       :gas-limit 2500000 :to burner :value 0
+       :y-parity (aref signature 64) :r r :s s))))
+
+(deftest engine-rpc-new-payload-executes-a-full-gas-burner-block
+  ;; A Hoodi-shaped block: 24 calls to the gas burner fill 60M gas, the shape
+  ;; of most blocks the Section 5 head-follower executed
+  ;; (docs/evidence/sec5-newpayload-six-second-cpu.txt).  It is built with
+  ;; EXECUTE-SIGNED-BLOCK and imported through engine_newPayloadV2 into a
+  ;; store that holds only its parent, so the timed call is the whole Engine
+  ;; import: sender recovery, execution, roots and the commit.  Before the
+  ;; interpreter work (886afd05) this cost about 1 s of CPU on arm64; see
+  ;; docs/evidence/sec5-evm-throughput.txt for the measured figures.  Consing
+  ;; is the deterministic bound; the CPU bound is loose (the thread's own
+  ;; clock, one import); the gas assertions prove the block really is full of
+  ;; burner work.
+  (labels ((field (object name)
+             (cdr (assoc name object :test #'string=))))
+    (let* ((store (make-engine-payload-memory-store))
+           (config (make-chain-config :chain-id 1
+                                      :byzantium-block 0
+                                      :constantinople-block 0
+                                      :petersburg-block 0
+                                      :istanbul-block 0
+                                      :berlin-block 0
+                                      :london-block 0
+                                      :shanghai-time 0))
+           (private-key 7)
+           (sender (secp256k1-private-key-address private-key))
+           (burner (address-from-hex
+                    "0x6b3f1c2aa4f0a2a49bb782a4e83db5a0764326ec"))
+           (fee-recipient
+             (address-from-hex "0x0000000000000000000000000000000000000001"))
+           (transactions
+             (loop for nonce below 24
+                   collect (gas-burner-block-transaction
+                            private-key nonce burner)))
+           (parent-state (make-state-db)))
+      (state-db-set-account parent-state sender
+                            (make-state-account
+                             :nonce 0 :balance (expt 10 18)))
+      (state-db-set-account parent-state burner
+                            (make-state-account :nonce 1))
+      (state-db-set-code parent-state burner
+                         (hex-to-bytes *hoodi-gas-burner-code*))
+      (let* ((parent-header
+               (make-block-header
+                :parent-hash (zero-hash32)
+                :beneficiary fee-recipient
+                :state-root (state-db-root parent-state)
+                :mix-hash (zero-hash32)
+                :number 41
+                :gas-limit 60000000
+                :gas-used 30000000
+                :timestamp 98
+                :base-fee-per-gas 100
+                :withdrawals-root (withdrawal-list-root '())))
+             (parent-block (make-block :header parent-header))
+             (child-block
+               (execute-signed-block
+                (state-db-copy parent-state)
+                transactions
+                :expected-chain-id 1
+                :header (make-block-header
+                         :parent-hash (block-hash parent-block)
+                         :beneficiary fee-recipient
+                         :mix-hash (zero-hash32)
+                         :number 42
+                         :gas-limit 60000000
+                         :gas-used 0
+                         :timestamp 99
+                         :base-fee-per-gas 100)
+                :chain-config config
+                :withdrawals '()))
+             (request
+               (list (cons "jsonrpc" "2.0")
+                     (cons "id" 1)
+                     (cons "method" "engine_newPayloadV2")
+                     (cons "params"
+                           (list (engine-rpc-executable-data-object
+                                  (execution-payload-envelope-execution-payload
+                                   (block-to-executable-data child-block))))))))
+        ;; Every transaction ran the burner to its gas floor.
+        (is (= 24 (length (block-transactions child-block))))
+        (is (> (block-header-gas-used (block-header child-block))
+               (* 24 2400000)))
+        (engine-payload-store-put-block
+         store parent-block :state-available-p t)
+        (commit-state-db-to-chain-store
+         store (block-hash parent-block) parent-state)
+        (let* ((bytes-before (sb-ext:get-bytes-consed))
+               (cpu-before
+                 (ethereum-lisp.telemetry:telemetry-thread-cpu-microseconds))
+               (response
+                 (engine-rpc-handle-request
+                  request store config
+                  :import-function #'execute-and-commit-engine-payload))
+               (cpu (- (ethereum-lisp.telemetry:telemetry-thread-cpu-microseconds)
+                       cpu-before))
+               (bytes (- (sb-ext:get-bytes-consed) bytes-before)))
+          (format t "~&;; gas-burner block newPayload: ~D us CPU, ~D bytes~%"
+                  cpu bytes)
+          (is (string= +payload-status-valid+
+                       (field (field response "result") "status")))
+          (is (chain-store-state-available-p store (block-hash child-block)))
+          ;; At 886afd05 this import took 958-976 ms and consed 219 MB; after
+          ;; the interpreter work 205-211 ms and 3-5 MB (warm arm64 image).
+          (is (< bytes (* 50 1000 1000)))
+          (is (< cpu 500000)))))))
