@@ -210,6 +210,9 @@
                     "holder" (devnet-store-guard-hold-label hold)
                     "holdMs" (devnet-store-guard-hold-ms hold)
                     "releaseHookMs" (devnet-store-guard-hold-hook-ms hold)
+                    ;; blocks=N, or FIRST..LAST(COUNT), when it imported any:
+                    ;; one slow block and a hold across many look different.
+                    "blocks" (or (devnet-store-guard-hold-detail hold) "none")
                     "engineWaiting"
                     (if (devnet-node-store-guard-priority-pending-p node)
                         "true" "false"))))))))
@@ -271,7 +274,7 @@
             :request-guard-function store-guard-priority-function
             :request-guard-predicate
             (lambda (method)
-              (not (member method '("eth_syncing" "engine_getBlobsV3")
+              (not (member method *devnet-engine-guard-free-methods*
                            :test #'string=)))
             :get-blobs-v3-function get-blobs-v3-function
             :jwt-secret jwt-secret

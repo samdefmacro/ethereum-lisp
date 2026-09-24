@@ -396,6 +396,41 @@ Our policy. Waiting ends as soon as every waiter owns the guard in turn; the
 bound only keeps a continuous stream of Engine requests from starving the
 importer and the other background holders completely.")
 
+(defparameter *devnet-engine-guard-busy-seconds* 7
+  "How long an Engine request waits behind background store-guard holds before
+it gives up. NIL waits without bound, as every Engine request did at b5161312.
+
+Our policy, derived from the consensus client's own deadline: the execution-
+apis Engine timeouts (engine/common.md) are 8 s for engine_newPayload and
+engine_forkchoiceUpdated and 1 s for the metadata calls, and a CL abandons the
+request after them. Seven seconds lets a normal one-block hold finish (a Hoodi
+block cost about 6 s at b5161312) and leaves about a second for the read,
+dispatch and the reply, so a request that gives up still answers before the
+CL's 8 s deadline. Only time spent behind a background holder (an importer, a
+peer being served) counts; waiting behind another Engine request is the CL's
+own serialization, which go-ethereum also imposes (newPayloadLock and
+forkchoiceLock in eth/catalyst/api.go), and it is not bounded here.
+
+A newPayload or forkchoiceUpdated that gives up answers SYNCING through
+ETHEREUM-LISP.RPC:RPC-REQUEST-GUARD-BUSY, as go-ethereum's delayPayloadImport
+does while its downloader owns the chain; any other guarded Engine method
+answers a JSON-RPC error instead of holding a worker slot to the 30 s HTTP
+deadline.")
+
+(defparameter *devnet-engine-guard-free-methods*
+  '("eth_syncing" "engine_getBlobsV3"
+    "engine_exchangeCapabilities" "engine_getClientVersionV1")
+  "Engine-endpoint methods served without the store guard.
+
+eth_syncing answers from the view published at the last guard release, and
+engine_getBlobsV3 from its own snapshot (both non-blocking by design). The
+two metadata calls read no store state at all: exchangeCapabilities answers
+the static capability list and getClientVersionV1 the static client version.
+The CL gives both a 1 s deadline and treats a miss as the EL being offline; on
+Hoodi (b5161312) Lighthouse logged an exchangeCapabilities timeout every
+second while a peer session held the guard. go-ethereum takes no chain lock for
+either (eth/catalyst/api.go ExchangeCapabilities, GetClientVersionV1).")
+
 ;;; Guard-hold attribution.
 ;;;
 ;;; An Engine request that waited for the store guard cannot tell from its own
@@ -415,20 +450,68 @@ ended during its wait, so this bounds the length of that list, not its age.")
   "Released store-guard holds, newest last. Written only by the guard owner,
 just before it releases; read by the next owner, so the mutex orders every
 access. HOLDER-LABEL is the current owner's label, set on acquisition; a waiter
-reads it racily, only to name who it found holding the guard."
+reads it racily, only to name who it found holding the guard. So are
+HOLDER-STARTED-AT (internal real time of the acquisition), HOLDER-ENGINE-P
+(true when the owner is an Engine request) and HOLDER-DETAIL (the
+DEVNET-STORE-GUARD-BLOCK-NOTE the owner is filling in)."
   (holder-label nil)
+  (holder-started-at 0)
+  (holder-engine-p nil)
+  (holder-detail nil)
   (holds (make-array +devnet-store-guard-ledger-size+ :initial-element nil)
    :type simple-vector)
   (next 0 :type fixnum))
 
 (defstruct (devnet-store-guard-hold
             (:constructor make-devnet-store-guard-hold
-                (label started-at ended-at hook-ms)))
-  "One released hold. STARTED-AT and ENDED-AT are internal real times."
+                (label started-at ended-at hook-ms &optional detail)))
+  "One released hold. STARTED-AT and ENDED-AT are internal real times. DETAIL
+is the hold's DEVNET-STORE-GUARD-BLOCK-NOTE description, or NIL."
   (label nil :read-only t)
   (started-at 0 :read-only t)
   (ended-at 0 :read-only t)
-  (hook-ms 0 :read-only t))
+  (hook-ms 0 :read-only t)
+  (detail nil :read-only t))
+
+;;; What a hold was doing.
+;;;
+;;; The label names the activity (sync-gap-fill, forward-batch-import,
+;;; snap-serve-account-range ...). An importer additionally notes each block it
+;;; imports under the hold, so a long hold says which blocks it cost and a run
+;;; can tell slow execution (one block, many seconds) from a hold that spans
+;;; many blocks. The detail is filled in by the holder only, while it owns the
+;;; mutex; a waiter reads it racily, to name what it is waiting behind.
+
+(defstruct (devnet-store-guard-block-note
+            (:constructor make-devnet-store-guard-block-note ()))
+  (first-block nil)
+  (last-block nil)
+  (block-count 0 :type fixnum))
+
+(defvar *devnet-store-guard-block-note* nil
+  "The DEVNET-STORE-GUARD-BLOCK-NOTE of the hold the current thread owns, or
+NIL outside a hold.")
+
+(defun devnet-store-guard-note-block (number)
+  "Record that the current store-guard hold imports block NUMBER. Does nothing
+outside a hold."
+  (let ((detail *devnet-store-guard-block-note*))
+    (when (and detail (integerp number))
+      (unless (devnet-store-guard-block-note-first-block detail)
+        (setf (devnet-store-guard-block-note-first-block detail) number))
+      (setf (devnet-store-guard-block-note-last-block detail) number)
+      (incf (devnet-store-guard-block-note-block-count detail))))
+  number)
+
+(defun devnet-store-guard-block-note-description (detail)
+  "N for one block, FIRST..LAST(COUNT) for several, NIL for none."
+  (when detail
+    (let ((first (devnet-store-guard-block-note-first-block detail))
+          (last (devnet-store-guard-block-note-last-block detail))
+          (count (devnet-store-guard-block-note-block-count detail)))
+      (cond ((or (null first) (zerop count)) nil)
+            ((= count 1) (format nil "~D" first))
+            (t (format nil "~D..~D(~D)" first last count))))))
 
 (defun devnet-internal-time-ms (ticks)
   (round (* 1000 ticks) internal-time-units-per-second))
@@ -459,13 +542,28 @@ on SBCL), and a hold released in the tick a wait began usually ended before it."
             collect hold)))
 
 (defun devnet-store-guard-hold-description (hold)
-  "LABEL:HOLDms, with +HOOKms when the release hook took any measurable time.
-HOLDms includes the hook."
-  (let ((hook-ms (devnet-store-guard-hold-hook-ms hold)))
-    (format nil "~A:~D~:[~;+~D~]"
+  "LABEL:HOLDms, with +HOOKms when the release hook took any measurable time
+and [blocks=DETAIL] when the hold noted blocks. HOLDms includes the hook."
+  (let ((hook-ms (devnet-store-guard-hold-hook-ms hold))
+        (detail (devnet-store-guard-hold-detail hold)))
+    (format nil "~A:~D~:[~*~;+~D~]~@[[blocks=~A]~]"
             (devnet-store-guard-hold-label hold)
             (devnet-store-guard-hold-ms hold)
-            (plusp hook-ms) hook-ms)))
+            (plusp hook-ms) hook-ms
+            detail)))
+
+(defun devnet-store-guard-current-hold-description (ledger)
+  "LABEL:HELDms(holding)[blocks=DETAIL] for the hold in progress, read racily,
+or NIL when the guard looks free."
+  (let ((label (devnet-store-guard-ledger-holder-label ledger))
+        (started-at (devnet-store-guard-ledger-holder-started-at ledger))
+        (detail (devnet-store-guard-block-note-description
+                 (devnet-store-guard-ledger-holder-detail ledger))))
+    (when label
+      (format nil "~A:~D(holding)~@[[blocks=~A]~]"
+              label
+              (devnet-internal-time-ms (- (get-internal-real-time) started-at))
+              detail))))
 
 (defparameter *devnet-store-guard-long-hold-ms* 1000
   "Holds at least this long are reported to the guard's LONG-HOLD-FUNCTION.
@@ -473,56 +571,112 @@ Our policy: the forward importer and the payload builder bound their holds to
 one second, so anything longer is worth a log line.")
 
 (defun call-with-devnet-store-guard-hold
-    (ledger release-hook long-hold-function thunk)
+    (ledger release-hook long-hold-function thunk &key engine-p)
   "Call THUNK as the owner of the guard LEDGER describes, then its release hook,
 recording the hold. The caller owns the mutex for the whole call.
 
 RELEASE-HOOK keeps CALL-WITH-DEVNET-STORE-GUARD-RELEASE-HOOK's contract. A
 hold of *DEVNET-STORE-GUARD-LONG-HOLD-MS* or more is passed to
-LONG-HOLD-FUNCTION, whose conditions are dropped like the hook's."
+LONG-HOLD-FUNCTION, whose conditions are dropped like the hook's. ENGINE-P
+marks the owner as an Engine request, so a waiting Engine request can tell the
+CL's own serialization from a background hold. THUNK may note the blocks it
+imports through DEVNET-STORE-GUARD-NOTE-BLOCK; the note travels with the hold."
   (let ((started-at (get-internal-real-time))
-        (label (ethereum-lisp.telemetry:telemetry-activity-label)))
-    (setf (devnet-store-guard-ledger-holder-label ledger) label)
+        (label (ethereum-lisp.telemetry:telemetry-activity-label))
+        (detail (make-devnet-store-guard-block-note)))
+    (setf (devnet-store-guard-ledger-holder-started-at ledger) started-at
+          (devnet-store-guard-ledger-holder-engine-p ledger) engine-p
+          (devnet-store-guard-ledger-holder-detail ledger) detail
+          (devnet-store-guard-ledger-holder-label ledger) label)
     (let ((hook-started-at nil))
       (unwind-protect
-           (call-with-devnet-store-guard-release-hook
-            (and release-hook
-                 (lambda ()
-                   (setf hook-started-at (get-internal-real-time))
-                   (funcall release-hook)))
-            thunk)
+           (let ((*devnet-store-guard-block-note* detail))
+             (call-with-devnet-store-guard-release-hook
+              (and release-hook
+                   (lambda ()
+                     (setf hook-started-at (get-internal-real-time))
+                     (funcall release-hook)))
+              thunk))
         (let* ((ended-at (get-internal-real-time))
                (hold (make-devnet-store-guard-hold
                       label started-at ended-at
                       (if hook-started-at
                           (devnet-internal-time-ms (- ended-at hook-started-at))
-                          0))))
+                          0)
+                      (devnet-store-guard-block-note-description detail))))
           (devnet-store-guard-ledger-record ledger hold)
-          (setf (devnet-store-guard-ledger-holder-label ledger) nil)
+          (setf (devnet-store-guard-ledger-holder-label ledger) nil
+                (devnet-store-guard-ledger-holder-engine-p ledger) nil
+                (devnet-store-guard-ledger-holder-detail ledger) nil)
           (when (and long-hold-function
                      (>= (devnet-store-guard-hold-ms hold)
                          *devnet-store-guard-long-hold-ms*))
             (handler-case (funcall long-hold-function hold)
               (serious-condition () nil))))))))
 
-(defun devnet-store-guard-note-priority-wait (ledger wait-started-at found-label)
-  "Account a priority waiter's wait that just ended in owning the guard.
+(defun devnet-store-guard-note-priority-wait
+    (ledger wait-started-at found-label &key holding)
+  "Account a priority waiter's wait that just ended in owning the guard, or in
+giving up.
 
 Adds guardWaitMs and guardWaitedFor to the current request's wait accounting
 (TELEMETRY-NOTE-WAIT): the holds that ended while it waited, or, when the
-ledger lost them, the label it found holding the guard."
+ledger lost them, the label it found holding the guard. HOLDING, from a waiter
+that gave up, describes the hold still in progress and is named last. A waiter
+that gave up does not own the mutex, so it reads the ledger racily; each slot
+is replaced whole, so at worst it misses a hold that ended at that moment."
   (let ((waited-ticks (- (get-internal-real-time) wait-started-at)))
     (when (plusp waited-ticks)
-      (let ((holds (devnet-store-guard-ledger-holds-ended-after
-                    ledger wait-started-at)))
+      (let* ((holds (devnet-store-guard-ledger-holds-ended-after
+                     ledger wait-started-at))
+             (names (append (mapcar #'devnet-store-guard-hold-description holds)
+                            (and holding (list holding)))))
         (ethereum-lisp.telemetry:telemetry-note-wait
          "guard"
          (floor (* 1000000 waited-ticks) internal-time-units-per-second)
          (cond
-           (holds
-            (format nil "~{~A~^ ~}"
-                    (mapcar #'devnet-store-guard-hold-description holds)))
+           (names (format nil "~{~A~^ ~}" names))
            (found-label (format nil "~A:?" found-label))))))))
+
+(defparameter *devnet-store-guard-busy-check-seconds* 0.1
+  "How often a bounded Engine wait looks at who holds the guard. The mutex is
+handed over as soon as it is released; this only sets how finely background
+waiting time is measured.")
+
+#+sbcl
+(defun devnet-store-guard-bounded-priority-wait
+    (mutex ledger budget wait-started-at found-label owned-function)
+  "Take MUTEX for an Engine request and call OWNED-FUNCTION, unless background
+holds keep it out for BUDGET seconds.
+
+Time spent while the owner is another Engine request (HOLDER-ENGINE-P) does
+not count against BUDGET. When the budget runs out the wait is accounted like
+any other (guardWaitMs, guardWaitedFor, ending with the hold still in
+progress) and ETHEREUM-LISP.RPC:RPC-REQUEST-GUARD-BUSY is signalled; the
+caller's unwind drops the request out of the priority count."
+  (let ((background-ticks 0)
+        (budget-ticks (* budget internal-time-units-per-second))
+        (checked-at (get-internal-real-time)))
+    (loop
+      (let ((ran-p nil)
+            (results nil))
+        (sb-thread:with-mutex (mutex :timeout *devnet-store-guard-busy-check-seconds*)
+          (setf ran-p t
+                results (multiple-value-list (funcall owned-function))))
+        (when ran-p
+          (return (values-list results)))
+        (let ((now (get-internal-real-time)))
+          (unless (devnet-store-guard-ledger-holder-engine-p ledger)
+            (incf background-ticks (- now checked-at)))
+          (setf checked-at now)
+          (when (>= background-ticks budget-ticks)
+            (let ((holding (devnet-store-guard-current-hold-description ledger)))
+              (devnet-store-guard-note-priority-wait
+               ledger wait-started-at found-label :holding holding)
+              (error 'ethereum-lisp.rpc:rpc-request-guard-busy
+                     :holder holding
+                     :waited-ms (devnet-internal-time-ms
+                                 (- now wait-started-at))))))))))
 
 (defun make-devnet-store-guard-function
     (&key release-hook long-hold-function)
@@ -598,13 +752,22 @@ DEVNET-STORE-GUARD-LEDGER all holds are recorded in."
                           (devnet-store-guard-ledger-holder-label ledger)))
                     (sb-ext:atomic-incf (car priority-waiters))
                     (unwind-protect
-                         (sb-thread:with-mutex (mutex)
-                           (setf counted-p nil)
-                           (sb-ext:atomic-decf (car priority-waiters))
-                           (devnet-store-guard-note-priority-wait
-                            ledger wait-started-at found-label)
-                           (hold thunk))
-                      ;; Unwound while still waiting (an interrupt or timeout).
+                         (flet ((owned ()
+                                  (setf counted-p nil)
+                                  (sb-ext:atomic-decf (car priority-waiters))
+                                  (devnet-store-guard-note-priority-wait
+                                   ledger wait-started-at found-label)
+                                  (call-with-devnet-store-guard-hold
+                                   ledger release-hook long-hold-function thunk
+                                   :engine-p t)))
+                           (let ((budget *devnet-engine-guard-busy-seconds*))
+                             (if (null budget)
+                                 (sb-thread:with-mutex (mutex) (owned))
+                                 (devnet-store-guard-bounded-priority-wait
+                                  mutex ledger budget wait-started-at
+                                  found-label #'owned))))
+                      ;; Unwound while still waiting (an interrupt, a timeout,
+                      ;; or the bounded wait giving up).
                       (when counted-p
                         (sb-ext:atomic-decf (car priority-waiters))))))
                 (lambda ()
@@ -645,6 +808,13 @@ request's own work as usual) or after the bounded wait."
   (unless (functionp thunk)
     (error "Devnet store guard requires a function"))
   (funcall (devnet-node-store-guard-function node) thunk))
+
+(defun call-with-devnet-node-store-guard-as (node label thunk)
+  "CALL-WITH-DEVNET-NODE-STORE-GUARD with the hold named LABEL, so a long hold
+and an Engine request waiting behind it say what the holder was doing rather
+than which thread it ran on (every peer session thread has the same name)."
+  (let ((ethereum-lisp.telemetry:*telemetry-activity-label* label))
+    (call-with-devnet-node-store-guard node thunk)))
 
 (defun call-with-devnet-node-store-guard-if-free (node thunk)
   "Run THUNK under NODE's store guard only if the guard is free right now.

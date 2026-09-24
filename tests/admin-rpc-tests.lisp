@@ -655,6 +655,136 @@ backend the peer sessions consult (pinned geth's Backend.AcceptTxs)."
         (sb-thread:join-thread holder)
         (is (equal '("sync-gap-fill") long-holds))))))
 
+#+sbcl
+(defun store-guard-hold-in-thread (function label seconds &key block-numbers)
+  "Hold the guard FUNCTION returns for SECONDS on a new thread named after
+LABEL, noting BLOCK-NUMBERS first. Returns the thread once the hold began."
+  (let* ((holding (sb-thread:make-semaphore))
+         (thread
+           (sb-thread:make-thread
+            (lambda ()
+              ;; A condition here must not kill the suite process.
+              (handler-case
+                  (let ((ethereum-lisp.telemetry:*telemetry-activity-label*
+                          label))
+                    (funcall function
+                             (lambda ()
+                               (dolist (number block-numbers)
+                                 (ethereum-lisp.cli::devnet-store-guard-note-block
+                                  number))
+                               (sb-thread:signal-semaphore holding)
+                               (sleep seconds))))
+                (serious-condition (condition) condition)))
+            :name "store-guard-test-holder")))
+    (sb-thread:wait-on-semaphore holding)
+    thread))
+
+#+sbcl
+(defun store-guard-bounded-engine-wait (priority budget)
+  "Call PRIORITY (an Engine guard) with *DEVNET-ENGINE-GUARD-BUSY-SECONDS*
+bound to BUDGET. Returns (VALUES OUTCOME MILLISECONDS WAIT-FIELDS): OUTCOME is
+:RAN or the RPC-REQUEST-GUARD-BUSY condition."
+  (let ((ethereum-lisp.cli::*devnet-engine-guard-busy-seconds* budget)
+        (started-at (get-internal-real-time))
+        (outcome nil)
+        (fields nil))
+    (ethereum-lisp.telemetry:telemetry-call-with-wait-accounting
+     (lambda ()
+       (setf outcome
+             (handler-case (funcall priority (lambda () :ran))
+               (ethereum-lisp.rpc:rpc-request-guard-busy (condition)
+                 condition))
+             fields (ethereum-lisp.telemetry:telemetry-wait-fields))))
+    (values outcome
+            (round (* 1000 (- (get-internal-real-time) started-at))
+                   internal-time-units-per-second)
+            fields)))
+
+(deftest devnet-store-guard-engine-wait-gives-up-behind-a-background-hold
+  ;; Hoodi b5161312: peer-session holds of 20-133 s (and one that never ended)
+  ;; kept every Engine request until the 30 s HTTP deadline. An Engine
+  ;; request now gives up after *DEVNET-ENGINE-GUARD-BUSY-SECONDS* of waiting
+  ;; behind background holds, and says who it gave up on: label, time held so
+  ;; far, "(holding)", and the blocks that hold noted. Controls: behind another
+  ;; Engine request (the CL's own serialization) it waits the whole hold, and
+  ;; with the budget off it waits the whole background hold, as at b5161312.
+  #-sbcl (skip-test "store guard waits require SBCL threads")
+  #+sbcl
+  (destructuring-bind (guard try priority pending ledger)
+      (multiple-value-list (ethereum-lisp.cli::make-devnet-store-guard-function))
+    (declare (ignore try ledger))
+    ;; Behind a 1.5 s background hold with a 0.3 s budget: gives up.
+    (let ((holder (store-guard-hold-in-thread
+                   guard "snap-serve-account-range" 1.5 :block-numbers '(42))))
+      (multiple-value-bind (outcome ms fields)
+          (store-guard-bounded-engine-wait priority 0.3)
+        (is (typep outcome 'ethereum-lisp.rpc:rpc-request-guard-busy))
+        (is (<= 250 ms 1000))
+        (let ((holder-name (ethereum-lisp.rpc:rpc-request-guard-busy-holder
+                            outcome))
+              (waited-for (cdr (assoc "guardWaitedFor" fields
+                                      :test #'string=))))
+          (dolist (text (list holder-name waited-for))
+            (is (and text
+                     (search "snap-serve-account-range:" text)
+                     (search "(holding)[blocks=42]" text)))))
+        (is (<= 250 (or (cdr (assoc "guardWaitMs" fields :test #'string=)) 0)))
+        ;; The request that gave up no longer counts as a waiting Engine
+        ;; request, so background takers stop deferring to it.
+        (is (not (funcall pending))))
+      (sb-thread:join-thread holder))
+    ;; Control: the same budget behind an Engine request's 1 s hold waits.
+    (let ((holder (store-guard-hold-in-thread
+                   priority "engine_newPayloadV4" 1.0)))
+      (multiple-value-bind (outcome ms)
+          (store-guard-bounded-engine-wait priority 0.3)
+        (is (eq :ran outcome))
+        (is (>= ms 800)))
+      (sb-thread:join-thread holder))
+    ;; Control: no budget waits out the background hold.
+    (let ((holder (store-guard-hold-in-thread guard "sync-gap-fill" 1.0)))
+      (multiple-value-bind (outcome ms)
+          (store-guard-bounded-engine-wait priority nil)
+        (is (eq :ran outcome))
+        (is (>= ms 800)))
+      (sb-thread:join-thread holder))))
+
+(deftest devnet-store-guard-long-hold-names-the-blocks-it-imported
+  ;; A long hold said only who held the guard; b5161312 could not tell one
+  ;; slow block from a hold across many. Holds now carry the block numbers
+  ;; noted under them. Control: a hold that noted none carries no detail.
+  #+sbcl
+  (let ((long-holds '())
+        (ethereum-lisp.cli::*devnet-store-guard-long-hold-ms* 100))
+    (let ((guard (ethereum-lisp.cli::make-devnet-store-guard-function
+                  :long-hold-function (lambda (hold) (push hold long-holds)))))
+      (let ((ethereum-lisp.telemetry:*telemetry-activity-label*
+              "forward-batch-import"))
+        (funcall guard (lambda ()
+                         (dolist (number '(7 8 9))
+                           (ethereum-lisp.cli::devnet-store-guard-note-block
+                            number))
+                         (sleep 0.15))))
+      (let ((ethereum-lisp.telemetry:*telemetry-activity-label*
+              "snap-serve-trie-nodes"))
+        (funcall guard (lambda () (sleep 0.15))))
+      ;; Outside a hold a note is a no-op.
+      (is (eql 5 (ethereum-lisp.cli::devnet-store-guard-note-block 5)))
+      (destructuring-bind (plain imported) long-holds
+        (is (string= "7..9(3)"
+                     (ethereum-lisp.cli::devnet-store-guard-hold-detail
+                      imported)))
+        (is (search "forward-batch-import:"
+                    (ethereum-lisp.cli::devnet-store-guard-hold-description
+                     imported)))
+        (is (search "[blocks=7..9(3)]"
+                    (ethereum-lisp.cli::devnet-store-guard-hold-description
+                     imported)))
+        (is (null (ethereum-lisp.cli::devnet-store-guard-hold-detail plain)))
+        (is (null (search "blocks="
+                          (ethereum-lisp.cli::devnet-store-guard-hold-description
+                           plain))))))))
+
 (deftest net-listening-and-peer-count-follow-the-peering-backend
   ;; Both were hardcoded to false and 0x0. A node answering admin_peers with
   ;; three peers and net_peerCount with zero is worse than one answering neither.
