@@ -14,6 +14,7 @@
     "--ipcapi"
     "--graphql.addr" "--graphql.port" "--graphql.vhosts"
     "--graphql.corsdomain" "--syncmode" "--verbosity" "--maxpeers"
+    "--memory.budget"
     "--log.file" "--log.format" "--log.maxsize" "--log.maxbackups"
     "--log.maxage" "--nat" "--identity" "--gcmode" "--cache"
     "--cache.database" "--cache.gc" "--cache.trie" "--state.scheme" "--db.engine"

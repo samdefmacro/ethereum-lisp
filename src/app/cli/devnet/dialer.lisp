@@ -2441,6 +2441,11 @@ root identity, so the live-gate broker may expose its numeric fields."
               (devnet-peer-manager-log
                node "peer.snap.target_completed"
                "pivot" pivot-number "target" target-number)
+              ;; The SNAP phase's range, storage and heal buffers are free
+              ;; now; give their pages back rather than waiting for the
+              ;; maintenance thread's next minute.
+              (devnet-node-release-native-memory
+               node "snap-target-completed")
               (- target-number pivot-number)))))))))
 
 (defun devnet-node-snap-sync-target (node target-hash)

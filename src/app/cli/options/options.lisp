@@ -72,6 +72,7 @@
         (discovery-dns nil)
         (discovery-dns-specified-p nil)
         (max-peers nil)
+        (memory-budget-mebibytes nil)
         (netrestrict nil)
         (nat-policy nil)
         (metrics nil)
@@ -165,6 +166,10 @@
                 (setf max-peers
                       (next-parsed-value option
                                          #'devnet-cli-parse-non-negative-integer)))
+               ((string= option "--memory.budget")
+                (setf memory-budget-mebibytes
+                      (next-parsed-value option
+                                         #'devnet-cli-parse-positive-integer)))
                ((string= option "--netrestrict")
                 (setf netrestrict
                       (next-transformed-value
@@ -485,6 +490,7 @@
           :discovery-dns discovery-dns
           :p2p-port p2p-port
           :max-peers max-peers
+          :memory-budget-mebibytes memory-budget-mebibytes
           :netrestrict netrestrict
           :nat-policy nat-policy
           :metrics metrics
