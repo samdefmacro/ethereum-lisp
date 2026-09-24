@@ -284,6 +284,11 @@
                           (call-with-devnet-cli-http-limits
                            options
                            (lambda ()
+                            ;; Before any database opens: it sizes RocksDB
+                            ;; and pins the allocator's mmap threshold.
+                            (call-with-devnet-cli-memory-budget
+                             options
+                             (lambda ()
                              ;; Innermost, so the node's import, every
                              ;; persist, and the shutdown export all share one
                              ;; open handle per artifact.
@@ -308,7 +313,7 @@
                                        node options output-stream error-stream)
                                       (devnet-cli-run-no-serve-node
                                        node options output-stream))
-                                  0))))))))))))))))))
+                                  0))))))))))))))))))))
     (devnet-cli-usage-error (condition)
       (ignore-errors
        (devnet-cli-log-error-event args condition))

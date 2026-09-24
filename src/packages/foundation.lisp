@@ -43,6 +43,15 @@
    #:make-memory-key-value-database
    #:make-file-key-value-database
    #:make-rocksdb-key-value-database
+   #:rocksdb-memory-profile
+   #:make-rocksdb-memory-profile
+   #:rocksdb-memory-profile-budget-bytes
+   #:rocksdb-memory-profile-block-cache-bytes
+   #:rocksdb-memory-profile-write-buffer-budget-bytes
+   #:rocksdb-memory-profile-memtable-limit-bytes
+   #:rocksdb-memory-profile-limit-bytes
+   #:*rocksdb-memory-profile*
+   #:+rocksdb-default-memory-budget-bytes+
    #:close-rocksdb-key-value-database
    #:rocksdb-database-closed-error
    #:release-rocksdb-background-threads
@@ -146,7 +155,23 @@
    #:telemetry-note-wait
    #:telemetry-call-with-accounted-wait
    #:telemetry-call-with-wait-accounting
-   #:telemetry-wait-fields))
+   #:telemetry-wait-fields
+   #:native-malloc-available-p
+   #:native-malloc-configure
+   #:+native-malloc-default-mmap-threshold-bytes+
+   #:native-malloc-release
+   #:native-malloc-report
+   #:native-malloc-report-p
+   #:make-native-malloc-report
+   #:native-malloc-report-heaps
+   #:native-malloc-report-system-bytes
+   #:native-malloc-report-free-bytes
+   #:native-malloc-report-mmap-bytes
+   #:native-malloc-report-in-use-bytes
+   #:parse-native-malloc-info
+   #:native-malloc-info-xml
+   #:process-memory-status
+   #:lisp-dynamic-space-resident-bytes))
 
 (defpackage #:ethereum-lisp.validation
   (:use #:cl #:ethereum-lisp.bytes)

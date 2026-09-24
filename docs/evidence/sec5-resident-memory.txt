@@ -1,0 +1,311 @@
+Section 5: 11.5 GB of anonymous RSS with a 0.5-4 GB Lisp heap
+
+Status
+
+Branch resident-memory, from a07c912e. The b5161312 Hoodi node (container
+hoodi-el-sec5-b5161312, started 2026-09-23T21:54:41Z, 12 GiB limit) held
+7.9 GiB resident in glibc malloc arenas while RocksDB's own accounting was
+under 1 GiB, and was OOM-killed at 2026-09-24T02:25:29Z (docker inspect:
+exited, exit 137, OOMKilled=true) when a Lisp heap that had been growing
+since 01:50 (0.4 -> 3.95 GB) pushed the total over 12 GiB.
+
+Found and fixed: freed C-heap memory stayed resident, because glibc's
+dynamic mmap threshold climbs after a large free and from then on RocksDB's
+1 MiB memtable blocks and batch buffers are carved from the arenas, where
+freed memory stays.  The node now pins the threshold at glibc's 128 KiB
+default, returns free arena pages every minute and when a SNAP target
+completes, and sizes RocksDB from one --memory.budget.  Reproduced and
+measured locally (RocksDB churn, child processes); not deployed, no live
+run, no cold-all (the coordinator runs it once at the end).
+
+NOT found here: why the Lisp heap grew from 01:50 (section 6).
+
+Revision
+
+  a910eeea  node: keep freed C-heap memory from staying resident, and size
+            RocksDB from one memory budget
+  35c4453b  cli: log the memory budget when the node serves, not on the
+            CLI's stdout
+  (this)    docs(sec5): attribute the b5161312 resident memory; runbook
+            Memory section (the commit that adds this record)
+
+================================================================================
+1. Live attribution (b5161312, read-only, pid 3245978)
+================================================================================
+
+Sampled 2026-09-24 02:19:41Z, six minutes before the OOM kill.
+
+/proc/<pid>/status
+  VmRSS 11,792,128 kB   RssAnon 11,791,104 kB   RssFile 1,024 kB
+  VmHWM 12,275,868 kB   VmSwap 0              Threads 101
+  (at 02:09Z per the brief: VmRSS 11,478,444 kB, Threads 96)
+/proc/<pid>/smaps_rollup: Rss 11,805,100 kB, Anonymous 11,794,428 kB
+cgroup memory.stat: anon 12,195,467,264  file 322,916,352  slab 134,652,000
+  pagetables 28,065,792  kernel_stack 1,654,784
+  memory.current 12,686,852,096 of memory.max 12,884,901,888 (98.5%)
+Host: 15,988 MiB RAM, 944 MiB available, 4.5 GiB swap in use.
+
+smaps, every mapping classified (22,449 lines; parsed in the dev image):
+
+  kind                                    maps   mapped MiB   resident MiB
+  glibc thread-arena heaps (64 MiB-       146        9,029          7,935
+    aligned anonymous rw-p)
+  SBCL dynamic space (anonymous part of     1        6,106          3,767
+    the 6 GiB reservation)
+  other anonymous (SBCL thread stacks     411          620            116
+    92 x 2,944 KiB; 13 x 8 MiB pthread
+    stacks; one 99 MiB block, consistent
+    with c-kzg's precomputed tables)
+  main arena ([heap], brk)                  1            7              7
+  file-backed (executable incl. 38 MiB     98           70              6
+    of saved core, libraries)
+  SBCL static/read-only spaces             13          172              5
+  guard / reserved (---p)                 306          384              0
+  total                                                               11,837
+
+  Arena heaps by resident size: 106 of the 146 fully resident (64 MiB);
+  the rest 0-56 MiB, one 128 MiB.
+
+RocksDB's own accounting (datadir LOG, stats dump 02:04:46Z; OPTIONS-000007):
+  block cache capacity 256 MiB, usage 244.95 MiB: FilterBlock 183.17 MiB,
+    IndexBlock 61.22 MiB, DataBlock 1.17 MiB (cache_index_and_filter_blocks,
+    so table readers stay small: 1,224 SST files, 52.22 GB, max_open_files -1)
+  write_buffer_size 96 MiB x max_write_buffer_number 6 = 576 MiB ceiling;
+    L0 held 1 file, and "Interval writes: 0" in every dump from 01:54Z on
+  cumulative ingest 144.83 GB, compaction written 1,660.8 GB since start
+
+So of the 7,935 MiB of arena pages, at most 821 MiB (245 + 576) are
+RocksDB's caches; at least 7.1 GiB is memory malloc holds that RocksDB (or
+anything else we can name) is not using.  Without malloc_info from the live
+process that figure cannot be split further into free-but-resident chunks and
+a native leak; the local reproduction (section 3) shows the first mechanism
+reaches these proportions, and node.memory.sample (section 4) reports the
+split on the next run.
+
+Lisp heap (heapMb: dynamic usage after each Engine request):
+  21:54 338 MB; SNAP range phase 0.8-2.4 GB (max 2,601 MB before 01:50;
+  peer.snap.page_profile dynamicUsageBytes max 2,903,736,304);
+  00:24:14Z peer.snap.target_completed (pivot 3683637, target 3683701);
+  00:21-01:50 300-660 MB; 01:57 1,370; 02:06 2,314; 02:16 3,323;
+  02:25:22 3,949 (last line before the kill).
+
+================================================================================
+2. The Lisp side: dynamic-space RSS follows the heap
+================================================================================
+
+At 02:19 the dynamic space held 3,767 MiB resident against heapMb 3.3-3.5 GB,
+so the gap between Lisp RSS and the Lisp heap is ~0.3-0.5 GB (the nursery and
+garbage not yet collected), not gigabytes.  Measured in the dev image (SBCL
+2.2.9, arm64): 300 MB of live byte vectors, dropped, then collected:
+
+  retained           heap 391 MB  RssAnon 401 MB
+  nursery GC only    heap 391 MB  RssAnon 401 MB   (objects already promoted)
+  full GC            heap  99 MB  RssAnon  83 MB   (free pages returned)
+
+and, with 243 MB promoted to generation 2 before it was dropped:
+
+  gc :gen 0          heap 344 MB  RssAnon 389 MB
+  gc :gen 1          heap 344 MB  RssAnon 389 MB
+  gc :gen 2          heap 101 MB  RssAnon 124 MB   (= the baseline)
+
+So SBCL 2.2.9 returns the pages when the collection that frees them runs, an
+ordinary generational one included, and the snap-phase high-water mark of the
+Lisp heap does come back.  No post-sync full GC is added: it would buy
+nothing the ordinary generational collections do not already return, and
+34b7ff97 removed in-phase full GCs because one outlasted the CL's 5-second
+Engine upcheck.  The 6 GiB dynamic space stays: the heap reached 3.95 GB, so a
+smaller space would have ended the process with heap exhaustion instead.
+
+================================================================================
+3. The native side: mechanism, reproduction, fix
+================================================================================
+
+Mechanism.  glibc serves a request of at least M_MMAP_THRESHOLD with its own
+mmap, returned to the kernel on free.  The threshold starts at 128 KiB and is
+dynamic: freeing an mmapped block raises it to that block's size (up to
+32 MiB).  One freed batch buffer or memtable is enough; from then on every
+1 MiB memtable arena block, write-batch string and compaction buffer below the
+new threshold comes from a malloc arena.  Freed arena memory stays resident
+unless it is at the top of its heap, and a thread that contends gets its own
+arena (up to 8 per core), so ~100 node and RocksDB threads multiply it.
+
+Reproduction 1, RocksDB churn (child SBCL per configuration, dev image,
+32 writer threads x 40 batches x 3,000 keys of 32-732 bytes, a 64-key
+multi-get after each batch; ~110 MiB live at the end):
+
+  configuration          C-side resident MiB       malloc      trim
+                         after churn  after trim   heaps       ms
+  glibc default (dynamic)     407         156        47         17
+  M_ARENA_MAX 4               336         100         4         15
+  mmap threshold 128 KiB      104         100        47          1
+  mmap threshold 1 MiB        109         105        47          0
+  arena 4 + threshold 1 MiB   100          96         4          1
+
+  (C-side resident = RssAnon less the dynamic space's anonymous resident
+  pages.  malloc in use ~110 MiB in every configuration; with the threshold
+  pinned ~80-100 MiB of it is mmapped memtable memory.)
+
+Reproduction 2, the mechanism in isolation (test NATIVE-MALLOC-PINNED-MMAP-
+THRESHOLD-RETURNS-FREED-MEGABYTE-BLOCKS, a child SBCL per arm): free one
+4 MiB block (raises the threshold), then on a thread allocate 64 x 1 MiB
+blocks each followed by a live 64-byte pin, touch and free them:
+  dynamic threshold   66,125,824 bytes still resident (of 67,108,864)
+  pinned at 128 KiB    2,113,536 bytes still resident
+
+Reproduction 3, the release (test NATIVE-MALLOC-RELEASE-RETURNS-FREED-ARENA-
+PAGES): 1,024 x 64 KiB pinned blocks freed on a thread: 60 of 64 MiB still
+resident after free; malloc_trim(0) returned 60 MiB in 4-5 ms (3 runs).
+
+Fix (a910eeea).
+  - NATIVE-MALLOC-CONFIGURE pins M_MMAP_THRESHOLD at 128 KiB (glibc's own
+    initial value; pinning also switches off the dynamic climb) at CLI
+    start-up, before any database opens.  128 KiB rather than 1 MiB because
+    it changes nothing but the climb; both measured the same.
+  - A memory-maintenance worker (joined like every other worker) calls
+    malloc_trim(0) every 60 s, and logs node.memory.sample every 300 s.
+  - peer.snap.target_completed is followed by a release
+    (node.memory.release reason snap-target-completed).  This is a CLI hook
+    after the phase; no snap-sync client logic changed.
+  - --memory.budget MIB (default 7168, the Hoodi gate's 7 GiB) derives the
+    RocksDB block cache (1/28) and the level-compaction write-buffer budget
+    (3/56; memtables at most 3/2 of it).  7 GiB -> 256 MiB + 384 MiB (576 MiB
+    memtables), i.e. the values Hoodi runs were tuned with; 12 GiB -> 438 +
+    658 MiB.  max_open_files stays -1 (index and filter blocks are charged to
+    the block cache).  WAL, sync writes and wal_bytes_per_sync unchanged.
+  - M_ARENA_MAX is NOT capped: with the threshold pinned it bought 4-9 MiB
+    here, and fewer arenas would add allocator lock contention across ~100
+    threads that nothing here measured.
+
+Budget arithmetic for a 7 GiB container (logged when the node serves as
+node.memory.budget): RocksDB 832 MiB bounded (256 + 576), dynamic space up to
+6,144 MiB, headroom 192 MiB; thread stacks and libraries ~130 MiB, file cache
+is charged to the cgroup too but is reclaimable.  So 7 GiB holds the node only
+while the live Lisp heap stays near or below ~5.5 GiB.  It did until 01:50 on
+this run (max 2.6-2.9 GB); after 01:50 it did not stop growing.
+
+Devnet import measurement (child SBCL per mode, 4 GiB dynamic space: 120
+blocks of 32 transfers over 10,000 funded accounts built on a memory node,
+then imported through newPayload + forkchoiceUpdated into a fresh RocksDB
+devnet node, one worker thread per block; the harness reuses the
+DEVNET-NEW-PAYLOAD-READS fixture builders):
+
+  mode      rssAnon  lispResident  nativeResident  malloc in use  heaps
+  dynamic    108 MiB      91 MiB          17 MiB          14 MiB     13
+  pinned     112 MiB      91 MiB          21 MiB          14 MiB     13
+    after release (0 ms)  95 MiB          21 MiB
+
+At this size the import takes 3 s and writes a few MiB: it never fills a
+memtable, so it cannot exercise the caches, and both modes end at the same
+C-side footprint (the pinned run is no worse).  Reaching RocksDB churn
+through Engine imports would need hours of blocks; the churn benchmark above
+drives the same RocksDB adapter directly instead.  (A 300-block, 20,000-
+account attempt exhausted the 3 GiB builder heap and was abandoned.)
+
+================================================================================
+4. What the next run will say
+================================================================================
+
+node.memory.budget (once, when the node starts serving): budgetMb rocksdbBlockCacheMb
+  rocksdbWriteBufferBudgetMb rocksdbMemtableLimitMb lispDynamicSpaceMb
+  headroomMb mallocMmapThresholdBytes
+node.memory.sample (every 300 s): rssMb rssAnonMb rssPeakMb heapMb
+  lispResidentMb nativeResidentMb mallocInUseMb mallocFreeMb mallocMmapMb
+  mallocHeaps releasedMb releaseMs
+node.memory.release: reason (snap-target-completed | periodic, the latter
+  only when >= 64 MiB came back) releasedMb releaseMs + the sample fields
+
+Reading: nativeResidentMb >> mallocInUseMb is retention (this defect);
+mallocInUseMb rising is a native leak or a bigger cache; lispResidentMb
+following heapMb up is the Lisp heap.  malloc_info and malloc_trim each lock
+one arena at a time: 1-2 ms and 15-17 ms over 46 arenas here; the live node
+had 146 heaps, so expect proportionally more, off the Engine threads.
+
+================================================================================
+5. Verification of record (targeted)
+================================================================================
+
+cl-workbench doctor --strict: passed (EXIT=0).
+
+New tests
+  unit         ROCKSDB-MEMORY-PROFILE-DERIVES-CACHE-SIZES-FROM-ONE-BUDGET
+               NATIVE-MALLOC-INFO-READS-THE-PROCESS-TOTALS-NOT-A-HEAP
+                 (positive control: the fixture's first system/current is
+                 heap 0's 1,048,576, the total is 5,242,880; missing totals
+                 signal)
+               DEVNET-CLI-MEMORY-BUDGET-OPTION-IS-MEBIBYTES
+               DEVNET-CLI-MEMORY-BUDGET-SIZES-ROCKSDB-FOR-THE-RUN-AND-LOGS-IT
+  integration  NATIVE-MALLOC-RELEASE-RETURNS-FREED-ARENA-PAGES
+                 mutation (NATIVE-MALLOC-RELEASE a no-op) -> RED "Assertion
+                 failed: (>= (- AFTER-FREE AFTER-RELEASE) (* 3/4 TOTAL))";
+                 restored, 3 of 3 runs GREEN
+               DEVNET-MEMORY-MAINTENANCE-RELEASES-AND-SAMPLES-ON-ITS-CADENCE
+                 same mutation -> RED "Assertion failed: RELEASE"
+               DEVNET-RELEASE-NATIVE-MEMORY-LOGS-THE-REASON-IT-WAS-ASKED-FOR
+               ROCKSDB-KEY-VALUE-DATABASE-CONFIGURES-PUBLIC-NODE-READ-CACHE
+                 (extended: a second open with a 12 GiB profile reaches
+                 rocksdb_cache_create_lru with 438 MiB and the preset with
+                 658 MiB; the default open keeps 256 / 384 MiB)
+  e2e          NATIVE-MALLOC-PINNED-MMAP-THRESHOLD-RETURNS-FREED-MEGABYTE-
+                 BLOCKS (the dynamic arm is the RED control, see section 3)
+
+Fresh compile-file of every changed source file: no WARNING or
+STYLE-WARNING (failure-p NIL for all nine).
+
+A regression this branch made and fixed: a910eeea logged node.memory.budget
+from the CLI wrapper to the default telemetry sink, which is stdout without
+--log-file; cold-e2e --match ETHEREUM-LISP-SCRIPT went 19 passed, 12 failed
+of 31 ("Invalid JSON at byte 0: unexpected character" in every --json and
+no-serve consumer, EXIT=1).  35c4453b logs it from the maintenance worker
+once the node serves: 31 passed, 0 failed, EXIT=0.
+
+Cold runs (all on 35c4453b unless noted; logs kept in the session scratchpad)
+  cl-workbench validation run cold-unit --match DEVNET-CLI
+    --match ROCKSDB-MEMORY-PROFILE --match NATIVE-MALLOC
+    --match PROJECT-PACKAGE --match DOMAIN-PACKAGES
+      16 tests passed, EXIT=0
+  cl-workbench validation run cold-integration --match DEVNET-CLI
+    --match DEVNET-MEMORY --match NATIVE-MALLOC --match DEVNET-RELEASE-NATIVE
+    --match ROCKSDB --match OPS- --match DEVNET-LIVE-PERSISTENCE --match SERVE
+    --match DEVNET-NEW-PAYLOAD-READS --match STORE-GUARD
+      144 tests passed, EXIT=0 (no duplicate ok lines; all four new
+      integration tests present)
+  cl-workbench validation run cold-e2e --match OPS- --match ROCKSDB
+    --match DEVNET-CLI-NODE --match NATIVE-MALLOC
+      4 + 11 tests passed, EXIT=0
+  cl-workbench validation run cold-e2e --match ETHEREUM-LISP-SCRIPT
+      2 + 29 = 31 tests passed, EXIT=0
+  Earlier, on a910eeea: cold-unit (21 incl. TELEMETRY) EXIT=0; cold-
+  integration (39) EXIT=0; cold-e2e NATIVE-MALLOC-PINNED 1 passed EXIT=0.
+
+Not verified
+
+- The live split of the 7.1 GiB: free-but-resident vs a native leak.  The
+  mechanism reproduces at the right proportion locally; node.memory.sample
+  measures it on the next run.
+- Throughput cost of the pinned threshold (more mmap/munmap for >= 128 KiB
+  blocks): not timed, locally or on Hoodi.
+- malloc_trim duration with 146 arena heaps on the live host.
+- That 7 GiB is enough: it is only while the Lisp heap stays under ~5.5 GiB,
+  and on this run it did not (section 6).
+- The runtime image was not rebuilt; nothing was deployed.
+
+================================================================================
+6. Out of scope, seen on the way
+================================================================================
+
+- The Lisp heap grew from ~0.4 GB at 01:50Z to 3,949 MB at 02:25:22Z while
+  RocksDB recorded no writes (interval writes 0 from the 01:54 dump on), 873
+  Engine connections hit the 30-second deadline between 01:30Z and the kill,
+  and the last node.store_guard.long_hold was a dial session holding the
+  guard 110,731 ms (released 01:50:17Z) after earlier dial-session holds of
+  21-83 s.  A hold that never ends is never logged, so a peer session holding
+  the store guard from 01:50 on while its response grew would fit every
+  line, and would match the unbounded SNAP-serving hold that
+  sec5-newpayload-six-second-quantum.txt names.  Not confirmed and not
+  investigated here (fleet rule: serving code unchanged).
+- Pre-existing compile-time style warnings in src, seen when a package-file
+  change recompiled the tree in the warm image (none in files this branch
+  touched): &OPTIONAL with &KEY in src/application/services/txpool-
+  admission.lisp and src/runtime/execution/{accounting,state}.lisp, an
+  ignored-but-set INDEX in src/networking/snap-sync/client.lisp, an unused
+  PRECOMPILE-P in src/runtime/evm/interpreter/call.lisp.

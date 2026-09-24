@@ -461,6 +461,41 @@
         (uiop:delete-directory-tree path :validate t)))))
 
 
+(deftest rocksdb-memory-profile-derives-cache-sizes-from-one-budget
+  (flet ((mib (n) (* n 1024 1024))
+         (profile (mebibytes)
+           (ethereum-lisp.database:make-rocksdb-memory-profile
+            (* mebibytes 1024 1024)))
+         (cache (profile)
+           (ethereum-lisp.database:rocksdb-memory-profile-block-cache-bytes
+            profile))
+         (write-buffers (profile)
+           (ethereum-lisp.database:rocksdb-memory-profile-write-buffer-budget-bytes
+            profile)))
+    ;; The default budget is the Hoodi gate's 7-GiB ceiling, and the default
+    ;; profile is the one every handle opens with unless the CLI assigns one.
+    (is (= (mib 7168)
+           ethereum-lisp.database:+rocksdb-default-memory-budget-bytes+))
+    (is (equalp (profile 7168) ethereum-lisp.database:*rocksdb-memory-profile*))
+    (let ((hoodi (profile 7168)))
+      (is (= (mib 256) (cache hoodi)))
+      (is (= (mib 384) (write-buffers hoodi)))
+      ;; Six live write buffers of budget/4 each.
+      (is (= (mib 576)
+             (ethereum-lisp.database:rocksdb-memory-profile-memtable-limit-bytes
+              hoodi)))
+      (is (= (mib 832)
+             (ethereum-lisp.database:rocksdb-memory-profile-limit-bytes hoodi))))
+    ;; Scales linearly in whole MiB ...
+    (let ((large (profile 12288)))
+      (is (= (mib 438) (cache large)))
+      (is (= (mib 658) (write-buffers large))))
+    ;; ... and never below RocksDB's own defaults.
+    (let ((small (profile 512)))
+      (is (= (mib 32) (cache small)))
+      (is (= (mib 64) (write-buffers small))))
+    (signals error (ethereum-lisp.database:make-rocksdb-memory-profile 0))))
+
 (deftest rocksdb-key-value-database-configures-public-node-read-cache
   (:layer :integration :module :database)
   (let* ((path
@@ -487,8 +522,8 @@
          (real-set-factory
            (fdefinition
             'ethereum-lisp.database::%rocks-options-set-block-table-factory))
-         (cache-capacity nil)
-         (compaction-budget nil)
+         (cache-capacities nil)
+         (compaction-budgets nil)
          (subcompactions nil)
          (wal-sync-width nil)
          (bloom-bits nil)
@@ -498,7 +533,7 @@
            (setf
             (fdefinition 'ethereum-lisp.database::%rocks-cache-create-lru)
             (lambda (capacity)
-              (setf cache-capacity capacity)
+              (push capacity cache-capacities)
               (funcall real-cache-create capacity)))
            (setf
             (fdefinition
@@ -510,7 +545,7 @@
             (fdefinition
              'ethereum-lisp.database::%rocks-options-optimize-level-style-compaction)
             (lambda (options budget)
-              (setf compaction-budget budget)
+              (push budget compaction-budgets)
               (funcall real-optimize options budget)))
            (setf
            (fdefinition
@@ -535,6 +570,17 @@
                   (progn
                     (kv-put database #(1) #(2))
                     (is (bytes= #(2) (kv-get database #(1)))))
+               (close-rocksdb-key-value-database database)))
+           ;; A larger budget reaches RocksDB through the same open, and the
+           ;; data written under the first profile is still there.
+           (let ((database
+                   (make-rocksdb-key-value-database
+                    path
+                    :memory-profile
+                    (ethereum-lisp.database:make-rocksdb-memory-profile
+                     (* 12 1024 1024 1024)))))
+             (unwind-protect
+                  (is (bytes= #(2) (kv-get database #(1))))
                (close-rocksdb-key-value-database database))))
       (setf (fdefinition 'ethereum-lisp.database::%rocks-cache-create-lru)
             real-cache-create)
@@ -560,12 +606,12 @@
        real-set-factory)
       (when (probe-file path)
         (uiop:delete-directory-tree path :validate t)))
-    (is (= ethereum-lisp.database::+rocksdb-block-cache-bytes+
-           cache-capacity))
-    (is (= (* 256 1024 1024) cache-capacity))
-    (is (= ethereum-lisp.database::+rocksdb-level-compaction-memory-budget+
-           compaction-budget))
-    (is (= (* 384 1024 1024) compaction-budget))
+    ;; The default 7-GiB budget keeps the sizes the Hoodi gate was tuned
+    ;; with; 12 GiB scales both (12288/28 and 3 x 12288/56 MiB, whole MiB).
+    (is (equal (list (* 256 1024 1024) (* 438 1024 1024))
+               (reverse cache-capacities)))
+    (is (equal (list (* 384 1024 1024) (* 658 1024 1024))
+               (reverse compaction-budgets)))
     (is (= ethereum-lisp.database::+rocksdb-max-subcompactions+
            subcompactions))
     (is (= 4 subcompactions))
@@ -574,7 +620,7 @@
     (is (= (* 5 100 1024) wal-sync-width))
     (is (= ethereum-lisp.database::+rocksdb-bloom-bits-per-key+
            bloom-bits))
-    (is (= 1 factory-calls))))
+    (is (= 2 factory-calls))))
 
 (deftest rocksdb-key-value-database-enables-async-read-io
   (:layer :integration :module :database)

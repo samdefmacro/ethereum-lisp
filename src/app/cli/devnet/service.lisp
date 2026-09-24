@@ -56,6 +56,8 @@
          (rejournal-thread nil)
          (dev-period-error nil)
          (dev-period-thread nil)
+         (memory-maintenance-error nil)
+         (memory-maintenance-thread nil)
          (dialer-error nil)
          (dialer-thread nil)
          (dialer-sessions nil)
@@ -100,6 +102,12 @@
       (error (condition)
         (devnet-shutdown-request shutdown-controller)
         (error condition)))
+    (setf memory-maintenance-thread
+          (devnet-start-memory-maintenance-thread
+           node
+           shutdown-controller
+           (lambda (condition)
+             (setf memory-maintenance-error condition))))
     (setf rejournal-thread
           (devnet-start-rejournal-thread
            node
@@ -267,6 +275,7 @@
             (join-worker txpool-maintenance-thread "txpool-maintenance")
             (join-worker payload-improvement-thread "payload-improvement")
             (join-worker dev-period-thread "dev-period")
+            (join-worker memory-maintenance-thread "memory-maintenance")
             (join-worker sync-coordinator-thread "sync-coordinator")
             (join-worker dialer-thread "dialer")
             (join-sessions dialer-sessions "dialer-session")
@@ -297,6 +306,8 @@
         (error payload-improvement-error))
       (when dev-period-error
         (error dev-period-error))
+      (when memory-maintenance-error
+        (error memory-maintenance-error))
 
       (when discovery-error
         (error discovery-error))

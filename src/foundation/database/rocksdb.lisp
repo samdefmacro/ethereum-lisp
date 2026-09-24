@@ -207,12 +207,74 @@ sized the default Env's background pools.")
 *ROCKSDB-LIFECYCLE-LOCK*. The shared background pools may be released only
 when it is zero.")
 
-(defconstant +rocksdb-level-compaction-memory-budget+ (* 384 1024 1024)
-  "Level-compaction preset budget for the shared public-node profile.
+(defconstant +rocksdb-default-memory-budget-bytes+ (* 7 1024 1024 1024)
+  "The whole-node memory budget RocksDB's caches are sized from by default.
 
-RocksDB divides this value into four 96-MiB write buffers and permits six in
-the worst case, bounding live memtables at 576 MiB while retaining two-way
-flush merging during bulk sync.")
+7 GiB is the container ceiling of the reviewed Hoodi gate on the supported
+shared 16-GiB EL/CL host (scripts/hoodi-live-gate.sh).  At this budget the
+derived sizes are the ones the Hoodi runs were tuned with: a 256-MiB block
+cache and a 384-MiB level-compaction write-buffer budget.")
+
+(defconstant +rocksdb-minimum-block-cache-bytes+ (* 32 1024 1024)
+  "Smallest block cache a budget can derive: RocksDB 11's own default.")
+
+(defconstant +rocksdb-minimum-write-buffer-budget-bytes+ (* 64 1024 1024)
+  "Smallest level-compaction budget a budget can derive: RocksDB's default
+single 64-MiB memtable.")
+
+(defstruct (rocksdb-memory-profile
+            (:constructor %make-rocksdb-memory-profile
+                (budget-bytes block-cache-bytes write-buffer-budget-bytes)))
+  "RocksDB's two memory consumers, sized from one node memory budget.
+
+BLOCK-CACHE-BYTES is the LRU block cache, which also holds every index and
+filter block (cache_index_and_filter_blocks), so table readers stay small
+however many SST files are open.  WRITE-BUFFER-BUDGET-BYTES is the
+OptimizeLevelStyleCompaction budget: RocksDB divides it into four write buffers
+and allows six, so live memtables stay under 3/2 of it
+(ROCKSDB-MEMORY-PROFILE-MEMTABLE-LIMIT-BYTES)."
+  (budget-bytes 0 :type (integer 0) :read-only t)
+  (block-cache-bytes 0 :type (integer 0) :read-only t)
+  (write-buffer-budget-bytes 0 :type (integer 0) :read-only t))
+
+(defun rocksdb-memory-profile-memtable-limit-bytes (profile)
+  "The most memtable memory PROFILE lets RocksDB hold: six of four buffers."
+  (* 3/2 (rocksdb-memory-profile-write-buffer-budget-bytes profile)))
+
+(defun rocksdb-memory-profile-limit-bytes (profile)
+  "Block cache plus the memtable ceiling: RocksDB's bounded share of memory."
+  (+ (rocksdb-memory-profile-block-cache-bytes profile)
+     (rocksdb-memory-profile-memtable-limit-bytes profile)))
+
+(defun make-rocksdb-memory-profile (budget-bytes)
+  "Derive RocksDB's cache sizes from the node's whole memory BUDGET-BYTES.
+
+The block cache is 1/28 and the write-buffer budget 3/56 of the budget, whole
+MiB, so RocksDB's bounded share (cache plus six-of-four memtables) is 13/112,
+about 11.6%: 832 MiB of 7 GiB.  The rest is for the Lisp heap, thread stacks
+and allocator slack; docs/runbook.md, Memory, has the whole breakdown.  Both
+sizes have RocksDB's own defaults as their floor.  Nothing here touches the
+WAL or the fsync policy.
+
+The ratios keep the sizes the Hoodi gate was tuned with at 7 GiB: a larger
+block cache there exhausted the cgroup, or forced enough direct reclaim that
+the consensus client's Engine upcheck timed out during range import."
+  (check-type budget-bytes (integer 1))
+  (let ((mebibyte (* 1024 1024)))
+    (flet ((whole-mebibytes (bytes)
+             (* mebibyte (floor bytes mebibyte))))
+      (%make-rocksdb-memory-profile
+       budget-bytes
+       (max +rocksdb-minimum-block-cache-bytes+
+            (whole-mebibytes (floor budget-bytes 28)))
+       (max +rocksdb-minimum-write-buffer-budget-bytes+
+            (whole-mebibytes (floor (* 3 budget-bytes) 56)))))))
+
+(defvar *rocksdb-memory-profile*
+  (make-rocksdb-memory-profile +rocksdb-default-memory-budget-bytes+)
+  "The profile new RocksDB handles are opened with.  The CLI assigns it from
+--memory.budget before it opens the datadir.")
+
 (defconstant +rocksdb-background-job-count+ 8
   "One bounded flush/compaction job per supported public-node vCPU.")
 (defconstant +rocksdb-max-subcompactions+ 4
@@ -227,13 +289,6 @@ unchanged.")
   "Incremental background-file sync width for SST construction.")
 (defconstant +rocksdb-wal-bytes-per-sync+ (* 5 100 1024)
   "Background WAL sync width matching geth's five ideal 100-KiB batches.")
-(defconstant +rocksdb-block-cache-bytes+ (* 256 1024 1024)
-  "Block-cache budget for the supported shared 16-GiB EL/CL node profile.
-
-The 7-GiB EL cgroup also charges RocksDB memtables and filesystem cache.  Larger
-caches exhausted that hard boundary or forced enough direct reclaim to make
-the consensus client's Engine upcheck time out during sustained Hoodi range
-import even though the live Lisp heap remained below two GiB.")
 (defconstant +rocksdb-bloom-bits-per-key+ 10.0d0
   "Full-filter budget for random content-addressed state lookups.")
 
@@ -291,10 +346,12 @@ silently changing the storage profile."
      (multiple-value-prog1 (progn ,@body)
        (rocksdb-check-error ,error))))
 
-(defun rocksdb-configure-block-table (options)
-  "Install the bounded public-node cache and whole-key Bloom filter."
+(defun rocksdb-configure-block-table
+    (options &optional (profile *rocksdb-memory-profile*))
+  "Install PROFILE's bounded block cache and a whole-key Bloom filter."
   (let ((block-options (%rocks-block-options-create))
-        (cache (%rocks-cache-create-lru +rocksdb-block-cache-bytes+))
+        (cache (%rocks-cache-create-lru
+                (rocksdb-memory-profile-block-cache-bytes profile)))
         (filter-policy
           (%rocks-filter-policy-create-bloom-full
            +rocksdb-bloom-bits-per-key+)))
@@ -331,7 +388,8 @@ silently changing the storage profile."
 
 (defun %make-rocksdb-key-value-database
     (path &key (create-if-missing-p t)
-               (async-read-io-p (rocksdb-async-read-io-enabled-p)))
+               (async-read-io-p (rocksdb-async-read-io-enabled-p))
+               (memory-profile *rocksdb-memory-profile*))
   (unless (rocksdb-available-p)
     (error "RocksDB shared library is unavailable"))
   (let ((options (%rocks-options-create))
@@ -358,12 +416,14 @@ silently changing the storage profile."
           ;; RocksDB's default 64 MiB/one-memtable flush cadence produced
           ;; roughly 8x physical writes on the Hoodi gate. Keep leveled
           ;; compaction and every durability check, but use RocksDB's own
-          ;; bounded bulk-write preset: 96 MiB memtables, two-way flush
-          ;; merging, and a matching 384 MiB base level. Eight background jobs
-          ;; let the supported 8-vCPU/16-GiB node drain compaction debt without
-          ;; increasing the fixed level-compaction preset.
+          ;; bounded bulk-write preset: at the default 7-GiB memory budget,
+          ;; 96 MiB memtables, two-way flush merging, and a matching 384 MiB
+          ;; base level. Eight background jobs let the supported
+          ;; 8-vCPU/16-GiB node drain compaction debt without increasing the
+          ;; level-compaction preset.
           (%rocks-options-optimize-level-style-compaction
-           options +rocksdb-level-compaction-memory-budget+)
+           options
+           (rocksdb-memory-profile-write-buffer-budget-bytes memory-profile))
           (%rocks-options-increase-parallelism
            options +rocksdb-background-job-count+)
           ;; INCREASE-PARALLELISM permits independent background jobs, but one
@@ -398,7 +458,7 @@ silently changing the storage profile."
           ;; into device I/O. Keep a bounded cache and Bloom filters in
           ;; RocksDB's native table layer; neither changes WAL durability or
           ;; the bytes returned to verification.
-          (rocksdb-configure-block-table options)
+          (rocksdb-configure-block-table options memory-profile)
           (%rocks-write-options-sync write-options 1)
           ;; Recoverable prerequisites and straight Engine head extensions use
           ;; this handle. A following explicit seam uses WRITE-OPTIONS above;
@@ -429,17 +489,22 @@ silently changing the storage profile."
 
 (defun make-rocksdb-key-value-database
     (path &key (create-if-missing-p t)
-               (async-read-io-p (rocksdb-async-read-io-enabled-p)))
+               (async-read-io-p (rocksdb-async-read-io-enabled-p))
+               (memory-profile *rocksdb-memory-profile*))
   "Open the RocksDB database at PATH and count it as open.
 
-Serialised with CLOSE-ROCKSDB-KEY-VALUE-DATABASE and
-RELEASE-ROCKSDB-BACKGROUND-THREADS: opening sizes the process-wide background
-pools, so it must not interleave with a release that empties them."
+MEMORY-PROFILE sizes the block cache and the memtables (see
+MAKE-ROCKSDB-MEMORY-PROFILE).  Serialised with
+CLOSE-ROCKSDB-KEY-VALUE-DATABASE and RELEASE-ROCKSDB-BACKGROUND-THREADS:
+opening sizes the process-wide background pools, so it must not interleave
+with a release that empties them."
+  (check-type memory-profile rocksdb-memory-profile)
   (sb-thread:with-recursive-lock (*rocksdb-lifecycle-lock*)
     (prog1 (%make-rocksdb-key-value-database
             path
             :create-if-missing-p create-if-missing-p
-            :async-read-io-p async-read-io-p)
+            :async-read-io-p async-read-io-p
+            :memory-profile memory-profile)
       (setf *rocksdb-ever-opened-p* t)
       (incf *rocksdb-open-database-count*))))
 

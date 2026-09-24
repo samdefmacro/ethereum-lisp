@@ -325,6 +325,20 @@ cl-workbench validation run cold-integration \
   --match SNAP-STATE-IMPORT-MULTI-NEVER-PUBLISHES-AFTER-A-GLOBAL-STORAGE-YIELD
 cl-workbench validation run cold-integration \
   --match SNAP-TRIE-NODE-SERVER-CAPS-DISK-LOOKUPS
+
+# Memory budget and native (glibc malloc) memory: the budget-derived RocksDB
+# sizes, malloc_info totals, releasing retained arena pages, and the pinned
+# mmap threshold (a child SBCL per arm; see docs/runbook.md, Memory).
+cl-workbench validation run cold-unit --match ROCKSDB-MEMORY-PROFILE
+cl-workbench validation run cold-unit --match NATIVE-MALLOC-INFO
+cl-workbench validation run cold-unit --match DEVNET-CLI-MEMORY-BUDGET
+cl-workbench validation run cold-integration \
+  --match ROCKSDB-KEY-VALUE-DATABASE-CONFIGURES-PUBLIC-NODE-READ-CACHE
+cl-workbench validation run cold-integration --match NATIVE-MALLOC-RELEASE
+cl-workbench validation run cold-integration --match DEVNET-MEMORY-MAINTENANCE
+cl-workbench validation run cold-integration \
+  --match DEVNET-RELEASE-NATIVE-MEMORY
+cl-workbench validation run cold-e2e --match NATIVE-MALLOC-PINNED
 ```
 
 The snap tests reconstruct and verify account/storage roots, return the
@@ -494,7 +508,8 @@ the linear length of the whole list. Generic controls
 enforce the 4,096-key
 and 4 MiB key-byte bounds. The RocksDB construction regressions witness the
 exact 256 MiB block-cache and 384 MiB level-compaction preset budgets for the
-shared 16 GiB EL/CL profile, ten-bit full Bloom policy, production
+shared 16 GiB EL/CL profile (the default 7 GiB memory budget; a 12 GiB budget
+opens with 438 and 658 MiB), ten-bit full Bloom policy, production
 table-factory call site, the four-way large-compaction subtask bound, and an
 enabled `ReadOptions.async_io` on the live adapter handle. Removing either
 native setter, changing the subcompaction bound, or changing async I/O to zero
