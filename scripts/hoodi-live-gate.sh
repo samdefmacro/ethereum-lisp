@@ -141,6 +141,13 @@ if [ "$actual_head" != "$revision" ]; then
         "$revision" "$actual_head" -- . \
         ':(exclude)docs/**' \
         ':(exclude)scripts/hoodi-live-gate.sh' \
+        ':(exclude)scripts/hoodi-live-gate-selftest.sh' \
+        ':(exclude)scripts/hoodi-fleet-status.sh' \
+        ':(exclude)scripts/hoodi-fleet-status-selftest.sh' \
+        ':(exclude)scripts/hoodi-hive-gate.sh' \
+        ':(exclude)scripts/hoodi-hive-gate-remote.sh' \
+        ':(exclude)scripts/hoodi-hive-gate-selftest.sh' \
+        ':(exclude)tests/control-plane-broker-tests.lisp' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
     # An old runtime may remain live while a later revision changes production
@@ -951,13 +958,17 @@ gate_logs() {
     ssh "$host" bash -s -- "$container" "$lighthouse_container" <<'REMOTE'
 set -eu
 container="$1"; lighthouse="$2"
-el_log="$(mktemp)"; cl_log="$(mktemp)"
-trap 'rm -f "$el_log" "$cl_log"' EXIT HUP INT TERM
+el_log="$(mktemp)"; el_log_ts="$(mktemp)"; cl_log="$(mktemp)"
+engine_samples="$(mktemp)"
+trap 'rm -f "$el_log" "$el_log_ts" "$cl_log" "$engine_samples"' EXIT HUP INT TERM
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
 # Discovery and dial telemetry may be much noisier than the throttled SNAP
 # progress records.  Retain a wider *local temporary* window, but continue to
-# publish only the schema-whitelisted aggregate fields below.
-docker logs --tail 10000 "$container" >"$el_log" 2>&1
+# publish only the schema-whitelisted aggregate fields below.  Docker's own
+# receive timestamps date the Engine telemetry; every other reader below sees
+# the lines exactly as the node wrote them.
+docker logs --timestamps --tail 10000 "$container" >"$el_log_ts" 2>&1
+sed 's/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9:.]*Z //' "$el_log_ts" >"$el_log"
 docker logs --tail 1000 "$lighthouse" >"$cl_log" 2>&1
 printf 'el-lines=%s\n' "$(wc -l <"$el_log" | tr -d ' ')"
 for event in \
@@ -1212,6 +1223,118 @@ if [ -n "$source_refresh" ]; then
         fi
     done
 fi
+# Engine and store-guard telemetry, read the way
+# docs/evidence/sec5-newpayload-six-second-quantum.txt describes it.  Only
+# numeric fields, Engine method names, guard holder labels (an Engine method,
+# a named background job, or a thread name) and a fixed connection-error
+# taxonomy leave the host; guardWaitedFor lists and raw error text never do.
+# The node writes request fields as bare integers and long_hold fields as
+# strings, so every numeric reader accepts both.
+awk -v samples="$engine_samples" '
+function num(line, name,    s) {
+    if (!match(line, "[(]\"" name "\" [.] \"?-?[0-9]+")) return ""
+    s = substr(line, RSTART, RLENGTH)
+    sub(/^[^.]*[.] "?/, "", s)
+    return s
+}
+function str(line, name,    s) {
+    if (!match(line, "[(]\"" name "\" [.] \"[^\"]*\"")) return ""
+    s = substr(line, RSTART, RLENGTH)
+    sub(/^[^.]*[.] "/, "", s)
+    sub(/"$/, "", s)
+    gsub(/[^A-Za-z0-9_.:,-]/, "_", s)
+    return s
+}
+{
+    ts = "unknown"
+    if ($1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T/) ts = $1
+}
+index($0, "\"engine.rpc.http.request\"") {
+    method = str($0, "rpcMethods")
+    if (method == "") method = "none"
+    requests[method]++
+    v = num($0, "handlerMs")
+    if (v != "") print "handlerMs", method, v > samples
+    v = num($0, "npExecuteMs")
+    if (v != "") print "npExecuteMs", method, v > samples
+    v = num($0, "npExecuteCpuMs")
+    if (v != "") { cpu_samples++; cpu_sum += v }
+    v = num($0, "npExecuteGcMs")
+    if (v != "") { gc_samples++; gc_sum += v }
+    v = num($0, "guardWaitMs")
+    if (v != "") { guard_samples++; if (v + 0 > guard_max) guard_max = v + 0 }
+    if (method ~ /^engine_newPayload/) {
+        last_np_ts = ts
+        last_np_method = method
+        last_np_status = str($0, "rpcPayloadStatus")
+        if (last_np_status == "") last_np_status = "none"
+    }
+    next
+}
+index($0, "\"node.store_guard.long_hold\"") {
+    holder = str($0, "holder")
+    if (holder == "") holder = "unknown"
+    v = num($0, "holdMs") + 0
+    if (!(holder in hold_count) || v > hold_max[holder]) hold_max[holder] = v
+    hold_count[holder]++
+    hold_total++
+    if (v > hold_total_max) hold_total_max = v
+    last_hold_ts = ts
+    last_hold_holder = holder
+    last_hold_ms = v
+    next
+}
+index($0, "\"engine.rpc.http.connection.error\"") {
+    port = num($0, "port")
+    if (port == "") port = "unknown"
+    class = "other"
+    if (match($0, /exceeded the [0-9]+ second idle deadline/)) {
+        s = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", s)
+        class = "idle-deadline-" s "s"
+    } else if (match($0, /exceeded the [0-9]+ second deadline/)) {
+        s = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", s)
+        class = "request-deadline-" s "s"
+    }
+    errors[port " " class]++
+    error_total++
+    next
+}
+END {
+    for (m in requests) printf "el-engine-requests method=%s count=%d\n", m, requests[m]
+    for (h in hold_count)
+        printf "el-guard-long-hold holder=%s count=%d maxMs=%d\n", h, hold_count[h], hold_max[h]
+    for (k in errors) {
+        split(k, part, " ")
+        printf "el-connection-error port=%s class=%s count=%d\n", part[1], part[2], errors[k]
+    }
+    printf "el-engine-requests-total count=%d\n", total_requests()
+    printf "el-guard-long-hold-total count=%d maxMs=%d\n", hold_total, hold_total_max
+    if (hold_total)
+        printf "el-guard-long-hold-last timestamp=%s holder=%s holdMs=%d\n", last_hold_ts, last_hold_holder, last_hold_ms
+    else
+        print "el-guard-long-hold-last timestamp=none-in-window"
+    printf "el-connection-error-total count=%d\n", error_total
+    printf "el-engine-np-cpu-gc samples=%d npExecuteCpuMs-sum=%d npExecuteGcMs-sum=%d\n", cpu_samples, cpu_sum, gc_sum
+    printf "el-engine-guard-wait samples=%d maxMs=%d\n", guard_samples, guard_max
+    if (last_np_ts != "")
+        printf "el-engine-last-new-payload timestamp=%s method=%s status=%s\n", last_np_ts, last_np_method, last_np_status
+    else
+        print "el-engine-last-new-payload timestamp=none-in-window"
+}
+function total_requests(    m, t) { t = 0; for (m in requests) t += requests[m]; return t }
+' "$el_log_ts" | LC_ALL=C sort
+# Distribution per series and method: nearest-rank percentiles over the window.
+LC_ALL=C sort -k1,1 -k2,2 -k3,3n "$engine_samples" | awk '
+function rank(q,    r) { r = int(q * n); if (r < q * n) r++; if (r < 1) r = 1; return r }
+function flush() {
+    if (n == 0) return
+    printf "el-engine-latency series=%s method=%s samples=%d min=%d p50=%d p90=%d max=%d\n",
+           series, method, n, value[1], value[rank(0.5)], value[rank(0.9)], value[n]
+    n = 0
+}
+$1 != series || $2 != method { flush(); series = $1; method = $2 }
+{ value[++n] = $3 }
+END { flush() }'
 # Profiler rows are deliberately schema-bounded and contain no peer or network
 # identity. Never print any other raw EL/CL line from this evidence broker,
 # except the runtime-fault lines immediately below.
