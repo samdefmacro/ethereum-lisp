@@ -2425,7 +2425,8 @@ root identity, so the live-gate broker may expose its numeric fields."
                       (multiple-value-bind (status)
                           (devnet-peer-sync-import-block
                            node block :require-valid-p t
-                           :invalid-head-hash target-hash)
+                           :invalid-head-hash target-hash
+                           :label "snap-tail-import")
                         ;; REQUIRE-VALID-P is shared with forward acquisition,
                         ;; where ACCEPTED and SYNCING are legitimate durable
                         ;; buffering outcomes.  After the pivot state exists,
@@ -2603,7 +2604,8 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
                        (lambda (block)
                          (devnet-peer-sync-import-block
                           node block :require-valid-p t
-                          :invalid-head-hash target-hash))
+                          :invalid-head-hash target-hash
+                          :label "forward-block-import"))
                        :start-number (1+ head-number)
                        :target-number ancestor-target-number
                        :expected-parent-hash head-hash
@@ -2621,7 +2623,8 @@ SYNCING or ACCEPTED, which gives the downloader a consensus-driven bound."
             ;; ancestor into an immediate Engine INVALID verdict.
             (devnet-peer-sync-import-block
              node target-block :require-valid-p t
-             :invalid-head-hash target-hash)
+             :invalid-head-hash target-hash
+             :label "engine-target-import")
             (incf count)
             (devnet-peer-manager-log
              node "peer.sync.multi_completed"
