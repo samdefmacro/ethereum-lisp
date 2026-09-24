@@ -1,0 +1,266 @@
+Section 5: Engine availability under long store-guard holds
+
+Status
+
+Branch engine-availability, from a07c912e (b5161312 + docs). The R4 Hoodi
+run (container hoodi-el-sec5-b5161312, Lighthouse hoodi-lighthouse-public)
+lost its consensus client from 01:27Z: engine.rpc.http.connection.error
+"HTTP request exceeded the 30 second deadline" 4-32 times a minute, no
+newPayload or forkchoiceUpdated completed after 01:50:27Z, and Lighthouse
+logged "Error during exchange capabilities ... timeout" every few seconds.
+
+Found, reproduced and fixed on the Engine side:
+  (c) engine_exchangeCapabilities and engine_getClientVersionV1 took the
+      store guard, although they read no store state;
+  (a) a request parked on the guard keeps its connection's HTTP worker slot
+      until the 30 s deadline, so parked requests also keep new connections
+      out of the 32-slot pool;
+  and nothing bounded how long newPayload / forkchoiceUpdated wait behind a
+  background hold.
+Also: the forward batch importer held two slow blocks per hold, and long_hold
+now names the activity and the blocks of every hold. Not deployed, no live
+run, no cold-all (the coordinator runs it once at the end).
+
+Revision (branch engine-availability)
+
+  1b84073c  engine: metadata calls skip the store guard, and writes answer
+            SYNCING behind a long background hold
+  28721a06  sync: name every peer-session store-guard hold, and hold one
+            slow block per forward-import hold
+  0e13dfe9  test: Engine calls behind a long background hold, and one slow
+            block per import hold
+  (this record and the docs/validation.md selectors follow them)
+
+================================================================================
+1. What the live run shows (read-only, Hoodi host, 2026-09-24)
+================================================================================
+
+node.store_guard.long_hold holders over the whole R4 log (545 events):
+  ethereum-lisp-devnet-dial-session  165   (thread name: no activity label)
+  engine_forkchoiceUpdatedV3         159
+  engine_newPayloadV4                125
+  forward-batch-import                54   (5.9-6.3 s: one block each)
+  ethereum-lisp-devnet-sync-coordinator 38 (5.6-6.5 s: one block each)
+  ethereum-lisp-devnet-peer-session    4
+The dial-session holds are 1-134 s (00:26-01:50Z, e.g. 110731 ms ending
+01:50:17Z with engineWaiting=true). They are NOT the gap filler or the
+forward importer: both bind an activity label (sync-gap-fill,
+forward-batch-import), and the R4 log has zero peer.sync.gap_filled and zero
+peer.sync.head_filled events. They began at 00:26:12Z, two minutes after
+peer.snap.target_completed (00:24:14Z), i.e. once the node had head state;
+DEVNET-PEER-SNAP-BACKEND returns NIL (no snap/1 in Hello) until head state
+exists, and SNAP serving, transaction admission and eth serving all take the
+guard on the session thread without a label. Which of them it was cannot be
+read from this log; every such hold is now labelled (section 4).
+
+After 01:50:17Z no long_hold was logged at all, yet no Engine write completed:
+a hold (or a wait) in progress. /proc sampling at 02:22-02:23Z: one thread,
+created ~01:50:20Z, ran at ~31% of a CPU in wait_on_page_bit_common (page-cache
+reads); the container's cgroup had memory.current = memory.max = 12 GiB with
+anon 12.5 GB and only 190 MB of page cache, io.pressure full avg10 57%. The
+container was OOM-killed at 02:25:29Z (exit 137, OOMKilled true); nothing on
+the host was changed by this work.
+
+Engine side, 01:57-02:25Z: about 25 new 8551 connections a minute, each
+ending in the 30 s deadline error; eth_syncing answered in 0-8 ms throughout
+(it is served from the published view). Lighthouse: newPayload/fcU timeouts
+about every 9 s (its 8 s Engine deadline) and exchange-capabilities timeouts
+every ~5 s.
+
+================================================================================
+2. Mechanism (question 1 of the brief)
+================================================================================
+
+(c) The Engine service's guard predicate (src/app/cli/devnet/node.lisp)
+    exempted only eth_syncing and engine_getBlobsV3. RPC-HANDLE-REQUEST
+    therefore ran engine_exchangeCapabilities and engine_getClientVersionV1
+    under the Engine priority guard, behind any background hold. Both only
+    return static data (ENGINE-RPC-CAPABILITIES, ENGINE-RPC-CLIENT-VERSION).
+    This is why a call that needs no state timed out: confirmed by the
+    reproduction below (3705 ms behind a 4 s hold).
+(a) ENGINE-RPC-HTTP-SERVICE-SERVE-LISTENER takes a worker slot per accepted
+    connection and returns it when the connection ends. A request parked on
+    the guard keeps the slot until the guard frees or the 30 s deadline
+    fires; the CL has long since given up (8 s, 1 s for metadata) and opened
+    a new connection for its next call. With the pool full the accept loop
+    blocks, and a new connection waits in the listen backlog. Reproduced
+    with a four-slot pool: a capabilities call waited 2310 ms for a slot.
+    Live, 25 connections a minute each parked 30 s means about 12 of the 32
+    slots on average, so (a) is a secondary, burst-time effect; (c) and the
+    unbounded wait are the primary ones.
+(b) Not the cause: each connection has its own worker, and every CL call
+    that timed out arrived on its own connection (one stream.start /
+    stream.finish pair per deadline error). The JWT check is pure (HMAC in
+    src/transport/http/auth.lisp) and takes no guard.
+
+================================================================================
+3. Fix
+================================================================================
+
+a. Metadata calls without the guard. *DEVNET-ENGINE-GUARD-FREE-METHODS* adds
+   engine_exchangeCapabilities and engine_getClientVersionV1 to eth_syncing
+   and engine_getBlobsV3. Pinned go-ethereum (38271784, 1.17.6-unstable,
+   eth/catalyst/api.go ExchangeCapabilities, GetClientVersionV1) takes no
+   chain lock for either.
+
+b. Bounded Engine wait behind background holds. *DEVNET-ENGINE-GUARD-BUSY-
+   SECONDS* = 7. The priority guard waits in 0.1 s slices and counts only
+   the time during which the owner is NOT an Engine request (the ledger now
+   records HOLDER-ENGINE-P); waiting behind another Engine request is the
+   CL's own serialization, which geth also imposes (newPayloadLock,
+   forkchoiceLock), and stays unbounded. When the budget runs out it
+   accounts the wait (guardWaitMs, guardWaitedFor ending in
+   "LABEL:HELDms(holding)[blocks=N]") and signals
+   ETHEREUM-LISP.RPC:RPC-REQUEST-GUARD-BUSY; RPC-HANDLE-REQUEST answers
+   ENGINE-RPC-STORE-BUSY-RESPONSE:
+     engine_newPayloadV*          {status: SYNCING, latestValidHash: null}
+     engine_forkchoiceUpdatedV*   {payloadStatus: SYNCING, payloadId: null}
+     other guarded Engine calls   -32000 "execution client busy ..."
+   Why 7 s: the execution-apis Engine timeouts (engine/common.md) are 8 s
+   for newPayload and forkchoiceUpdated, and Lighthouse's log shows exactly
+   that 8-9 s cadence; a normal one-block hold on Hoodi costs about 6 s, so
+   7 s lets it finish, and the SYNCING still reaches the CL before its
+   deadline. geth parity: geth answers SYNCING when it cannot take a payload
+   yet (delayPayloadImport, "Ignoring payload while snap syncing") or a
+   forkchoice head it must sync to first (STATUS_SYNCING after BeaconSync);
+   for a known head it blocks on its chain mutex. Giving up on a known head
+   is ours, because our guard can be held by background work for minutes.
+   The give-up does not buffer the payload (geth's remoteBlocks.put has no
+   counterpart here); the CL resends on the next slot.
+   Slot consequence: a parked request now leaves after at most ~7 s of
+   background waiting, so the pool drains at 32 slots / 7 s; the worst case
+   for a metadata call arriving when all 32 slots are parked is one budget.
+
+c. Forward batch importer: one slow block per hold. The chunk decides before
+   each block whether it is the last (only the last carries the durable
+   export), and at b5161312 it looked only at the time already spent, so
+   with 6 s blocks and a 1 s budget every hold ran two blocks when no Engine
+   request happened to be waiting. It now also ends the hold when this block
+   plus one more at the latest block's measured cost would reach the budget
+   (*DEVNET-PEER-SYNC-LAST-BLOCK-TICKS*). What a single hold still costs:
+   one block execution (plus that block's durable export), except the very
+   first hold of the process, which has no measured cost and may run two.
+   The gap filler already holds one block per hold (DEVNET-PEER-SYNC-IMPORT-
+   BLOCK), and every non-Engine taker defers to a waiting Engine request
+   (6fe683b0); unchanged.
+
+d. Every hold says what it was doing. CALL-WITH-DEVNET-NODE-STORE-GUARD-AS
+   names the hold; the peer-session takers are now labelled eth-serve-block,
+   tx-pool-lookup, tx-admission, blob-sidecar-admission, blob-sidecar-lookup,
+   tx-broadcast-scan, peer-block-import, snap-serve-open,
+   snap-serve-account-range, snap-serve-storage-ranges, snap-serve-bytecodes,
+   snap-serve-trie-nodes; the coordinator's per-block imports
+   forward-block-import, engine-target-import, snap-tail-import.
+   DEVNET-PEER-SYNC-IMPORT-BLOCK-WITHOUT-GUARD notes each block number in the
+   hold (DEVNET-STORE-GUARD-NOTE-BLOCK), and node.store_guard.long_hold gains
+   a "blocks" field ("N", "FIRST..LAST(COUNT)" or "none"). A long hold of
+   one block is P's (block cost); a hold with blocks "none" is a server or
+   admission hold; a hold of several blocks is a batching defect.
+
+e. Gap filler vs the CL's own newPayload (brief item 4): not changed. The
+   R4 log has zero gap_filled / head_filled events, so there is no evidence
+   that it competed with Engine in this run; the aee866f7 case (144 gap
+   fills) is already bounded to one block per hold with Engine priority,
+   and a newPayload whose block the filler already imported answers VALID
+   without execution.
+
+================================================================================
+4. Reproduction and verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed (EXIT=0).
+
+RED at b5161312 (src and tests/admin-rpc-tests.lisp checked out from
+a07c912e, new test file in place):
+  cl-workbench validation run cold-integration
+    --match DEVNET-ENGINE-AVAILABILITY                    EXIT=1
+    "# engine availability fixed: forkchoice 4001 ms VALID, new-payload
+     4003 ms VALID, exchange 3702 ms answered, version 3702 ms answered,
+     saturated 2302 ms answered, after 1 ms VALID"
+    not ok DEVNET-ENGINE-AVAILABILITY-BEHIND-A-LONG-BACKGROUND-HOLD
+    (forkchoice not SYNCING); 0 passed, 1 failed.
+  cl-workbench validation run cold-integration
+    --match DEVNET-FORWARD-BATCH-IMPORT-HOLDS              EXIT=1
+    "# forward batch blocks per hold: slow (3 3), fast (6)"
+    0 passed, 1 failed.
+
+GREEN (this branch):
+  DEVNET-ENGINE-AVAILABILITY-BEHIND-A-LONG-BACKGROUND-HOLD (integration):
+    the node's real Engine service on a loopback socket, four worker slots,
+    a thread holding the store guard 4 s as "snap-serve-account-range",
+    Engine budget 1 s, every call on a fresh connection.
+      fixed:    forkchoice 1014 ms SYNCING, newPayload 1011 ms SYNCING,
+                exchangeCapabilities 1 ms, getClientVersion 1 ms,
+                capabilities with all four slots parked 816 ms,
+                forkchoice after the hold 1 ms VALID
+      control (b5161312 policy restored in the same run: no budget,
+                metadata guarded): forkchoice 4002 ms VALID, newPayload
+                4006 ms VALID, exchangeCapabilities 3705 ms,
+                getClientVersion 3705 ms, saturated capabilities 2310 ms
+  DEVNET-FORWARD-BATCH-IMPORT-HOLDS-THE-GUARD-FOR-ONE-SLOW-BLOCK
+    (integration): 0.3 s blocks, 0.5 s budget: holds (2 1 1 1 1);
+    control with fast blocks: (6), still batched.
+  DEVNET-STORE-GUARD-ENGINE-WAIT-GIVES-UP-BEHIND-A-BACKGROUND-HOLD (unit):
+    gives up in 250-1000 ms with a 0.3 s budget and names
+    "snap-serve-account-range:...(holding)[blocks=42]" in the condition and
+    in guardWaitedFor; afterwards no Engine request counts as waiting.
+    Controls: behind an Engine request's 1 s hold it waits and runs; with
+    the budget NIL it waits out the background hold and runs.
+  DEVNET-STORE-GUARD-LONG-HOLD-NAMES-THE-BLOCKS-IT-IMPORTED (unit): a hold
+    noting 7, 8, 9 carries "7..9(3)" and describes itself
+    "forward-batch-import:...[blocks=7..9(3)]"; control: a hold that noted
+    nothing has no detail. (Its first run caught a FORMAT slip: ~:[ does not
+    consume the hook argument on the false branch, so "[blocks=0]" appeared;
+    fixed with ~*.)
+
+Cold runs of record:
+  cl-workbench validation run cold-unit --match PACKAGE --match FACADE
+    --match DEVNET-STORE-GUARD --match ENGINE-RPC --match HTTP
+    --match RPC-READ-VIEW --match TELEMETRY --match NEW-PAYLOAD
+    --match FORKCHOICE --match ADMIN
+      182 tests passed, EXIT=0 (both new unit tests, the three older
+      store-guard tests, the package-boundary and acyclic-graph tests)
+  cl-workbench validation run cold-integration
+    --match DEVNET-ENGINE-AVAILABILITY --match DEVNET-FORWARD-BATCH
+    --match DEVNET-ENGINE-REQUEST-BEHIND --match DEVNET-NEW-PAYLOAD-READS
+    --match DEVNET-LIVE-PERSISTENCE --match DEVNET-PEER-SYNC --match FORWARD
+    --match GAP --match RESTART-BEHIND --match ENGINE-RPC --match STORE-GUARD
+    --match HTTP --match SNAP-SERV --match ETH-SYNC-SERVE
+      42 tests passed, EXIT=0
+  cl-workbench validation run cold-e2e --match OPS-RECOVERY --match ENGINE
+    --match RPC
+      1 + 8 tests passed, EXIT=0 (smoke-gate engine-only serve mode, then
+      the serve-mode Engine/public RPC, V1 workflow and SIGTERM scripts)
+  cl-workbench validation run cold-integration --match DEVNET-PEER
+    --match DEVNET-DIAL --match SNAP-TRIE-NODE-SERVER --match DEVNET-BROADCAST
+    --match ETH-GOSSIP
+      19 tests passed, EXIT=0 (the relabelled serve, gossip, gap-fill and
+      SNAP trie-node server paths)
+  No cold-all (coordinator). All runs were made with the same tree as the
+  three commits above; no source was edited while a run was in progress.
+
+================================================================================
+Not verified
+================================================================================
+
+- Nothing was deployed. Whether the next run's CL stays online depends on
+  the Engine answering SYNCING within 8 s, which the reproduction shows
+  locally, not live.
+- The identity of the 20-134 s dial-session holds and of the hold in
+  progress from 01:50Z: the new labels will name them. The cgroup data
+  (memory at its 12 GiB limit, 190 MB page cache, 57% I/O pressure, then an
+  OOM kill) points at memory, not at the guard; out of scope here.
+- A SYNCING fallback does not buffer the payload or record the forkchoice
+  target; while a background hold outlasts the budget on every slot the node
+  learns no new CL target. The previous target is still being worked on by
+  the importer that holds the guard.
+- A metadata call that finds all 32 slots parked still waits up to one
+  budget (7 s) for a slot, longer than the CL's 1 s; the pool drains at
+  32 slots per 7 s, well above Lighthouse's observed request rate.
+- Other guarded Engine calls (getPayload, getPayloadBodies, getBlobsV1/V2)
+  now fail with -32000 after the budget instead of the 30 s deadline; the
+  CL's own deadlines for them (1-10 s) are shorter, so it sees a timeout
+  either way.
+- Hive and EEST were not rerun: no execution, root or receipt code changed;
+  an Engine request behind another Engine request is not bounded, so Hive's
+  serialized Engine traffic keeps its behaviour.
