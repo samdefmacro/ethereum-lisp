@@ -69,43 +69,45 @@ upstream `abbe05777ab83fb94ce18c425daaa7ab79e779c1`); Hive
 
 ## Revisions and source records
 
-Records marked † were deleted in `f0136810`. Read one with
-`git show f0136810^:docs/evidence/<file>`.
+Records marked † were deleted in `f0136810`, those marked ‡ in `f9100e98`. Read
+one with
+`git show f0136810^:docs/evidence/<file>` or
+`git show f9100e98^:docs/evidence/<file>`.
 
 | revision | full revision | source records |
 |---|---|---|
 | bb8fb8b3 | `bb8fb8b3bddb621aff7e67895d2b56f091bac510` | sec5-bb8fb8b3-eest-v20.0.2.txt † |
-| 92982442 | `92982442f6a72e3bc73fa5e7487d537afdf51ea9` | sec5-92982442-eest-v20.0.2.txt †, sec5-92982442-hive-rpc-inventory.txt, sec5-92982442-hive-engine.txt |
-| d9e0e2dd | `d9e0e2dd74ced0baddc63a0e43881c53be302df6` | sec5-d9e0e2dd-eest-v20.0.2.txt, sec5-694667f9-hive-engine-r25-r26.txt (Hoodi) |
-| 6e3e9b1d | `6e3e9b1ddd3c890c98db04d2bd5f367ce2300bad` | sec5-6e3e9b1d-hive-rpc-compat.txt |
-| 694667f9 | `694667f95727430baef2aaceec24c91c2c46bd91` | sec5-694667f9-hive-engine-r25-r26.txt |
-| 0c6b51bf | `0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae` | sec5-0c6b51bf-eest-v20.0.2.txt, sec5-13cebe2a-amd64-runtime.txt † and sec5-16fe6962-amd64-runtime.txt (Hoodi) |
-| 7b3e9d35 | `7b3e9d3590a774d37db32faa9400f323d6c1c3f0` | sec5-7b3e9d35-amd64-artifacts.txt |
+| 92982442 | `92982442f6a72e3bc73fa5e7487d537afdf51ea9` | sec5-92982442-eest-v20.0.2.txt †, sec5-92982442-hive-rpc-inventory.txt ‡, sec5-92982442-hive-engine.txt ‡ |
+| d9e0e2dd | `d9e0e2dd74ced0baddc63a0e43881c53be302df6` | sec5-d9e0e2dd-eest-v20.0.2.txt ‡, sec5-694667f9-hive-engine-r25-r26.txt ‡ (Hoodi) |
+| 6e3e9b1d | `6e3e9b1ddd3c890c98db04d2bd5f367ce2300bad` | sec5-6e3e9b1d-hive-rpc-compat.txt ‡ |
+| 694667f9 | `694667f95727430baef2aaceec24c91c2c46bd91` | sec5-694667f9-hive-engine-r25-r26.txt ‡ |
+| 0c6b51bf | `0c6b51bf6ea4852ddf2baf47147ce0ab24bbf4ae` | sec5-0c6b51bf-eest-v20.0.2.txt ‡, sec5-13cebe2a-amd64-runtime.txt † and sec5-16fe6962-amd64-runtime.txt ‡ (Hoodi) |
+| 7b3e9d35 | `7b3e9d3590a774d37db32faa9400f323d6c1c3f0` | sec5-7b3e9d35-amd64-artifacts.txt ‡ |
 | a6ce1c1c | `a6ce1c1cf53b1eb140f9a1b875f574ca45add82f` | sec5-a6ce1c1c-amd64-artifacts.txt † |
-| 4097bbd4 | `4097bbd40843f76fbc8c0c402e39f85cce6708e6` | sec5-4097bbd4-amd64-artifacts.txt |
-| f79f5b2e | `f79f5b2e8521fb6cb2ee20744572ff753e996a3e` | sec5-f79f5b2e-hive-devp2p-r39.txt |
-| 81446d47 | `81446d476c9bb36db745cda202052cb61714ffb7` | sec5-81446d47-eest-v20.0.2.txt |
-| e96a5cc8 | `e96a5cc8908214f7d769f41c959a691fa6517b89` | sec5-e96a5cc8-amd64-runtime.txt |
-| c93389e7 | `c93389e762b9a4e32f2cbb0cf86ed2be5b892453` | sec5-c93389e7-amd64-runtime.txt |
-| 4cd40480 | `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80` | sec5-4cd40480-amd64-runtime.txt |
-| dba597c9 | `dba597c98cb5e974fde2c8d2ba26ffe885bde0b6` | sec5-dba597c9-amd64-runtime.txt |
-| 970a04b0 | `970a04b06c85b0e5f733103782da072821250829` | sec5-970a04b0-amd64-runtime.txt |
-| b147ade6 | `b147ade6f2b506f67a86ec54cc82a9722c38789f` | sec5-b147ade6-amd64-runtime.txt |
-| 03957929 | `0395792914fdcda41cf76c43ae292f261315f0d5` | sec5-03957929-eest-v20.0.2.txt, sec5-03957929-hive-devp2p-r54.txt |
-| 16fe6962 | `16fe6962837be612281e2659aa91ad100f85d9c1` | sec5-16fe6962-amd64-runtime.txt |
-| f8aa7575 | `f8aa75752468d290fe1426900dbb488d9b106b54` | sec5-f8aa7575-amd64-runtime.txt |
+| 4097bbd4 | `4097bbd40843f76fbc8c0c402e39f85cce6708e6` | sec5-4097bbd4-amd64-artifacts.txt ‡ |
+| f79f5b2e | `f79f5b2e8521fb6cb2ee20744572ff753e996a3e` | sec5-f79f5b2e-hive-devp2p-r39.txt ‡ |
+| 81446d47 | `81446d476c9bb36db745cda202052cb61714ffb7` | sec5-81446d47-eest-v20.0.2.txt ‡ |
+| e96a5cc8 | `e96a5cc8908214f7d769f41c959a691fa6517b89` | sec5-e96a5cc8-amd64-runtime.txt ‡ |
+| c93389e7 | `c93389e762b9a4e32f2cbb0cf86ed2be5b892453` | sec5-c93389e7-amd64-runtime.txt ‡ |
+| 4cd40480 | `4cd40480a2e30ba0b451bd9a9cb14a66bd738b80` | sec5-4cd40480-amd64-runtime.txt ‡ |
+| dba597c9 | `dba597c98cb5e974fde2c8d2ba26ffe885bde0b6` | sec5-dba597c9-amd64-runtime.txt ‡ |
+| 970a04b0 | `970a04b06c85b0e5f733103782da072821250829` | sec5-970a04b0-amd64-runtime.txt ‡ |
+| b147ade6 | `b147ade6f2b506f67a86ec54cc82a9722c38789f` | sec5-b147ade6-amd64-runtime.txt ‡ |
+| 03957929 | `0395792914fdcda41cf76c43ae292f261315f0d5` | sec5-03957929-eest-v20.0.2.txt ‡, sec5-03957929-hive-devp2p-r54.txt ‡ |
+| 16fe6962 | `16fe6962837be612281e2659aa91ad100f85d9c1` | sec5-16fe6962-amd64-runtime.txt ‡ |
+| f8aa7575 | `f8aa75752468d290fe1426900dbb488d9b106b54` | sec5-f8aa7575-amd64-runtime.txt ‡ |
 | 13cebe2a | `13cebe2a06f65fde4bd827a1e280aa1210854c2a` | sec5-13cebe2a-amd64-runtime.txt † |
 | a5039c3a | `a5039c3a8fff7ab224b107f3261729328df24e2a` | sec5-a5039c3a-amd64-runtime.txt † |
-| 3305307d | `3305307d02918d797ad0037a93092451f0ab2b61` | sec5-3305307d-amd64-runtime.txt †, sec5-3305307d-eest-v20.0.2.txt, sec5-3305307d-hive-rpc-compat.txt †, sec5-3305307d-hive-engine-auth.txt, sec5-3305307d-hive-devp2p.txt †, sec5-3305307d-hoodi-start.txt, sec5-3305307d-hoodi-stall.txt |
+| 3305307d | `3305307d02918d797ad0037a93092451f0ab2b61` | sec5-3305307d-amd64-runtime.txt †, sec5-3305307d-eest-v20.0.2.txt ‡, sec5-3305307d-hive-rpc-compat.txt †, sec5-3305307d-hive-engine-auth.txt ‡, sec5-3305307d-hive-devp2p.txt †, sec5-3305307d-hoodi-start.txt ‡, sec5-3305307d-hoodi-stall.txt |
 | 75b0b7a7 | `75b0b7a7554810274c3416da327e8aea7ed7fcb4` | sec5-75b0b7a7-amd64-runtime.txt †, sec5-75b0b7a7-hoodi-start.txt †, sec5-75b0b7a7-hoodi-heal.txt † |
 | cceee42f | `cceee42f1631f235559bb19f67fd841ab3b1b4b5` | sec5-cceee42f-amd64-runtime.txt †, sec5-cceee42f-hoodi-run.txt † |
 | aac5f762 | `aac5f762e0fe8b0c171b44375c0d9cf695727b94` | sec5-aac5f762-amd64-runtime.txt, sec5-aac5f762-hoodi-run.txt |
-| 8e95b990 | `8e95b9904447b4cee9aac7aa88d92963d17db4c6` | sec5-8e95b990-hoodi-run.txt, sec5-8e95b990-hoodi-complete.txt (draft), sec5-simulate-burndown-8e95b990.txt † |
+| 8e95b990 | `8e95b9904447b4cee9aac7aa88d92963d17db4c6` | sec5-8e95b990-hoodi-run.txt ‡, sec5-8e95b990-hoodi-complete.txt (draft), sec5-simulate-burndown-8e95b990.txt † |
 | d203fee6 | `d203fee694ab44a362cc669a7f95e9e542acb85d` | sec5-d203fee6-amd64-runtime.txt, sec5-d203fee6-eest-v20.0.2.txt, sec5-d203fee6-hive-rpc-compat.txt, sec5-d203fee6-hive-engine.txt, sec5-d203fee6-hive-devp2p.txt, sec5-d203fee6-hoodi-complete.txt |
 | aee866f7 | `aee866f7c7527f8da9f6e08a2311401006771eea` | sec5-aee866f7-amd64-runtime.txt †, sec5-aee866f7-eest-v20.0.2.txt †, sec5-aee866f7-hive.txt †, sec5-aee866f7-hoodi-complete.txt † |
 | 880319df | `880319df5756fa0c591765fc4d998b88b8c9699e` | sec5-880319df-amd64-runtime.txt † |
 | b5161312 | `b51613129ad17a6ef22513e06a80abda41a6dd08` | sec5-b5161312-amd64-runtime.txt, sec5-b5161312-eest-v20.0.2.txt, sec5-b5161312-hoodi-run.txt |
-| 709616fc | `709616fc386d7abd0d8084e6bbd311a42c075a2a` | sec10-709616fc-amd64-runtime.txt |
+| 709616fc | `709616fc386d7abd0d8084e6bbd311a42c075a2a` | sec10-709616fc-amd64-runtime.txt ‡ |
 | 591f700e | `591f700eb14346251d3b0f51e0a62b4d3e7bdcf0` | sec5-591f700e-eest-v20.0.2.txt |
 
 Full revisions that the records give only in short form (d203fee6, aee866f7,

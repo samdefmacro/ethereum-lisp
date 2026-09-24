@@ -14,10 +14,13 @@ The directory holds two kinds of record.
    live run. Until 2026-09-24 each gate result was its own file
    (`sec5-<rev8>-amd64-runtime.txt`, `-eest-v20.0.2.txt`, `-hive-*.txt`,
    `-hoodi-*.txt`). Files for the milestone revisions (aac5f762, d203fee6,
-   b5161312, 591f700e) are still here, as are files that another document
-   cites. `gates.md` lists each row's source files and marks the ones deleted
-   in `f0136810`. Read a deleted one with
-   `git show f0136810^:docs/evidence/<file>`.
+   b5161312, 591f700e) are still here, as is
+   `sec5-8e95b990-hoodi-complete.txt`, the completion skeleton that
+   `sec5-8e95b990-acceptance-plan.txt` tells the coordinator to fill.
+   `gates.md` lists each row's source files and marks the ones deleted in
+   `f0136810` (†) and `f9100e98` (‡). Read a deleted one with
+   `git show <commit>^:docs/evidence/<file>`. Other documents cite a gate
+   result as "`docs/evidence/gates.md`, row <rev8>".
 2. **Root-cause records** (`sec5-<topic>.txt`, `sec5-<rev8>-<topic>.txt`,
    `sec10-<topic>.txt`). Each covers one defect or one question: mechanism,
    reproduction, fix, verification of record, and what is not verified. The
