@@ -1,0 +1,193 @@
+Section 10: health endpoints and operator metrics
+
+Status
+
+Branch observability-section10, from a07c912e. Plan Section 10, second
+bullet: liveness/readiness, sync lag/pivot, import/build/RPC latency, peer
+quality, cache/queue pressure, RocksDB size/errors, pruning/recovery, RSS/GC
+and reorg metrics plus operator runbooks. Delivered: /health/live and
+/health/ready, and /metrics series for Engine requests, store-guard holds,
+import latency, peers, the SNAP healer, reorgs, RocksDB and the runtime, all
+read without the store guard, with an Observability section in
+docs/runbook.md. Not deployed; no live run; no cold-all (the coordinator runs
+it once at the end).
+
+Revision
+
+  2f29e23c  cli: /health/live and /health/ready on the metrics endpoint,
+            read without the store guard
+  096a3fc0  metrics: histograms, Engine and guard series, RocksDB, runtime
+            and reorg metrics
+  b22aa1e3  test: exposition golden, observability sink, readiness table,
+            reorg depth, guard-held endpoints
+  (next)    docs: runbook Observability section and this record
+
+================================================================================
+1. What existed before (inventory)
+================================================================================
+
+- src/app/cli/devnet/metrics-server.lisp: a loopback-by-default HTTP
+  listener (--metrics + --metrics.addr + --metrics.port) serving
+  /metrics and /debug/metrics/prometheus: ethereum_lisp_events_total by
+  event name (the counting telemetry sink), plus unlabelled gauges for sync
+  head/target/lag, SNAP pivot/completion, chain head/safe/finalized, peers
+  by direction and capability, database bytes, RSS, heap used, bytes consed,
+  GC ms, txpool levels, and per-family RPC latency last/max/sum/count
+  (types.lisp, DEVNET-RPC-LATENCY-SINK). No histograms, no labels besides
+  the event name, no health endpoint anywhere.
+- The Engine request log (engine.rpc.http.request) already carried
+  rpcMethods, status, handlerMs, guardWaitMs/guardWaitedFor, npExecute*/
+  npPersist* and fcu*Ms phase fields
+  (docs/evidence/sec5-newpayload-six-second-quantum.txt, section 1).
+- node.store_guard.long_hold, p2p.peer.session_failed, p2p.peer.refused and
+  peer.snap.heal_progress events existed; only their counts reached
+  /metrics.
+- The store guard's ledger (types.lisp) named the current holder but not
+  when it took the guard; nothing recorded when the consensus client last
+  called; a request deadline expiry was reported only as free text in
+  engine.rpc.http.connection.error; forkchoiceUpdated never reported how
+  many canonical blocks it displaced; RocksDB properties had no binding.
+
+================================================================================
+2. Design
+================================================================================
+
+Where: the existing metrics listener. It is already a separate socket, GET
+only, unauthenticated by design, loopback unless --metrics.addr says
+otherwise. The public RPC port keeps its one POST/JSON-RPC shape and the
+Engine port stays JWT-only. Consequence: health probes need --metrics and
+--metrics.port, like scrapes. No new CLI option.
+
+Never the store guard. Every input is one of:
+  - the sync view the last guard release published, plus the two lock-free
+    reads eth_syncing adds (pending forkchoice target count, durable SNAP
+    target point read); eth_syncing's own opportunistic guard TRY is not
+    used;
+  - the store-guard ledger, read racily: two new slots, HOLDER-STARTED-AT
+    (written before the label on acquisition, cleared on release) and
+    LAST-PRIORITY-AT (stamped when an Engine request asks for the guard,
+    before it waits);
+  - the peer table's own mutex (never nested in the store guard);
+  - the observability sink's own mutex and per-histogram mutexes;
+  - rocksdb_property_int, counted as a handle user so a close waits for it.
+
+Readiness checks and thresholds (observability.lisp, defparameters):
+  shutdown    no shutdown in progress
+  peers       >= 1 connected peer
+  sync        eth_syncing false, or head within 2 blocks of the highest
+              known target (the Section 10 shadow gate's lag limit)
+  storeGuard  current hold <= 8,000 ms (execution-apis engine_newPayload /
+              engine_forkchoiceUpdated timeout)
+  engine      last Engine request <= 60,000 ms ago (five 12 s slots); null
+              before the first
+Liveness: shutdown only. A node inside a long SNAP phase or import is busy,
+not dead; restarting it discards work. The endpoint's own polling thread
+answering is the responsiveness evidence.
+
+Body: {"status":"ok|fail","failed":[names],"checks":[{"name","ok","value",
+"limit"}...]}; 200 when ok, 503 otherwise. Integers and fixed names only.
+
+Metrics families (observability sink, layered counting -> observability ->
+latency -> node sink). Label vocabularies are fixed (registered Engine
+method names via the new ENGINE-RPC-REGISTERED-METHOD-P, fixed activity
+labels and thread names, condition class names, refusal verdicts) and each
+labelled table folds values past 64 into "other". The store-guard holder
+list is exact rather than a prefix because the public RPC names a hold after
+the request's own method string. Engine method counting uses the registry
+rather than the KZG/BLS-gated availability predicate: the first warm run
+counted nothing for engine_forkchoiceUpdatedV3 because the test image had no
+KZG backend enabled.
+
+================================================================================
+3. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0 (all required Workbench checks passed).
+
+Fresh warm-image compile of the whole tree (388 files): no WARNING or
+STYLE-WARNING in any file this branch touches (pre-existing style-warnings
+remain in untouched files; see "Seen on the way" in the report).
+
+Warm image, cl-workbench test NAME, each EXIT=0 on the final tree:
+  TELEMETRY-PROMETHEUS-TEXT-RENDERS-HISTOGRAMS-AND-LABELLED-FAMILIES
+  DEVNET-OBSERVABILITY-SINK-FILES-ENGINE-GUARD-PEER-AND-HEAL-EVENTS
+  DEVNET-HEALTH-READY-NAMES-EACH-FAILED-CHECK
+  DEVNET-OBSERVABILITY-HTTP-RESPONSE-ROUTES-HEALTH-AND-METRICS
+  ENGINE-FORKCHOICE-RECORDS-REORG-DEPTH-ONLY-FOR-A-REORG
+  DEVNET-HEALTH-AND-METRICS-ANSWER-WHILE-THE-STORE-GUARD-IS-HELD
+  plus the existing CORE-PACKAGE-IS-A-COMPATIBILITY-FACADE,
+  PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC,
+  PRODUCTION-ASDF-COVERS-EVERY-SOURCE-FILE-EXACTLY-ONCE,
+  PRODUCTION-ASDF-EXPRESSES-SOURCE-LAYER-DEPENDENCIES,
+  PROJECT-PACKAGE-DEPENDENCY-GRAPH-INCLUDES-SOURCE-REFERENCES,
+  DOMAIN-PACKAGES-OWN-THEIR-EXTERNAL-SYMBOLS, the four DEVNET-METRICS tests,
+  OPS-RPC-LATENCY-SINK-FILES-REQUESTS-BY-FAMILY and
+  OPS-METRICS-ENDPOINT-REPORTS-SYNC-PEERS-STORAGE-PROCESS-AND-LATENCY.
+The health commit (2f29e23c) alone was also loaded into a restarted warm
+image (no compiler warnings in its files) and passed
+DEVNET-METRICS-HTTP-RESPONSE-ROUTES-REQUESTS and
+DEVNET-METRICS-ENDPOINT-ANSWERS-A-SCRAPE (EXIT=0 each).
+
+Guard-held integration test (live node, 4 s guard hold, limit lowered to
+1 s): idle /health/ready 200 with "failed":[] (positive control for the
+verdict); during the hold /health/live 200, /health/ready 503 with
+"failed":["storeGuard"], /metrics 200 with store_guard_hold_age_ms >= 1000
+(scrape 0.005 s in the warm run), each under 1 s; the guarded eth_getBalance
+sent in the same window took 2.452 s, i.e. it waited for the hold, which
+proves the guard was held while the endpoints answered.
+
+Mutation controls (warm image, tree mutated, then restored with git
+checkout; not committed), each test RED:
+  readiness computed inside CALL-WITH-DEVNET-NODE-STORE-GUARD
+    -> DEVNET-HEALTH-AND-METRICS-ANSWER-WHILE-THE-STORE-GUARD-IS-HELD fails
+       "(EQL 503 (FIRST HELD-READY))": the probe waited out the hold and
+       then answered 200
+  the -32601 exclusion removed from DEVNET-OBSERVABILITY-ENGINE-METHOD
+    -> DEVNET-OBSERVABILITY-SINK-FILES-... fails on the
+       engine_forkchoiceUpdatedV3 count
+  fcuReorgDepth recorded only for a negative depth (never)
+    -> ENGINE-FORKCHOICE-RECORDS-REORG-DEPTH-ONLY-FOR-A-REORG fails
+       "(EQL 2 DEPTH)"
+Before this branch /health/* answered 404 ("try /metrics") and none of the
+new series existed, so every new assertion was red by construction.
+
+Cold (scripts/dev.sh cold broker through Workbench), final tree:
+  cl-workbench validation run cold-unit --match TELEMETRY-PROMETHEUS
+    --match DEVNET-OBSERVABILITY --match DEVNET-HEALTH
+    --match ENGINE-FORKCHOICE-RECORDS --match DEVNET-METRICS
+    --match OPS-RPC-LATENCY --match PROJECT-PACKAGE --match DOMAIN-PACKAGES
+    --match PRODUCTION-ASDF --match CORE-PACKAGE
+      19 tests passed, EXIT=0
+  cl-workbench validation run cold-integration --match DEVNET-HEALTH-AND-METRICS
+    --match OPS-METRICS --match DEVNET-METRICS-ENDPOINT
+    --match DEVNET-ENGINE-REQUEST-BEHIND --match STORE-GUARD
+      5 tests passed, EXIT=0
+  cl-workbench validation run cold-unit --match STORE-GUARD --match TELEMETRY
+    --match FORKCHOICE --match HTTP --match ENGINE-RPC --match DEADLINE
+    --match PEER-MANAGER --match ADMIN --match ROCKSDB
+      146 tests passed, EXIT=0
+  cl-workbench validation run cold-integration --match HTTP --match ENGINE-RPC
+    --match ROCKSDB --match FORKCHOICE --match PEER-MANAGER --match TELEMETRY
+      38 tests passed, EXIT=0
+No cold-e2e: no CLI option was added or changed.
+
+Not verified
+
+- Nothing was deployed; no Hoodi run. Thresholds (2 blocks, 8 s, 60 s, one
+  peer) are reasoned from the Engine API timeout, the slot time and the
+  shadow gate, not tuned on live data.
+- The RocksDB gauges were read on a small test datadir (background errors 0,
+  compaction pending 0 or 1); their behaviour under real compaction debt is
+  unobserved.
+- Reorg depth is recorded only on the Engine forkchoice path (the only
+  post-Merge publication authority); explicit --dev local publication and
+  debug_setHead rewinds are not counted.
+- Liveness does not detect a wedged Engine accept loop or sync coordinator:
+  neither has a heartbeat the endpoint could read without new
+  instrumentation in those loops.
+- Engine request timeouts are one counter for both HTTP ports; the log's
+  endpoint field distinguishes them.
+- Not exported: txpool blob bytes (the pool keeps a count only), pruning
+  progress, RocksDB cache hit rates, P2P forward-import block latency.
+- EEST fixtures were not rerun: the only consensus-path edit is reading the
+  canonical transition's displaced-block count after publication.
