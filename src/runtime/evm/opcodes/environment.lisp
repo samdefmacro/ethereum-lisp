@@ -2,6 +2,7 @@
 
 (defun execute-environment-opcode (machine opcode)
   "Execute call-data, code, account, and block-environment opcodes."
+  (declare (type evm-machine machine) (type (unsigned-byte 8) opcode))
   (with-evm-machine-state (machine)
     (let ((op opcode))
       (cond

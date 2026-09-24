@@ -78,6 +78,7 @@ hiding them in one large lexical scope."
      (if (funcall predicate left right) 1 0))))
 
 (defun evm-machine-charge-gas (machine amount)
+  (declare (type evm-machine machine))
   (unless (evm-machine-gas-limit machine)
     (incf (evm-machine-gas-used machine) amount)
     (incf (evm-gas-budget-used-regular

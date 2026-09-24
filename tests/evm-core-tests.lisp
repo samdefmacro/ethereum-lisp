@@ -473,3 +473,104 @@
       ;; EIP-198 has no minimum charge: three zero declared lengths cost 0.
       (is (zerop gas))
       (is active-p))))
+
+;;; The base-gas table is a cache of the schedule, not a second schedule.
+(defun evm-base-gas-table-disagreements (lookup)
+  "Every (OPCODE FORK EXPECTED ACTUAL) where LOOKUP differs from the schedule."
+  (let ((contexts
+          (list nil
+                (make-evm-context :chain-rules (make-chain-rules))
+                (make-evm-context
+                 :chain-rules (make-chain-rules :homestead-p t :eip150-p t))
+                (make-evm-context
+                 :chain-rules (make-chain-rules :homestead-p t :eip150-p t
+                                                :eip155-p t :eip158-p t
+                                                :byzantium-p t
+                                                :constantinople-p t
+                                                :petersburg-p t
+                                                :istanbul-p t))
+                (make-evm-context
+                 :chain-rules (make-chain-rules :homestead-p t :eip150-p t
+                                                :eip155-p t :eip158-p t
+                                                :byzantium-p t
+                                                :constantinople-p t
+                                                :petersburg-p t
+                                                :istanbul-p t :berlin-p t
+                                                :london-p t :shanghai-p t
+                                                :cancun-p t :prague-p t
+                                                :osaka-p t))
+                (make-evm-context
+                 :chain-rules (make-chain-rules :homestead-p t :eip150-p t
+                                                :eip155-p t :eip158-p t
+                                                :byzantium-p t
+                                                :constantinople-p t
+                                                :petersburg-p t
+                                                :istanbul-p t :berlin-p t
+                                                :london-p t :shanghai-p t
+                                                :cancun-p t :prague-p t
+                                                :osaka-p t :amsterdam-p t))))
+        (disagreements '()))
+    (loop for context in contexts
+          for fork from 0
+          do (dotimes (op 256)
+               (let ((expected
+                       (ethereum-lisp.evm.internal::%opcode-base-gas-by-schedule
+                        op context))
+                     (actual (funcall lookup op context)))
+                 (unless (eql expected actual)
+                   (push (list op fork expected actual) disagreements)))))
+    (nreverse disagreements)))
+
+(deftest evm-opcode-base-gas-table-matches-the-schedule-for-every-fork
+  (is (null (evm-base-gas-table-disagreements
+             #'ethereum-lisp.evm.internal::opcode-base-gas)))
+  ;; Positive control: a lookup that answers from the fork-blind table for a
+  ;; fork-dependent opcode (BALANCE, 0x31) must be caught.
+  (let ((fork-blind
+          (lambda (op context)
+            (if (= op #x31)
+                (ethereum-lisp.evm.internal::%opcode-base-gas-by-schedule
+                 op nil)
+                (ethereum-lisp.evm.internal::opcode-base-gas op context)))))
+    (is (find #x31 (evm-base-gas-table-disagreements fork-blind)
+              :key #'first))))
+
+(deftest evm-gas-burner-loop-executes-without-per-instruction-garbage
+  ;; The Hoodi gas burner at 0x6b3f1c2aa4f0a2a49bb782a4e83db5a0764326ec, whose
+  ;; transactions filled most blocks the Section 5 head-follower executed
+  ;; (docs/evidence/sec5-newpayload-six-second-cpu.txt).  Its loop is
+  ;; JUMPDEST PUSH2 GAS LT PUSH1 JUMPI PUSH1 ADD PUSH2 POP PUSH1 JUMP, 44 gas an
+  ;; iteration, until less than 10,000 gas is left.  Before the base-gas table
+  ;; and the allocation-free regular charge one 2.47M-gas frame consed 45 MB
+  ;; and took 250 ms of CPU on arm64 (a 24-transaction block: about 6 s);
+  ;; after, 9 MB and 40 ms.  Consing is the deterministic assertion; the CPU
+  ;; bound is loose, best of three on this thread's own clock.
+  (let* ((code (hex-to-bytes
+                "0x5f5a5f600e565b5f5260205fa1005b6127105a1060065760010161133750600e56"))
+         (state (make-state-db))
+         (address (address-from-hex
+                   "0x6b3f1c2aa4f0a2a49bb782a4e83db5a0764326ec"))
+         (best-bytes nil)
+         (best-cpu-microseconds nil))
+    (loop repeat 3
+          do (let ((bytes-before (sb-ext:get-bytes-consed))
+                   (cpu-before
+                     (ethereum-lisp.telemetry:telemetry-thread-cpu-microseconds))
+                   (result
+                     (execute-bytecode code
+                                       :context (make-evm-context
+                                                 :state state :address address)
+                                       :gas-limit 2469015
+                                       :max-steps nil)))
+               (let ((cpu (- (ethereum-lisp.telemetry:telemetry-thread-cpu-microseconds)
+                             cpu-before))
+                     (bytes (- (sb-ext:get-bytes-consed) bytes-before)))
+                 ;; The loop ran to its gas floor and logged its counter.
+                 (is (eq :stopped (evm-result-status result)))
+                 (is (< (- 2469015 (evm-result-gas-used result)) 10000))
+                 (is (= 1 (length (evm-result-logs result))))
+                 (setf best-bytes (min bytes (or best-bytes bytes))
+                       best-cpu-microseconds
+                       (min cpu (or best-cpu-microseconds cpu))))))
+    (is (< best-bytes (* 20 1000 1000)))
+    (is (< best-cpu-microseconds 150000))))

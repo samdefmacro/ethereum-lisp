@@ -2,6 +2,7 @@
 
 (defun execute-system-opcode (machine opcode)
   "Execute contract creation, calls, returns, reverts, and self-destruction."
+  (declare (type evm-machine machine) (type (unsigned-byte 8) opcode))
   (with-evm-machine-state (machine)
     (let ((op opcode))
       (cond

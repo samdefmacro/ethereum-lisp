@@ -1,7 +1,11 @@
 (in-package #:ethereum-lisp.evm.internal)
 
 (defun word (value)
-  (mod value +word-modulus+))
+  ;; Every stack push reduces its value; a non-negative fixnum is already a
+  ;; word, and skipping the bignum MOD for it keeps pushes allocation-free.
+  (if (typep value '(and fixnum unsigned-byte))
+      value
+      (mod value +word-modulus+)))
 
 (defun fail (control &rest args)
   (error 'evm-error :message (apply #'format nil control args)))

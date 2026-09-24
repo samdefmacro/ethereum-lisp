@@ -35,8 +35,17 @@
     t))
 
 (defun evm-gas-budget-charge-regular (budget amount)
-  (evm-gas-budget-charge
-   budget (make-evm-gas-costs :regular amount)))
+  "Charge AMOUNT of regular gas, or return NIL when BUDGET cannot afford it.
+
+This is EVM-GAS-BUDGET-CHARGE of a regular-only cost without the per-charge
+cost object: with no state cost there is nothing to spill, so the charge is
+affordable exactly when AMOUNT fits the regular dimension.  The interpreter
+calls it once per instruction."
+  (declare (type evm-gas-budget budget) (type (integer 0 *) amount))
+  (when (<= amount (evm-gas-budget-regular budget))
+    (decf (evm-gas-budget-regular budget) amount)
+    (incf (evm-gas-budget-used-regular budget) amount)
+    t))
 
 (defun evm-gas-budget-charge-state (budget amount)
   (evm-gas-budget-charge

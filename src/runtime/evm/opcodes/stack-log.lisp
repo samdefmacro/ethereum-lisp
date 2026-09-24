@@ -2,6 +2,7 @@
 
 (defun execute-stack-log-opcode (machine opcode)
   "Execute PUSH, DUP, SWAP, and LOG opcode families."
+  (declare (type evm-machine machine) (type (unsigned-byte 8) opcode))
   (with-evm-machine-state (machine)
     (let ((op opcode))
       (cond
