@@ -989,7 +989,8 @@ the transport target to the CPU-expensive former half-table value.
 These selectors do not prove public reachability. Section 5 also requires an
 ephemeral Hoodi run from an empty datadir, using the reviewed container runtime,
 to record preset discovery, RLPx/eth+snap negotiation, a consensus-authorized
-target, durable progress across restart, and continued head following. Keep its
+target, durable progress across restart, and continued head following. Record
+its outcome as the revision's row in `docs/evidence/gates.md`, and keep its
 command, image/revision, timestamps, peer/target evidence, and restart result in
 the readiness-plan completion record. Never substitute peer-head-only download
 or a manually injected static enode for that gate.
@@ -1647,6 +1648,10 @@ corpus could not be identified, the archive digest disagrees with the pin, or
 `--require-manifest` was given and the run emitted no counts at all. Missing
 metadata that still leaves the report usable is recorded as `report-gaps` and
 exits 0.
+
+An EEST result of record for a revision goes into that revision's row in
+`docs/evidence/gates.md`. Do not commit the report as a new per-revision file
+under `docs/evidence/`; `docs/evidence/README.md` has the rule.
 
 CI archives one report per conformance job with `actions/upload-artifact`:
 `eest-conformance-report` from the legacy compatibility job (the
