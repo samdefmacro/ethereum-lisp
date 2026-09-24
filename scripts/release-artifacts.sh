@@ -230,6 +230,8 @@ write_provenance() {
       *) die "write_provenance: unknown field $kv" ;;
     esac
   done
+  local base_tag="${base%@*}"
+  base_tag="${base_tag##*:}"
   {
     printf '{\n'
     printf '"_type": "https://in-toto.io/Statement/v1",\n'
@@ -252,8 +254,10 @@ write_provenance() {
       "$(json "git+$SOURCE_REPO@$revision")" "$(json "$revision")"
     printf '{"uri": %s,\n "digest": {"sha256": %s}},\n' \
       "$(json "git+$SOURCE_REPO@$revision#tools/build-inputs/inputs.lock")" "$(json "$lock_sha")"
+    # image:tag@sha256:D as a package URL: pkg:docker/image@sha256:D?tag=tag
     printf '{"uri": %s,\n "digest": {"sha256": %s}}\n' \
-      "$(json "pkg:docker/${base%@*}")" "$(json "${base##*sha256:}")"
+      "$(json "pkg:docker/$(printf '%s' "${base%@*}" | sed 's/:[^:/]*$//')@sha256:${base##*sha256:}?tag=${base_tag}")" \
+      "$(json "${base##*sha256:}")"
     printf ']\n'
     printf '},\n'
     printf '"runDetails": {\n'
