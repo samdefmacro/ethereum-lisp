@@ -1,0 +1,260 @@
+Section 5: inbound RLPx sessions on Hoodi -- whose failures they are
+
+Status
+
+Branch rlpx-inbound-auth, from a07c912e. The R4 run (b5161312, container
+hoodi-el-sec5-b5161312, 2026-09-23T21:54:45Z to its OOM kill at
+2026-09-24T02:25:29Z) logged 14,498 p2p.peer.session_failed events, every
+one an INBOUND session, and 4,888 p2p.listener.rejected "no-slot".
+
+  ECIES tag does not authenticate      12,398  theirs (misaddressed auth)
+  RLPx stream ended after 0 of 32         721  ~715 ours, 6 unknown
+  305 of 1024..1279 (pre-EIP-8 auth)      136  theirs, geth refuses too
+  listener.rejected "no-slot"           4,888  ours (three defects)
+
+Our decoder is not the cause of the ECIES failures: it matches geth
+v1.17.4 on every EIP-8 vector and on 320 concurrent fresh handshakes, and
+Hive's eth suite, which dials us through geth's rlpx.go, passed 25/25 at
+d203fee6. What is ours is the admission around it: the ack waited for the
+store guard, the handshake reservation was held for the whole session, an
+accepted stream had no read bound, and the rejection log said "no-slot"
+for every verdict. All four are fixed, each with a test that was red on
+a07c912e. Not deployed; no Hive run (remote nested Docker); no cold-all
+(the coordinator runs it once at the end).
+
+Revision
+
+  6fa17eb7  p2p: refuse a handshake size above geth's 2048, and pin inbound
+            auth reading to v1.17.4
+  479c1e5b  cli: answer an inbound auth without the store guard, and give
+            its reservation back at admission
+
+================================================================================
+1. Live counts (read-only, test-ethereum-sophon2-symbiosis)
+================================================================================
+
+  docker logs -t hoodi-el-sec5-b5161312 2>&1 | grep -E \
+    'p2p\.peer\.(session_failed|connected|refused)|p2p\.listener\.|peer\.dial\.(connected|failed|refused)'
+  (copied to the local scratchpad, 24,101 lines, counted there with grep,
+  sort and uniq; 21:54:45Z-02:23:08Z, then the OOM kill)
+
+Inbound outcomes: 14,498 session_failed, 55 p2p.peer.connected, 171
+p2p.peer.refused after a completed handshake (88 useless-peer, 83
+already-connected), 4,888 refused at accept. p2p.peer.session_failed is
+logged only by the inbound session guard (DEVNET-CALL-WITH-PEER-SESSION-
+THREAD-GUARD), so every row below is inbound.
+
+  12,398  ECIES tag does not authenticate the message
+     777  eth network mismatch: ours 560048, peer N (1, 137, ...)
+     721  RLPx stream ended after 0 of 32 bytes
+     184  peer does not support the eth capability
+     164  peer sent devp2p Disconnect (4: 142, 16: 10, 11: 10, 8, 2, 0)
+     136  RLPx stream ended after 305 of 1024..1279 bytes
+      76  couldn't read from / write to FD-STREAM (reset), 1 "is closed"
+      13  RLPx stream ended after 0 of 2 bytes; 2 after 1 of 2
+      11  eth/69 Status must contain exactly 7 items
+       9  RLP item overruns input at byte 0 (5), Snappy input is malformed (4)
+       4  other mid-frame truncations (41/21331, 774/12716, 17/768)
+       1  eth fork-id incompatible: REMOTE-STALE
+       1  The value -1 is not of type (UNSIGNED-BYTE 62)   (92.5.20.248, 01:28:09Z)
+
+Hourly (UTC)          21h   22h   23h    00h    01h    02h
+  ECIES tag           258 3,256 3,626  3,192  2,066      0
+  0 of 32               0     3     3    327    388      0
+  listener.rejected     0     0     0    696  2,154  2,038
+  store_guard.long_hold 0     5     8    308    224      0   (holds >= 1 s)
+
+The ECIES failures came from 692 distinct hosts; 600 of them never did
+anything else, and they retry steadily (57.128.175.215: 754 times, about
+every 21 s). Holds of 10 s or more began at 00:25:44Z (forward-batch-import
+11.8 s) and were then almost all ethereum-lisp-devnet-dial-session, up to
+133.8 s (01:20:58Z); the last long_hold logged is 110.7 s at 01:50:17Z. In
+the 35 minutes from 01:50:35Z to the kill at 02:25:29Z exactly one inbound
+session reached an outcome (01:59:26Z, a write to a reset socket) while
+2,708 accepts were refused (01:51Z onward).
+
+================================================================================
+2. Classification, with the evidence for each
+================================================================================
+
+(a) ECIES tag does not authenticate the message -- 12,398, THEIRS.
+
+The initiator encrypted its auth to a key other than ours. ECIES decryption
+with the right key and the exact two prefix bytes as shared data is
+deterministic; the only inputs are the recipient key and the bytes read.
+Checked against the oracle:
+  - geth v1.17.4 p2p/rlpx/rlpx.go (fetched at tag v1.17.4, byte-identical
+    to references/go-ethereum 38271784) handshakeState.readMsg: 2-byte size,
+    reject > 2048, read exactly size, ecies Decrypt(packet, nil, prefix).
+    runRecipient -> readMsg -> handleAuthMsg -> makeAuthResp -> sealEIP8.
+  - EIP-8 Auth2 and Auth3 (version 56, three extra elements) read whole and
+    decode; Ack3 (version 57) opens; recovered ephemeral key, nonce and
+    signature match (RLPX-HANDSHAKE-READER-TAKES-GETH-V1-17-4-EIP8-VECTORS-
+    WHOLE). The existing RLPX-RECIPIENT-HANDSHAKE-MATCHES-EIP8-VECTORS still
+    derives geth's pinned aes/mac secrets.
+  - Auth2 opened with key A (not the addressee), or with the prefix omitted
+    or one prefix byte flipped, fails with exactly this message; key B opens
+    it (RLPX-AUTH-FOR-ANOTHER-NODE-FAILS-THE-ECIES-TAG).
+  - 8 threads x 40 fresh auths (random initiator and ephemeral keys) all
+    open, zero failures, with a misaddressed-auth positive control that the
+    harness does catch (RLPX-RECIPIENT-OPENS-EVERY-FRESH-AUTH-ACROSS-
+    THREADS). So no per-call or cross-thread state in ECDH, KDF, HMAC, AES.
+  - Hive devp2p at d203fee6 (docs/evidence/sec5-d203fee6-hive-devp2p.txt):
+    eth 25/25; those tests dial the client under test with geth's rlpx.Conn.
+Whom they meant (inference, not verified): the Hoodi host has run at least
+17 per-revision datadirs (datadir-<rev> in docs/evidence), each creating a
+fresh nodekey, all advertised at 165.154.224.110:30303. Peers keep dialing
+identities they learned earlier; the steady per-host retry pattern fits.
+Operational remedy, not a code change: reuse one --nodekey across revisions.
+
+(b) RLPx stream ended after 0 of 32 bytes -- 721; ~715 OURS.
+
+32 bytes is the first frame header (2 x 16) after the handshake: we sent the
+ack (and our Hello) and the peer closed without a frame. Inbound admission
+built its eth Status from DEVNET-PEER-SYNC-STATUS, which takes the store
+guard, BEFORE running rlpx-accept-stream, so the ack waited behind any hold.
+geth's initiator allows 5 s for the whole encryption handshake
+(transport.go handshakeTimeout, SetDeadline in doEncHandshake) and closes
+silently on its own error (rlpxTransport.close sends Disconnect only for a
+DiscReason). 715 of the 721 fall in 00:00-01:59Z, the window of 10-134 s
+guard holds; 6 fell in the two hours before (baseline; a peer that hangs up
+after the ack for its own reasons -- the slot test reproduces exactly that
+line with a client that closes after reading our ack).
+Reproduced: DEVNET-INBOUND-HANDSHAKE-DOES-NOT-WAIT-FOR-THE-STORE-GUARD holds
+the server's guard from another thread and dials with a 10 s read bound. On
+a07c912e the client got no ack (typep eth-peer failed); fixed, the whole
+RLPx + Hello + Status handshake completes and the peer is admitted while
+the guard is still held.
+
+(c) 305 of 1024..1279 bytes -- 136, THEIRS (parity).
+
+A pre-EIP-8 auth is 307 bytes with no prefix and begins 0x04; its first two
+bytes read as a size of 0x04xx. EIP-8's Auth1 vector gives exactly
+"305 of 1164" here (RLPX-LEGACY-PRE-EIP8-AUTH-IS-REFUSED-AS-GETH-V1-17-4-
+REFUSES-IT). geth v1.17.4 has no legacy path (the EIP-8 pseudocode that tries
+307 bytes first is gone from readMsg) and reads the same way, so these peers
+fail against geth too. Given the bytes it asked for, the size-prefixed read
+cannot misparse one either: the "key tag" it sees is 0x8c.
+
+(d) listener.rejected "no-slot" -- 4,888, OURS, three defects.
+
+  1. The log said "no-slot" for every non-:RESERVE verdict, including
+     :IP-THROTTLED, :SUBNET-THROTTLED and :NETRESTRICT, so the live count
+     cannot be split. Now it logs the verdict and the peers/pending counts
+     it was taken on (DEVNET-LISTENER-REJECTION-NAMES-ITS-VERDICT: a
+     netrestricted loopback accept read "no-slot" on a07c912e).
+  2. The handshake reservation was released only at session teardown, so a
+     live inbound peer counted twice (entry + pending) against maxpeers + 4,
+     and twice toward the per-IP limit of 3. geth's listenLoop returns its
+     pending slot when SetupConn returns. DEVNET-INBOUND-SLOT-IS-FREED-BY-
+     FAILED-SESSIONS-AND-KEPT-BY-A-LIVE-ONE: on a07c912e a connected peer
+     showed count 1, pending 1; fixed, pending 0 while it stays.
+  3. Sessions blocked behind the store guard (b) held their reservations.
+     From 01:50Z on, with no guard hold ending (none logged after 01:50:17Z),
+     every reservation stayed held: one session outcome in 35 minutes, every
+     accept refused. That the refusals then were genuinely no-slot is an
+     inference: the old log cannot tell (defect 1).
+     Also: an accepted stream had no read bound after the first byte, so a
+     partial or legacy auth held its reservation until the peer hung up
+     (DEVNET-INBOUND-SESSION-THAT-STALLS-MID-AUTH-GIVES-BACK-ITS-SLOT: on
+     a07c912e no session_failed within 6 s; fixed, it ends on the stream
+     timeout, shortened to 1 s in the test, 30 s in production).
+Slot release on failure paths was already correct (unwind-protect): the
+misaddressed-auth, trickled-then-closed and stalled sessions all return to
+count 0 / pending 0 in the tests, and the existing DEVNET-PEER-SESSION-
+FAILURE-DOES-NOT-TAKE-THE-NODE-DOWN still passes.
+
+(e) The rest -- theirs or unknown, not investigated here: foreign chains
+(777 network mismatch, 1 fork-id), no eth (184), peer Disconnects (164,
+142 of them too-many-peers), resets (77), 11 eth/69 Status arity, 9 codec
+errors, 4 mid-frame truncations, and one TYPE-ERROR (-1 vs UNSIGNED-BYTE 62)
+that is probably ours (section 6).
+
+================================================================================
+3. Fixes
+================================================================================
+
+6fa17eb7  src/protocol/p2p/connection.lisp: RLPX-READ-HANDSHAKE-PACKET
+  refuses a declared size above +RLPX-HANDSHAKE-MAX-SIZE+ (2048) before
+  reading, as geth's readMsg does ("message too big").
+
+479c1e5b
+  - peer-table.lisp DEVNET-NODE-PUBLISH-STATUS-VIEW: at every store-guard
+    release, publish (:head-number :head-timestamp :genesis-hash :best-hash);
+    types.lisp slot STATUS-VIEW. peer-sync.lisp DEVNET-PEER-PUBLISHED-SYNC-
+    STATUS builds the inbound Status from it (falls back to the guard only
+    before the first publication); DEVNET-PEER-SYNC-STATUS reads the same
+    fields through DEVNET-NODE-READ-STATUS-HEAD. The dialer still takes the
+    guard before it dials, where no remote deadline is running.
+  - peer-manager.lisp DEVNET-PEER-RUN-SESSION: the reservation is released
+    as soon as admission resolves; teardown releases it only if still held.
+  - eth-sync/node.lisp ETH-SYNC-ACCEPT-PEER :STREAM-TIMEOUT-SECONDS, passed
+    *DEVNET-INBOUND-SESSION-STREAM-TIMEOUT-SECONDS* (30, the dialer's
+    +DEVNET-SESSION-STREAM-TIMEOUT-SECONDS+). Divergence kept: geth bounds
+    the whole encryption handshake at 5 s; we bound each read at 30 s.
+  - peer-manager.lisp listener: p2p.listener.rejected fields reason (the
+    verdict), peers, pending.
+
+What the next run's log will say: listener.rejected with its real reason
+and counts; 0-of-32 back near its baseline unless a peer closes after our
+ack for its own reasons; no admission stuck behind the guard. The ECIES and
+pre-EIP-8 classes will stay unless the nodekey is kept across revisions.
+
+================================================================================
+4. Verification of record (targeted; logs kept in the session scratchpad)
+================================================================================
+
+cl-workbench doctor --strict: passed.
+The warm-image eval route was unavailable to this session, so every run
+below is a cold, fresh-compile container run.
+
+RED on a07c912e's src with the new tests:
+  cl-workbench validation run cold-unit --match RLPX-
+    21 passed, 2 failed, EXIT=1: RLPX-HANDSHAKE-READER-REFUSES-A-SIZE-OVER-
+    GETHS-2048 (read 2049 bytes instead of refusing); the legacy test's
+    second assertion expected the wrong message (the key-tag check fires
+    first; corrected to that message by hand before GREEN).
+  cl-workbench validation run cold-integration --match DEVNET-INBOUND-
+    --match DEVNET-LISTENER-REJECTION
+    0 passed, 4 failed, EXIT=1 (reasons in section 2; the stall test was
+    first red on an unbound parameter, then rewritten to reach it through
+    SYMBOL-VALUE and red again on behaviour, with the slot test split so its
+    first failing assertion is pending=1 at count=1).
+
+GREEN on the committed tree:
+  cl-workbench validation run cold-integration --match DEVNET-INBOUND-
+    --match DEVNET-LISTENER-REJECTION
+    4 tests passed, EXIT=0
+  cl-workbench validation run cold-unit --match RLPX- --match DEVNET-PEER-TABLE
+    --match DEVNET-PEER-THREAD --match DEVNET-CLI-PEER --match DEVNET-SUMMARY
+    --match ECIES --match P2P- --match ETH-SYNCING --match DEVNET-STORE-GUARD
+    --match PROJECT-PACKAGE
+    60 tests passed, EXIT=0 (all seven new unit tests, the EIP-8 vector
+    tests, the store-guard release-hook and eth_syncing view tests, and both
+    package-graph tests)
+  cl-workbench validation run cold-integration --match DEVNET-PEER
+    --match DEVNET-DIAL --match DEVNET-NODE-SHUTS --match RLPX --match ETH-SYNC
+    --match ETH-SERVE --match ETH-GOSSIP --match DEVNET-INBOUND
+    --match DEVNET-LISTENER --match ADMIN --match DEVNET-RANGE-ANNOUNCEMENT
+    --match DEVNET-DISCOVERY
+    42 tests passed, EXIT=0 (includes ETH-SYNC-ACCEPT-PEER-COMPLETES-THE-
+    HANDSHAKE-FROM-A-DIALER, DEVNET-DIALER-HOLDS-AN-OUTBOUND-SESSION-AND-
+    SHUTS-DOWN, DEVNET-NODE-SHUTS-DOWN-WITH-A-SILENT-INBOUND-PEER,
+    DEVNET-PEER-SESSION-FAILURE-DOES-NOT-TAKE-THE-NODE-DOWN)
+
+Expected of the Hive devp2p suite (not run: remote nested Docker): discv4
+16/16, eth 25/25, snap 6/6 as at d203fee6. The eth tests dial us and
+exchange Status after the chain import, whose guard release publishes the
+head they check. discv5 stays a fail-closed refusal.
+
+Not verified
+
+- Who the misaddressed initiators meant. The stale-identity reading is an
+  inference from the per-revision datadirs; confirming it would take the
+  old nodekeys (under /data, not read) or a run that keeps one nodekey.
+- Any live effect: nothing was deployed. The 0-of-32 attribution rests on
+  the time correlation with guard holds plus the local reproduction.
+- The split of the 4,888 live rejections among no-slot, ip-throttled,
+  subnet-throttled and netrestrict (the old log could not say).
+- Why dial sessions held the guard for up to 134 s, and the OOM kill.
+- e2e and cold-all layers; Hive devp2p.
