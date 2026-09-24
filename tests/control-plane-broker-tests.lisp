@@ -55,3 +55,14 @@ check count it printed after MARKER (NIL when it printed none)."
     (is (null (search "not ok" stdout)))
     ;; The logs summary alone checks more than twenty lines; 49 in all.
     (is (and count (>= count 45)))))
+
+(deftest hoodi-fleet-status-selftest-stays-read-only
+  (:layer :integration :module :control-plane :launches-processes t)
+  (multiple-value-bind (status stdout count)
+      (%control-plane-selftest-check-count
+       "scripts/hoodi-fleet-status-selftest.sh" "hoodi-fleet-status selftest: ")
+    (is (= 0 status))
+    (is (search ", 0 failed" stdout))
+    (is (null (search "not ok" stdout)))
+    ;; 32 checks in all.
+    (is (and count (>= count 30)))))
