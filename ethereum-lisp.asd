@@ -420,6 +420,7 @@
       :components
       ((:file "cli-types" :pathname "cli/devnet/types")
        (:file "cli-devnet-peer-table" :pathname "cli/devnet/peer-table")
+       (:file "cli-devnet-observability" :pathname "cli/devnet/observability")
        (:file "cli-devnet-dial-schedule" :pathname "cli/devnet/dial-schedule")
        (:file "cli-files" :pathname "cli/devnet/files")
        (:file "cli-devnet-persistence" :pathname "cli/devnet/persistence")

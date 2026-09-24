@@ -18,6 +18,12 @@
 ;;;; node has been doing; they carry no addresses, no hashes, no payload data.
 ;;;; That is what makes it safe to expose to an unauthenticated scraper -- and
 ;;;; the reason to keep it that way if it ever grows.
+;;;;
+;;;; IT IS ALSO THE HEALTH ENDPOINT. `/health/live` and `/health/ready`
+;;;; (observability.lisp) are plain GETs for the same reason `/metrics` is, and
+;;;; answer with fixed check names and integers only. They live on this socket
+;;;; rather than on the public RPC port so that port keeps its one POST shape,
+;;;; and never on the Engine port, which must stay JWT-only.
 
 (defconstant +devnet-metrics-accept-timeout-seconds+ 1
   "How long the metrics accept gate waits before returning to its loop. Our
@@ -130,6 +136,33 @@ already points, and answering both costs one clause."
          (devnet-metrics-http-reply 404 "Not Found" "try /metrics"
                                     :head-p (string= method "HEAD")))))))
 
+(defun devnet-observability-http-response
+    (request-line metrics-function health-function)
+  "The whole HTTP response to REQUEST-LINE on the operator endpoint.
+
+GET or HEAD `/health/live` and `/health/ready` call HEALTH-FUNCTION with :LIVE
+or :READY; it returns (VALUES OK-P JSON), answered 200 when OK-P and 503
+otherwise, so a probe needs only the status code and an operator reading the
+body sees which check failed. Every other request is the metrics endpoint's:
+METRICS-FUNCTION returns (VALUES SNAPSHOT GAUGES) and is called only for
+those, so a health probe never pays for a scrape."
+  (multiple-value-bind (method target)
+      (devnet-metrics-request-method-and-target request-line)
+    (let* ((path (devnet-metrics-target-path target))
+           (kind (cond ((string= path "/health/live") :live)
+                       ((string= path "/health/ready") :ready))))
+      (if (and kind (or (string= method "GET") (string= method "HEAD")))
+          (multiple-value-bind (ok-p body) (funcall health-function kind)
+            (devnet-metrics-http-reply
+             (if ok-p 200 503)
+             (if ok-p "OK" "Service Unavailable")
+             body
+             :content-type "application/json"
+             :head-p (string= method "HEAD")))
+          (multiple-value-bind (snapshot gauges)
+              (funcall metrics-function)
+            (devnet-metrics-http-response request-line snapshot gauges))))))
+
 (defun devnet-metrics-read-line (stream timeout-seconds)
   "One line from STREAM without its CRLF, or NIL on timeout, EOF or overlong input.
 
@@ -161,8 +194,9 @@ notice."
            (return nil))
           (t (vector-push-extend char line)))))))
 
-(defun devnet-metrics-serve-connection (stream snapshot-function)
-  "Answer one scrape on STREAM.
+(defun devnet-metrics-serve-connection (stream response-function)
+  "Answer one scrape or probe on STREAM. RESPONSE-FUNCTION maps the request
+line to the complete response string.
 
 The headers are drained even though nothing reads them: a client that has not
 finished writing its request will not reliably see the response, and a scraper
@@ -174,11 +208,7 @@ that gets a connection reset reports the target as down rather than as answered.
             for header = (devnet-metrics-read-line
                           stream +devnet-metrics-read-timeout-seconds+)
             until (or (null header) (string= header "")))
-      (multiple-value-bind (snapshot gauges)
-          (funcall snapshot-function)
-        (write-string
-         (devnet-metrics-http-response request-line snapshot gauges)
-         stream))
+      (write-string (funcall response-function request-line) stream)
       (finish-output stream))))
 
 (defun devnet-cli-log-metrics-error (node condition)
@@ -349,10 +379,19 @@ does not ask for metrics pays nothing for them."
                                                 :buffering :none))
                                   (devnet-metrics-serve-connection
                                    stream
-                                   (lambda ()
-                                     (values
-                                      (devnet-node-metrics node)
-                                      (devnet-node-metric-gauges node)))))
+                                   (lambda (request-line)
+                                     (devnet-observability-http-response
+                                      request-line
+                                      (lambda ()
+                                        (values
+                                         (devnet-node-metrics node)
+                                         (devnet-node-metric-gauges node)))
+                                      (lambda (kind)
+                                        (devnet-node-health
+                                         node kind
+                                         :shutdown-p
+                                         (devnet-shutdown-requested-p
+                                          shutdown-controller)))))))
                               ;; One bad scrape ends that connection, not the
                               ;; endpoint.
                               (error (condition)
