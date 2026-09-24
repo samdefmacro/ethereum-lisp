@@ -1,0 +1,26 @@
+Section 5 exact-revision current-fork EEST evidence: 591f700e
+
+Revision 591f700eb14346251d3b0f51e0a62b4d3e7bdcf0 (sec5-public-bootstrap-sync; 886afd05 = every
+wave-1 fleet branch merged, plus the test-stub fix 591f700e). Corpus tests@v20.0.2, archive sha256
+1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788 (re-hashed before the run, matches
+the pin in scripts/fetch-eest-fixtures.sh), tree <checkout>/.eest-fixtures-stable-v20.0.2/tests-v20.0.2
+(fetched through scripts/dev.sh eest-fixtures stable-v20.0.2 by the np-six-second-cpu agent and moved,
+not re-fetched). Selectors, execution boundary and commands exactly as in
+docs/evidence/sec5-b5161312-eest-v20.0.2.txt: one retained cold container per gate
+(COLD_TEST_CONTAINER=ethereum-lisp-cold-eest-591f700e-<slug>), sequential, stdout+stderr redirected to
+a file, never piped. Runner: the coordinator's scratchpad script run-eest-gates.sh; per-gate logs kept.
+
+  slug                  test                                                   cmd  container  OOM    wall
+  state-manifest        phase-a-eest-state-conformance-is-non-vacuous          0    0          false  106s
+  blockchain-manifest   phase-a-eest-blockchain-conformance-is-non-vacuous     0    0          false  108s
+  rlp-manifest          phase-a-eest-blockchain-rlp-conformance-is-non-vacuous 0    0          false  119s
+  state                 optional-phase-a-eest-state-test-root-vectors-execute  0    0          false  160s
+  blockchain            optional-phase-a-eest-blockchain-replay-executes       0    0          false  140s
+  engine-late           optional-phase-a-eest-engine-late-payload-replay-executes 0 0          false  169s
+  engine-reject         optional-phase-a-eest-engine-payload-rejection-executes 0   0          false   93s
+  rlp                   optional-phase-a-eest-blockchain-rlp-replay-executes   0    0          false  157s
+
+Each gate: "1 test passed.", zero "not ok" lines. Sequence 2026-09-24T04:00:40Z to 04:18:12Z.
+Consensus-path changes since b5161312: 43be69c5 (EVM base-gas table, regular gas charged without a
+cost object; the EEST gates are the oracle that no gas value changed). Everything else merged at
+886afd05 is outside execution/state-root/receipt code.
