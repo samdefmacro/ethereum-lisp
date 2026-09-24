@@ -70,6 +70,12 @@ with no runtime-sensitive change since. prepare and run additionally require
 HOODI_HIVE_NESTED_DOCKER_PRIVILEGED=1, the explicit acknowledgement that the
 outer runner starts its own Docker daemon and therefore runs --privileged.
 
+upload normally reads the runtime image identity from the local Docker daemon.
+With HOODI_HIVE_IMAGE_TAR=PATH and HOODI_HIVE_IMAGE_SHA256=HEX it instead
+uploads that already-exported archive: its SHA-256 must equal the pin, and its
+tag, revision label and platform are read from the archive itself. prepare
+checks the same pin when the variables are set.
+
 run refuses unless MemAvailable reaches the suite's need (rpc-compat 4.5 GiB,
 engine and devp2p 8 GiB), /data has 12 GiB available, no other Hive runner is
 running, and, for engine and devp2p, no live-gate EL container is running.
@@ -211,6 +217,23 @@ hive_root="${HOODI_HIVE_REMOTE_ROOT:-/data/hoodi-sec5-hive}"
 staging="$hive_root/staging"
 source_artifact="${HOODI_HIVE_SOURCE_ARTIFACT:-/private/tmp/ethereum-lisp-source-${short_revision}.tar}"
 runtime_artifact="${HOODI_HIVE_RUNTIME_ARTIFACT:-/private/tmp/ethereum-lisp-runtime-sec5-${short_revision}-amd64.tar}"
+# An already-exported runtime archive (scripts/dev.sh runtime-export) can stand
+# in for the local Docker image, so a control plane whose Docker daemon is down
+# can still stage a run.  The archive must match the pinned SHA-256, and the
+# image identity is then read from the archive itself instead of the daemon.
+image_tar="${HOODI_HIVE_IMAGE_TAR:-}"
+image_tar_sha256="${HOODI_HIVE_IMAGE_SHA256:-}"
+if [ -n "$image_tar$image_tar_sha256" ]; then
+    [ -n "$image_tar" ] && [ -n "$image_tar_sha256" ] ||
+        fail "HOODI_HIVE_IMAGE_TAR and HOODI_HIVE_IMAGE_SHA256 must be set together"
+    case "$image_tar_sha256" in
+        *[!0-9a-f]*) fail "HOODI_HIVE_IMAGE_SHA256 must be lowercase hexadecimal" ;;
+    esac
+    [ "${#image_tar_sha256}" -eq 64 ] || fail "HOODI_HIVE_IMAGE_SHA256 must contain exactly 64 hexadecimal characters"
+    [ -z "${HOODI_HIVE_RUNTIME_ARTIFACT:-}" ] || [ "$HOODI_HIVE_RUNTIME_ARTIFACT" = "$image_tar" ] ||
+        fail "HOODI_HIVE_IMAGE_TAR and HOODI_HIVE_RUNTIME_ARTIFACT name different archives"
+    runtime_artifact="$image_tar"
+fi
 remote_source="$staging/${source_artifact##*/}"
 remote_runtime="$staging/${runtime_artifact##*/}"
 runtime_repository="ethereum-lisp-runtime"
@@ -264,6 +287,9 @@ if [ "$actual_head" != "$revision" ]; then
         ':(exclude)scripts/hoodi-hive-gate.sh' \
         ':(exclude)scripts/hoodi-hive-gate-remote.sh' \
         ':(exclude)scripts/hoodi-hive-gate-selftest.sh' \
+        ':(exclude)scripts/hoodi-live-gate-selftest.sh' \
+        ':(exclude)scripts/hoodi-fleet-status.sh' \
+        ':(exclude)scripts/hoodi-fleet-status-selftest.sh' \
         ':(exclude)tests/control-plane-broker-tests.lisp' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
@@ -302,6 +328,42 @@ local_artifacts() {
     [ -f "$runtime_artifact" ] || fail "runtime archive is absent: $runtime_artifact"
     source_sha256="$(sha256_file "$source_artifact")"
     runtime_sha256="$(sha256_file "$runtime_artifact")"
+    if [ -n "$image_tar" ]; then
+        [ "$runtime_sha256" = "$image_tar_sha256" ] ||
+            fail "runtime archive $runtime_artifact is $runtime_sha256, but HOODI_HIVE_IMAGE_SHA256 is $image_tar_sha256"
+    fi
+}
+
+# The image identity recorded inside a `docker image save` archive: the one
+# manifest's tag and its image configuration's revision label and platform.
+# Only tar, grep and sed are needed, so this works with the Docker daemon down.
+inspect_runtime_tar() {
+    local manifest config_path config tags revisions image_revision os arch
+    manifest="$(tar -xOf "$runtime_artifact" manifest.json 2>/dev/null)" ||
+        fail "runtime archive $runtime_artifact has no manifest.json (not a docker image save archive)"
+    [ "$(printf '%s' "$manifest" | grep -o '"Config":"[^"]*"' | wc -l | tr -d ' ')" = 1 ] ||
+        fail "runtime archive $runtime_artifact must hold exactly one image"
+    config_path="$(printf '%s' "$manifest" | sed -n 's/.*"Config":"\([^"]*\)".*/\1/p')"
+    tags="$(printf '%s' "$manifest" | sed -n 's/.*"RepoTags":\[\([^]]*\)\].*/\1/p')"
+    case ",$tags," in
+        *",\"$runtime_image\","*) ;;
+        *) fail "runtime archive $runtime_artifact is not tagged $runtime_image (tags: ${tags:-none})" ;;
+    esac
+    config="$(tar -xOf "$runtime_artifact" "$config_path" 2>/dev/null)" ||
+        fail "runtime archive $runtime_artifact lacks its image configuration $config_path"
+    revisions="$(printf '%s' "$config" |
+        grep -o '"org.opencontainers.image.revision":"[^"]*"' | sort -u || true)"
+    [ "$(printf '%s\n' "$revisions" | grep -c . || true)" = 1 ] ||
+        fail "runtime archive $runtime_artifact does not carry exactly one revision label"
+    image_revision="$(printf '%s' "$revisions" | sed 's/.*:"\([^"]*\)"$/\1/')"
+    os="$(printf '%s' "$config" | grep -o '"os":"[^"]*"' | head -n 1 | sed 's/.*:"\([^"]*\)"$/\1/' || true)"
+    arch="$(printf '%s' "$config" | grep -o '"architecture":"[^"]*"' | head -n 1 | sed 's/.*:"\([^"]*\)"$/\1/' || true)"
+    [ "$image_revision" = "$revision" ] ||
+        fail "runtime archive revision is $image_revision, expected $revision"
+    [ "$os/$arch" = "linux/amd64" ] ||
+        fail "runtime archive platform is $os/$arch, expected linux/amd64"
+    printf 'runtime-archive-image=%s revision=%s platform=%s/%s\n' \
+        "$runtime_image" "$image_revision" "$os" "$arch"
 }
 
 verify_source_archive() {

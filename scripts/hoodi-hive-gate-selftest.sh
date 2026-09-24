@@ -52,6 +52,8 @@ STUB
 cat > "$bin/ssh" <<'STUB'
 #!/bin/sh
 echo "ssh $*" >> "$STUB_LOG"
+# The tar-upload checks stop at the first remote contact.
+[ "${STUB_SSH_REFUSE:-0}" = 0 ] || { echo "ssh stub: remote contact refused" >&2; exit 97; }
 shift
 exec "$@"
 STUB
@@ -64,6 +66,8 @@ STUB
 cat > "$bin/docker" <<'STUB'
 #!/bin/sh
 echo "docker $*" >> "$STUB_LOG"
+# A control plane whose Docker Desktop is down.
+[ "${STUB_DOCKER_DOWN:-0}" = 0 ] || { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
 case "$1 $2" in
     "container inspect")
         for name in "$@"; do last="$name"; done
@@ -127,8 +131,9 @@ reset_world() {
     export STUB_HEAD="$head_rev" STUB_ANCESTOR=1 STUB_SENSITIVE="" STUB_DIRTY=0
     export STUB_AVAIL=$((12 * gib)) STUB_DISK=$((40 * gib))
     export STUB_LIVE_EL="" STUB_RUNNERS="" STUB_CONTAINERS="" STUB_RUNNING=false
-    export STUB_IMAGES_ABSENT=0
+    export STUB_IMAGES_ABSENT=0 STUB_DOCKER_DOWN=0 STUB_SSH_REFUSE=0
     unset HOODI_HIVE_REVISION HOODI_GATE_ALLOW_MUTATION HOODI_HIVE_NESTED_DOCKER_PRIVILEGED
+    unset HOODI_HIVE_IMAGE_TAR HOODI_HIVE_IMAGE_SHA256
     export HOODI_HIVE_SOURCE_ARTIFACT="$source_tar" HOODI_HIVE_RUNTIME_ARTIFACT="$runtime_tar"
     export HOODI_HIVE_COLLECT_DIR="$work/collect"
     : > "$STUB_LOG"
@@ -309,6 +314,98 @@ expect 0 "run-root=/data/hoodi-sec5-hive/runs/aaaaaaaa-engine-full-r3-20260923T1
 expect 0 "hive-binary=/data/hoodi-sec5-hive/staging/hive-dde4f59d absent" "inspect reports the Hive binary" -- \
     "$broker" inspect
 expect_no_mutation "read-only actions"
+
+# --- upload from an exported archive (HOODI_HIVE_IMAGE_TAR) --------------------
+# make_image_tar NAME TAG REVISION ARCH: a minimal `docker image save` archive
+# (manifest.json plus one image configuration blob).
+make_image_tar() {
+    local dir="$work/tar-$1"
+    mkdir -p "$dir/blobs/sha256"
+    printf '{"architecture":"%s","os":"linux","config":{"User":"ethereum:ethereum","Labels":{"org.opencontainers.image.revision":"%s","org.opencontainers.image.title":"ethereum-lisp"}}}' \
+        "$4" "$3" > "$dir/blobs/sha256/c0nf1g"
+    printf '[{"Config":"blobs/sha256/c0nf1g","RepoTags":["%s"],"Layers":[]}]' "$2" > "$dir/manifest.json"
+    tar -cf "$work/$1.tar" -C "$dir" manifest.json blobs
+    sha256sum "$work/$1.tar" | awk '{print $1}'
+}
+good_tag="ethereum-lisp-runtime:sec5-aaaaaaaa-amd64"
+good_tar="$work/ethereum-lisp-runtime-export-good.tar"
+good_sha="$(make_image_tar ethereum-lisp-runtime-export-good "$good_tag" "$head_rev" amd64)"
+old_tar_sha="$(make_image_tar ethereum-lisp-runtime-export-old "$good_tag" "$old_rev" amd64)"
+arm_tar_sha="$(make_image_tar ethereum-lisp-runtime-export-arm "$good_tag" "$head_rev" arm64)"
+tag_tar_sha="$(make_image_tar ethereum-lisp-runtime-export-tag "ethereum-lisp-runtime:local" "$head_rev" amd64)"
+printf 'not an archive' > "$work/ethereum-lisp-runtime-export-junk.tar"
+junk_sha="$(sha256sum "$work/ethereum-lisp-runtime-export-junk.tar" | awk '{print $1}')"
+tar_upload() {  # TAR SHA
+    env HOODI_GATE_ALLOW_MUTATION=1 HOODI_HIVE_IMAGE_TAR="$1" HOODI_HIVE_IMAGE_SHA256="$2" "$broker" upload
+}
+expect_no_docker() {
+    if grep -q '^docker ' "$STUB_LOG"; then
+        cp "$STUB_LOG" "$out"; record fail "$1: local Docker daemon not used"
+    else
+        record ok "$1: local Docker daemon not used"
+    fi
+}
+
+reset_world
+unset HOODI_HIVE_RUNTIME_ARTIFACT
+export STUB_DOCKER_DOWN=1 STUB_SSH_REFUSE=1
+# Control: with the daemon down, the ordinary path cannot identify the image.
+expect 1 "local runtime image is absent" "upload without an archive needs the local daemon" -- \
+    env HOODI_GATE_ALLOW_MUTATION=1 HOODI_HIVE_RUNTIME_ARTIFACT="$runtime_tar" "$broker" upload
+: > "$STUB_LOG"
+expect 97 "runtime-archive-image=$good_tag revision=$head_rev platform=linux/amd64" \
+    "upload identifies the image from the archive and reaches the host" -- tar_upload "$good_tar" "$good_sha"
+expect_no_docker "archive upload"
+if grep -qF "runtime=$good_tar sha256=$good_sha" "$out"; then
+    record ok "archive upload stages the pinned archive"
+else
+    record fail "archive upload stages the pinned archive"
+fi
+: > "$STUB_LOG"
+expect 1 "but HOODI_HIVE_IMAGE_SHA256 is" "archive upload refuses a checksum mismatch" -- \
+    tar_upload "$good_tar" "$old_tar_sha"
+expect 1 "runtime archive revision is $old_rev, expected $head_rev" \
+    "archive upload refuses another revision" -- \
+    tar_upload "$work/ethereum-lisp-runtime-export-old.tar" "$old_tar_sha"
+expect 1 "expected linux/amd64" "archive upload refuses another platform" -- \
+    tar_upload "$work/ethereum-lisp-runtime-export-arm.tar" "$arm_tar_sha"
+expect 1 "is not tagged $good_tag" "archive upload refuses another tag" -- \
+    tar_upload "$work/ethereum-lisp-runtime-export-tag.tar" "$tag_tar_sha"
+expect 1 "has no manifest.json" "archive upload refuses a file that is not an image archive" -- \
+    tar_upload "$work/ethereum-lisp-runtime-export-junk.tar" "$junk_sha"
+expect 1 "must be set together" "archive path without its checksum" -- \
+    env HOODI_GATE_ALLOW_MUTATION=1 HOODI_HIVE_IMAGE_TAR="$good_tar" "$broker" upload
+expect 1 "lowercase hexadecimal" "archive checksum in upper case" -- \
+    tar_upload "$good_tar" "$(printf '%s' "$good_sha" | tr a-f A-F)"
+expect 1 "name different archives" "archive and runtime-artifact overrides disagree" -- \
+    env HOODI_HIVE_RUNTIME_ARTIFACT="$runtime_tar" HOODI_GATE_ALLOW_MUTATION=1 \
+        HOODI_HIVE_IMAGE_TAR="$good_tar" HOODI_HIVE_IMAGE_SHA256="$good_sha" "$broker" upload
+expect 1 "HOODI_GATE_ALLOW_MUTATION=1" "archive upload still needs the mutation flag" -- \
+    env HOODI_HIVE_IMAGE_TAR="$good_tar" HOODI_HIVE_IMAGE_SHA256="$good_sha" "$broker" upload
+# The revision fence is unchanged: a runtime-sensitive change since the
+# revision refuses the archive path exactly as it refuses the image path.
+export HOODI_HIVE_REVISION="$old_rev" STUB_SENSITIVE="src/cli/devnet.lisp"
+expect 1 "runtime-sensitive paths" "archive upload keeps the revision fence" -- \
+    tar_upload "$work/ethereum-lisp-runtime-export-old.tar" "$old_tar_sha"
+export STUB_SENSITIVE=""
+printf 'archive-%s' "$old_rev" > "$work/ethereum-lisp-source-bbbbbbbb.tar"
+export HOODI_HIVE_SOURCE_ARTIFACT="$work/ethereum-lisp-source-bbbbbbbb.tar"
+expect 1 "is not tagged ethereum-lisp-runtime:sec5-bbbbbbbb-amd64" \
+    "a docs-only ancestor passes the fence and needs its own tag" -- \
+    tar_upload "$work/ethereum-lisp-runtime-export-old.tar" "$old_tar_sha"
+export HOODI_HIVE_SOURCE_ARTIFACT="$source_tar"
+unset HOODI_HIVE_REVISION
+# shellcheck disable=SC2086
+expect 1 "but HOODI_HIVE_IMAGE_SHA256 is" "prepare checks the archive pin before the host" -- \
+    env HOODI_GATE_ALLOW_MUTATION=1 HOODI_HIVE_NESTED_DOCKER_PRIVILEGED=1 \
+        HOODI_HIVE_IMAGE_TAR="$good_tar" HOODI_HIVE_IMAGE_SHA256="$old_tar_sha" \
+        "$broker" prepare --sim devp2p $id
+expect_no_docker "archive refusals"
+if grep -q '^ssh \|^scp ' "$STUB_LOG"; then
+    cp "$STUB_LOG" "$out"; record fail "archive refusals: no remote contact"
+else
+    record ok "archive refusals: no remote contact"
+fi
 
 echo "hoodi-hive-gate selftest: $checks checks, $failures failed"
 [ "$checks" -gt 0 ] || { echo "no checks ran" >&2; exit 1; }

@@ -41,8 +41,9 @@ check count it printed after MARKER (NIL when it printed none)."
     (is (search ", 0 failed" stdout))
     (is (null (search "not ok" stdout)))
     ;; A self-test that ran nothing must not pass: the refusal matrix alone
-    ;; is more than forty checks.
-    (is (and count (>= count 40)))))
+    ;; is more than forty checks, and the archive upload path adds eighteen
+    ;; (70 in all).
+    (is (and count (>= count 60)))))
 
 (deftest hoodi-live-gate-selftest-summarises-engine-telemetry
   (:layer :integration :module :control-plane :launches-processes t)
