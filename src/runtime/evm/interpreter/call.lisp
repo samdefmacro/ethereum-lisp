@@ -11,7 +11,6 @@ merging are deliberately not configurable; those are shared EVM invariants."
   (args-size 0 :type (integer 0 *))
   (return-offset 0 :type (integer 0 *))
   (return-size 0 :type (integer 0 *))
-  rest-stack
   child-address
   child-caller
   (child-value 0 :type (integer 0 *))
@@ -30,7 +29,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
 (defun execute-evm-message-call (machine call)
   "Execute one CALL-family operation described by CALL and update MACHINE."
   (with-slots (requested-gas code-address args-offset args-size
-               return-offset return-size rest-stack child-address
+               return-offset return-size child-address
                child-caller child-value read-only-p charge-value-gas-p
                new-account-p value-transfer-from value-transfer-to
                trace-value-transfer-from trace-value-transfer-to
@@ -183,9 +182,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
                      (evm-machine-memory machine)
                      return-offset
                      return-size
-                     child-return-data)
-                    (evm-machine-stack machine)
-                    (stack-push rest-stack success))
+                     child-return-data))
+              (evm-stack-push machine success)
               (when merge-logs-p
                 (setf (evm-machine-logs machine)
                       (prepend-child-logs

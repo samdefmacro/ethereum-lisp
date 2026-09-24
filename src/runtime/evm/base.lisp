@@ -3,9 +3,11 @@
 (defun word (value)
   ;; Every stack push reduces its value; a non-negative fixnum is already a
   ;; word, and skipping the bignum MOD for it keeps pushes allocation-free.
-  (if (typep value '(and fixnum unsigned-byte))
-      value
-      (mod value +word-modulus+)))
+  ;; A bignum already below 2^256 (a PUSH32 immediate, an MLOAD result) is
+  ;; returned as well: MOD would divide and allocate a copy of it.
+  (cond ((typep value '(and fixnum unsigned-byte)) value)
+        ((and (typep value 'unsigned-byte) (< value +word-modulus+)) value)
+        (t (mod value +word-modulus+))))
 
 (defun fail (control &rest args)
   (error 'evm-error :message (apply #'format nil control args)))
@@ -36,57 +38,6 @@ dispatch the Amsterdam payload methods; refusing them is safer than executing a
 payload with an older fork's semantics.  It is deliberately decoupled from
 CHAIN-RULES-AMSTERDAM-P, which gates execution -- do not conflate the two."
   nil)
-
-(defvar *evm-stack-depth-cell* nil
-  "Dynamically bound to the current machine's mutable stack-depth cell.")
-
-(defun stack-push (stack value)
-  (when (>= (if *evm-stack-depth-cell*
-                (car *evm-stack-depth-cell*)
-                (length stack))
-            +stack-limit+)
-    (fail "EVM stack overflow"))
-  (when *evm-stack-depth-cell*
-    (incf (car *evm-stack-depth-cell*)))
-  (cons (word value) stack))
-
-(defun pop1 (stack)
-  (if stack
-      (progn
-        (when *evm-stack-depth-cell*
-          (decf (car *evm-stack-depth-cell*)))
-        (values (first stack) (rest stack)))
-      (fail "EVM stack underflow")))
-
-(defun pop2 (stack)
-  (multiple-value-bind (a stack) (pop1 stack)
-    (multiple-value-bind (b stack) (pop1 stack)
-      (values a b stack))))
-
-(defun pop3 (stack)
-  (multiple-value-bind (a stack) (pop1 stack)
-    (multiple-value-bind (b stack) (pop1 stack)
-      (multiple-value-bind (c stack) (pop1 stack)
-        (values a b c stack)))))
-
-(defun pop6 (stack)
-  (multiple-value-bind (a stack) (pop1 stack)
-    (multiple-value-bind (b stack) (pop1 stack)
-      (multiple-value-bind (c stack) (pop1 stack)
-        (multiple-value-bind (d stack) (pop1 stack)
-          (multiple-value-bind (e stack) (pop1 stack)
-            (multiple-value-bind (f stack) (pop1 stack)
-              (values a b c d e f stack))))))))
-
-(defun pop7 (stack)
-  (multiple-value-bind (a stack) (pop1 stack)
-    (multiple-value-bind (b stack) (pop1 stack)
-      (multiple-value-bind (c stack) (pop1 stack)
-        (multiple-value-bind (d stack) (pop1 stack)
-          (multiple-value-bind (e stack) (pop1 stack)
-            (multiple-value-bind (f stack) (pop1 stack)
-              (multiple-value-bind (g stack) (pop1 stack)
-                (values a b c d e f g stack)))))))))
 
 (defun modexp-word (base exponent)
   (let ((result 1)

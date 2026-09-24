@@ -1,0 +1,257 @@
+Section 5: EVM interpreter throughput on Hoodi gas-burner blocks
+
+Status
+
+Branch evm-throughput, from 886afd05. DONE LOCALLY: a full Hoodi-shaped
+gas-burner block (24 x 2.49M gas) imported through engine_newPayloadV2 now
+costs 181-217 ms of CPU and 3-5 MB consed on the arm64 dev image, against
+958-976 ms and 219 MB at 886afd05 (about 4.7x, measured on the same test, not
+extrapolated). The target of <= 250 ms per full burner block is met with
+margin. One burner frame: 41-49 ms / 8.9 MB -> 7.4-8.7 ms / under 0.1 MB.
+No gas value, opcode semantics or result shape changed; the EEST v20.0.2
+gates reproduce the six count-manifest lines byte-identically.
+
+Not deployed; no live run; no cold-all (the coordinator runs it once). No
+access to the Hoodi host was used.
+
+Revisions (branch evm-throughput)
+
+  94a0ade3  evm: keep the operand stack in a vector with a fixnum pointer
+  0db8897f  evm: charge per-instruction gas and step PC on fixnum arithmetic
+  3e56d398  evm: fixnum fast paths for the hot word operations and the fetch
+            loop
+  e8f58512  evm: move memory words and wide PUSH immediates in 32-bit pieces
+  cbfe2c63  test: a 24-transaction gas-burner block through
+            engine_newPayloadV2
+  (this record is the next commit)
+
+EEST was run once, at cbfe2c63 (all four optimisations batched); each
+optimisation commit was checked individually only by the warm EVM unit
+subset and, for 3e56d398, the cold EVM unit subset (217 passed).
+
+================================================================================
+1. What the time was
+================================================================================
+
+The Hoodi burner (0x6b3f1c2aa4f0a2a49bb782a4e83db5a0764326ec, code
+0x5f5a5f600e565b5f5260205fa1005b6127105a1060065760010161133750600e56; see
+docs/evidence/sec5-newpayload-six-second-cpu.txt) is a 12-instruction,
+44-gas loop: JUMPDEST PUSH2 GAS LT PUSH1 JUMPI PUSH1 ADD PUSH2 POP PUSH1 JUMP,
+about 680,000 instructions per transaction. At 886afd05 every instruction
+paid for, in order of cost:
+
+  - generic arithmetic on PC, STEPS, GAS-USED and the gas budget (slots typed
+    (integer 0 *), so every INCF / compare was a full call to
+    SB-KERNEL:TWO-ARG-+ / TWO-ARG-< ...; 16-20% of samples);
+  - the list stack: one cons (16 bytes) per push, the REST value threaded
+    through every handler, a special-variable depth cell touched on every
+    push and pop (8.9 MB per frame, all of the frame's garbage);
+  - one closure per comparison (EVM-MACHINE-APPLY-COMPARISON built a lambda
+    over its predicate per LT/GT/EQ);
+  - PUSH immediates and JUMP targets read with generic arithmetic on an
+    untyped code vector.
+
+sb-sprof (:cpu, inside a spawned thread; see "Not verified" for the
+profiler's own trouble) after the vector stack (94a0ade3):
+  TWO-ARG-+ 20%, STEP-EVM-MACHINE 15%, EXECUTE-OPCODE 10%,
+  EXECUTE-STATE-MEMORY-OPCODE 10%, EVM-MACHINE-CHARGE-GAS 8%,
+  READ-PUSH-IMMEDIATE 7%, EVM-GAS-BUDGET-CHARGE-REGULAR 6%, TWO-ARG-< 5%
+and after the fixnum gas/PC charge (0db8897f):
+  STEP-EVM-MACHINE 27% (the inlined charge), TWO-ARG-< 14% (untyped word
+  comparisons and the frame loop), TWO-ARG-+ 9% (PUSH immediates, ADD),
+  READ-PUSH-IMMEDIATE 7%, LENGTH 6%.
+
+================================================================================
+2. Changes
+================================================================================
+
+94a0ade3 (src/runtime/evm/interpreter/machine.lisp, opcodes/*.lisp,
+interpreter/call.lisp, base.lisp, execute.lisp, types.lisp): the machine owns
+a simple-vector stack that starts at 16 slots and doubles up to
++STACK-LIMIT+ (1024), and an SP slot typed (integer 0 1024). Handlers pop and
+push through EVM-STACK-POP / EVM-STACK-PUSH / EVM-STACK-PUSH-WORD in the same
+order the list code popped, so underflow, overflow (sp >= 1024 before a push)
+and out-of-gas are raised at the same points with the same messages;
+DUP/SWAP/DUPN/SWAPN/EXCHANGE index the vector at the same depths. A failed
+frame is discarded (EVM-MACHINE-RESULT is only built on a normal halt), so
+the earlier in-place pop before a failing charge is unobservable.
+EVM-RESULT-STACK keeps its list shape, top first (EVM-STACK-LIST). POP1..POP7,
+STACK-PUSH, *EVM-STACK-DEPTH-CELL*, the CALL message's REST-STACK slot and the
+comparison closure are gone.
+
+0db8897f: PC and STEPS are (and fixnum unsigned-byte) (PC only ever holds a
+code offset; a jump target is checked against the code length before it is
+stored). The per-instruction base-gas charge goes through an inline
+%EVM-MACHINE-CHARGE-GAS that runs on fixnum arithmetic when the amount, the
+budget's REGULAR and USED-REGULAR and the frame's GAS-USED are all fixnums,
+and otherwise calls the unchanged general EVM-MACHINE-CHARGE-GAS. The
+unaffordable case fails with the same "EVM out of gas (regular dimension) at
+pc N" before any counter moves, as EVM-GAS-BUDGET-CHARGE-REGULAR did. Gas
+limits above 2^62 (EEST uses some) take the general path.
+
+3e56d398: ADD SUB AND OR XOR LT GT EQ evaluate the operator under a fixnum
+type test first and generically otherwise (EVM-WORD-BINARY /
+EVM-WORD-COMPARISON); both branches compute the same value and the push
+still reduces modulo 2^256. PUSH1..PUSH7 immediates are read with word
+arithmetic from the typed code vector; a fixnum JUMP target is checked
+against the typed code and the JUMPDEST bitmap without generic compares (a
+larger target is past any code, as before); STEP-EVM-MACHINE is inlined into
+the frame loop over the typed code length.
+
+e8f58512 (memory.lisp, opcodes.lisp, base.lisp): MSTORE and MLOAD work on
+the displaced view's simple backing vector, with a fixnum path (no bignum)
+and otherwise eight 32-bit pieces instead of a shifted integer per byte;
+PUSH8..PUSH32 immediates are assembled from 32-bit pieces; WORD returns a
+bignum already below 2^256 instead of dividing it. The burner barely uses
+memory, so this is for ordinary contract code: a 2.47M-gas loop that stores
+and reloads 0xabab..ab (PUSH32, MSTORE, MLOAD per iteration) went from
+155-177 ms / 320 MB to 54-73 ms / 82 MB (200-222 ms / 329 MB at 886afd05).
+
+What was not changed: the memory representation itself (still a displaced
+view over a doubling backing vector), 256-bit arithmetic above 2^62 (still
+Lisp bignums), the family dispatch (a range COND into five handler
+functions), the step budget and the gas budget structure.
+
+================================================================================
+3. Measurements (warm arm64 dev image, SBCL 2.2.9; thread CPU clock)
+================================================================================
+
+The coordinator's cold-all was running on the same machine during all of
+these, so the spread is load, not the code.
+
+Burner frame, EXECUTE-BYTECODE, gas limit 2,469,015, gas used 2,460,087
+(unchanged), one log, five runs each:
+
+  revision   CPU per frame        bytes consed
+  886afd05   40.7-49.3 ms         8.87-8.92 MB   (separate checkout, same probe)
+  94a0ade3   28.7-30.7 ms         0-0.07 MB
+  0db8897f   16.4-19.5 ms         0-0.07 MB
+  3e56d398    7.5-8.7 ms          0-0.07 MB
+  e8f58512    7.4-7.7 ms          0-0.07 MB
+
+  (SB-EXT:GET-BYTES-CONSED advances by allocation region, so a run that
+  conses a few kilobytes reads 0 or 65,520; the figure is an upper bound in
+  region units, not a count.)
+
+Full burner block through Engine newPayload
+(ENGINE-RPC-NEW-PAYLOAD-EXECUTES-A-FULL-GAS-BURNER-BLOCK: 24 signed
+dynamic-fee calls of 2.5M gas limit to the burner, 60M-gas block built with
+EXECUTE-SIGNED-BLOCK, imported through engine_newPayloadV2 with
+EXECUTE-AND-COMMIT-ENGINE-PAYLOAD into a store holding only the parent;
+timed: the whole ENGINE-RPC-HANDLE-REQUEST call, three runs):
+
+  revision   CPU per block        bytes consed
+  886afd05   958-976 ms           219-221 MB     (RED: the new bound fails)
+  3e56d398   205-211 ms           3.3-5.4 MB
+  e8f58512   181-217 ms           3.3-5.3 MB
+
+  Per transaction: ~40 ms -> ~8 ms. Of the ~200 ms block, ~24 x 7.5 ms is
+  the interpreter; sender recovery, roots and the commit are the rest.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed (exit 0) before any application tooling.
+
+New and tightened tests
+  ENGINE-RPC-NEW-PAYLOAD-EXECUTES-A-FULL-GAS-BURNER-BLOCK (unit,
+    tests/core-engine-rpc-new-payload-import-tests.lisp): VALID, parent-only
+    store gains the child's state, block gas > 24 x 2.4M, consed < 50 MB,
+    thread CPU < 500 ms. RED control: the same test at 886afd05 (a detached
+    checkout with only the test files copied in, fresh dev image): 958-976 ms,
+    219 MB, "Assertion failed: (< CPU 600000)" (the draft bound) on all three
+    runs; the committed 50 MB bound fails there as well (219 MB).
+  EVM-GAS-BURNER-LOOP-EXECUTES-WITHOUT-PER-INSTRUCTION-GARBAGE: tightened from
+    < 20 MB / < 150 ms to < 1 MB / < 40 ms. Positive control: 886afd05 conses
+    8.9 MB per frame (fails the bytes bound).
+  EVM-MSTORE-AND-MLOAD-MATCH-A-BYTE-BY-BYTE-REFERENCE: 14 values (0, 1, 255,
+    256, 2^62-1, 2^62, 2^64-1, 2^64, 2^255-1, 2^255, 2^256-1, 0xab..ab,
+    2^200+7, a 64-bit constant) x 5 offsets x both memory shapes against
+    per-byte LDB; MLOAD of four byte patterns around the 2^62 fixnum
+    boundary against BYTES-TO-INTEGER.
+  EVM-PUSH-IMMEDIATES-MATCH-A-BYTE-BY-BYTE-REFERENCE: every PUSH size 1-32 at
+    five positions, including immediates running past the end of the code.
+  EVM-MEMORY-WORD-LOOP-EXECUTES-WITHOUT-PER-BYTE-BIGNUMS: the 0xab..ab loop
+    stops at its gas floor with the word in memory; best of three < 150 MB.
+    Positive control: 3e56d398 (before e8f58512) conses 320 MB.
+
+Cold (exact commands, logs in the session scratchpad p2-gates/)
+  cl-workbench validation run cold-unit --match EVM --match GAS
+    --match OPCODE --match PRECOMPILE > cold-unit.log 2>&1
+      221 tests passed, EXIT=0 (217 at 886afd05 + the four new tests, all
+      listed ok)
+  cl-workbench validation run cold-integration --match EVM --match FIXTURE
+    --match NEW-PAYLOAD > cold-integration.log 2>&1
+      26 tests passed, EXIT=0
+  (also at 3e56d398: cold-unit with the same selectors, 217 passed, EXIT=0)
+
+EEST tests@v20.0.2 (consensus oracle)
+  Corpus: hard-link copy of the main checkout's
+    .eest-fixtures-stable-v20.0.2 into <worktree>/.eest-fixtures-p2 (pax -rwl;
+    link count 2, nothing re-downloaded); fixtures.tar.gz re-hashed on the
+    control plane: 1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788
+    (the pin in scripts/fetch-eest-fixtures.sh).
+  Selectors as in docs/evidence/sec5-b5161312-eest-v20.0.2.txt:
+    ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<worktree>/.eest-fixtures-p2/tests-v20.0.2
+    ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS=auto
+    ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS=London,Shanghai,Cancun,Prague,Osaka
+    ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS=auto
+    ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS=Shanghai,Cancun,Prague,Osaka
+  cl-workbench validation run cold-integration --match <test> > <log> 2>&1,
+  one at a time, on a clean tree at cbfe2c63 (git status --porcelain empty;
+  the corpus directory is ignored; HEAD and the clean status re-checked after
+  the last gate), 2026-09-24T05:01:43Z-05:16:14Z:
+    phase-a-eest-state-conformance-is-non-vacuous          1 passed EXIT=0
+    phase-a-eest-blockchain-conformance-is-non-vacuous     1 passed EXIT=0
+    phase-a-eest-blockchain-rlp-conformance-is-non-vacuous 1 passed EXIT=0
+    optional-phase-a-eest-state-test-root-vectors-execute  1 passed EXIT=0
+    optional-phase-a-eest-blockchain-replay-executes       1 passed EXIT=0
+    optional-phase-a-eest-engine-late-payload-replay-executes 1 passed EXIT=0
+    optional-phase-a-eest-engine-payload-rejection-executes   1 passed EXIT=0
+    optional-phase-a-eest-blockchain-rlp-replay-executes   1 passed EXIT=0
+  Each log has its "ok <TEST>" line and no "not ok" line.
+  The six EEST-CONFORMANCE count-manifest lines (state 15,393 executed;
+  blockchain_replay 10,592 executed + 790 rejections; blockchain_rlp 9,623
+  executed + 634 rejections; zero unexpected skips) are byte-identical to
+  docs/evidence/sec5-b5161312-eest-v20.0.2.txt (sorted `diff` empty; both
+  sorted sets hash to
+  9c8f7010d2ec64d41c6564ffbed70f5d13e95f454f85f6f0d59547b96d2f4561).
+  Not run: the legacy v5.4.0 corpus (pre-London forks). The interpreter
+  changes are fork-independent, but pre-London-only opcode paths are covered
+  by the unit tests only.
+
+================================================================================
+Out of scope, seen on the way
+================================================================================
+
+- The warm image logs pre-existing style-warnings under /workspace/src:
+  PRECOMPILE-P defined but never used (src/runtime/evm/interpreter/call.lisp,
+  EXECUTE-EVM-MESSAGE-CALL) and &OPTIONAL with &KEY in TRANSFER-VALUE
+  (src/runtime/execution/state.lisp). Both predate this branch.
+- 256-bit arithmetic above 2^62 still allocates Lisp bignums (MUL, EXP,
+  KECCAK results, 0xff..ff masks): the next cost for ordinary contract code,
+  measured here only through the memory loop's 82 MB.
+- WORD-TO-HASH32 / WORD-TO-ADDRESS / BYTES-TO-INTEGER still shift one byte
+  at a time (every SLOAD/SSTORE key, CALLDATALOAD, KECCAK256 result).
+
+================================================================================
+Not verified
+================================================================================
+
+- Live: nothing deployed. The block figure is measured through the Engine
+  newPayload path in-process, not on Hoodi; amd64 was not measured (the
+  earlier amd64 figures matched arm64 1:1).
+- The block is a Shanghai engine_newPayloadV2 block, not a Prague/Osaka V4
+  block with requests; the interpreter path is the same, the surrounding
+  import work differs.
+- sb-sprof: the first profiled run in a fresh image returned its report, but
+  in the same image later profiled evals hung at 100% CPU until the eval
+  timeout (twice, in two fresh images, SBCL 2.2.9 arm64), so the profiles
+  above stop at 0db8897f; 3e56d398 and e8f58512 were judged by measurement
+  alone.
+- A warm-image run of the EVM unit subset through a temporary probe test
+  timed out once (900 s, container idle at 0% CPU) after measurement runs in
+  the same image; the same selection passed cold (217 at 3e56d398, 221 at
+  cbfe2c63). Not diagnosed.
+- No cold-all (coordinator).

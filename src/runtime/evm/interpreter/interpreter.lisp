@@ -20,6 +20,7 @@
            opcode
            (evm-machine-pc machine)))))
 
+(declaim (inline step-evm-machine))
 (defun step-evm-machine (machine)
   "Fetch and execute one opcode, enforcing tree-wide step and frame gas limits."
   (declare (type evm-machine machine))
@@ -35,7 +36,7 @@
                :pc (evm-machine-pc machine)))))
   (let ((opcode (aref (evm-machine-code machine)
                       (evm-machine-pc machine))))
-    (evm-machine-charge-gas
+    (%evm-machine-charge-gas
      machine
      (opcode-base-gas opcode (evm-machine-context machine)))
     (execute-opcode machine opcode)))

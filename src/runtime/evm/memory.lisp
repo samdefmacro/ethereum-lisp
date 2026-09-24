@@ -99,18 +99,75 @@
       (fail "~A out of bounds" label))
     (subseq data offset (+ offset size))))
 
+;;; MSTORE and MLOAD move one 32-byte big-endian word.  MEMORY is a view
+;;; displaced onto a doubling backing vector (ENSURE-MEMORY-SIZE), so the
+;;; word is read and written on that simple backing vector, and a word is
+;;; split into or assembled from 32-bit pieces, which are fixnums, rather
+;;; than one shifted bignum per byte.  A fixnum word (every offset, counter
+;;; and small constant) never touches a bignum at all.
+
+(declaim (inline %memory-backing-start))
+(defun %memory-backing-start (memory offset)
+  "The simple byte vector under MEMORY and the index of OFFSET in it, or NIL
+when MEMORY is not the usual displaced byte view."
+  (multiple-value-bind (backing base) (array-displacement memory)
+    (let ((backing (or backing memory)))
+      (when (and (typep backing 'byte-vector)
+                 (typep offset '(and fixnum unsigned-byte)))
+        (values backing (+ base offset))))))
+
 (defun mstore (memory offset value)
   (let ((memory (ensure-memory-size memory (+ offset 32))))
-    (dotimes (i 32 memory)
-      (setf (aref memory (+ offset i))
-            (logand #xff (ash value (* -8 (- 31 i))))))))
+    (multiple-value-bind (backing start)
+        (%memory-backing-start memory offset)
+      (cond
+        ((null backing)
+         (dotimes (i 32)
+           (setf (aref memory (+ offset i))
+                 (logand #xff (ash value (* -8 (- 31 i)))))))
+        ((typep value '(and fixnum unsigned-byte))
+         (let ((last (+ start 31)))
+           (declare (type byte-vector backing) (type fixnum start last))
+           (fill backing 0 :start start :end (+ start 24))
+           (dotimes (i 8)
+             (setf (aref backing (- last i))
+                   (ldb (byte 8 (* 8 i)) value)))))
+        (t
+         (let ((last (+ start 31)))
+           (declare (type byte-vector backing) (type fixnum start last))
+           (dotimes (chunk-index 8)
+             (let ((chunk (ldb (byte 32 (* 32 chunk-index)) value)))
+               (declare (type (unsigned-byte 32) chunk))
+               (dotimes (i 4)
+                 (setf (aref backing (- last (* 4 chunk-index) i))
+                       (ldb (byte 8 (* 8 i)) chunk)))))))))
+    memory))
 
 (defun mload (memory offset)
   (let ((memory (ensure-memory-size memory (+ offset 32))))
-    (loop for i below 32
-          for value = (aref memory (+ offset i))
-            then (+ (ash value 8) (aref memory (+ offset i)))
-          finally (return (word (or value 0))))))
+    (multiple-value-bind (backing start)
+        (%memory-backing-start memory offset)
+      (if (null backing)
+          (loop for i below 32
+                for value = (aref memory (+ offset i))
+                  then (+ (ash value 8) (aref memory (+ offset i)))
+                finally (return (word (or value 0))))
+          (locally (declare (type byte-vector backing) (type fixnum start))
+            (flet ((chunk (index)
+                     ;; The INDEX-th 32-bit piece, most significant first.
+                     (let ((at (+ start (* 4 index))))
+                       (logior (ash (aref backing at) 24)
+                               (ash (aref backing (+ at 1)) 16)
+                               (ash (aref backing (+ at 2)) 8)
+                               (aref backing (+ at 3))))))
+              (if (and (loop for i from start below (+ start 24)
+                             always (zerop (aref backing i)))
+                       (< (aref backing (+ start 24)) 64))
+                  ;; Below 2^62: the word is a fixnum.
+                  (logior (ash (chunk 6) 32) (chunk 7))
+                  (let ((value 0))
+                    (dotimes (index 8 value)
+                      (setf value (logior (ash value 32) (chunk index))))))))))))
 
 (defun mstore8 (memory offset value)
   (let ((memory (ensure-memory-size memory (1+ offset))))
