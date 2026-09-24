@@ -278,6 +278,12 @@
             :request-guard-function store-guard-priority-function
             :request-guard-predicate
             (lambda (method)
+              ;; Every Engine call is the consensus client's heartbeat for
+              ;; readiness, whether or not it needs the store: the CL's
+              ;; upcheck is exchangeCapabilities, which is guard-free.
+              (setf (devnet-store-guard-ledger-last-priority-at
+                     store-guard-ledger)
+                    (get-internal-real-time))
               (not (member method *devnet-engine-guard-free-methods*
                            :test #'string=)))
             :get-blobs-v3-function get-blobs-v3-function

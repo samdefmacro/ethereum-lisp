@@ -435,7 +435,8 @@ when the guard is free. A racy read by design; see the ledger."
         0)))
 
 (defun devnet-store-guard-ledger-engine-age-ms (ledger now)
-  "How long ago the last Engine request asked for the store guard, or NIL."
+  "How long ago the last Engine request arrived (guard-free calls included), or
+NIL before the first one."
   (let ((at (and ledger (devnet-store-guard-ledger-last-priority-at ledger))))
     (and at (max 0 (devnet-internal-time-ms (- now at))))))
 
