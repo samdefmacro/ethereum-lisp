@@ -246,3 +246,92 @@
       (state-db-finalize-transaction state snapshot t)
       (is (null (state-db-get-account state address))))))
 
+
+;;; A slot first read AFTER its account was journaled must survive a revert of
+;;; that journal entry.  Hoodi block 3684027 (2026-09-24): the lazily-backed
+;;; state lost such a read on every reverted call frame and answered 0 for the
+;;; rest of the state's life, so the node charged 18,602 gas less than
+;;; go-ethereum and rejected a canonical block.  The in-memory state that EEST
+;;; drives has no backing to lose, which is why the corpus never saw it.
+
+(defun lazy-storage-test-state (address backing &key trie-backed-p)
+  "A lazy state whose only account is ADDRESS, holding BACKING ((slot . value) ...).
+TRIE-BACKED-P serves storage through the account's storage trie, as the
+durable node store does; otherwise through the flat storage loader."
+  (let ((trie (when trie-backed-p
+                (let ((trie (make-mpt)))
+                  (loop for (slot . value) in backing
+                        do (mpt-put trie
+                                    (ethereum-lisp.state::state-db-storage-proof-key slot)
+                                    (rlp-encode value)))
+                  trie))))
+    (make-lazy-state-db
+     (lambda (requested)
+       (if (bytes= (address-bytes requested) (address-bytes address))
+           (values (make-state-account :balance 1)
+                   (make-byte-vector 0)
+                   t
+                   '()
+                   trie)
+           (values nil nil nil)))
+     (lambda (requested slot)
+       (if (bytes= (address-bytes requested) (address-bytes address))
+           (or (cdr (assoc slot backing :test #'hash32=)) 0)
+           0))
+     (lambda (state) (declare (ignore state))))))
+
+(defun lazy-storage-test-slot (n)
+  (hash32-from-hex (format nil "0x~64,'0X" n)))
+
+(defun check-lazy-slot-read-after-journal-survives-revert (trie-backed-p)
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000012"))
+         (written (lazy-storage-test-slot 1))
+         (read-later (lazy-storage-test-slot 2))
+         (state (lazy-storage-test-state
+                 address (list (cons written 5) (cons read-later 9))
+                 :trie-backed-p trie-backed-p)))
+    (let ((snapshot (state-db-snapshot state)))
+      ;; The write journals the account's before-image; READ-LATER is not in it.
+      (state-db-set-storage state address written 6)
+      (is (= 9 (state-db-get-storage state address read-later)))
+      (state-db-revert-to-snapshot state snapshot))
+    (is (= 5 (state-db-get-storage state address written)))
+    (is (= 9 (state-db-get-storage state address read-later)))))
+
+(deftest state-journal-revert-keeps-a-lazily-read-flat-storage-slot
+  (check-lazy-slot-read-after-journal-survives-revert nil))
+
+(deftest state-journal-revert-keeps-a-lazily-read-trie-storage-slot
+  (check-lazy-slot-read-after-journal-survives-revert t))
+
+(deftest state-journal-revert-keeps-a-slot-deleted-before-the-snapshot-deleted
+  ;; Guard for the fix above: a slot zeroed BEFORE the snapshot must stay zero
+  ;; after the revert, not come back from the backing store.
+  (dolist (trie-backed-p '(nil t))
+    (let* ((address (address-from-hex "0x0000000000000000000000000000000000000013"))
+           (deleted (lazy-storage-test-slot 1))
+           (other (lazy-storage-test-slot 3))
+           (state (lazy-storage-test-state
+                   address (list (cons deleted 5) (cons other 7))
+                   :trie-backed-p trie-backed-p)))
+      (is (= 5 (state-db-get-storage state address deleted)))
+      (state-db-set-storage state address deleted 0)
+      (let ((snapshot (state-db-snapshot state)))
+        (state-db-set-storage state address other 8)
+        (state-db-revert-to-snapshot state snapshot))
+      (is (= 0 (state-db-get-storage state address deleted)))
+      (is (= 7 (state-db-get-storage state address other))))))
+
+(deftest state-recreated-account-does-not-read-its-predecessor-storage
+  ;; A cleared account starts with empty storage; a slot never read before the
+  ;; clear must not be fetched from the pre-clear backing afterwards.
+  (dolist (trie-backed-p '(nil t))
+    (let* ((address (address-from-hex "0x0000000000000000000000000000000000000014"))
+           (slot (lazy-storage-test-slot 4))
+           (state (lazy-storage-test-state
+                   address (list (cons slot 11))
+                   :trie-backed-p trie-backed-p)))
+      (is (state-db-get-account state address))
+      (state-db-clear-account state address)
+      (state-db-set-account state address (make-state-account :balance 2))
+      (is (= 0 (state-db-get-storage state address slot))))))

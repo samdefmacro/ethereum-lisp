@@ -1203,6 +1203,7 @@
    #:node-store-export-to-kv
    #:node-store-import-txpool-records-from-kv
    #:node-store-import-txpool-blob-sidecars-from-kv
+   #:node-store-discard-invalid-tipsets-from-kv
    #:node-store-import-bounded-invalid-tipsets-from-kv
    #:node-store-import-bounded-remote-blocks-from-kv
    #:node-store-import-from-kv)
