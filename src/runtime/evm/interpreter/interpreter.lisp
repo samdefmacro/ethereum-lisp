@@ -20,6 +20,7 @@
            opcode
            (evm-machine-pc machine)))))
 
+(declaim (inline step-evm-machine))
 (defun step-evm-machine (machine)
   "Fetch and execute one opcode, enforcing tree-wide step and frame gas limits."
   (declare (type evm-machine machine))

@@ -1,5 +1,32 @@
 (in-package #:ethereum-lisp.evm.internal)
 
+;;; Stack words are non-negative integers below 2^256; most of them in real
+;;; code (counters, offsets, gas, small constants) are fixnums.  The two macros
+;;; below evaluate the same operator twice over, once under a fixnum type test
+;;; so it compiles to machine arithmetic, once generically; both branches
+;;; compute the same value, and EVM-STACK-PUSH reduces it modulo 2^256.
+
+(defmacro evm-word-binary (machine operator)
+  "Pop LEFT and RIGHT, push (OPERATOR LEFT RIGHT) reduced to a word."
+  `(let* ((left (evm-stack-pop ,machine))
+          (right (evm-stack-pop ,machine)))
+     (evm-stack-push ,machine
+                     (if (and (typep left 'fixnum) (typep right 'fixnum))
+                         (,operator left right)
+                         (,operator left right)))))
+
+(defmacro evm-word-comparison (machine operator)
+  "Pop LEFT and RIGHT, push 1 when (OPERATOR LEFT RIGHT), else 0."
+  `(let* ((left (evm-stack-pop ,machine))
+          (right (evm-stack-pop ,machine)))
+     (evm-stack-push-word ,machine
+                          (if (if (and (typep left 'fixnum)
+                                       (typep right 'fixnum))
+                                  (,operator left right)
+                                  (,operator left right))
+                              1
+                              0))))
+
 (defmacro evm-comparison (machine form-of-left-right)
   "Pop LEFT and RIGHT, push 1 when FORM-OF-LEFT-RIGHT is true, else 0."
   `(let* ((left (evm-stack-pop ,machine))
@@ -14,9 +41,9 @@
       (cond
         ((= op #x00)
          (halt-evm-machine machine :stopped))
-        ((= op #x01) (evm-machine-apply-binary machine #'+) (incf pc))
+        ((= op #x01) (evm-word-binary machine +) (incf pc))
         ((= op #x02) (evm-machine-apply-binary machine #'*) (incf pc))
-        ((= op #x03) (evm-machine-apply-binary machine #'-) (incf pc))
+        ((= op #x03) (evm-word-binary machine -) (incf pc))
         ((= op #x04)
          (evm-machine-apply-binary machine (lambda (a b) (if (zerop b) 0 (floor a b))))
          (incf pc))
@@ -55,22 +82,22 @@
         ((= op #x0b)
          (evm-machine-apply-binary machine #'signextend-word)
          (incf pc))
-        ((= op #x10) (evm-comparison machine (< left right)) (incf pc))
-        ((= op #x11) (evm-comparison machine (> left right)) (incf pc))
+        ((= op #x10) (evm-word-comparison machine <) (incf pc))
+        ((= op #x11) (evm-word-comparison machine >) (incf pc))
         ((= op #x12)
          (evm-comparison machine (< (signed-word left) (signed-word right)))
          (incf pc))
         ((= op #x13)
          (evm-comparison machine (> (signed-word left) (signed-word right)))
          (incf pc))
-        ((= op #x14) (evm-comparison machine (= left right)) (incf pc))
+        ((= op #x14) (evm-word-comparison machine =) (incf pc))
         ((= op #x15)
          (let ((a (evm-stack-pop machine)))
            (evm-stack-push-word machine (if (zerop a) 1 0)))
          (incf pc))
-        ((= op #x16) (evm-machine-apply-binary machine #'logand) (incf pc))
-        ((= op #x17) (evm-machine-apply-binary machine #'logior) (incf pc))
-        ((= op #x18) (evm-machine-apply-binary machine #'logxor) (incf pc))
+        ((= op #x16) (evm-word-binary machine logand) (incf pc))
+        ((= op #x17) (evm-word-binary machine logior) (incf pc))
+        ((= op #x18) (evm-word-binary machine logxor) (incf pc))
         ((= op #x19)
          (let ((a (evm-stack-pop machine)))
            (evm-stack-push machine (logxor a (1- +word-modulus+))))

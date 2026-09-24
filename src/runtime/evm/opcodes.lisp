@@ -1,6 +1,20 @@
 (in-package #:ethereum-lisp.evm.internal)
 
 (defun read-push-immediate (code pc size)
+  ;; PUSH1..PUSH7 immediates fit a fixnum: read them with word arithmetic.
+  ;; Bytes past the end of the code read as zero either way.
+  (when (and (typep code 'byte-vector)
+             (typep pc '(and fixnum unsigned-byte))
+             (typep size '(integer 0 7)))
+    (let ((value 0)
+          (end (length code)))
+      (declare (type (unsigned-byte 56) value))
+      (dotimes (i size)
+        (let ((index (+ pc 1 i)))
+          (setf value
+                (logior (ash value 8)
+                        (if (< index end) (aref code index) 0)))))
+      (return-from read-push-immediate value)))
   (let ((value 0))
     (dotimes (i size value)
       (let ((index (+ pc 1 i)))
@@ -72,6 +86,15 @@
     bitmap))
 
 (defun valid-jump-destination-p (code destination &optional bitmap)
+  (when (and (typep code 'byte-vector)
+             (typep destination '(and fixnum unsigned-byte))
+             (typep bitmap 'simple-bit-vector))
+    ;; The interpreter's case: typed code, a fixnum target and the frame's
+    ;; JUMPDEST bitmap.  A larger target is past any code, as below.
+    (return-from valid-jump-destination-p
+      (and (< destination (length code))
+           (= (aref code destination) #x5b)
+           (= 1 (sbit bitmap destination)))))
   (and (< destination (length code))
        (= (aref code destination) #x5b)
        (if bitmap

@@ -5,10 +5,11 @@
          (*evm-step-budget-policy-active-p* t)
          (machine (make-evm-machine
                    code context gas-limit step-budget gas-budget)))
-    (loop until (or (evm-machine-halted-p machine)
-                    (>= (evm-machine-pc machine)
-                        (length (evm-machine-code machine))))
-          do (step-evm-machine machine))
+    (declare (type evm-machine machine))
+    (let ((code-length (length (evm-machine-code machine))))
+      (loop until (or (evm-machine-halted-p machine)
+                      (>= (evm-machine-pc machine) code-length))
+            do (step-evm-machine machine)))
     (evm-machine-result machine)))
 
 (defun execute-bytecode
