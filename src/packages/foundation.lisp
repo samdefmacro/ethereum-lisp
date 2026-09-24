@@ -47,6 +47,7 @@
    #:rocksdb-database-closed-error
    #:release-rocksdb-background-threads
    #:rocksdb-background-thread-count
+   #:rocksdb-key-value-database-int-property
    #:kv-close
    #:rocksdb-available-p
    #:kv-database-reopen-required-p
@@ -128,6 +129,11 @@
    #:telemetry-metric
    #:telemetry-prometheus-escape
    #:telemetry-prometheus-text
+   #:telemetry-prometheus-family-text
+   #:telemetry-histogram
+   #:make-telemetry-histogram
+   #:telemetry-histogram-observe
+   #:telemetry-histogram-snapshot
    #:*telemetry-activity-label*
    #:telemetry-activity-label
    #:telemetry-gc-count

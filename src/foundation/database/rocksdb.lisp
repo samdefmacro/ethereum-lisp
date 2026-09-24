@@ -109,6 +109,8 @@
     :void
   (env :pointer) (count :int))
 (cffi:defcfun ("rocksdb_free" %rocks-free) :void (pointer :pointer))
+(cffi:defcfun ("rocksdb_property_int" %rocks-property-int) :int
+  (db :pointer) (name :string) (value :pointer))
 (cffi:defcfun ("memcpy" %rocks-memory-copy) :pointer
   (destination :pointer) (source :pointer) (bytes :size))
 (cffi:defcfun ("rocksdb_put" %rocks-put) :void
@@ -611,6 +613,33 @@ to WAIT-SECONDS for the last \"rocksdb:*\" thread to go."
       (cffi:with-pointer-to-vector-data (result-pointer result)
         (%rocks-memory-copy result-pointer pointer length)))
     result))
+
+(defparameter *rocksdb-observable-int-properties*
+  '("rocksdb.compaction-pending"
+    "rocksdb.estimate-pending-compaction-bytes"
+    "rocksdb.num-running-compactions"
+    "rocksdb.background-errors")
+  "The integer properties operators may read through
+ROCKSDB-KEY-VALUE-DATABASE-INT-PROPERTY. A fixed list, so a caller cannot turn
+the binding into a probe of arbitrary native property names.")
+
+(defun rocksdb-key-value-database-int-property (database name)
+  "RocksDB's integer property NAME for DATABASE, or NIL when RocksDB does not
+report it. NAME must be one of *ROCKSDB-OBSERVABLE-INT-PROPERTIES*.
+
+rocksdb_property_int (db/c.cc, RocksDB 11.1.2) is DB::GetIntProperty, which
+reads counters RocksDB keeps under its own mutex; it takes no lock of ours and
+touches no key, so a metrics scrape may call it while the store guard is held.
+The call is counted as a handle user like every other native call, so a close
+waits for it or it signals ROCKSDB-DATABASE-CLOSED-ERROR."
+  (unless (member name *rocksdb-observable-int-properties* :test #'string=)
+    (error "RocksDB property ~S is not one of ~S"
+           name *rocksdb-observable-int-properties*))
+  (cffi:with-foreign-object (value :uint64)
+    (setf (cffi:mem-ref value :uint64) 0)
+    (with-rocksdb-live-handle (handle database)
+      (when (zerop (%rocks-property-int handle name value))
+        (cffi:mem-ref value :uint64)))))
 
 (defmethod kv-get ((database rocksdb-key-value-database) key &optional default)
   (with-rocks-bytes (key-pointer key-length key)

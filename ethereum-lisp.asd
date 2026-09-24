@@ -420,6 +420,7 @@
       :components
       ((:file "cli-types" :pathname "cli/devnet/types")
        (:file "cli-devnet-peer-table" :pathname "cli/devnet/peer-table")
+       (:file "cli-devnet-observability" :pathname "cli/devnet/observability")
        (:file "cli-devnet-dial-schedule" :pathname "cli/devnet/dial-schedule")
        (:file "cli-files" :pathname "cli/devnet/files")
        (:file "cli-devnet-persistence" :pathname "cli/devnet/persistence")
@@ -495,6 +496,7 @@
      (:file "eth-pump-tests")
      (:file "cli-devnet-peer-manager-tests")
      (:file "cli-devnet-metrics-tests")
+     (:file "cli-devnet-observability-tests")
      (:file "websocket-tests")
      (:file "debug-tracing-tests")
      (:file "cli-devnet-dial-tests")

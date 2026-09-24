@@ -63,10 +63,18 @@ other caller. A guarded service defaults to a bounded worker pool because its
 handlers are already serialised at the shared-state boundary. An unguarded
 service remains single-connection unless this value is explicitly configured.")
 
+(define-condition engine-rpc-http-request-deadline-error (simple-error)
+  ()
+  (:documentation
+   "One request ran past *ENGINE-RPC-HTTP-REQUEST-TIMEOUT-SECONDS*. Its own type
+so the connection's error log can name a timeout as a timeout (the metrics
+endpoint counts them) without matching on message text."))
+
 (defmacro engine-rpc-http-with-request-deadline (&body body)
   "Run BODY under the configured request deadline, when one is set.
 
-A deadline that expires is re-signalled as a plain error. SBCL's
+A deadline that expires is re-signalled as a plain error, of type
+ENGINE-RPC-HTTP-REQUEST-DEADLINE-ERROR. SBCL's
 DEADLINE-TIMEOUT inherits SERIOUS-CONDITION, not ERROR, so it passes straight
 through every (error (condition) ...) handler containing a connection — the
 expiry would tear down the listener instead of the one stalled request."
@@ -75,7 +83,9 @@ expiry would tear down the listener instead of the one stalled request."
      (if timeout
          (handler-case (sb-sys:with-deadline (:seconds timeout) ,@body)
            (sb-sys:deadline-timeout ()
-             (error "HTTP request exceeded the ~A second deadline" timeout)))
+             (error 'engine-rpc-http-request-deadline-error
+                    :format-control "HTTP request exceeded the ~A second deadline"
+                    :format-arguments (list timeout))))
          (progn ,@body)))
   #-sbcl
   `(progn ,@body))

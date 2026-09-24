@@ -101,7 +101,10 @@
   (let* ((telemetry-sink
            (if metrics
                (make-counting-telemetry-sink
-                :delegate (make-devnet-rpc-latency-sink :delegate telemetry-sink))
+                :delegate
+                (make-devnet-observability-sink
+                 :delegate
+                 (make-devnet-rpc-latency-sink :delegate telemetry-sink)))
                telemetry-sink))
          ;; The admin RPC backend must exist before the public service is built,
          ;; but it reads the node, which is built last. The box is filled the
@@ -219,6 +222,7 @@
          ;; long holder can see them waiting and step aside.
          (store-guard-priority-function (third store-guard-pair))
          (store-guard-priority-pending-function (fourth store-guard-pair))
+         (store-guard-ledger (fifth store-guard-pair))
          (new-payload-persistence-function
            (devnet-cli-new-payload-persistence-function database-path db-engine))
          (peer-sync-progress-function
@@ -367,6 +371,7 @@
        :store-guard-try-function store-guard-try-function
        :store-guard-priority-pending-function
        store-guard-priority-pending-function
+       :store-guard-ledger store-guard-ledger
        :persistence-state persistence-state
        :candidate-persistence-function new-payload-persistence-function
        :peer-sync-progress-function peer-sync-progress-function

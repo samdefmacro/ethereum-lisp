@@ -177,6 +177,7 @@ entry."
                       dev-mode-p coinbase store-guard-function
                       store-guard-try-function
                       store-guard-priority-pending-function
+                      store-guard-ledger
                       persistence-state
                       candidate-persistence-function
                       peer-sync-progress-function
@@ -238,6 +239,10 @@ entry."
   ;; to end their hold early and step aside.  NIL means no priority waiter can
   ;; exist.  See MAKE-DEVNET-STORE-GUARD-FUNCTION.
   store-guard-priority-pending-function
+  ;; The DEVNET-STORE-GUARD-LEDGER of the store guard, read without the guard by
+  ;; the health and metrics endpoints (current hold age, last Engine request).
+  ;; NIL for a node built without one.
+  store-guard-ledger
   persistence-state
   ;; One durable candidate sink is shared by Engine and P2P imports.  The P2P
   ;; path may additionally supply a peer-sync progress record that the adapter
@@ -415,8 +420,17 @@ ended during its wait, so this bounds the length of that list, not its age.")
   "Released store-guard holds, newest last. Written only by the guard owner,
 just before it releases; read by the next owner, so the mutex orders every
 access. HOLDER-LABEL is the current owner's label, set on acquisition; a waiter
-reads it racily, only to name who it found holding the guard."
+reads it racily, only to name who it found holding the guard.
+
+HOLDER-STARTED-AT is the internal real time the current owner acquired the
+guard, and LAST-PRIORITY-AT the time the most recent Engine request asked for
+it. Both are written by the thread that owns (or asks for) the guard and read
+racily, without the guard, by the health and metrics endpoints: a scrape must
+answer while a long import holds the store, and a value one hold stale is still
+a correct observation."
   (holder-label nil)
+  (holder-started-at nil)
+  (last-priority-at nil)
   (holds (make-array +devnet-store-guard-ledger-size+ :initial-element nil)
    :type simple-vector)
   (next 0 :type fixnum))
@@ -482,6 +496,10 @@ hold of *DEVNET-STORE-GUARD-LONG-HOLD-MS* or more is passed to
 LONG-HOLD-FUNCTION, whose conditions are dropped like the hook's."
   (let ((started-at (get-internal-real-time))
         (label (ethereum-lisp.telemetry:telemetry-activity-label)))
+    ;; Start time before label: a racy reader that sees the label also sees a
+    ;; start time no older than this hold's.
+    (setf (devnet-store-guard-ledger-holder-started-at ledger) started-at)
+    #+sbcl (sb-thread:barrier (:write))
     (setf (devnet-store-guard-ledger-holder-label ledger) label)
     (let ((hook-started-at nil))
       (unwind-protect
@@ -498,7 +516,8 @@ LONG-HOLD-FUNCTION, whose conditions are dropped like the hook's."
                           (devnet-internal-time-ms (- ended-at hook-started-at))
                           0))))
           (devnet-store-guard-ledger-record ledger hold)
-          (setf (devnet-store-guard-ledger-holder-label ledger) nil)
+          (setf (devnet-store-guard-ledger-holder-label ledger) nil
+                (devnet-store-guard-ledger-holder-started-at ledger) nil)
           (when (and long-hold-function
                      (>= (devnet-store-guard-hold-ms hold)
                          *devnet-store-guard-long-hold-ms*))
@@ -596,6 +615,11 @@ DEVNET-STORE-GUARD-LEDGER all holds are recorded in."
                         (wait-started-at (get-internal-real-time))
                         (found-label
                           (devnet-store-guard-ledger-holder-label ledger)))
+                    ;; Stamped on arrival, before any wait: readiness asks how
+                    ;; long ago the consensus client last called, not how long
+                    ;; ago one of its calls got the store.
+                    (setf (devnet-store-guard-ledger-last-priority-at ledger)
+                          wait-started-at)
                     (sb-ext:atomic-incf (car priority-waiters))
                     (unwind-protect
                          (sb-thread:with-mutex (mutex)
@@ -808,13 +832,8 @@ appear and vanish.")
                                              family suffix)
                                      (or (getf entry key) 0))))))
 
-(defun devnet-node-rpc-latency-sink (node)
-  "NODE's latency sink, or NIL when --metrics is off."
-  (let ((sink (devnet-node-telemetry-sink node)))
-    (when (counting-telemetry-sink-p sink)
-      (let ((delegate (counting-telemetry-sink-delegate sink)))
-        (when (devnet-rpc-latency-sink-p delegate)
-          delegate)))))
+;;; DEVNET-NODE-RPC-LATENCY-SINK lives in observability.lisp, beside the sink
+;;; layered above this one.
 
 (defun devnet-node-enode (node)
   "Our own enode URL, or NIL when we are not listening.

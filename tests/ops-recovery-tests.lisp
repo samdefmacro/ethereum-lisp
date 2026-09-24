@@ -1324,4 +1324,21 @@ pairs and the whole response text."
       (is (plusp (busy "ethereum_lisp_heap_used_bytes")))
       (is (>= (busy "ethereum_lisp_heap_allocated_bytes_total")
               (idle "ethereum_lisp_heap_allocated_bytes_total")))
-      (is (integerp (busy "ethereum_lisp_gc_ms_total"))))))
+      (is (integerp (busy "ethereum_lisp_gc_ms_total")))
+      (is (plusp (busy "ethereum_lisp_process_threads")))
+      (is (> (busy "ethereum_lisp_heap_limit_bytes")
+             (busy "ethereum_lisp_heap_used_bytes")))
+      ;; RocksDB's own counters, read through rocksdb_property_int.
+      (is (eql 0 (busy "ethereum_lisp_rocksdb_background_errors_total")))
+      (is (member (busy "ethereum_lisp_rocksdb_compaction_pending") '(0 1)))
+      (is (integerp (busy "ethereum_lisp_rocksdb_pending_compaction_bytes")))
+      (is (integerp (busy "ethereum_lisp_rocksdb_running_compactions")))
+      ;; The last-Engine-request age appears with the first Engine request.
+      (is (null (idle "ethereum_lisp_engine_last_request_age_ms")))
+      (is (integerp (busy "ethereum_lisp_engine_last_request_age_ms")))
+      (is (integerp (busy "ethereum_lisp_store_guard_hold_age_ms")))
+      ;; The labelled Engine counter and the histograms.
+      (is (search "ethereum_lisp_engine_requests_total{method=\"engine_newPayload"
+                  text))
+      (is (search "ethereum_lisp_rpc_handler_ms_count{family=\"rpc\"} 1" text))
+      (is (search "# TYPE ethereum_lisp_reorg_depth_blocks histogram" text)))))

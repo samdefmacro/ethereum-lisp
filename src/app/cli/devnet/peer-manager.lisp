@@ -1032,7 +1032,10 @@ terminates the whole node under sbcl --script."
       (devnet-peer-manager-log
        node "p2p.peer.session_failed"
        "host" remote-host
-       "error" condition))))
+       "error" condition
+       ;; The condition's class name: a bounded, payload-free token the
+       ;; metrics endpoint counts failures by, unlike the free-form message.
+       "reason" (string-downcase (symbol-name (type-of condition)))))))
 
 (defun devnet-start-p2p-listener-thread
     (node listener shutdown-controller error-callback)

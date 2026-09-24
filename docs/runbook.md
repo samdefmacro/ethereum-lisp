@@ -160,8 +160,95 @@ Alert on: `sync_lag_blocks` growing after `eth_syncing` went false;
 the stop budget above); `process_resident_bytes` approaching the container
 limit; `database_bytes` approaching the disk (below).
 
-Not yet exported: reorg depth/count, pruning progress, RocksDB internal error
-counts and cache/compaction pressure; use the log for those.
+Not yet exported: pruning progress, RocksDB block-cache hit rates, txpool blob
+bytes (the pool keeps only a count), and the P2P forward importer's own block
+latency; use the log for those. The series added for Section 10 are listed
+under Observability below.
+
+## Observability
+
+Everything here is served by the metrics endpoint (`--metrics
+--metrics.addr 127.0.0.1 --metrics.port N`), never by the Engine port and not
+by the public RPC port. The endpoint is off unless both `--metrics` and a port
+are given, so health probes need the same two flags. Nothing it answers takes
+the node store guard: a scrape or probe answers in milliseconds while an
+import or a SNAP phase holds the store (the integration test holds the guard
+for 4 s and requires all three endpoints to answer in under a second).
+Responses carry fixed names and integers only: no hashes, addresses, peer ids
+or request payloads.
+
+### Health checks
+
+`GET /health/live` and `GET /health/ready` (HEAD works too) answer `200` when
+every check passes and `503` otherwise. The JSON body lists every check with
+its value and limit, and names the failed ones:
+
+```
+{"status":"fail","failed":["storeGuard"],"checks":[
+ {"name":"shutdown","ok":true,"value":0,"limit":0},
+ {"name":"peers","ok":true,"value":1,"limit":1},
+ {"name":"sync","ok":true,"value":0,"limit":2},
+ {"name":"storeGuard","ok":false,"value":1508,"limit":1000},
+ {"name":"engine","ok":true,"value":1503,"limit":60000}]}
+```
+
+(one line in practice; the values are illustrative, shaped like the
+integration test's, which lowers the store-guard limit to 1 s).
+
+| check | endpoint | passes when | what to do when it fails |
+|---|---|---|---|
+| `shutdown` | live, ready | no shutdown is in progress | nothing: the node is stopping. If it never exits, see Stop |
+| `peers` | ready | at least 1 connected peer (`*devnet-health-ready-min-peers*`) | check outbound connectivity and the P2P port (`--nat extip`, firewall); `ethereum_lisp_peer_session_failures_total` and `_peer_refusals_total` say why sessions end. A fresh start takes a minute or two |
+| `sync` | ready | `eth_syncing` is false, or the head is within 2 blocks of the highest known target (`*devnet-health-ready-max-lag-blocks*`, the shadow gate's lag limit) | expected during SNAP or catch-up; watch `ethereum_lisp_sync_lag_blocks` fall and the `ethereum_lisp_snap_heal_*` gauges move. If lag grows after the node was at head, look for long Engine requests (`ethereum_lisp_rpc_handler_ms`) and long guard holds |
+| `storeGuard` | ready | no single store-guard hold is older than 8,000 ms (`*devnet-health-ready-max-guard-hold-ms*`, the Engine API timeout for newPayload and forkchoiceUpdated) | a long import or SNAP step is blocking the Engine API. `ethereum_lisp_store_guard_long_holds_total{holder=...}` names the holder class, and the log's `node.store_guard.long_hold` line has the exact holder. Short spikes during SNAP are normal; at head it is not |
+| `engine` | ready | an Engine request arrived within the last 60,000 ms (`*devnet-health-ready-max-engine-idle-ms*`, five slots) | the consensus client is not calling: check it is running, that it reaches the Engine port, and that both use the same JWT secret. Fails with `"value":null` until the first Engine request after a start |
+
+Liveness deliberately ignores peers, sync and the guard: a node in a long SNAP
+phase is busy, not dead, and restarting it throws its work away. Point a
+restart policy only at `/health/live`; use `/health/ready` for load balancing
+and alerting. "Last Engine request" is the last request on the Engine port
+that asked for the store (every Engine method except `eth_syncing` and
+`engine_getBlobsV3`); an unauthenticated request never counts.
+
+### Metrics added for Section 10
+
+All histograms use the buckets 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000,
+8000 (the Engine API timeout), 10000 and 30000 (the HTTP request deadline) ms,
+plus `+Inf`, and export `_bucket`, `_sum` and `_count`.
+
+| metric | meaning |
+|---|---|
+| `ethereum_lisp_engine_requests_total{method}` | answered Engine requests by method; only names the Engine API defines (a made-up name, a batch, a non-200 answer or a -32601 refusal is not counted) |
+| `ethereum_lisp_rpc_handler_ms{family}` | handler time histogram per family (`engine_new_payload`, `engine_forkchoice_updated`, `engine_get_payload`, `engine_other`, `rpc`, `rpc_batch`), guard wait included |
+| `ethereum_lisp_engine_guard_wait_ms` | store-guard wait per answered Engine request, 0 when it did not wait |
+| `ethereum_lisp_import_execute_ms`, `_import_persist_ms` | newPayload block execution and durable persistence time |
+| `ethereum_lisp_rpc_request_timeouts_total` | HTTP requests (Engine or public port) that hit the 30 s request deadline |
+| `ethereum_lisp_store_guard_hold_age_ms` | how long the current store-guard hold has lasted (0 when free) |
+| `ethereum_lisp_store_guard_engine_waiting` | 1 while an Engine request waits for the guard |
+| `ethereum_lisp_engine_last_request_age_ms` | age of the last Engine request; absent before the first |
+| `ethereum_lisp_store_guard_long_holds_total{holder}`, `_store_guard_long_hold_ms` | holds of at least 1 s, by holder class (`sync-gap-fill`, `forward-batch-import`, fixed thread names, Engine methods by name, `rpc` for public methods, `other`), and their length |
+| `ethereum_lisp_peer_session_failures_total{reason}` | peer sessions that ended in a condition, by condition class |
+| `ethereum_lisp_peer_refusals_total{reason}` | handshaken peers refused, by verdict (`too-many-peers`, `already-connected`, ...) |
+| `ethereum_lisp_snap_heal_pivot_number`, `_processed_nodes`, `_fetched_nodes`, `_frontier_works`, `_known_incomplete_nodes`, `_completed` | the latest `peer.snap.heal_progress` report |
+| `ethereum_lisp_reorgs_total`, `ethereum_lisp_reorg_depth_blocks` | Engine forkchoice reorgs and a histogram of displaced canonical blocks (buckets 1, 2, 3, 4, 8, 16, 32, 64, 128) |
+| `ethereum_lisp_rocksdb_compaction_pending`, `_rocksdb_pending_compaction_bytes`, `_rocksdb_running_compactions`, `_rocksdb_background_errors_total` | RocksDB's own counters (RocksDB datadirs only) |
+| `ethereum_lisp_process_threads`, `ethereum_lisp_heap_limit_bytes` | Lisp thread count and the SBCL dynamic-space size the heap gauges sit under |
+
+Labelled series are bounded: every label comes from a fixed vocabulary, and a
+labelled counter folds new values into `other` after 64 distinct ones.
+
+Alert on: `/health/ready` failing for more than a few minutes after the node
+reached head; `rpc_request_timeouts_total` rising; the
+`engine_forkchoice_updated` or `engine_new_payload` handler histogram putting
+requests in the 8000 ms bucket or above (the consensus client has given up on
+them); `rocksdb_background_errors_total` above 0 (a flush or compaction
+failed; a hard error stops all further writes, so check the RocksDB `LOG` and
+the disk, keep the log and the datadir, then restart);
+`rocksdb_pending_compaction_bytes` growing without bound (disk too slow for the
+write rate); `heap_used_bytes` staying near `heap_limit_bytes` (each
+collection then escalates; see
+`docs/evidence/sec5-newpayload-six-second-quantum.txt`); any reorg deeper than
+a couple of blocks.
 
 ## Disk
 
@@ -179,6 +266,16 @@ cl-workbench doctor --strict
 cl-workbench validation run cold-all
 cl-workbench validation run cold-e2e --match OPS-SIG     # kill and stop recovery
 cl-workbench validation run cold-integration --match OPS-METRICS
+cl-workbench validation run cold-integration --match DEVNET-HEALTH-AND-METRICS
+cl-workbench validation run cold-unit --match DEVNET-HEALTH --match DEVNET-OBSERVABILITY
+```
+
+Probe a running node (read-only, from wherever the metrics address is
+reachable):
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:$METRICS_PORT/health/live
+curl -s http://127.0.0.1:$METRICS_PORT/health/ready
 ```
 
 Against the live gate (read-only unless noted; see scripts/hoodi-live-gate.sh):
