@@ -201,6 +201,7 @@ precompile without changing the protocol-wide dispatcher."
 (defconstant +word-modulus+ (expt 2 256))
 (defconstant +precompile-consume-all-child-gas+ (1- +word-modulus+))
 (defconstant +stack-limit+ 1024)
+(defconstant +initial-evm-stack-capacity+ 16)
 (defconstant +max-call-depth+ 1024)
 (defconstant +max-account-nonce+ (1- (ash 1 64)))
 (defconstant +initcode-word-gas+ 2)

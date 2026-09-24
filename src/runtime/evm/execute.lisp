@@ -4,9 +4,7 @@
   (let* ((*evm-step-budget* step-budget)
          (*evm-step-budget-policy-active-p* t)
          (machine (make-evm-machine
-                   code context gas-limit step-budget gas-budget))
-         (*evm-stack-depth-cell*
-           (evm-machine-stack-depth-cell machine)))
+                   code context gas-limit step-budget gas-budget)))
     (loop until (or (evm-machine-halted-p machine)
                     (>= (evm-machine-pc machine)
                         (length (evm-machine-code machine))))

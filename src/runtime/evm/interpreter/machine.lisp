@@ -28,8 +28,11 @@ hiding them in one large lexical scope."
   (pc 0 :type (integer 0 *))
   (steps 0 :type (integer 0 *))
   (gas-used 0 :type (integer 0 *))
-  (stack '() :type list)
-  (stack-depth-cell (list 0) :type cons)
+  ;; The operand stack: words in STACK[0..SP), the top at SP-1.  The vector
+  ;; starts small and doubles up to +STACK-LIMIT+, so a push or pop is an
+  ;; index update, not a cons.
+  (stack (make-array +initial-evm-stack-capacity+) :type simple-vector)
+  (sp 0 :type (integer 0 #.+stack-limit+))
   (memory (make-byte-vector 0) :type (array (unsigned-byte 8) (*)))
   (return-data (make-byte-vector 0) :type byte-vector)
   (return-data-buffer (make-byte-vector 0) :type byte-vector)
@@ -65,17 +68,60 @@ hiding them in one large lexical scope."
        (evm-context-storage-clears context)
        (make-hash-table :test 'equalp))))
 
-(defun evm-machine-apply-binary (machine function)
-  (multiple-value-bind (left right rest)
-      (pop2 (evm-machine-stack machine))
-    (setf (evm-machine-stack machine)
-          (stack-push rest (funcall function left right)))))
+(defun %grow-evm-stack (machine)
+  "Double MACHINE's stack vector (never beyond +STACK-LIMIT+) and return it."
+  (declare (type evm-machine machine))
+  (let* ((old (evm-machine-stack machine))
+         (new (make-array (min +stack-limit+ (* 2 (length old))))))
+    (replace new old)
+    (setf (evm-machine-stack machine) new)))
 
-(defun evm-machine-apply-comparison (machine predicate)
-  (evm-machine-apply-binary
-   machine
-   (lambda (left right)
-     (if (funcall predicate left right) 1 0))))
+(declaim (inline evm-stack-push-word evm-stack-push evm-stack-pop
+                 evm-stack-index))
+
+(defun evm-stack-push-word (machine value)
+  "Push VALUE, already a word, onto MACHINE's stack."
+  (declare (type evm-machine machine))
+  (let ((sp (evm-machine-sp machine))
+        (stack (evm-machine-stack machine)))
+    (when (>= sp +stack-limit+)
+      (fail "EVM stack overflow"))
+    (when (= sp (length stack))
+      (setf stack (%grow-evm-stack machine)))
+    (setf (svref stack sp) value
+          (evm-machine-sp machine) (1+ sp))
+    nil))
+
+(defun evm-stack-push (machine value)
+  "Push VALUE reduced modulo 2^256 onto MACHINE's stack."
+  (evm-stack-push-word machine (word value)))
+
+(defun evm-stack-pop (machine)
+  "Pop and return the top word of MACHINE's stack."
+  (declare (type evm-machine machine))
+  (let ((sp (evm-machine-sp machine)))
+    (when (zerop sp)
+      (fail "EVM stack underflow"))
+    (let ((top (1- sp)))
+      (setf (evm-machine-sp machine) top)
+      (svref (evm-machine-stack machine) top))))
+
+(defun evm-stack-index (machine depth)
+  "The vector index of the word DEPTH below the top (the top is depth 0)."
+  (declare (type evm-machine machine) (type fixnum depth))
+  (- (evm-machine-sp machine) 1 depth))
+
+(defun evm-stack-list (machine)
+  "MACHINE's stack as a list, top first (the EVM-RESULT-STACK shape)."
+  (declare (type evm-machine machine))
+  (let ((stack (evm-machine-stack machine)))
+    (loop for index from (1- (evm-machine-sp machine)) downto 0
+          collect (svref stack index))))
+
+(defun evm-machine-apply-binary (machine function)
+  (let* ((left (evm-stack-pop machine))
+         (right (evm-stack-pop machine)))
+    (evm-stack-push machine (funcall function left right))))
 
 (defun evm-machine-charge-gas (machine amount)
   (declare (type evm-machine machine))
@@ -138,7 +184,7 @@ hiding them in one large lexical scope."
     (replace memory-copy memory)
     (make-evm-result
      :status (evm-machine-status machine)
-     :stack (evm-machine-stack machine)
+     :stack (evm-stack-list machine)
      :memory memory-copy
      :return-data (evm-machine-return-data machine)
      :logs (nreverse (evm-machine-logs machine))
@@ -155,7 +201,7 @@ hiding them in one large lexical scope."
 (defmacro with-evm-machine-state ((machine) &body body)
   "Bind the mutable frame fields used by an opcode handler."
   `(with-slots (code jump-destinations context gas-limit gas-budget step-budget
-                pc steps gas-used stack memory
+                pc steps gas-used memory
                 return-data return-data-buffer frame-snapshot
                 original-storage-values cleared-storage-slots logs
                 refund-counter status halted-p)

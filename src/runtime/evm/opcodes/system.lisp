@@ -11,7 +11,9 @@
            (fail "CREATE requires an EVM context with state"))
          (when (evm-context-read-only-p context)
            (fail "CREATE is not allowed in read-only EVM context"))
-         (multiple-value-bind (value offset size rest) (pop3 stack)
+         (let* ((value (evm-stack-pop machine))
+                (offset (evm-stack-pop machine))
+                (size (evm-stack-pop machine)))
            (evm-machine-charge-gas machine
             (create-initcode-extra-gas
              size
@@ -38,8 +40,8 @@
                   machine child-state-gas-used))
                (incf refund-counter child-refund-counter)
                (setf return-data-buffer child-return-data
-                     logs (prepend-child-logs child-logs logs)
-                     stack (stack-push rest success-address)))))
+                     logs (prepend-child-logs child-logs logs))
+               (evm-stack-push machine success-address))))
          (incf pc))
         ((= op #xf5)
          (unless (and context (evm-context-state context))
@@ -49,8 +51,10 @@
                                "Constantinople" "CREATE2" pc)
          (when (evm-context-read-only-p context)
            (fail "CREATE2 is not allowed in read-only EVM context"))
-         (multiple-value-bind (value offset size rest1) (pop3 stack)
-           (multiple-value-bind (salt rest) (pop1 rest1)
+         (let* ((value (evm-stack-pop machine))
+                (offset (evm-stack-pop machine))
+                (size (evm-stack-pop machine)))
+           (let ((salt (evm-stack-pop machine)))
              (evm-machine-charge-gas machine
               (create-initcode-extra-gas
                size
@@ -75,16 +79,19 @@
                     machine child-state-gas-used))
                  (incf refund-counter child-refund-counter)
                  (setf return-data-buffer child-return-data
-                       logs (prepend-child-logs child-logs logs)
-                       stack (stack-push rest success-address))))))
+                       logs (prepend-child-logs child-logs logs))
+                 (evm-stack-push machine success-address)))))
          (incf pc))
         ((= op #xf1)
          (unless (and context (evm-context-state context))
            (fail "CALL requires an EVM context with state"))
-         (multiple-value-bind (requested-gas address-word value
-                               args-offset args-size
-                               return-offset return-size rest-stack)
-             (pop7 stack)
+         (let* ((requested-gas (evm-stack-pop machine))
+                (address-word (evm-stack-pop machine))
+                (value (evm-stack-pop machine))
+                (args-offset (evm-stack-pop machine))
+                (args-size (evm-stack-pop machine))
+                (return-offset (evm-stack-pop machine))
+                (return-size (evm-stack-pop machine)))
            (when (and (evm-context-read-only-p context) (plusp value))
              (fail "CALL with value is not allowed in read-only EVM context"))
            (let ((callee (word-to-address address-word))
@@ -98,7 +105,6 @@
                :args-size args-size
                :return-offset return-offset
                :return-size return-size
-               :rest-stack rest-stack
                :child-address callee
                :child-caller caller
                :child-value value
@@ -111,19 +117,22 @@
                :trace-value-transfer-to callee))))
          (incf pc))
         ((= op #xf3)
-         (multiple-value-bind (offset size rest) (pop2 stack)
+         (let* ((offset (evm-stack-pop machine))
+                (size (evm-stack-pop machine)))
            (evm-machine-charge-memory-gas machine offset size)
            (setf return-data (memory-slice memory offset size)
-                 stack rest
                  status :returned
                  halted-p t)))
         ((= op #xf2)
          (unless (and context (evm-context-state context))
            (fail "CALLCODE requires an EVM context with state"))
-         (multiple-value-bind (requested-gas address-word value
-                               args-offset args-size
-                               return-offset return-size rest-stack)
-             (pop7 stack)
+         (let* ((requested-gas (evm-stack-pop machine))
+                (address-word (evm-stack-pop machine))
+                (value (evm-stack-pop machine))
+                (args-offset (evm-stack-pop machine))
+                (args-size (evm-stack-pop machine))
+                (return-offset (evm-stack-pop machine))
+                (return-size (evm-stack-pop machine)))
            (let ((code-address (word-to-address address-word))
                  (current-address (evm-context-address context)))
              (execute-evm-message-call
@@ -135,7 +144,6 @@
                :args-size args-size
                :return-offset return-offset
                :return-size return-size
-               :rest-stack rest-stack
                :child-address current-address
                :child-caller current-address
                :child-value value
@@ -153,10 +161,12 @@
            (fail "DELEGATECALL requires an EVM context with state"))
          (require-context-fork context #'chain-rules-homestead-p
                                "Homestead" "DELEGATECALL" pc)
-         (multiple-value-bind (requested-gas address-word
-                               args-offset args-size
-                               return-offset return-size rest-stack)
-             (pop6 stack)
+         (let* ((requested-gas (evm-stack-pop machine))
+                (address-word (evm-stack-pop machine))
+                (args-offset (evm-stack-pop machine))
+                (args-size (evm-stack-pop machine))
+                (return-offset (evm-stack-pop machine))
+                (return-size (evm-stack-pop machine)))
            (execute-evm-message-call
             machine
             (make-evm-message-call
@@ -166,7 +176,6 @@
              :args-size args-size
              :return-offset return-offset
              :return-size return-size
-             :rest-stack rest-stack
              :child-address (evm-context-address context)
              :child-caller (evm-context-caller context)
              :child-value (evm-context-call-value context)
@@ -177,10 +186,12 @@
            (fail "STATICCALL requires an EVM context with state"))
          (require-context-fork context #'chain-rules-byzantium-p
                                "Byzantium" "STATICCALL" pc)
-         (multiple-value-bind (requested-gas address-word
-                               args-offset args-size
-                               return-offset return-size rest-stack)
-             (pop6 stack)
+         (let* ((requested-gas (evm-stack-pop machine))
+                (address-word (evm-stack-pop machine))
+                (args-offset (evm-stack-pop machine))
+                (args-size (evm-stack-pop machine))
+                (return-offset (evm-stack-pop machine))
+                (return-size (evm-stack-pop machine)))
            (let ((callee (word-to-address address-word)))
              (execute-evm-message-call
               machine
@@ -191,7 +202,6 @@
                :args-size args-size
                :return-offset return-offset
                :return-size return-size
-               :rest-stack rest-stack
                :child-address callee
                :child-caller (evm-context-address context)
                :read-only-p t
@@ -202,7 +212,7 @@
            (fail "SELFDESTRUCT requires an EVM context with state"))
          (when (evm-context-read-only-p context)
            (fail "SELFDESTRUCT is not allowed in read-only EVM context"))
-         (multiple-value-bind (beneficiary-word rest) (pop1 stack)
+         (let ((beneficiary-word (evm-stack-pop machine)))
            (let ((beneficiary (word-to-address beneficiary-word)))
              (charge-cold-account-access-gas
               context
@@ -278,20 +288,19 @@
                                    (address-bytes beneficiary)))
                       :balance-only
                       t)))))
-           (setf stack rest
-                 status :selfdestructed
+           (setf status :selfdestructed
                  halted-p t)))
         ((= op #xfd)
          (require-context-fork context #'chain-rules-byzantium-p
                                "Byzantium" "REVERT" pc)
-         (multiple-value-bind (offset size rest) (pop2 stack)
+         (let* ((offset (evm-stack-pop machine))
+                (size (evm-stack-pop machine)))
            (evm-machine-charge-memory-gas machine offset size)
            (restore-frame-snapshot context frame-snapshot)
            (let ((state-used (max 0 (evm-gas-budget-used-state gas-budget))))
              (when (plusp state-used)
                (evm-machine-refill-state-gas machine state-used)))
            (setf return-data (memory-slice memory offset size)
-                 stack rest
                  refund-counter 0
                  status :reverted
                  halted-p t)))

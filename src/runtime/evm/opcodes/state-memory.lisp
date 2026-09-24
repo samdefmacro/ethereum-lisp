@@ -7,20 +7,17 @@
     (let ((op opcode))
       (cond
         ((= op #x50)
-         (multiple-value-bind (ignored rest) (pop1 stack)
-           (declare (ignore ignored))
-           (setf stack rest))
+         (evm-stack-pop machine)
          (incf pc))
         ((= op #x56)
-         (multiple-value-bind (destination rest) (pop1 stack)
+         (let ((destination (evm-stack-pop machine)))
            (unless (valid-jump-destination-p
                     code destination jump-destinations)
              (fail "Invalid EVM jump destination ~D" destination))
-           (setf stack rest
-                 pc destination)))
+           (setf pc destination)))
         ((= op #x57)
-         (multiple-value-bind (destination condition rest) (pop2 stack)
-           (setf stack rest)
+         (let* ((destination (evm-stack-pop machine))
+                (condition (evm-stack-pop machine)))
            (if (zerop condition)
                (incf pc)
                (progn
@@ -29,27 +26,27 @@
                    (fail "Invalid EVM jump destination ~D" destination))
                  (setf pc destination)))))
         ((= op #x51)
-         (multiple-value-bind (offset rest) (pop1 stack)
+         (let ((offset (evm-stack-pop machine)))
            (evm-machine-charge-memory-gas machine offset 32)
-           (setf memory (ensure-memory-size memory (+ offset 32))
-                 stack (stack-push rest (mload memory offset))))
+           (setf memory (ensure-memory-size memory (+ offset 32)))
+           (evm-stack-push machine (mload memory offset)))
          (incf pc))
         ((= op #x52)
-         (multiple-value-bind (offset value rest) (pop2 stack)
+         (let* ((offset (evm-stack-pop machine))
+                (value (evm-stack-pop machine)))
            (evm-machine-charge-memory-gas machine offset 32)
-           (setf memory (mstore memory offset value)
-                 stack rest))
+           (setf memory (mstore memory offset value)))
          (incf pc))
         ((= op #x53)
-         (multiple-value-bind (offset value rest) (pop2 stack)
+         (let* ((offset (evm-stack-pop machine))
+                (value (evm-stack-pop machine)))
            (evm-machine-charge-memory-gas machine offset 1)
-           (setf memory (mstore8 memory offset value)
-                 stack rest))
+           (setf memory (mstore8 memory offset value)))
          (incf pc))
         ((= op #x54)
          (unless (and context (evm-context-state context))
            (fail "SLOAD requires an EVM context with state"))
-         (multiple-value-bind (slot rest) (pop1 stack)
+         (let ((slot (evm-stack-pop machine)))
            (let* ((slot-hash (word-to-hash32 slot))
                   (value (state-db-get-storage
                           (evm-context-state context)
@@ -60,7 +57,7 @@
               (evm-context-address context)
               slot-hash
               (lambda (amount) (evm-machine-charge-gas machine amount)))
-             (setf stack (stack-push rest value))))
+             (evm-stack-push machine value)))
          (incf pc))
         ((= op #x55)
          (unless (and context (evm-context-state context))
@@ -72,7 +69,8 @@
                     (<= (evm-gas-budget-regular gas-budget)
                         +sstore-sentry-gas-eip2200+))
            (fail "SSTORE requires more than the EIP-2200 sentry gas"))
-         (multiple-value-bind (slot value rest) (pop2 stack)
+         (let* ((slot (evm-stack-pop machine))
+                (value (evm-stack-pop machine)))
            (let* ((slot-hash (word-to-hash32 slot))
                   (refund-key
                     (storage-refund-key
@@ -138,20 +136,19 @@
               (evm-context-state context)
               (evm-context-address context)
               slot-hash
-              value)
-             (setf stack rest)))
+              value)))
          (incf pc))
         ((= op #x58)
-         (setf stack (stack-push stack pc))
+         (evm-stack-push machine pc)
          (incf pc))
         ((= op #x59)
-         (setf stack (stack-push stack (length memory)))
+         (evm-stack-push machine (length memory))
          (incf pc))
         ((= op #x5a)
-         (setf stack (stack-push stack
-                                 (if gas-limit
-                                     (evm-gas-budget-regular gas-budget)
-                                     0)))
+         (evm-stack-push machine
+                         (if gas-limit
+                             (evm-gas-budget-regular gas-budget)
+                             0))
          (incf pc))
         ((= op #x5b)
          (incf pc))
@@ -160,14 +157,13 @@
            (fail "TLOAD requires an EVM context"))
          (require-context-fork context #'chain-rules-cancun-p
                                "Cancun" "TLOAD" pc)
-         (multiple-value-bind (slot rest) (pop1 stack)
-           (setf stack
-                 (stack-push
-                  rest
-                  (transient-storage-get
-                   context
-                   (evm-context-address context)
-                   (word-to-hash32 slot)))))
+         (let ((slot (evm-stack-pop machine)))
+           (evm-stack-push
+            machine
+            (transient-storage-get
+             context
+             (evm-context-address context)
+             (word-to-hash32 slot))))
          (incf pc))
         ((= op #x5d)
          (unless context
@@ -176,19 +172,20 @@
                                "Cancun" "TSTORE" pc)
          (when (evm-context-read-only-p context)
            (fail "TSTORE is not allowed in read-only EVM context"))
-         (multiple-value-bind (slot value rest) (pop2 stack)
+         (let* ((slot (evm-stack-pop machine))
+                (value (evm-stack-pop machine)))
            (transient-storage-set
             context
             (evm-context-address context)
             (word-to-hash32 slot)
-            value)
-           (setf stack rest))
+            value))
          (incf pc))
         ((= op #x5e)
          (require-context-fork context #'chain-rules-cancun-p
                                "Cancun" "MCOPY" pc)
-         (multiple-value-bind (destination source size rest)
-             (pop3 stack)
+         (let* ((destination (evm-stack-pop machine))
+                (source (evm-stack-pop machine))
+                (size (evm-stack-pop machine)))
            (evm-machine-charge-gas machine
             (+ (memory-expansion-gas
                 memory
@@ -197,13 +194,12 @@
                                            (list source size)))
                (* +copy-word-gas+ (memory-word-count size))))
            (setf memory
-                 (copy-memory-region memory destination source size)
-                 stack rest))
+                 (copy-memory-region memory destination source size)))
          (incf pc))
         ((= op #x5f)
          (require-context-fork context #'chain-rules-shanghai-p
                                "Shanghai" "PUSH0" pc)
-         (setf stack (stack-push stack 0))
+         (evm-stack-push-word machine 0)
          (incf pc))
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))

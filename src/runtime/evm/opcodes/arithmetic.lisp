@@ -1,5 +1,11 @@
 (in-package #:ethereum-lisp.evm.internal)
 
+(defmacro evm-comparison (machine form-of-left-right)
+  "Pop LEFT and RIGHT, push 1 when FORM-OF-LEFT-RIGHT is true, else 0."
+  `(let* ((left (evm-stack-pop ,machine))
+          (right (evm-stack-pop ,machine)))
+     (evm-stack-push-word ,machine (if ,form-of-left-right 1 0))))
+
 (defun execute-arithmetic-opcode (machine opcode)
   "Execute arithmetic, comparison, bitwise, and KECCAK256 opcodes."
   (declare (type evm-machine machine) (type (unsigned-byte 8) opcode))
@@ -24,52 +30,50 @@
          (evm-machine-apply-binary machine #'signed-mod-word)
          (incf pc))
         ((= op #x08)
-         (multiple-value-bind (a b modulus rest) (pop3 stack)
-           (setf stack
-                 (stack-push
-                  rest
-                  (if (zerop modulus) 0 (mod (+ a b) modulus)))))
+         (let* ((a (evm-stack-pop machine))
+                (b (evm-stack-pop machine))
+                (modulus (evm-stack-pop machine)))
+           (evm-stack-push machine
+                           (if (zerop modulus) 0 (mod (+ a b) modulus))))
          (incf pc))
         ((= op #x09)
-         (multiple-value-bind (a b modulus rest) (pop3 stack)
-           (setf stack
-                 (stack-push
-                  rest
-                  (if (zerop modulus) 0 (mod (* a b) modulus)))))
+         (let* ((a (evm-stack-pop machine))
+                (b (evm-stack-pop machine))
+                (modulus (evm-stack-pop machine)))
+           (evm-stack-push machine
+                           (if (zerop modulus) 0 (mod (* a b) modulus))))
          (incf pc))
         ((= op #x0a)
-         (multiple-value-bind (base exponent rest) (pop2 stack)
+         (let* ((base (evm-stack-pop machine))
+                (exponent (evm-stack-pop machine)))
            (evm-machine-charge-gas machine
             (* (exp-byte-gas
                 (and context (evm-context-chain-rules context)))
                (exp-byte-count exponent)))
-           (setf stack
-                 (stack-push rest (modexp-word base exponent))))
+           (evm-stack-push machine (modexp-word base exponent)))
          (incf pc))
         ((= op #x0b)
          (evm-machine-apply-binary machine #'signextend-word)
          (incf pc))
-        ((= op #x10) (evm-machine-apply-comparison machine #'<) (incf pc))
-        ((= op #x11) (evm-machine-apply-comparison machine #'>) (incf pc))
+        ((= op #x10) (evm-comparison machine (< left right)) (incf pc))
+        ((= op #x11) (evm-comparison machine (> left right)) (incf pc))
         ((= op #x12)
-         (evm-machine-apply-comparison machine (lambda (a b)
-                       (< (signed-word a) (signed-word b))))
+         (evm-comparison machine (< (signed-word left) (signed-word right)))
          (incf pc))
         ((= op #x13)
-         (evm-machine-apply-comparison machine (lambda (a b)
-                       (> (signed-word a) (signed-word b))))
+         (evm-comparison machine (> (signed-word left) (signed-word right)))
          (incf pc))
-        ((= op #x14) (evm-machine-apply-comparison machine #'=) (incf pc))
+        ((= op #x14) (evm-comparison machine (= left right)) (incf pc))
         ((= op #x15)
-         (multiple-value-bind (a rest) (pop1 stack)
-           (setf stack (stack-push rest (if (zerop a) 1 0))))
+         (let ((a (evm-stack-pop machine)))
+           (evm-stack-push-word machine (if (zerop a) 1 0)))
          (incf pc))
         ((= op #x16) (evm-machine-apply-binary machine #'logand) (incf pc))
         ((= op #x17) (evm-machine-apply-binary machine #'logior) (incf pc))
         ((= op #x18) (evm-machine-apply-binary machine #'logxor) (incf pc))
         ((= op #x19)
-         (multiple-value-bind (a rest) (pop1 stack)
-           (setf stack (stack-push rest (logxor a (1- +word-modulus+)))))
+         (let ((a (evm-stack-pop machine)))
+           (evm-stack-push machine (logxor a (1- +word-modulus+))))
          (incf pc))
         ((= op #x1a)
          (evm-machine-apply-binary machine #'byte-op)
@@ -98,23 +102,21 @@
          (require-context-fork context
                                #'chain-rules-osaka-p
                                "Osaka" "CLZ" pc)
-         (multiple-value-bind (a rest) (pop1 stack)
-           (setf stack (stack-push rest (- 256 (integer-length a)))))
+         (let ((a (evm-stack-pop machine)))
+           (evm-stack-push machine (- 256 (integer-length a))))
          (incf pc))
         ((= op #x20)
-         (multiple-value-bind (offset size rest) (pop2 stack)
+         (let* ((offset (evm-stack-pop machine))
+                (size (evm-stack-pop machine)))
            (evm-machine-charge-gas machine
             (+ (memory-expansion-gas memory offset size)
                (* +keccak256-word-gas+
                   (memory-word-count size))))
            (setf memory (ensure-memory-size memory (+ offset size)))
-           (setf stack
-                 (stack-push
-                  rest
-                  (bytes-to-integer
-                   (keccak-256 (memory-slice memory offset size))))))
+           (evm-stack-push
+            machine
+            (bytes-to-integer
+             (keccak-256 (memory-slice memory offset size)))))
          (incf pc))
         (t
          (fail "Unsupported EVM opcode 0x~2,'0X at pc ~D" op pc))))))
-
-
