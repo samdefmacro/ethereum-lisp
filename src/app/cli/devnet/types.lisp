@@ -352,6 +352,12 @@ entry."
   ;; wholesale at every store-guard release. Readers take it without any lock;
   ;; see DEVNET-NODE-PUBLISH-SYNC-VIEW. NIL until the first publication.
   (sync-view nil)
+  ;; What an inbound eth Status needs from the guarded store, as one immutable
+  ;; plist (:HEAD-NUMBER :HEAD-TIMESTAMP :GENESIS-HASH :BEST-HASH) replaced
+  ;; wholesale at every store-guard release, so accepting a peer never waits
+  ;; for the guard; see DEVNET-NODE-PUBLISH-STATUS-VIEW. NIL until the first
+  ;; publication.
+  (status-view nil)
   ;; The public read view (NODE-STORE-PUBLISH-READ-VIEW): the recent canonical
   ;; chain as immutable data, republished at every store-guard release so the
   ;; public RPC can answer block, receipt and head reads without waiting for

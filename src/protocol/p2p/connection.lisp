@@ -30,10 +30,24 @@ first."
         (error 'rlpx-stream-ended :stream stream :filled filled :expected count))
       buffer)))
 
+(defconstant +rlpx-handshake-max-size+ 2048
+  "Largest auth or ack body a peer may declare, as go-ethereum v1.17.4's
+handshakeState.readMsg allows (baseProtocolMaxMsgSize, 2 KiB). Real EIP-8
+messages are 300-700 bytes.")
+
 (defun rlpx-read-handshake-packet (stream)
-  "Read a size-prefixed handshake packet (2-byte length then that many bytes)."
+  "Read a size-prefixed handshake packet (2-byte length then that many bytes).
+
+The size is refused above +RLPX-HANDSHAKE-MAX-SIZE+ before any body byte is
+read, as geth does. There is no pre-EIP-8 fallback, also as in geth v1.17.4: a
+legacy 307-byte auth starts with its 0x04 key tag, reads as a size of
+1024-1279, and ends as RLPX-STREAM-ENDED after 305 bytes when the peer gives
+up waiting for our reply."
   (let* ((prefix (rlpx-read-exactly stream 2))
          (size (logior (ash (aref prefix 0) 8) (aref prefix 1))))
+    (when (> size +rlpx-handshake-max-size+)
+      (error "RLPx handshake message declares ~D bytes, above the ~D-byte limit"
+             size +rlpx-handshake-max-size+))
     (concat-bytes prefix (rlpx-read-exactly stream size))))
 
 (defun rlpx-write-packet (stream packet)
