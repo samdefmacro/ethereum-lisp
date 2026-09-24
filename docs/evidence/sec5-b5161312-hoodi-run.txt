@@ -62,3 +62,16 @@ Addendum (02:50Z): the container was OOM-killed by the 12 GiB cgroup limit at
 2026-09-24T02:25:29Z (docker inspect: exited, exit=137, OOMKilled=true), about 35 minutes after
 the last completed Engine request and with heapMb still ~0.5 GB on the last logged requests.
 Host free memory afterwards: 10 GB. The exited container is kept for `docker logs`.
+
+Addendum 2 (2026-09-24 13:20Z, found after the 04a3aff4 upgrade on the same datadir): the first cause
+of the head-following failure was a CONSENSUS DIVERGENCE, not the guard holds. At 01:33:55Z newPayload
+for canonical Hoodi block 3684027 (0x8da352f3828ff869665cd28959140b57d541ac688733cafc0e645e065e465476,
+11 transactions: 7 type-2, 4 type-3, gasUsed 4,348,360, blobGasUsed 0x80000) answered INVALID with
+"Gas used mismatch at block 3684027: header=4348360 computed=4329758" (18,602 gas less than the
+network). The 112 newPayloads after it answered INVALID "links to previously rejected block"; the CL
+kept re-sending the same chain; the node never advanced past 3684026 (0x3836ba, the eth_syncing
+currentBlock recorded above). The rejection mark survived the process: the upgraded node at 04a3aff4
+rejected the same block again at 04:54:12Z without re-executing it, then looped on
+peer.sync.multi_retry / peer.snap.pivot_unavailable. Tracked as the hoodi-gas-mismatch root-cause
+record (branch hoodi-gas-mismatch). EEST v20.0.2 passes on both revisions, so the rule is outside the
+corpus or in the Hoodi fork/BPO schedule.
