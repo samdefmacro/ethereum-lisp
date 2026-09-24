@@ -1,0 +1,237 @@
+Section 5: the six-second newPayload CPU is EVM interpreter throughput on
+Hoodi gas-burner blocks
+
+Status
+
+Branch np-six-second-cpu, from a07c912e. FOUND, REPRODUCED LOCALLY, FIXED
+(about 6x). The near-constant 5.6-6.4 s of npExecuteCpuMs in the R4 run
+(hoodi-el-sec5-b5161312, revision b5161312) is not an initialisation, a cache
+miss, GC or waiting: it is the EVM interpreter executing one contract. Most
+Hoodi blocks in the executed range are filled to the 60M gas limit by 20-24
+transactions to a gas burner at 0x6b3f1c2aa4f0a2a49bb782a4e83db5a0764326ec
+(2,490,015 gas each). One such transaction cost 250 ms of CPU and 45 MB of
+garbage in the interpreter (arm64 dev image; the live amd64 figure is the
+same, 6.0 s / 24). After the fix the same frame costs 40 ms and 9 MB, so a
+full burner block should cost about 1 s instead of 6 s. That is still not
+"well under a second"; see "Next".
+
+Not deployed; no live run; no cold-all (the coordinator runs it once).
+
+Revision
+
+  43be69c5  evm: read fork-independent base gas from a table and charge regular
+         gas without a cost object
+
+================================================================================
+1. What the slow blocks are
+================================================================================
+
+Data (read-only): `docker logs -t hoodi-el-sec5-b5161312` on the Hoodi host
+(208 engine_newPayloadV4 lines with npExecuteMs, 00:26:08Z-01:33:42Z on
+2026-09-24), and block bodies/receipts for 3683690-3684040 from public Hoodi
+JSON-RPC (rpc.hoodi.ethpandaops.io, ethereum-hoodi-rpc.publicnode.com), because
+the R4 container was OOM-killed at 02:25:29Z (see "Out of scope").
+
+Hoodi block gas alternates between ~60M (the limit) and ~0.2-5M. The full
+blocks are the burner: block 3683733 (timestamp 00:26:00Z) carries 24
+transactions to 0x6b3f...26ec, each with gasUsed 0x26029f = 2,490,015
+(eth_getBlockReceipts). In the executed range 3683701-3684026 (326 blocks,
+snap target 3683701 at 00:24:14Z, EL head frozen at 3684026 = 01:31:12Z):
+
+  burner transactions per block   0: 154 blocks   10-11: 3   17: 2   19: 2
+                                  20: 3   21: 5   22: 34   23: 67   24: 56
+
+The burner's code (eth_getCode, latest):
+  0x5f5a5f600e565b5f5260205fa1005b6127105a1060065760010161133750600e56
+  = PUSH0 GAS PUSH0 PUSH1 0e JUMP; 06: JUMPDEST PUSH0 MSTORE PUSH1 20 PUSH0
+    LOG1 STOP; 0e: JUMPDEST PUSH2 2710 GAS LT PUSH1 06 JUMPI PUSH1 01 ADD
+    PUSH2 1337 POP PUSH1 0e JUMP
+i.e. a 12-instruction, 44-gas loop until less than 10,000 gas is left: about
+56,000 iterations and 680,000 instructions per transaction, about 16M
+instructions per full block. Nothing in it touches state, precompiles or
+memory beyond one word, which is why npTrieNodeReads (9-1126) and GC
+(26-53 ms) are unrelated to the cost.
+
+Correlation. newPayload start = log time - handlerMs - readMs, matched to the
+latest not-yet-matched block whose timestamp precedes it. The first five are
+unambiguous (Lighthouse delivered them in slot order):
+
+  log time (Z)  start-slot  block     gas used     burner txs  npExecuteCpuMs
+  00:26:08      +2.3 s      3683733   59,995,410   24          6028
+  00:26:25      +0.6 s      3683734    1,181,733    0            72
+  00:26:59      +2.4 s      3683735   59,655,905   22          5710
+  00:27:13      +11 s       3683736    1,487,217    0           100
+  00:28:02      +2.1 s      3683739   59,488,933   22          5768
+
+After that Lighthouse re-sends old blocks after its 30 s timeouts and the
+time match is no longer one-to-one, so the rest is argued from populations:
+112 of the 208 executions took more than 1 s of CPU; the sorted CPU values
+have exactly the shape of the burner histogram, including the rare partial
+blocks: three at 2903/2932/3021 ms (the three 10-11-burner blocks at
+~250 ms each), four at 4463-5200 ms (17-20 burners), and the 24-burner mass at
+5.6-6.3 s. Everything else is 5-617 ms. So: ~250 ms of CPU per burner
+transaction, on the live amd64 host.
+
+================================================================================
+2. Local reproduction and profile
+================================================================================
+
+The burner code executed with EXECUTE-BYTECODE, gas limit 2,469,015, no step
+guard, a fresh MAKE-STATE-DB context (warm dev image, arm64, SBCL 2.2.9):
+
+  before: 246-287 ms CPU per frame, 45 MB consed, gas used 2,460,087
+  after:   40-43 ms CPU per frame,  9 MB consed, same gas, same log
+
+24 x 250 ms = 6.0 s is the live per-block figure; the local interpreter cost
+is the live cost.
+
+sb-sprof (:cpu, 0.5 ms, run inside a spawned thread) before the fix:
+  SB-KERNEL:TWO-ARG-=  25.8%   the MEMBER :test #'= chains of
+  OPCODE-BASE-GAS      17.7%   OPCODE-BASE-GAS, and the untyped (= op #x..)
+  EXECUTE-OPCODE        7.3%   chains in the dispatch and handlers
+  TWO-ARG-+/-/</>      16%     generic arithmetic
+  MAKE-EVM-GAS-COSTS + EVM-GAS-BUDGET-CHARGE/-CAN-AFFORD-P  ~5%
+                               (one cost struct allocated per instruction)
+After: no single entry above 21% (TWO-ARG-+, the generic PC/gas increments);
+the rest is spread over the stack list, dispatch and gas.
+
+Ruled out on the way (measured or read): bn254 pairing (pure Lisp, but 30 ms
+per pair in the dev image: 60-100 ms for a 2-4 pair check), the KZG trusted
+setup (cached once in *KZG-CFFI-SETTINGS*), the BLOCKHASH ancestor walk
+(bounded by the 2 x 512 verified block cache), and cache byte accounting
+(sizes are memoised in the cache metadata).
+
+================================================================================
+3. Fix
+================================================================================
+
+src/runtime/evm/opcodes.lisp: the schedule is unchanged and renamed
+%OPCODE-BASE-GAS-BY-SCHEDULE. OPCODE-BASE-GAS reads *OPCODE-BASE-GAS-TABLE*,
+computed once from that schedule, for every opcode outside
++CONTEXT-DEPENDENT-BASE-GAS-OPCODES+ (BALANCE, EXTCODESIZE, EXTCODECOPY,
+EXTCODEHASH, CREATE, CALL, CALLCODE, DELEGATECALL, CREATE2, STATICCALL,
+SELFDESTRUCT: the only branches of the schedule that read the context), and
+calls the schedule for those eleven.
+
+src/runtime/evm/interpreter/interpreter.lisp, opcodes/*.lisp,
+interpreter/machine.lisp: the dispatch, the five handler families and
+EVM-MACHINE-CHARGE-GAS declare MACHINE an EVM-MACHINE and the opcode an
+(UNSIGNED-BYTE 8), so the (= op #x..) chains and the WITH-SLOTS accesses
+compile inline.
+
+src/runtime/evm/gas.lisp: EVM-GAS-BUDGET-CHARGE-REGULAR updates the budget
+directly. With a zero state cost EVM-GAS-BUDGET-CHARGE can afford exactly
+when amount <= regular, spills nothing, leaves the (non-negative) state
+reservoir and the used-state/spilled counters unchanged; the new body does
+exactly that without allocating an EVM-GAS-COSTS.
+
+src/runtime/evm/base.lisp: WORD returns a non-negative fixnum unchanged
+instead of calling the bignum MOD (its value mod 2^256 is itself).
+
+No gas value, opcode semantics or result shape changed.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed (exit 0).
+
+RED/GREEN
+  EVM-GAS-BURNER-LOOP-EXECUTES-WITHOUT-PER-INSTRUCTION-GARBAGE (unit,
+  tests/evm-core-tests.lisp): the Hoodi burner, three runs; asserts the loop
+  stops at its gas floor with one log, best bytes consed < 20 MB and best
+  thread CPU < 150 ms.
+    control: fixed tests with src/runtime/evm restored to a07c912e (touched,
+    image restarted) -> RED "Assertion failed: (< BEST-BYTES (* 20 1000
+    1000))" (the three behavioural assertions before it passed);
+    fixed tree -> GREEN.
+  EVM-OPCODE-BASE-GAS-TABLE-MATCHES-THE-SCHEDULE-FOR-EVERY-FORK (unit):
+    all 256 opcodes x six contexts (none, Frontier, EIP-150, Istanbul,
+    Osaka, Amsterdam) agree with %OPCODE-BASE-GAS-BY-SCHEDULE; built-in
+    positive control: a lookup that answers BALANCE fork-blind is caught.
+
+Cold (exact commands, logs kept in the session scratchpad)
+  cl-workbench validation run cold-unit --match EVM --match GAS
+    --match OPCODE --match PRECOMPILE
+      217 tests passed, EXIT=0, both new tests listed ok, no WARNING in the
+      log
+  cl-workbench validation run cold-integration --match EVM --match FIXTURE
+    --match NEW-PAYLOAD --match TELEMETRY
+      26 tests passed, EXIT=0
+
+EEST tests@v20.0.2 (consensus oracle for a gas-path change)
+  Corpus fetched through the broker into this worktree:
+    scripts/dev.sh eest-fixtures stable-v20.0.2 .eest-fixtures-np-six-second
+    (exit 0); fixtures.tar.gz re-hashed on the control plane:
+    1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788 (the
+    pin in scripts/fetch-eest-fixtures.sh).
+  Selectors as in docs/evidence/sec5-b5161312-eest-v20.0.2.txt:
+    ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<worktree>/.eest-fixtures-np-six-second/tests-v20.0.2
+    ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS=auto
+    ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS=London,Shanghai,Cancun,Prague,Osaka
+    ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS=auto
+    ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS=Shanghai,Cancun,Prague,Osaka
+  cl-workbench validation run cold-integration --match <test> > <log> 2>&1,
+  one at a time, on a clean tree at 43be69c5, for:
+    phase-a-eest-state-conformance-is-non-vacuous          1 passed EXIT=0
+    phase-a-eest-blockchain-conformance-is-non-vacuous     1 passed EXIT=0
+    phase-a-eest-blockchain-rlp-conformance-is-non-vacuous 1 passed EXIT=0
+    optional-phase-a-eest-state-test-root-vectors-execute  1 passed EXIT=0
+    optional-phase-a-eest-blockchain-replay-executes       1 passed EXIT=0
+    optional-phase-a-eest-engine-late-payload-replay-executes 1 passed EXIT=0
+    optional-phase-a-eest-engine-payload-rejection-executes   1 passed EXIT=0
+    optional-phase-a-eest-blockchain-rlp-replay-executes   1 passed EXIT=0
+  The six EEST-CONFORMANCE count-manifest lines (state 15,393 executed;
+  blockchain_replay 10,592 executed + 790 rejections; blockchain_rlp 9,623
+  executed + 634 rejections; zero unexpected skips) are byte-identical to
+  the b5161312 record (sorted `diff` empty).
+  Not run: the legacy v5.4.0 corpus (pre-London forks); the pre-London
+  branches of the schedule are covered by the table-equivalence test only.
+
+================================================================================
+5. Next
+================================================================================
+
+~1 s per full burner block (estimate: 24 x 40 ms on arm64; amd64 matched
+arm64 before the fix) still holds the store guard for one second per block
+and leaves little headroom in a 12 s slot once forkchoiceUpdated's own
+~2.9 s canonical phase (below) is added. The remaining interpreter cost is
+spread: the list stack (16 bytes per push), generic arithmetic on PC and gas
+counters typed (INTEGER 0 *), and the closure per comparison. A vector stack
+with fixnum fast paths is the next step and needs the EEST gates again.
+
+The same cost explains the long store-guard holds in the R4 log
+(node.store_guard.long_hold, 00:20-01:40Z): forward-batch-import 5,772-6,728 ms
+(one burner block per hold) and the snap forward importer
+(ethereum-lisp-devnet-sync-coordinator) 5,608-6,500 ms before target
+completion, and engine_newPayloadV4 2,952-6,424 ms.
+
+================================================================================
+Out of scope, seen on the way
+================================================================================
+
+- R4 (hoodi-el-sec5-b5161312) exited 137 with OOMKilled=true at
+  2026-09-24T02:25:29Z. At 02:19:46Z `docker stats` showed 11.85 GiB of its
+  12 GiB limit. This session's only reads of its RPC were one
+  eth_getBlockByNumber(head, full) at about 02:20Z and a loop that found the
+  port refusing connections; a contribution of that one read cannot be ruled
+  out. After 01:33:42Z the log has no newPayload execution at all.
+- dial-session store-guard holds grow to 82 s in the same window
+  (ethereum-lisp-devnet-dial-session); not analysed.
+
+================================================================================
+Not verified
+================================================================================
+
+- Live: nothing deployed. The ~1 s per block figure is extrapolated from the
+  per-frame measurement; the block-level newPayload path was not timed with a
+  synthetic 24-burner block.
+- amd64 after the fix (the before-figures matched arm64 1:1).
+- The time-based block match is exact only for the first five payloads; the
+  rest is the population argument in section 1.
+- forkchoiceUpdated: the same log shows fcuCanonicalMs growing from 1,156 ms
+  (00:26:00Z) to a ~2.8-3.0 s plateau by ~00:40Z with fcuPersistenceMs 4-40 ms,
+  i.e. its own CPU in PUBLISH-CANONICAL-BLOCK, not the burner. Not analysed
+  here (the growth-then-plateau shape fits a per-head txpool reconciliation
+  over a pool that fills to its slot limits: TRANSACTION-REFRESH-COMPUTATION-
+  CACHE re-encodes a transaction on every TRANSACTION-SENDER/-HASH call).
