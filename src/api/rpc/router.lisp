@@ -372,6 +372,23 @@ tried here, because their response is NIL whether or not the view answered."
           (values response t))))))
 
 
+(define-condition rpc-request-guard-busy (error)
+  ((holder :initarg :holder :initform nil
+           :reader rpc-request-guard-busy-holder)
+   (waited-ms :initarg :waited-ms :initform nil
+              :reader rpc-request-guard-busy-waited-ms))
+  (:report (lambda (condition stream)
+             (format stream "Request guard stayed busy~@[ for ~D ms~]~@[ behind ~A~]"
+                     (rpc-request-guard-busy-waited-ms condition)
+                     (rpc-request-guard-busy-holder condition))))
+  (:documentation
+   "Signalled by a request guard that gave up waiting for the shared state.
+
+A guard may bound how long a request waits behind background work (the devnet
+node bounds Engine requests; see *DEVNET-ENGINE-GUARD-BUSY-SECONDS*). The
+request did not run. RPC-HANDLE-REQUEST answers it with
+ENGINE-RPC-STORE-BUSY-RESPONSE instead of the generic internal error."))
+
 (defun rpc-handle-request (request context)
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
@@ -402,6 +419,11 @@ tried here, because their response is NIL whether or not the view answered."
                          ethereum-lisp.telemetry:*telemetry-activity-label*)))
                (funcall guard thunk)))
             (t (funcall thunk)))))
+    (rpc-request-guard-busy ()
+      (unless (json-rpc-notification-p request)
+        (engine-rpc-store-busy-response
+         (json-object-field request "id")
+         (json-object-field request "method"))))
     (error (condition)
       (declare (ignore condition))
       (unless (json-rpc-notification-p request)

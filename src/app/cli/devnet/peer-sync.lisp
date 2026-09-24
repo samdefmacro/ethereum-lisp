@@ -134,8 +134,8 @@ in the warm image, and the guard also serializes every Engine request."
   "DEVNET-POOLED-BLOB-SIDECAR for serving: the store read under NODE's guard,
 any cell-proof derivation after it, from NODE's cache."
   (devnet-pooled-blob-sidecar-from-entries
-   (call-with-devnet-node-store-guard
-    node
+   (call-with-devnet-node-store-guard-as
+    node "blob-sidecar-lookup"
     (lambda ()
       (devnet-pooled-blob-entries (devnet-node-store node) transaction)))
    version
@@ -152,8 +152,8 @@ so the original (version 1) sidecar is read and no cell proof is derived."
     (devnet-peer-blob-cells-from-reader
      (lambda (hash)
        (let ((entries
-               (call-with-devnet-node-store-guard
-                node
+               (call-with-devnet-node-store-guard-as
+                node "blob-sidecar-lookup"
                 (lambda ()
                   (let ((transaction
                           (engine-payload-store-pooled-transaction
@@ -198,20 +198,23 @@ take the guard for the whole admission, since that mutates the pool."
   (let ((store (devnet-node-store node))
         (config (devnet-node-config node))
         (policy (devnet-peer-txpool-policy node)))
-    (flet ((guarded (thunk)
-             (call-with-devnet-node-store-guard node thunk)))
+    (flet ((guarded (label thunk)
+             (call-with-devnet-node-store-guard-as node label thunk)))
       (make-eth-serve-backend
        :block-by-number
        (lambda (number)
-         (guarded (lambda () (chain-store-block-by-number store number))))
+         (guarded "eth-serve-block"
+                  (lambda () (chain-store-block-by-number store number))))
        :block-by-hash
        (lambda (hash)
-         (guarded (lambda ()
+         (guarded "eth-serve-block"
+                  (lambda ()
                     ;; The store keys blocks by hash32; the wire carries bytes.
                     (chain-store-known-block store (make-hash32 hash)))))
        :pooled-transaction
        (lambda (hash)
-         (guarded (lambda ()
+         (guarded "tx-pool-lookup"
+                  (lambda ()
                     (engine-payload-store-pooled-transaction
                      store (make-hash32 hash)))))
        ;; eth/72 cell proofs and cells are derived outside the store guard,
@@ -228,7 +231,8 @@ take the guard for the whole admission, since that mutates the pool."
            (devnet-peer-blob-cells node hashes mask)))
        :known-transaction-p
        (lambda (hash)
-         (guarded (lambda ()
+         (guarded "tx-pool-lookup"
+                  (lambda ()
                     (let ((key (make-hash32 hash)))
                       ;; Already pooled, or already mined into our chain.
                       (or (and (engine-payload-store-pooled-transaction store key)
@@ -243,26 +247,28 @@ take the guard for the whole admission, since that mutates the pool."
        (lambda () (devnet-node-accept-inbound-transactions-p node))
        :accept-transactions
        (lambda (transactions)
-         (guarded
+         (guarded "tx-admission"
           (lambda ()
             (txpool-admit-transactions
              transactions store config policy :admitted-at (unix-time)))))
        :accept-transaction
        (lambda (transaction)
-         (guarded (lambda ()
+         (guarded "tx-admission"
+                  (lambda ()
                     (txpool-admit-transaction
                      transaction store config policy
                      :admitted-at (unix-time)))))
        :accept-blob-sidecar
        (lambda (sidecar)
-         (guarded
+         (guarded "blob-sidecar-admission"
           (lambda () (engine-payload-store-put-blob-sidecar store sidecar))))
        :accept-block
        (lambda (block)
          ;; Downloaded and propagated blocks share the exact same conversion,
          ;; validation, execution, and durable candidate path.  In particular,
          ;; this does not publish a peer tip as canonical.
-         (devnet-peer-sync-import-block node block))))))
+         (let ((*telemetry-activity-label* "peer-block-import"))
+           (devnet-peer-sync-import-block node block)))))))
 
 (defun devnet-node-snap-state-provider (node)
   "Return a root-indexed resolver for NODE's retained canonical states.
@@ -315,8 +321,8 @@ NIL keeps snap out of Hello on other backends."
   (let ((store (devnet-node-store node)))
     (unless (database-engine-payload-store-p store)
       (return-from devnet-peer-snap-backend nil))
-    (call-with-devnet-node-store-guard
-     node
+    (call-with-devnet-node-store-guard-as
+     node "snap-serve-open"
      (lambda ()
        (let* ((head (chain-store-head-block store))
               (head-hash (and head (block-hash head)))
@@ -330,32 +336,32 @@ NIL keeps snap out of Hello on other backends."
            (ethereum-lisp.snap:make-snap-state-backend
             :account-range
             (lambda (request)
-              (call-with-devnet-node-store-guard
-               node
+              (call-with-devnet-node-store-guard-as
+               node "snap-serve-account-range"
                (lambda ()
                  (funcall
                   (ethereum-lisp.snap:snap-state-backend-account-range backend)
                   request))))
             :storage-ranges
             (lambda (request)
-              (call-with-devnet-node-store-guard
-               node
+              (call-with-devnet-node-store-guard-as
+               node "snap-serve-storage-ranges"
                (lambda ()
                  (funcall
                   (ethereum-lisp.snap:snap-state-backend-storage-ranges backend)
                   request))))
             :bytecodes
             (lambda (request)
-              (call-with-devnet-node-store-guard
-               node
+              (call-with-devnet-node-store-guard-as
+               node "snap-serve-bytecodes"
                (lambda ()
                  (funcall
                   (ethereum-lisp.snap:snap-state-backend-bytecodes backend)
                   request))))
             :trie-nodes
             (lambda (request)
-              (call-with-devnet-node-store-guard
-               node
+              (call-with-devnet-node-store-guard-as
+               node "snap-serve-trie-nodes"
                (lambda ()
                  (funcall
                   (ethereum-lisp.snap:snap-state-backend-trie-nodes backend)
@@ -452,8 +458,8 @@ never as another thread sending on the peer."
     (lambda ()
       (when (null pending)
         (multiple-value-bind (transactions next-cursor)
-            (call-with-devnet-node-store-guard
-             node
+            (call-with-devnet-node-store-guard-as
+             node "tx-broadcast-scan"
              (lambda ()
                (multiple-value-bind (hashes current overflow-p)
                    (engine-payload-store-txpool-changes-since store cursor)
@@ -561,6 +567,8 @@ backfill discovered it, so Engine can answer INVALID even when later descendant
 bodies were never admitted after the downloader stopped at the bad block."
   (let ((store (devnet-node-store node))
         (config (devnet-node-config node)))
+       ;; A long store-guard hold names the blocks it imported.
+       (devnet-store-guard-note-block (block-header-number (block-header block)))
        ;; Exercise the same fork/version adapter used by Engine RPC without
        ;; round-tripping the canonical eth body through a representation that
        ;; cannot carry derived requests/BAL side data.
@@ -604,10 +612,13 @@ bodies were never admitted after the downloader stopped at the bad block."
            (values status candidate receipts)))))
 
 (defun devnet-peer-sync-import-block
-    (node block &key peer-id require-valid-p invalid-head-hash)
-  "Import one peer block under NODE's serialization guard."
-  (call-with-devnet-node-store-guard
+    (node block &key peer-id require-valid-p invalid-head-hash label)
+  "Import one peer block under NODE's serialization guard, one hold per block.
+LABEL, when given, names the hold (see CALL-WITH-DEVNET-NODE-STORE-GUARD-AS);
+otherwise the caller's activity label does."
+  (call-with-devnet-node-store-guard-as
    node
+   (or label (telemetry-activity-label))
    (lambda ()
      (devnet-peer-sync-import-block-without-guard
       node block :peer-id peer-id :require-valid-p require-valid-p
@@ -620,7 +631,14 @@ A downloader response is up to 192 blocks, and executing them all under one
 hold kept every Engine request past the consensus client's 30 second deadline
 on Hoodi. The importer commits the blocks it has executed and releases the
 guard once this much time has passed, or at once when an Engine request is
-waiting; the checks happen between blocks, so a single block is never split.")
+waiting; the checks happen between blocks, so a single block is never split.
+A block expected to overrun the budget ends its hold (see
+DEVNET-PEER-SYNC-IMPORT-BATCH-CHUNK), so once blocks cost more than the
+budget every hold is one block.")
+
+(defvar *devnet-peer-sync-last-block-ticks* 0
+  "Internal-time ticks the forward batch importer's latest block took to
+execute. The next hold's decision uses it before executing anything.")
 
 (defun devnet-peer-sync-import-batch-chunk
     (node blocks peer-id invalid-head-hash)
@@ -628,13 +646,19 @@ waiting; the checks happen between blocks, so a single block is never split.")
 
 Blocks run oldest-first inside a common outer rollback frame. Before each block
 the importer decides whether it is the last of this hold: the final block of
-BLOCKS, or any block once an Engine request waits or the hold has used its
-budget. A hold always executes at least its first block, so every hold makes
-progress. Only that last candidate invokes the durable exporter: it walks newly
-executed ancestry back to the existing durable boundary, so every candidate of
-the hold and the resume cursor enter one synchronized WAL batch. A failure in
-execution or durability rolls the whole hold back. Returns the blocks still to
-import."
+BLOCKS, or any block once an Engine request waits, or when this block and one
+more of the same cost would reach the hold's budget. The decision has to be
+made before the block runs, because only the last candidate invokes the
+durable exporter; it uses the latest block's measured cost. With blocks that
+each cost more than the budget (about 6 s on Hoodi at b5161312, against a 1 s
+budget) every hold is therefore one block, and an Engine request waits for at
+most one block execution. Only the very first block the process imports has no
+measured cost, so that one hold may run two blocks. A hold always executes at
+least its first block, so every hold makes progress. The last candidate's
+durable export walks newly executed ancestry back to the existing durable
+boundary, so every candidate of the hold and the resume cursor enter one
+synchronized WAL batch. A failure in execution or durability rolls the whole
+hold back. Returns the blocks still to import."
   (call-with-devnet-node-store-guard
    node
    (lambda ()
@@ -653,10 +677,15 @@ import."
         (lambda ()
           (loop for tail on blocks
                 for block = (car tail)
+                for started-at = (get-internal-real-time)
                 for last-p = (or (null (cdr tail))
                                  (devnet-node-store-guard-priority-pending-p
                                   node)
-                                 (>= (get-internal-real-time) deadline))
+                                 ;; This block and the next, at the latest
+                                 ;; block's cost, would reach the budget.
+                                 (>= (+ started-at
+                                        (* 2 *devnet-peer-sync-last-block-ticks*))
+                                     deadline))
                 do
                    (multiple-value-bind (status candidate receipts)
                        (devnet-peer-sync-import-block-without-guard
@@ -666,6 +695,8 @@ import."
                         :durability-function
                         (and last-p durability-function))
                      (declare (ignore candidate receipts))
+                     (setf *devnet-peer-sync-last-block-ticks*
+                           (- (get-internal-real-time) started-at))
                      (when (string= +payload-status-invalid+
                                     (payload-status-status status))
                        ;; An invalid intermediate block did not receive the

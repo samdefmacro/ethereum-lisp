@@ -93,7 +93,8 @@
    #:engine-rpc-fail
    #:engine-rpc-fail-with-data
    #:+engine-rpc-error-execution-reverted+
-   #:engine-rpc-handle-engine-method))
+   #:engine-rpc-handle-engine-method
+   #:engine-rpc-store-busy-response))
 
 (defpackage #:ethereum-lisp.public-api
   (:use #:cl
@@ -177,6 +178,9 @@
    #:rpc-context-rebind
    #:rpc-context-with-txpool-now
    #:rpc-handle-request
+   #:rpc-request-guard-busy
+   #:rpc-request-guard-busy-holder
+   #:rpc-request-guard-busy-waited-ms
    #:rpc-handle-request-value
    #:rpc-handle-request-string
    #:rpc-handle-request-json

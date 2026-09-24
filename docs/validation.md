@@ -1249,6 +1249,32 @@ and `/data` mount before stopping anything. It keeps the source EL stopped,
 restarts the same candidate container, waits for its loopback-only RPC, and
 prints before/after block, syncing, start-time, and datadir-byte evidence.
 
+### Engine availability under background store-guard holds
+
+```sh
+cl-workbench validation run cold-unit \
+  --match DEVNET-STORE-GUARD-ENGINE-WAIT-GIVES-UP-BEHIND-A-BACKGROUND-HOLD
+cl-workbench validation run cold-unit \
+  --match DEVNET-STORE-GUARD-LONG-HOLD-NAMES-THE-BLOCKS-IT-IMPORTED
+cl-workbench validation run cold-integration \
+  --match DEVNET-ENGINE-AVAILABILITY-BEHIND-A-LONG-BACKGROUND-HOLD
+cl-workbench validation run cold-integration \
+  --match DEVNET-FORWARD-BATCH-IMPORT-HOLDS-THE-GUARD-FOR-ONE-SLOW-BLOCK
+```
+
+The availability control serves the node's real Engine endpoint on a
+loopback socket with four worker slots while another thread holds the store
+guard for four seconds. engine_exchangeCapabilities and
+engine_getClientVersionV1 must answer at once, newPayload and
+forkchoiceUpdated must answer SYNCING after the one-second test budget, and a
+capabilities call that finds every slot parked must be served within one
+budget. The same run then restores the b5161312 policy (no budget, metadata
+guarded) and requires every call to wait out the hold. The unit controls
+require an Engine request behind another Engine request, or with the budget
+off, to keep waiting. The forward-batch control slows each block past the
+hold budget and requires one block per hold after the first; fast blocks must
+still share a hold. The record is `docs/evidence/sec5-engine-availability.txt`.
+
 ### Hoodi shadow Engine fan-out
 
 A seven-day EL comparison cannot attach two execution clients directly to one
