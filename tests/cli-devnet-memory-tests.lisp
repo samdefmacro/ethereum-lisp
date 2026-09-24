@@ -36,9 +36,12 @@
         (inside nil))
     (ethereum-lisp.cli::call-with-devnet-cli-memory-budget
      (list :memory-budget-mebibytes 12288)
-     sink
      (lambda ()
-       (setf inside ethereum-lisp.database:*rocksdb-memory-profile*)))
+       (setf inside ethereum-lisp.database:*rocksdb-memory-profile*)
+       ;; What a serving node logs when its maintenance worker starts.  The
+       ;; wrapper itself logs nothing: stdout can be the --json summary
+       ;; (ETHEREUM-LISP-SCRIPT-DISPATCHES-DEVNET-NO-SERVE-JSON parses it).
+       (ethereum-lisp.cli::devnet-log-memory-budget sink)))
     ;; Assigned for the run (visible to every thread), restored after it.
     (is (= (* 438 1024 1024)
            (ethereum-lisp.database:rocksdb-memory-profile-block-cache-bytes

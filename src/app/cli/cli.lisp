@@ -288,7 +288,6 @@
                             ;; and pins the allocator's mmap threshold.
                             (call-with-devnet-cli-memory-budget
                              options
-                             telemetry-sink
                              (lambda ()
                              ;; Innermost, so the node's import, every
                              ;; persist, and the shutdown export all share one

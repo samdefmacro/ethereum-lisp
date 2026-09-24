@@ -72,28 +72,40 @@ more is logged whenever it happens.")
                (devnet-memory-mebibytes (- budget rocksdb dynamic-space))))
       ("mallocMmapThresholdBytes" . ,mmap-threshold))))
 
-(defun call-with-devnet-cli-memory-budget (options telemetry-sink thunk)
+(defvar *devnet-malloc-mmap-threshold-bytes* nil
+  "The mmap threshold the CLI pinned for this run, or NIL when it did not.")
+
+(defun call-with-devnet-cli-memory-budget (options thunk)
   "Run THUNK with RocksDB sized from the memory budget in OPTIONS.
 
 Assigned, not bound, for the reason CALL-WITH-DEVNET-CLI-HTTP-LIMITS gives:
 the datadir may be opened on any thread.  Also pins glibc's mmap threshold
 (NATIVE-MALLOC-CONFIGURE), which is process-wide and one-way, before the
-storage engine allocates anything, and logs node.memory.budget."
+storage engine allocates anything.  Nothing is logged here: stdout may be the
+--json summary's; a serving node logs node.memory.budget when its maintenance
+worker starts."
   (unless (functionp thunk)
     (error "Devnet memory budget thunk must be a function"))
   (let ((profile (ethereum-lisp.database:make-rocksdb-memory-profile
                   (devnet-cli-memory-budget-bytes options)))
-        (previous ethereum-lisp.database:*rocksdb-memory-profile*))
+        (previous ethereum-lisp.database:*rocksdb-memory-profile*)
+        (previous-threshold *devnet-malloc-mmap-threshold-bytes*))
     (unwind-protect
          (progn
-           (setf ethereum-lisp.database:*rocksdb-memory-profile* profile)
-           (telemetry-log
-            :info "node.memory.budget"
-            :fields (devnet-memory-budget-fields
-                     profile (native-malloc-configure))
-            :sink telemetry-sink)
+           (setf ethereum-lisp.database:*rocksdb-memory-profile* profile
+                 *devnet-malloc-mmap-threshold-bytes* (native-malloc-configure))
            (funcall thunk))
-      (setf ethereum-lisp.database:*rocksdb-memory-profile* previous))))
+      (setf ethereum-lisp.database:*rocksdb-memory-profile* previous
+            *devnet-malloc-mmap-threshold-bytes* previous-threshold))))
+
+(defun devnet-log-memory-budget (sink)
+  "Log node.memory.budget for the profile and threshold now in force."
+  (telemetry-log
+   :info "node.memory.budget"
+   :fields (devnet-memory-budget-fields
+            ethereum-lisp.database:*rocksdb-memory-profile*
+            *devnet-malloc-mmap-threshold-bytes*)
+   :sink sink))
 
 (defun devnet-memory-sample-fields (&key (lisp-resident-p t))
   "Where the process's resident memory is now, as log fields.
@@ -193,12 +205,15 @@ interval, and between samples logs a release that returned
 
 (defun devnet-start-memory-maintenance-thread
     (node shutdown-controller error-callback)
-  "Start the thread that keeps freed C-heap memory from staying resident.
-Returns NIL (and starts nothing) when the allocator is not glibc."
+  "Log node.memory.budget, then start the thread that keeps freed C-heap
+memory from staying resident.  Returns NIL (and starts nothing) when the
+allocator is not glibc."
   #-sbcl
   (declare (ignore node shutdown-controller error-callback))
   #-sbcl
   nil
+  #+sbcl
+  (devnet-log-memory-budget (devnet-node-telemetry-sink node))
   #+sbcl
   (when (native-malloc-available-p)
     (let ((sink (devnet-node-telemetry-sink node)))
