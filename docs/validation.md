@@ -1426,6 +1426,45 @@ maintenance, repeated baselines, or a second development objective. Report an
 unrelated failure separately and continue the requested feature when it is safe
 to do so.
 
+## Supply-chain pins and release artifacts
+
+Plan section 10. Two checks are plain shell on the control plane (they read
+files and, for the second, run digest-pinned tool containers; no application
+toolchain), and both run in the `pins` job of `.github/workflows/test.yml`:
+
+```sh
+scripts/pins-check.sh --self-test   # every rule rejects a planted fault
+scripts/pins-check.sh               # FROM image:tag@sha256, actions by commit,
+                                    # tools/build-inputs/inputs.lock consistent
+scripts/release-verify.sh --self-test   # a synthetic signed release verifies;
+                                        # six tampered ones do not
+```
+
+Inside both image builds, `tools/build-inputs/verify-inputs.sh` checks every
+downloaded input (c-kzg-4844, blst, SBCL, the Quicklisp client, dist and
+release archives) against `tools/build-inputs/inputs.lock` before anything
+loads it, and the compile steps after it run with networking disabled; a
+mismatch fails the build and prints the observed value. The lock's header says
+how to refresh an input.
+
+A release is built, exported (archive, SBOM, provenance, checksums), signed,
+and verified with:
+
+```sh
+RUNTIME_PLATFORM=linux/amd64 scripts/dev.sh runtime-build \
+  ethereum-lisp-runtime:REV-amd64
+scripts/dev.sh runtime-export ethereum-lisp-runtime:REV-amd64 \
+  /private/tmp/ethereum-lisp-runtime-REV-amd64.tar
+COSIGN_KEY=/path/outside/the/checkout/cosign.key COSIGN_PASSWORD=... \
+  scripts/dev.sh runtime-sign /private/tmp/ethereum-lisp-runtime-REV-amd64.tar
+scripts/release-verify.sh /private/tmp/ethereum-lisp-runtime-REV-amd64.tar cosign.pub
+cl-workbench validation run runtime-smoke ethereum-lisp-runtime:REV-amd64
+```
+
+`scripts/release-artifacts.sh validate-sbom SBOM` checks an SBOM alone. What
+each file contains and what a PASS does and does not establish is in
+`docs/runbook.md`, "Release verification".
+
 ## Production-store scale gate
 
 ```sh
