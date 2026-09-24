@@ -1,0 +1,59 @@
+Section 5: b5161312 (R4) fresh-datadir Hoodi run — heal converged, head-following does not
+
+Status (2026-09-24T02:10Z, container hoodi-el-sec5-b5161312, image
+sha256:f35255e59ae8c4952a9b88ab0cce08bb2567768f0418da3158e212f5d5357bab,
+platform linux/amd64, revision b51613129ad17a6ef22513e06a80abda41a6dd08,
+started 2026-09-23T21:54:41Z, datadir /data/hoodi-sec5-20260814/datadir-b5161312,
+memory limit 12 GiB, user 1000:1000, read-only rootfs)
+
+  snap phase        21:54Z -> 00:24:14Z  peer.snap.target_completed pivot 3683637 target 3683701
+  heal              converged (fourth run in a row: aac5f762, 8e95b990, d203fee6, aee866f7, b5161312)
+  head-following    00:26Z -> 01:50:27Z: 208 newPayload executions, all VALID
+                    01:50:27Z -> now: no newPayload/forkchoiceUpdated completes; every Engine
+                    request hits the 30 s HTTP deadline (engine.rpc.http.connection.error
+                    "HTTP request exceeded the 30 second deadline", 4-32 per minute since 01:27Z);
+                    Lighthouse: "Error during exchange capabilities ... timeout" every second,
+                    cl_node_syncing el_offline=true
+  complete          EXIT=1  completion-eth-syncing=not-false
+                    eth_syncing {startingBlock 0x3836ba currentBlock 0x3836ba highestBlock 0x383716}
+  runtime           cpu 61%  memory 11.02 GiB / 12 GiB  el-runtime-fault-count 0  peers 6
+  host              15 GB RAM, 1 GB available, 4 GB swap used; /data 84% used
+
+What the new telemetry (82b217e6) says about the six-second quantum
+  npExecuteMs / npExecuteCpuMs / npTrieNodeReads over the 208 executions, sorted:
+    fast:  4/5/15  12/10/10  12/12/20  16/15/13  24/23/20  36/33/79  40/39/123  52/49/26 ...
+    slow:  5868/5854/447  5868/5864/15  5904/5840/1126  5908/5906/13  5968/5949/24
+           6004/5994/14  6132/6075/345  6200/6178/826  6336/6282/849  6396/6316/958
+  The quantum is the handler thread's own CPU (npExecuteCpuMs ~ npExecuteMs), with
+  npExecuteGcMs 26-53 and 9..1126 trie-node reads. It is neither GC nor waiting. Most executed
+  blocks are in the slow population. Example (01:32:28Z): handlerMs 23917 = guardWaitMs 17921
+  + npExecuteMs 5968 (npExecuteGcMs 45, npExecuteCpuMs 5949, npPersistMs 20, npTrieNodeReads 24).
+
+Guard holds at the head (node.store_guard.long_hold, holder ethereum-lisp-devnet-dial-session,
+engineWaiting true), holdMs 01:09Z-01:50Z:
+  90551 41553 64602 47269 28953 117171 30365 41781 133776 89235 72098 21109 22889 82558 30133
+  36877 72662 61422 21081 21541 56118 68534 61734 21997 63274 33613 85250 77246 60194 110731
+  One hold = the gap filler / forward batch importer importing 3-18 of the CL's own blocks at
+  ~6 s each. After the 110,731 ms hold ending 01:50:17Z no release has been logged.
+
+Memory (pid 3245978, 02:09Z): VmRSS 11,478,444 kB, RssAnon 11,472,464 kB, RssFile 5,980 kB,
+VmSwap 0, Threads 96; cgroup memory.stat anon 11,751,002,112 file 961,605,632
+slab 134,585,488, memory.current 12,879,970,304 of 12,884,901,888. heapMb (Lisp dynamic usage)
+300-600 MB on every Engine request line of the last hour.
+
+Inbound peering: p2p.peer.session_failed "ECIES tag does not authenticate the message" dozens
+per minute, "RLPx stream ended after 0 of 32 bytes" some, p2p.listener.rejected no-slot
+continuously, net_peerCount 6.
+
+Conclusion: the Section 5 acceptance (fresh --hoodi snap sync then continuous head-following)
+is blocked by (1) a ~6 s constant CPU cost per executed block, (2) background importers holding
+the store guard across many blocks so Engine requests exceed the CL's deadlines, (3) resident
+memory at the container ceiling with a small Lisp heap. Tracks opened 2026-09-24: np-six-second-cpu,
+engine-availability, resident-memory, rlpx-inbound-auth (plus txpool-section6, packaging-section10,
+gate-tooling, observability-section10). The container stays up as read-only evidence for them.
+
+Commands (read-only, from .claude/worktrees/gate-b5161312):
+  HOODI_GATE_HOST=test-ethereum-sophon2-symbiosis HOODI_GATE_MEMORY_BYTES=12884901888 \
+    scripts/hoodi-live-gate.sh status | logs | complete
+  ssh test-ethereum-sophon2-symbiosis 'docker logs -t hoodi-el-sec5-b5161312' (grep npExecuteMs,
+    long_hold, connection.error, session_failed)
