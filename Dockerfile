@@ -49,8 +49,20 @@ RUN mkdir -p /usr/local/libexec \
         -o /usr/local/libexec/ethereum-lisp-io-uring-probe -luring \
     && rm /opt/io-uring-probe.c
 
+# Every downloaded input from here on is checked against
+# tools/build-inputs/inputs.lock before it is loaded, executed or compiled
+# (plan section 10), exactly as in Dockerfile.runtime. Copied after the
+# RocksDB layer so a lock-file change does not rebuild RocksDB.
+COPY tools/build-inputs/inputs.lock tools/build-inputs/verify-inputs.sh /opt/build-inputs/
+
+# SBCL came from the first apt layer; hold it to the pinned Debian version and
+# per-architecture file digest here, after the expensive layers, so the check
+# fails closed on drift without invalidating their cache.
+RUN /opt/build-inputs/verify-inputs.sh deb sbcl sbcl
+
 # Build c-kzg-4844 (with its bundled blst) as a shared library for the KZG CFFI
-# binding, and stage its trusted setup. Pinned to a tag; the build has network,
+# binding, and stage its trusted setup. Cloned by tag and held to the pinned
+# commits and tree digests before anything builds; the build has network,
 # the runtime (--network none) only dlopens the result. shim.c wraps c-kzg in a
 # stable byte-pointer ABI (see tools/ckzg-ffi/shim.c).
 # c-kzg-4844 bundles blst as a submodule, so one clone provides both the KZG
@@ -59,6 +71,9 @@ COPY tools/ckzg-ffi/shim.c /opt/ckzg-shim.c
 COPY tools/bls-ffi/shim.c /opt/bls-shim.c
 RUN git clone --depth 1 --branch v2.1.1 --recurse-submodules \
         https://github.com/ethereum/c-kzg-4844.git /opt/c-kzg \
+    && /opt/build-inputs/verify-inputs.sh \
+        git c-kzg-4844 /opt/c-kzg \
+        git blst /opt/c-kzg/blst \
     && cd /opt/c-kzg/blst && ./build.sh -fPIC \
     && cd /opt/c-kzg \
     && gcc -shared -fPIC -O2 -o /usr/local/lib/libethckzg.so \
@@ -77,15 +92,36 @@ RUN git clone --depth 1 --branch v2.1.1 --recurse-submodules \
 #   - mgl-pax/full: used only by scripts/docs-check.lisp.
 # A recent Ironclad from Quicklisp is markedly faster than Debian's cl-ironclad
 # (0.57), so the Debian package is deliberately NOT installed.
-RUN curl -fsSL https://beta.quicklisp.org/quicklisp.lisp -o /tmp/quicklisp.lisp \
+#
+# Nothing downloaded runs before it is verified (see Dockerfile.runtime for the
+# same sequence): the pinned client over HTTPS, checked, laid out as
+# quicklisp-quickstart:install would; then the pinned dist, and only a DOWNLOAD
+# of the releases QUICKLOAD would load; every index and archive checked; and
+# only then the QUICKLOADs, with networking disabled so they cannot fetch
+# anything the check did not see.
+RUN mkdir -p /root/quicklisp/dists \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        https://beta.quicklisp.org/client/2021-02-13/quicklisp.tar -o /tmp/quicklisp.tar \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        https://beta.quicklisp.org/client/2021-02-11/setup.lisp -o /root/quicklisp/setup.lisp \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        https://beta.quicklisp.org/asdf/3.2.1/asdf.lisp -o /root/quicklisp/asdf.lisp \
+    && /opt/build-inputs/verify-inputs.sh \
+        file quicklisp-client /tmp/quicklisp.tar \
+        file quicklisp-setup /root/quicklisp/setup.lisp \
+        file quicklisp-asdf /root/quicklisp/asdf.lisp \
+    && tar -xf /tmp/quicklisp.tar -C /root/quicklisp \
+    && rm /tmp/quicklisp.tar \
     && sbcl --non-interactive \
-            --load /tmp/quicklisp.lisp \
-            --eval '(quicklisp-quickstart:install)' \
-            --eval '(ql-dist:install-dist "http://beta.quicklisp.org/dist/quicklisp/2026-01-01/distinfo.txt" :replace t :prompt nil)' \
+            --load /root/quicklisp/setup.lisp \
+            --eval '(ql-dist:install-dist "http://beta.quicklisp.org/dist/quicklisp/2026-01-01/distinfo.txt" :prompt nil)' \
+            --eval '(dolist (system (list "ironclad" "cffi" "mgl-pax/full")) (map nil (function ql-dist:ensure-installed) (ql::quicklisp-releases (ql::compute-load-strategy system))))' \
+    && /opt/build-inputs/verify-inputs.sh quicklisp-dist /root/quicklisp/dists/quicklisp
+RUN --network=none sbcl --non-interactive \
+            --load /root/quicklisp/setup.lisp \
             --eval '(ql:quickload :ironclad :silent t)' \
             --eval '(ql:quickload :cffi :silent t)' \
-            --eval '(ql:quickload "mgl-pax/full" :silent t)' \
-    && rm -f /tmp/quicklisp.lisp
+            --eval '(ql:quickload "mgl-pax/full" :silent t)'
 
 # The cold-test path loads systems through plain ASDF and never loads Quicklisp,
 # so expose the Quicklisp-fetched sources (ironclad + its deps) to ASDF. The

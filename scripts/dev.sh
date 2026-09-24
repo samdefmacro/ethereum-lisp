@@ -28,7 +28,9 @@ IMAGE_FINGERPRINT="$(
     tools/rocksdb/io-uring-kernel-compat.patch \
     tools/rocksdb/io-uring-probe.c \
     tools/ckzg-ffi/shim.c \
-    tools/bls-ffi/shim.c
+    tools/bls-ffi/shim.c \
+    tools/build-inputs/inputs.lock \
+    tools/build-inputs/verify-inputs.sh
   do
     printf '%s ' "$input"
     git hash-object "$input"

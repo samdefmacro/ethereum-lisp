@@ -76,14 +76,24 @@ RUN mkdir -p /usr/local/libexec \
     && strip --strip-unneeded /usr/local/libexec/ethereum-lisp-io-uring-probe \
     && rm /opt/io-uring-probe.c
 
+# Every downloaded input from here on is checked against
+# tools/build-inputs/inputs.lock before it is loaded, executed or compiled
+# (plan section 10). Copied after the RocksDB layer, whose archive is vendored
+# and checked inline above, so a lock-file change does not rebuild RocksDB.
+COPY tools/build-inputs/inputs.lock tools/build-inputs/verify-inputs.sh /opt/build-inputs/
+
 # c-kzg-4844 (which bundles blst) behind the two stable byte-pointer shims, as
-# in ./Dockerfile: libethckzg for KZG, libethbls for EIP-2537. Pinned to a tag.
+# in ./Dockerfile: libethckzg for KZG, libethbls for EIP-2537. Cloned by tag,
+# then held to the pinned commits and tree digests before anything builds.
 # Every new shim.c must also be un-ignored in .dockerignore or it silently
 # vanishes from the build context.
 COPY tools/ckzg-ffi/shim.c /opt/ckzg-shim.c
 COPY tools/bls-ffi/shim.c /opt/bls-shim.c
 RUN git clone --depth 1 --branch v2.1.1 --recurse-submodules \
         https://github.com/ethereum/c-kzg-4844.git /opt/c-kzg \
+    && /opt/build-inputs/verify-inputs.sh \
+        git c-kzg-4844 /opt/c-kzg \
+        git blst /opt/c-kzg/blst \
     && cd /opt/c-kzg/blst && ./build.sh -fPIC \
     && cd /opt/c-kzg \
     && gcc -shared -fPIC -O2 -o /usr/local/lib/libethckzg.so \
@@ -115,25 +125,47 @@ ENV ETHEREUM_LISP_BUILD_REVISION=${REVISION}
 # the runtime layer -- which has only the versioned soname -- then dies before
 # main with "cannot open shared object file". Nothing here compiles against the
 # headers; CFFI dlopens at runtime.
+#
+# SBCL is pinned to one Debian version and its installed files to a digest per
+# architecture (inputs.lock): its runtime is embedded in the shipped executable.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         curl \
         libsecp256k1-1 \
         libsnappy1v5 \
-        sbcl \
-    && rm -rf /var/lib/apt/lists/*
+        sbcl=2:2.2.9-1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && /opt/build-inputs/verify-inputs.sh deb sbcl sbcl
 
 # Quicklisp supplies the two systems the .asd declares. mgl-pax is NOT fetched:
 # it exists only for scripts/docs-check.lisp, which is not part of a running
 # node. Dist pinned to the same date as ./Dockerfile.
-RUN curl -fsSL https://beta.quicklisp.org/quicklisp.lisp -o /tmp/quicklisp.lisp \
+#
+# Nothing downloaded runs before it is verified. The client is the pinned
+# 2021-02-13 release, fetched over HTTPS and checked against inputs.lock before
+# SBCL loads it, and laid out exactly as quicklisp-quickstart:install would;
+# the pre-made dists/ directory stops it installing the moving default dist.
+# The client then installs the pinned dist and only DOWNLOADS the releases
+# QUICKLOAD would load (the same load strategy), and every index and archive
+# is verified before the build compiles any of it with networking disabled.
+RUN mkdir -p /root/quicklisp/dists \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        https://beta.quicklisp.org/client/2021-02-13/quicklisp.tar -o /tmp/quicklisp.tar \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        https://beta.quicklisp.org/client/2021-02-11/setup.lisp -o /root/quicklisp/setup.lisp \
+    && curl -fsSL --proto '=https' --tlsv1.2 \
+        https://beta.quicklisp.org/asdf/3.2.1/asdf.lisp -o /root/quicklisp/asdf.lisp \
+    && /opt/build-inputs/verify-inputs.sh \
+        file quicklisp-client /tmp/quicklisp.tar \
+        file quicklisp-setup /root/quicklisp/setup.lisp \
+        file quicklisp-asdf /root/quicklisp/asdf.lisp \
+    && tar -xf /tmp/quicklisp.tar -C /root/quicklisp \
+    && rm /tmp/quicklisp.tar \
     && sbcl --non-interactive \
-            --load /tmp/quicklisp.lisp \
-            --eval '(quicklisp-quickstart:install)' \
-            --eval '(ql-dist:install-dist "http://beta.quicklisp.org/dist/quicklisp/2026-01-01/distinfo.txt" :replace t :prompt nil)' \
-            --eval '(ql:quickload :ironclad :silent t)' \
-            --eval '(ql:quickload :cffi :silent t)' \
-    && rm -f /tmp/quicklisp.lisp
+            --load /root/quicklisp/setup.lisp \
+            --eval '(ql-dist:install-dist "http://beta.quicklisp.org/dist/quicklisp/2026-01-01/distinfo.txt" :prompt nil)' \
+            --eval '(dolist (system (list "ironclad" "cffi")) (map nil (function ql-dist:ensure-installed) (ql::quicklisp-releases (ql::compute-load-strategy system))))' \
+    && /opt/build-inputs/verify-inputs.sh quicklisp-dist /root/quicklisp/dists/quicklisp
 
 ENV CL_SOURCE_REGISTRY=/root/quicklisp/dists/quicklisp/software//:
 
@@ -169,7 +201,8 @@ COPY <<'LISP' /opt/build-core.lisp
                           :toplevel #'runtime-toplevel
                           :save-runtime-options t)
 LISP
-RUN sbcl --dynamic-space-size 6144 --non-interactive --load /opt/build-core.lisp
+# No network: every system it compiles must already be on disk and verified.
+RUN --network=none sbcl --dynamic-space-size 6144 --non-interactive --load /opt/build-core.lisp
 
 # :save-runtime-options t means the SBCL runtime parses NO argv of its own, so
 # `ethereum-lisp --version` is the client's flag and not SBCL's.  It also freezes
