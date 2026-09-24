@@ -27,19 +27,31 @@
     (car entry)))
 
 (defun chain-store-txpool-transaction-record-rlp
-    (subpool transaction)
+    (subpool transaction &optional admitted-at)
+  "The durable txpool record: [subpool, encoding] or, when ADMITTED-AT (the
+Unix admission time) is known, [subpool, encoding, admitted-at]. The time is
+kept so a restart does not reset the age that --txpool.lifetime and the blob
+transaction lifetime measure."
   (rlp-encode
-   (make-rlp-list
-    (ascii-to-bytes (chain-store-txpool-subpool-identifier subpool))
-    (transaction-encoding transaction))))
+   (apply #'make-rlp-list
+          (ascii-to-bytes (chain-store-txpool-subpool-identifier subpool))
+          (transaction-encoding transaction)
+          (when admitted-at (list admitted-at)))))
+
+(defun node-store-txpool-transaction-record-rlp (store subpool transaction)
+  "TRANSACTION's durable txpool record, with its admission time from STORE."
+  (chain-store-txpool-transaction-record-rlp
+   subpool transaction
+   (engine-pending-txpool-admission-time
+    (engine-payload-store-txpool store) transaction)))
 
 (defun chain-store-export-txpool-transaction-to-kv
-    (batch subpool transaction)
+    (store batch subpool transaction)
   (kv-batch-put-chain-record
    batch
    :txpool
    (hash32-bytes (transaction-hash transaction))
-   (chain-store-txpool-transaction-record-rlp subpool transaction)))
+   (node-store-txpool-transaction-record-rlp store subpool transaction)))
 
 (defun chain-store-populate-txpool-record-export-batch
     (store database batch)
@@ -49,7 +61,7 @@
                (let ((key (hash32-to-hex (transaction-hash transaction))))
                  (setf (gethash key current-transaction-keys) t)
                  (chain-store-export-txpool-transaction-to-kv
-                  batch subpool transaction)))))
+                  store batch subpool transaction)))))
       (export-subpool :pending
                       (engine-payload-store-pending-transactions store))
       (export-subpool :queued

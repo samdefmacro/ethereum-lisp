@@ -64,12 +64,21 @@
    (list (make-byte-vector +kzg-commitment-size+ :initial-element 2))
    :proofs (list (make-byte-vector +kzg-proof-size+ :initial-element 3))))
 
+(defun eth-gossip-test-blob-acceptor (function)
+  "An ACCEPT-BLOB-TRANSACTION callback for a protocol-only backend: it checks
+the sidecar as the pool's blob admission does, so a malformed or unproven one
+signals, then calls FUNCTION with the transaction and sidecar and accepts."
+  (lambda (transaction sidecar)
+    (validate-blob-sidecar-fields sidecar :transaction transaction
+                                          :require-proof-verification t)
+    (funcall function transaction sidecar)
+    t))
+
 (defun eth-gossip-test-backend (&key (transactions '()) reject-p)
   "A backend over hash-table pools. Returns (VALUES BACKEND POOL SIDECARS);
 REJECT-P, if given, is a predicate marking transactions the pool turns down."
   (let ((pool (make-hash-table :test #'equalp))
-        (sidecars (make-hash-table :test #'equalp))
-        (pending-sidecar nil))
+        (sidecars (make-hash-table :test #'equalp)))
     (dolist (transaction transactions)
       (setf (gethash (eth-gossip-transaction-hash-bytes transaction) pool)
             transaction)
@@ -77,28 +86,29 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
         (setf (gethash (eth-gossip-transaction-hash-bytes transaction)
                        sidecars)
               (eth-gossip-test-blob-sidecar))))
-    (values
-     (make-eth-serve-backend
-      :pooled-transaction (lambda (hash) (gethash hash pool))
-      :pooled-transaction-sidecar
-      (lambda (transaction)
-        (gethash (eth-gossip-transaction-hash-bytes transaction) sidecars))
-      :known-transaction-p (lambda (hash) (nth-value 1 (gethash hash pool)))
-      :accept-transaction
-      (lambda (transaction &optional sidecar)
-        (when (and reject-p (funcall reject-p transaction))
-          (error "test pool rejected the transaction"))
-        (setf (gethash (eth-gossip-transaction-hash-bytes transaction) pool)
-              transaction)
-        (when (or sidecar pending-sidecar)
-          (setf (gethash (eth-gossip-transaction-hash-bytes transaction)
-                         sidecars)
-                (or sidecar pending-sidecar)
-                pending-sidecar nil)))
-      :accept-blob-sidecar
-      (lambda (sidecar) (setf pending-sidecar sidecar)))
-     pool
-     sidecars)))
+    (flet ((admit (transaction)
+             (when (and reject-p (funcall reject-p transaction))
+               (error "test pool rejected the transaction"))
+             (setf (gethash (eth-gossip-transaction-hash-bytes transaction)
+                            pool)
+                   transaction)))
+      (values
+       (make-eth-serve-backend
+        :pooled-transaction (lambda (hash) (gethash hash pool))
+        :pooled-transaction-sidecar
+        (lambda (transaction)
+          (gethash (eth-gossip-transaction-hash-bytes transaction) sidecars))
+        :known-transaction-p (lambda (hash) (nth-value 1 (gethash hash pool)))
+        :accept-transaction #'admit
+        :accept-blob-transaction
+        (lambda (transaction sidecar)
+          (and (ignore-errors (admit transaction) t)
+               (setf (gethash (eth-gossip-transaction-hash-bytes transaction)
+                              sidecars)
+                     sidecar)
+               t)))
+       pool
+       sidecars))))
 
 (defun eth-gossip-test-peer (backend)
   "A peer with no connection, for exercising the parts that only touch state."
@@ -618,8 +628,11 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                                    sidecar)))
          (client
            (make-eth-serve-backend
-            :accept-blob-sidecar
-            (lambda (value) (setf stored-sidecar value))
+            :accept-blob-transaction
+            (eth-gossip-test-blob-acceptor
+             (lambda (transaction sidecar)
+               (setf accepted transaction
+                     stored-sidecar sidecar)))
             :accept-transaction
             (lambda (value) (setf accepted value)))))
     (let ((served
@@ -664,8 +677,12 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
            (make-eth-serve-backend
             :accept-transaction
             (lambda (value) (declare (ignore value)) (incf accepted))
-            :accept-blob-sidecar
-            (lambda (value) (declare (ignore value)) (incf stored))))
+            :accept-blob-transaction
+            (eth-gossip-test-blob-acceptor
+             (lambda (transaction sidecar)
+               (declare (ignore transaction sidecar))
+               (incf accepted)
+               (incf stored)))))
          (peer (ethereum-lisp.eth-sync::%make-eth-peer
                 :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
                 :serve-backend backend))
@@ -719,7 +736,11 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
          (backend
            (make-eth-serve-backend
             :accept-transaction (lambda (value) (setf accepted value))
-            :accept-blob-sidecar (lambda (value) (setf stored value))))
+            :accept-blob-transaction
+            (eth-gossip-test-blob-acceptor
+             (lambda (transaction sidecar)
+               (setf accepted transaction
+                     stored sidecar)))))
          (peer
            (ethereum-lisp.eth-sync::%make-eth-peer
             :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
@@ -793,7 +814,11 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
          (backend
            (make-eth-serve-backend
             :accept-transaction (lambda (value) (setf accepted value))
-            :accept-blob-sidecar (lambda (value) (setf stored value))))
+            :accept-blob-transaction
+            (eth-gossip-test-blob-acceptor
+             (lambda (transaction sidecar)
+               (setf accepted transaction
+                     stored sidecar)))))
          (selected-peer
            (ethereum-lisp.eth-sync::%make-eth-peer
             :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
@@ -983,8 +1008,12 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
            (make-eth-serve-backend
             :accept-transaction
             (lambda (value) (declare (ignore value)) (incf accepted))
-            :accept-blob-sidecar
-            (lambda (value) (declare (ignore value)) (incf stored))))
+            :accept-blob-transaction
+            (eth-gossip-test-blob-acceptor
+             (lambda (transaction sidecar)
+               (declare (ignore transaction sidecar))
+               (incf accepted)
+               (incf stored)))))
          (bad-peer
            (ethereum-lisp.eth-sync::%make-eth-peer
             :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
@@ -1325,9 +1354,15 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
                  (make-rlp-list)
                  (make-rlp-list))))))
          (accepted nil)
+         ;; A blob-typed transaction, even one with no blobs, goes to the
+         ;; pool's one blob admission with its (empty) sidecar.
          (backend
            (make-eth-serve-backend
-            :accept-transaction (lambda (value) (setf accepted value))))
+            :accept-blob-transaction
+            (lambda (value offered-sidecar)
+              (declare (ignore offered-sidecar))
+              (setf accepted value)
+              nil)))
          (peer
            (ethereum-lisp.eth-sync::%make-eth-peer
             :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+

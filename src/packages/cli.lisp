@@ -80,7 +80,9 @@
                 #:make-txpool-admission-policy
                 #:txpool-local-transaction-predicate
                 #:txpool-admit-transaction
-                #:txpool-admit-transactions)
+                #:txpool-admit-transactions
+                #:txpool-admit-blob-transaction
+                #:txpool-invalid-blob-sidecar)
   (:import-from #:ethereum-lisp.node-store.persistence
                 #:make-node-store-persistence-metadata
                 #:node-store-persistence-metadata-role

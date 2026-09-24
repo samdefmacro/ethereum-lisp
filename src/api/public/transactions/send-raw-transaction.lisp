@@ -20,29 +20,26 @@
            "eth_sendRawTransaction transaction")))
     (multiple-value-bind (transaction sidecar)
         (pooled-transaction-from-encoding raw-bytes)
-      (when (typep transaction 'blob-transaction)
-        (unless sidecar
-          (block-validation-fail
-           "Blob transaction admission requires an EIP-4844 sidecar wrapper"))
-        (validate-blob-sidecar-fields
-         sidecar
-         :transaction transaction
-         :require-proof-verification t))
-      (let* ((policy
-               (make-txpool-admission-policy
-                :allow-unprotected-transactions-p
-                allow-unprotected-transactions-p
-                :price-limit txpool-price-limit
-                :price-bump-percent txpool-price-bump-percent
-                :account-slot-limit txpool-account-slot-limit
-                :global-slot-limit txpool-global-slot-limit
-                :account-queue-limit txpool-account-queue-limit
-                :global-queue-limit txpool-global-queue-limit
-                :local-addresses txpool-local-addresses
-                :no-local-exemptions-p txpool-no-local-exemptions-p))
-             (hash
-               (txpool-admit-transaction
-                transaction store config policy :admitted-at txpool-now)))
-        (when sidecar
-          (engine-payload-store-put-blob-sidecar store sidecar))
-        (hash32-to-hex hash)))))
+      (when (and (typep transaction 'blob-transaction) (null sidecar))
+        (block-validation-fail
+         "Blob transaction admission requires an EIP-4844 sidecar wrapper"))
+      (let ((policy
+              (make-txpool-admission-policy
+               :allow-unprotected-transactions-p
+               allow-unprotected-transactions-p
+               :price-limit txpool-price-limit
+               :price-bump-percent txpool-price-bump-percent
+               :account-slot-limit txpool-account-slot-limit
+               :global-slot-limit txpool-global-slot-limit
+               :account-queue-limit txpool-account-queue-limit
+               :global-queue-limit txpool-global-queue-limit
+               :local-addresses txpool-local-addresses
+               :no-local-exemptions-p txpool-no-local-exemptions-p)))
+        (hash32-to-hex
+         ;; A blob transaction and its sidecar take the pool's one blob
+         ;; admission: policy checks, then KZG, then one mutation of both.
+         (if (typep transaction 'blob-transaction)
+             (txpool-admit-blob-transaction
+              transaction sidecar store config policy :admitted-at txpool-now)
+             (txpool-admit-transaction
+              transaction store config policy :admitted-at txpool-now)))))))

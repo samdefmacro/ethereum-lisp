@@ -258,10 +258,21 @@ take the guard for the whole admission, since that mutates the pool."
                     (txpool-admit-transaction
                      transaction store config policy
                      :admitted-at (unix-time)))))
-       :accept-blob-sidecar
-       (lambda (sidecar)
-         (guarded "blob-sidecar-admission"
-          (lambda () (engine-payload-store-put-blob-sidecar store sidecar))))
+       ;; One admission for a blob transaction and its sidecar: the pool checks
+       ;; and the single commit run under the guard, the KZG verification
+       ;; between them does not.
+       :accept-blob-transaction
+       (lambda (transaction sidecar)
+         (handler-case
+             (progn
+               (txpool-admit-blob-transaction
+                transaction sidecar store config policy
+                :admitted-at (unix-time)
+                :call-with-store
+                (lambda (thunk) (guarded "blob-admission" thunk)))
+               t)
+           (txpool-invalid-blob-sidecar (condition) (error condition))
+           (block-validation-error () nil)))
        :accept-block
        (lambda (block)
          ;; Downloaded and propagated blocks share the exact same conversion,

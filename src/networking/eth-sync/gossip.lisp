@@ -14,9 +14,10 @@
 ;;;;
 ;;;; Blob transactions are announced and pulled only when the backend can serve
 ;;;; their sidecar. The pooled form carries either the legacy blob proof wrapper
-;;;; or the EIP-7594 version-1 cell-proof wrapper; every received sidecar is
-;;;; cryptographically checked before either it or the transaction reaches live
-;;;; storage.
+;;;; or the EIP-7594 version-1 cell-proof wrapper. A received blob transaction
+;;;; and its sidecar go to the backend's one blob admission together, which
+;;;; checks the sidecar cryptographically before either reaches live storage
+;;;; and stores both or neither.
 
 (defconstant +eth-max-pooled-transactions-serve+ 256
   "How many hashes one GetPooledTransactions request is answered for, from
@@ -192,6 +193,31 @@ does not turn the fragment into a full blob sidecar."
                 "eth/72 omitted blob wrapper commitment does not match transaction"))
     t))
 
+(defconstant +eth-max-blob-admissions-per-batch+ 16
+  "Most blob sidecars one received batch may put through KZG verification.
+A PooledTransactions reply carries only what we asked for, and go-ethereum's
+fetcher retrieves blob transactions by a 128 KiB size budget, so an honest
+reply stays well below this; the bound caps the curve arithmetic one message
+can cost.")
+
+(defun eth-omitted-blob-wrapper-commitments-p
+    (transaction sidecar sidecar-version)
+  "Check an eth/72 pooled blob wrapper and return whether it carries
+commitments whose cells must still be fetched; a malformed wrapper is a
+protocol error."
+  (handler-case
+      (progn
+        (unless (eql sidecar-version 1)
+          (eth-peer-protocol-fail
+           "Received unversioned blob sidecar on eth/72"))
+        (when (blob-sidecar-blobs sidecar)
+          (eth-peer-protocol-fail
+           "Received blob transaction with blob payload on eth/72"))
+        (eth-validate-omitted-blob-payload sidecar transaction)
+        (plusp (length (blob-sidecar-commitments sidecar))))
+    (ethereum-lisp.validation:block-validation-error (condition)
+      (eth-peer-protocol-fail "~A" condition))))
+
 (defun eth-accept-transactions
     (backend transactions
      &key require-omitted-blob-payload-p omitted-blob-function)
@@ -200,15 +226,23 @@ does not turn the fragment into a full blob sidecar."
 A transaction the pool turns down — badly signed, underpriced, a nonce too far
 ahead — is skipped rather than raised as a session error. Peers relay freely and
 do not pre-filter for us, so one unusable transaction in a batch must not cost
-us the connection.  When REQUIRE-OMITTED-BLOB-PAYLOAD-P is true, as for eth/72,
-blob payloads are prohibited and the remaining sidecar is commitment-checked.
-A fragment with commitments is passed to OMITTED-BLOB-FUNCTION, when given, and
-stays out of the pool until the cell fetcher assembles and verifies its full
-data.  A zero-blob transaction has no cells to fetch and is offered directly."
+us the connection.
+
+A blob transaction goes to ACCEPT-BLOB-TRANSACTION together with its sidecar:
+the pool's one admission verifies the sidecar and stores both or neither. A
+sidecar that admission finds malformed or unproven is the sender's fault and a
+protocol error; a pool refusal is not. At most
++ETH-MAX-BLOB-ADMISSIONS-PER-BATCH+ sidecars are verified per batch; the rest
+stay unadmitted and unremembered, so a later announcement can offer them again.
+
+When REQUIRE-OMITTED-BLOB-PAYLOAD-P is true, as for eth/72, blob payloads are
+prohibited and the remaining sidecar is commitment-checked. A fragment with
+commitments is passed to OMITTED-BLOB-FUNCTION, when given, and stays out of
+the pool until the cell fetcher assembles its full data."
   (let ((accept (eth-serve-backend-accept-transaction backend))
         (accept-batch (eth-serve-backend-accept-transactions backend))
-        (accept-sidecar
-          (eth-serve-backend-accept-blob-sidecar backend))
+        (accept-blob (eth-serve-backend-accept-blob-transaction backend))
+        (blob-admissions 0)
         (accepted 0))
     ;; The ordinary Transactions path has no sidecars. Let a production backend
     ;; amortize sender-state and contiguous-prefix work across the wire batch;
@@ -221,55 +255,43 @@ data.  A zero-blob transaction has no cells to fetch and is offered directly."
                       transactions))
       (return-from eth-accept-transactions
         (funcall accept-batch transactions)))
-    (when accept
-      (dolist (entry transactions)
-        (let ((transaction entry)
-              (sidecar nil)
-              (sidecar-version nil))
-          (cond
-            ((typep entry 'blob-network-transaction)
-             (setf transaction (blob-network-transaction-transaction entry)
-                   sidecar (blob-network-transaction-sidecar entry)
-                   sidecar-version
-                   (blob-network-transaction-sidecar-version entry)))
-            ((and (consp entry)
-                  (typep (car entry) 'blob-transaction)
-                  (typep (cdr entry) 'blob-sidecar))
-             (setf transaction (car entry)
-                   sidecar (cdr entry))))
-          (when (and (typep transaction 'blob-transaction)
-                     (null sidecar))
-            (eth-peer-protocol-fail
-             "Blob transaction network sidecar is missing"))
-          (when sidecar
-            (handler-case
-                (if (and require-omitted-blob-payload-p
-                         (typep transaction 'blob-transaction))
-                    (progn
-                      (unless (eql sidecar-version 1)
-                        (eth-peer-protocol-fail
-                         "Received unversioned blob sidecar on eth/72"))
-                      (when (blob-sidecar-blobs sidecar)
-                        (eth-peer-protocol-fail
-                         "Received blob transaction with blob payload on eth/72"))
-                      (eth-validate-omitted-blob-payload sidecar transaction)
-                      (when (plusp (length (blob-sidecar-commitments sidecar)))
-                        (when omitted-blob-function
-                          (funcall omitted-blob-function transaction sidecar))
-                        (setf sidecar nil)))
-                    (progn
-                      (validate-blob-sidecar-fields
-                       sidecar :transaction transaction
-                       :require-proof-verification t)
-                      (unless accept-sidecar
-                        (error
-                         "Received blob transaction but no sidecar store is configured"))
-                      (funcall accept-sidecar sidecar)))
-              (ethereum-lisp.validation:block-validation-error (condition)
-                (eth-peer-protocol-fail "~A" condition))))
-          (when (and (or (not (typep transaction 'blob-transaction)) sidecar)
-                     (ignore-errors (funcall accept transaction) t))
-            (incf accepted)))))
+    (dolist (entry transactions)
+      (let ((transaction entry)
+            (sidecar nil)
+            (sidecar-version nil))
+        (cond
+          ((typep entry 'blob-network-transaction)
+           (setf transaction (blob-network-transaction-transaction entry)
+                 sidecar (blob-network-transaction-sidecar entry)
+                 sidecar-version
+                 (blob-network-transaction-sidecar-version entry)))
+          ((and (consp entry)
+                (typep (car entry) 'blob-transaction)
+                (typep (cdr entry) 'blob-sidecar))
+           (setf transaction (car entry)
+                 sidecar (cdr entry))))
+        (cond
+          ((not (typep transaction 'blob-transaction))
+           (when (and accept
+                      (ignore-errors (funcall accept transaction) t))
+             (incf accepted)))
+          ((null sidecar)
+           (eth-peer-protocol-fail
+            "Blob transaction network sidecar is missing"))
+          ((and require-omitted-blob-payload-p
+                (eth-omitted-blob-wrapper-commitments-p
+                 transaction sidecar sidecar-version))
+           (when omitted-blob-function
+             (funcall omitted-blob-function transaction sidecar)))
+          ((>= blob-admissions +eth-max-blob-admissions-per-batch+))
+          ((null accept-blob)
+           (error "Received blob transaction but no blob admission is configured"))
+          (t
+           (incf blob-admissions)
+           (when (handler-case (funcall accept-blob transaction sidecar)
+                   (ethereum-lisp.validation:block-validation-error (condition)
+                     (eth-peer-protocol-fail "~A" condition)))
+             (incf accepted))))))
     accepted))
 
 (defun eth-peer-pending-blob-cell-fetch-count (peer)

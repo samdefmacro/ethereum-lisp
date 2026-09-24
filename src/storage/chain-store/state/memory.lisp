@@ -130,6 +130,16 @@ reads treat absence as that same default."
 (defmethod chain-store-component ((store memory-chain-store))
   store)
 
+(defgeneric chain-store-blob-sidecar-pinned-p (store blob-key)
+  (:documentation
+   "Whether something outside the chain store still owns the cached blob whose
+cache key is BLOB-KEY, so the bounded blob cache must not evict it. A node
+store answers from its txpool: a pooled blob transaction pins its blobs."))
+
+(defmethod chain-store-blob-sidecar-pinned-p ((store t) blob-key)
+  (declare (ignore blob-key))
+  nil)
+
 (defun chain-store-require-memory-store (store)
   (or (chain-store-component store)
       (block-validation-fail "Chain store component is not available")))

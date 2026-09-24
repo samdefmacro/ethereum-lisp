@@ -30,7 +30,7 @@
                       known-transaction-p
                       accept-transactions-p
                       accept-transactions accept-transaction
-                      accept-blob-sidecar accept-block
+                      accept-blob-transaction accept-block
                       block-access-list blob-cells)))
   "What a peer's messages are answered from, as closures rather than a store.
 
@@ -45,8 +45,11 @@ we already hold anywhere. ACCEPT-TRANSACTIONS-P is an optional dynamic predicate
 which drops inbound transaction deliveries and announcements before decoding
 while the chain is not fresh enough to process them; NIL preserves the library
 default of accepting. ACCEPT-TRANSACTION offers a received transaction to the
-pool and ACCEPT-BLOB-SIDECAR stores its validated blob data. Any callback may be
-NIL, which turns off just that part."
+pool. ACCEPT-BLOB-TRANSACTION offers a blob transaction TOGETHER with its full
+sidecar, the pool's one admission for both: it returns true when the pool took
+them, NIL when the pool refused, and signals BLOCK-VALIDATION-ERROR when the
+sidecar itself is malformed or a KZG proof fails, which is the sender's fault.
+Any callback may be NIL, which turns off just that part."
   block-by-number
   block-by-hash
   pooled-transaction
@@ -58,7 +61,7 @@ NIL, which turns off just that part."
   ;; one Transactions message. It returns the number accepted.
   accept-transactions
   accept-transaction
-  accept-blob-sidecar
+  accept-blob-transaction
   ;; Validate/import or buffer a propagated full block. NIL disables block
   ;; propagation without coupling this protocol layer to a chain store.
   accept-block

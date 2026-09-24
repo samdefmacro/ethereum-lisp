@@ -1,33 +1,62 @@
 (in-package #:ethereum-lisp.txpool.index)
 
+(defun engine-pending-txpool-effective-tip (transaction base-fee)
+  "What a block built at BASE-FEE earns per gas from TRANSACTION: the priority
+fee, capped by the room its fee cap leaves above the base fee, never negative.
+NIL BASE-FEE (a pre-London head) leaves the whole priority fee."
+  (let ((cap (transaction-max-fee-per-gas transaction))
+        (tip (transaction-max-priority-fee-per-gas transaction)))
+    (max 0 (min tip (- cap (or base-fee 0))))))
+
+(defun engine-pending-txpool-cheaper-p (left right base-fee)
+  "Whether LEFT ranks below RIGHT for eviction at BASE-FEE: by effective tip,
+then fee cap, then tip cap, as go-ethereum v1.17 legacypool priceHeap.cmp
+orders its heap once a base fee is known. Comparing the raw tip cap instead
+kept a transaction promising a tip its fee cap cannot pay at the child base
+fee, and evicted one that pays more."
+  (let ((left-tip (engine-pending-txpool-effective-tip left base-fee))
+        (right-tip (engine-pending-txpool-effective-tip right base-fee)))
+    (cond
+      ((/= left-tip right-tip) (< left-tip right-tip))
+      ((/= (transaction-max-fee-per-gas left)
+           (transaction-max-fee-per-gas right))
+       (< (transaction-max-fee-per-gas left)
+          (transaction-max-fee-per-gas right)))
+      (t
+       (< (transaction-max-priority-fee-per-gas left)
+          (transaction-max-priority-fee-per-gas right))))))
+
 (defun engine-pending-txpool-cheapest-transaction
-    (transactions &optional sender-key)
+    (transactions &key sender-key base-fee)
   (loop with cheapest = nil
         for transaction being the hash-values of transactions
         when (or (null sender-key)
                  (equalp sender-key
                          (engine-pending-txpool-sender-key transaction)))
           do (when (or (null cheapest)
-                       (< (transaction-max-priority-fee-per-gas transaction)
-                          (transaction-max-priority-fee-per-gas cheapest)))
+                       (engine-pending-txpool-cheaper-p
+                        transaction cheapest base-fee))
                (setf cheapest transaction))
         finally (return cheapest)))
 
 (defun engine-pending-txpool-evict-cheapest-or-fail
     (txpool transactions sender-index transaction failure-message
-     &optional sender-key)
+     &key sender-key base-fee)
+  "Evict the cheapest of TRANSACTIONS (of SENDER-KEY's, when given) to make
+room for TRANSACTION, which must rank strictly above it at BASE-FEE (the child
+block's base fee); otherwise fail with FAILURE-MESSAGE."
   (let ((victim
           (engine-pending-txpool-cheapest-transaction
-           transactions sender-key)))
+           transactions :sender-key sender-key :base-fee base-fee)))
     (unless (and victim
-                 (> (transaction-max-priority-fee-per-gas transaction)
-                    (transaction-max-priority-fee-per-gas victim)))
+                 (engine-pending-txpool-cheaper-p victim transaction base-fee))
       (block-validation-fail failure-message))
     (engine-pending-txpool-unindex-transaction sender-index victim)
     (engine-pending-txpool-journal-remhash
      transactions
      (engine-pending-txpool-hash-key (transaction-hash victim)))
     (engine-pending-txpool-clear-admission-time txpool victim)
+    (engine-pending-txpool-forget-transaction-lookups txpool victim)
     (engine-pending-txpool-record-transaction-change txpool victim)
     victim))
 
@@ -36,7 +65,8 @@
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           account-slot-limit
           global-slot-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (transactions (engine-pending-txpool-transactions txpool))
@@ -70,13 +100,15 @@
               (engine-pending-txpool-evict-cheapest-or-fail
                txpool transactions sender-index transaction
                "Pending transaction underpriced for full account slots"
-               (engine-pending-txpool-sender-key transaction)))
+               :sender-key (engine-pending-txpool-sender-key transaction)
+               :base-fee base-fee))
             (when (and (null conflict)
                        global-slot-limit
                        (>= (hash-table-count transactions) global-slot-limit))
               (engine-pending-txpool-evict-cheapest-or-fail
                txpool transactions sender-index transaction
-               "Pending transaction underpriced for full global slots"))
+               "Pending transaction underpriced for full global slots"
+               :base-fee base-fee))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction
@@ -91,6 +123,8 @@
                (engine-pending-txpool-hash-key
                 (transaction-hash conflict)))
               (engine-pending-txpool-clear-admission-time txpool conflict)
+              (engine-pending-txpool-forget-transaction-lookups
+               txpool conflict)
               (engine-pending-txpool-record-transaction-change
                txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
@@ -100,6 +134,7 @@
            transactions key transaction)
           (engine-pending-txpool-note-admission-time
            txpool transaction admitted-at)
+          (engine-pending-txpool-note-transaction-lookups txpool transaction)
           (engine-pending-txpool-index-pending-transaction
            txpool
            transaction)
@@ -112,7 +147,8 @@
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           account-queue-limit
           global-queue-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (transactions (engine-pending-txpool-queued-transactions txpool))
@@ -141,13 +177,15 @@
               (engine-pending-txpool-evict-cheapest-or-fail
                txpool transactions sender-index transaction
                "Queued transaction underpriced for full account queue"
-               (engine-pending-txpool-sender-key transaction)))
+               :sender-key (engine-pending-txpool-sender-key transaction)
+               :base-fee base-fee))
             (when (and (null conflict)
                        global-queue-limit
                        (>= (hash-table-count transactions) global-queue-limit))
               (engine-pending-txpool-evict-cheapest-or-fail
                txpool transactions sender-index transaction
-               "Queued transaction underpriced for full global queue"))
+               "Queued transaction underpriced for full global queue"
+               :base-fee base-fee))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction
@@ -162,6 +200,8 @@
                (engine-pending-txpool-hash-key
                 (transaction-hash conflict)))
               (engine-pending-txpool-clear-admission-time txpool conflict)
+              (engine-pending-txpool-forget-transaction-lookups
+               txpool conflict)
               (engine-pending-txpool-record-transaction-change
                txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
@@ -171,6 +211,7 @@
            transactions key transaction)
           (engine-pending-txpool-note-admission-time
            txpool transaction admitted-at)
+          (engine-pending-txpool-note-transaction-lookups txpool transaction)
           (engine-pending-txpool-index-queued-transaction
            txpool
            transaction)
@@ -182,7 +223,8 @@
     (txpool transactions sender-index transaction target replacement-label
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           global-slot-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (let ((key (engine-pending-txpool-hash-key
               (transaction-hash transaction)))
         (cross-subpool-conflicts
@@ -206,7 +248,8 @@
                txpool transactions sender-index transaction
                (format nil
                        "~A transaction underpriced for full subpool"
-                       replacement-label)))
+                       replacement-label)
+               :base-fee base-fee))
             (when conflict
               (unless (engine-pending-txpool-replacement-transaction-p
                        conflict transaction
@@ -222,6 +265,8 @@
                (engine-pending-txpool-hash-key
                 (transaction-hash conflict)))
               (engine-pending-txpool-clear-admission-time txpool conflict)
+              (engine-pending-txpool-forget-transaction-lookups
+               txpool conflict)
               (engine-pending-txpool-record-transaction-change
                txpool conflict)))
           (engine-pending-txpool-remove-replacement-conflicts
@@ -231,6 +276,7 @@
            transactions key transaction)
           (engine-pending-txpool-note-admission-time
            txpool transaction admitted-at)
+          (engine-pending-txpool-note-transaction-lookups txpool transaction)
           (engine-pending-txpool-index-transaction
            sender-index
            transaction)
@@ -242,7 +288,8 @@
     (txpool transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           global-slot-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (engine-pending-txpool-put-flat-transaction
    txpool
    (engine-pending-txpool-basefee-transactions txpool)
@@ -252,13 +299,15 @@
    "Basefee"
    :price-bump-percent price-bump-percent
    :global-slot-limit global-slot-limit
-   :admitted-at admitted-at))
+   :admitted-at admitted-at
+   :base-fee base-fee))
 
 (defun engine-pending-txpool-put-blob-transaction
     (txpool transaction
      &key (price-bump-percent +txpool-replacement-price-bump-percent+)
           global-slot-limit
-          admitted-at)
+          admitted-at
+          base-fee)
   (engine-pending-txpool-put-flat-transaction
    txpool
    (engine-pending-txpool-blob-transactions txpool)
@@ -268,4 +317,5 @@
    "Blob"
    :price-bump-percent price-bump-percent
    :global-slot-limit global-slot-limit
-   :admitted-at admitted-at))
+   :admitted-at admitted-at
+   :base-fee base-fee))

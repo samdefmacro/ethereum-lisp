@@ -90,3 +90,28 @@
                      store transaction lifetime-seconds now)))
              :include-pending-p nil)))
     removed-transactions))
+
+(defconstant +txpool-blob-transaction-lifetime-seconds+ (* 3 60 60)
+  "How long a blob transaction may stay pooled, from its admission time, which
+is persisted with it so a restart does not renew it. Its blobs are pinned in
+the chain store's blob cache for as long as it stays, so this is also the
+upper bound on their age; it equals that cache's own age limit.")
+
+(defun engine-payload-store-remove-expired-blob-transactions
+    (store now &key (lifetime-seconds +txpool-blob-transaction-lifetime-seconds+))
+  "Remove the pooled blob transactions admitted LIFETIME-SECONDS or more before
+NOW, and return them. Unlike --txpool.lifetime this applies to every blob
+transaction, local ones included: a pooled blob transaction holds up to a
+megabyte of blob data the pool must bound. A transaction without an admission
+time (one inserted directly, not through admission) does not expire."
+  (unless (and (integerp now) (not (minusp now)))
+    (block-validation-fail "Txpool cleanup time must be a non-negative integer"))
+  (let ((txpool (engine-payload-store-txpool store))
+        (removed '()))
+    (dolist (transaction (engine-payload-store-blob-transactions store))
+      (when (engine-payload-store-expired-txpool-transaction-p
+             store transaction lifetime-seconds now)
+        (engine-pending-txpool-remove-blob-transaction
+         txpool (transaction-hash transaction))
+        (push transaction removed)))
+    (nreverse removed)))

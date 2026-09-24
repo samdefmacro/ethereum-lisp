@@ -44,6 +44,11 @@
    #:engine-payload-store-queued-transaction-count
    #:engine-payload-store-basefee-transaction-count
    #:engine-payload-store-blob-transaction-count
+   #:engine-payload-store-authority-reserved-p
+   #:engine-payload-store-owned-blob-count
+   #:engine-payload-store-blob-owned-p
+   #:engine-payload-store-remove-expired-blob-transactions
+   #:+txpool-blob-transaction-lifetime-seconds+
    #:engine-payload-store-pending-mining-transactions
    #:transaction-effective-tip
    #:engine-mining-sender-groups

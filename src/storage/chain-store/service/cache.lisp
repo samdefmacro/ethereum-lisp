@@ -270,7 +270,9 @@
       (chain-store-journal-puthash table key t))))
 
 (defun engine-payload-store-cache-put
-    (store kind key value now &optional block-number)
+    (store kind key value now &optional block-number pool-owned-p)
+  "Store VALUE under KEY in cache KIND. POOL-OWNED-P marks a blob the txpool
+admitted; the mark survives a later replacement of the same key."
   (setf store (chain-store-require-memory-store store)
         kind (engine-payload-store-cache-kind kind)
         now (engine-payload-store-cache-time now)
@@ -297,7 +299,11 @@
         :inserted-at inserted-at
         :encoded-bytes
         (engine-payload-store-cache-value-encoded-bytes kind value)
-        :block-number effective-block-number))))
+        :block-number effective-block-number
+        :pool-owned-p
+        (or (and pool-owned-p t)
+            (and (typep prior 'chain-store-cache-entry-metadata)
+                 (chain-store-cache-entry-metadata-pool-owned-p prior)))))))
   (engine-payload-store-cache-cancel-durable-deletion
    store kind key value)
   value)
@@ -400,6 +406,25 @@
   (loop for entry being the hash-values of metadata
         sum (chain-store-cache-entry-metadata-encoded-bytes entry)))
 
+(defun engine-payload-store-cache-pinned-keys (owner kind values)
+  "The keys of VALUES something outside the chain store still owns. Only blob
+entries can be pinned (CHAIN-STORE-BLOB-SIDECAR-PINNED-P, asked of OWNER, the
+store the caller passed before it was narrowed to its chain component)."
+  (let ((pinned (make-hash-table :test 'equal)))
+    (when (eq kind :sidecar)
+      (maphash (lambda (key value)
+                 (declare (ignore value))
+                 (when (chain-store-blob-sidecar-pinned-p owner key)
+                   (setf (gethash key pinned) t)))
+               values))
+    pinned))
+
+(defun engine-payload-store-cache-entry-released-p (metadata)
+  "Whether a pool-owned blob entry lost its last pooled transaction without
+becoming block data (an inclusion height)."
+  (and (chain-store-cache-entry-metadata-pool-owned-p metadata)
+       (null (chain-store-cache-entry-metadata-block-number metadata))))
+
 (defun engine-payload-store-enforce-cache-bounds
     (store kind now finalized-number
      &key count-limit byte-limit max-age)
@@ -408,43 +433,66 @@
 Finalized and expired entries are removed unconditionally. If count or byte
 budgets are still exceeded, the oldest `(inserted-at, key)` entries go first.
 The explicit limits are an internal test seam; omitted values use the public
-production policy."
-  (setf store (chain-store-require-memory-store store)
-        kind (engine-payload-store-cache-kind kind)
-        now (engine-payload-store-cache-time now)
-        finalized-number
-        (engine-payload-store-cache-block-number finalized-number))
-  (multiple-value-bind (default-count default-bytes default-age)
-      (engine-payload-store-cache-policy kind)
-    (setf count-limit (if (null count-limit) default-count count-limit)
-          byte-limit (if (null byte-limit) default-bytes byte-limit)
-          max-age (if (null max-age) default-age max-age)))
-  (unless (and (integerp count-limit) (not (minusp count-limit))
-               (integerp byte-limit) (not (minusp byte-limit))
-               (integerp max-age) (not (minusp max-age)))
-    (block-validation-fail
-     "Chain-store cache limits must be non-negative integers"))
-  (engine-payload-store-synchronize-cache-metadata store kind now)
-  (multiple-value-bind (values metadata)
-      (engine-payload-store-cache-tables store kind)
-    ;; Staleness is semantic rather than pressure-dependent: an expired or
-    ;; finalized object never remains merely because the cache is below cap.
-    (dolist (key (engine-payload-store-cache-ordered-keys values metadata))
-      (let ((entry (gethash key metadata)))
-        (when (or (engine-payload-store-cache-entry-finalized-p
-                   entry finalized-number)
-                  (engine-payload-store-cache-entry-expired-p
-                   entry now max-age))
-          (engine-payload-store-cache-remove-key store kind key))))
-    (loop while (or (> (hash-table-count values) count-limit)
-                    (> (engine-payload-store-cache-byte-count metadata)
-                       byte-limit))
-          do (let ((key
-                     (first
-                      (engine-payload-store-cache-ordered-keys
-                       values metadata))))
-               (unless key (return))
-               (engine-payload-store-cache-remove-key store kind key))))
+production policy.
+
+A blob entry a pooled transaction still references is pinned: it is neither
+aged out nor counted against, nor evicted by, the cache budget, because the
+pool bounds its own blob data and a pooled transaction without its blobs can be
+neither built nor served. A pool-owned blob entry whose last pooled transaction
+has gone is removed at once unless it became block data. Pass the node store,
+not its chain component, so the pins can be read."
+  (let ((owner store))
+    (setf store (chain-store-require-memory-store store)
+          kind (engine-payload-store-cache-kind kind)
+          now (engine-payload-store-cache-time now)
+          finalized-number
+          (engine-payload-store-cache-block-number finalized-number))
+    (multiple-value-bind (default-count default-bytes default-age)
+        (engine-payload-store-cache-policy kind)
+      (setf count-limit (if (null count-limit) default-count count-limit)
+            byte-limit (if (null byte-limit) default-bytes byte-limit)
+            max-age (if (null max-age) default-age max-age)))
+    (unless (and (integerp count-limit) (not (minusp count-limit))
+                 (integerp byte-limit) (not (minusp byte-limit))
+                 (integerp max-age) (not (minusp max-age)))
+      (block-validation-fail
+       "Chain-store cache limits must be non-negative integers"))
+    (engine-payload-store-synchronize-cache-metadata store kind now)
+    (multiple-value-bind (values metadata)
+        (engine-payload-store-cache-tables store kind)
+      (let ((pinned
+              (engine-payload-store-cache-pinned-keys owner kind values)))
+        ;; Staleness is semantic rather than pressure-dependent: an expired or
+        ;; finalized object never remains merely because the cache is below
+        ;; cap.
+        (dolist (key (engine-payload-store-cache-ordered-keys values metadata))
+          (let ((entry (gethash key metadata)))
+            (when (and (not (gethash key pinned))
+                       (or (engine-payload-store-cache-entry-finalized-p
+                            entry finalized-number)
+                           (engine-payload-store-cache-entry-expired-p
+                            entry now max-age)
+                           (engine-payload-store-cache-entry-released-p
+                            entry)))
+              (engine-payload-store-cache-remove-key store kind key))))
+        (let* ((candidates
+                 (remove-if (lambda (key) (gethash key pinned))
+                            (engine-payload-store-cache-ordered-keys
+                             values metadata)))
+               (count (length candidates))
+               (bytes
+                 (loop for key in candidates
+                       sum (chain-store-cache-entry-metadata-encoded-bytes
+                            (gethash key metadata)))))
+          (loop while (and candidates
+                           (or (> count count-limit) (> bytes byte-limit)))
+                do (let ((key (pop candidates)))
+                     (decf count)
+                     (decf bytes
+                           (chain-store-cache-entry-metadata-encoded-bytes
+                            (gethash key metadata)))
+                     (engine-payload-store-cache-remove-key
+                      store kind key)))))))
   store)
 
 (defun engine-payload-store-prune-caches
@@ -455,22 +503,23 @@ FINALIZED-NUMBER is explicit so the forkchoice transition can pass the height
 it durably accepted; cache code never guesses finality from an uncommitted
 head. Sidecars/forkchoice targets participate in finality pruning when their
 put call supplied BLOCK-NUMBER."
-  (setf store (chain-store-require-memory-store store)
-        now (engine-payload-store-cache-time now)
-        finalized-number
-        (engine-payload-store-cache-block-number finalized-number))
-  (dolist (kind '(:remote-block :forkchoice-target :invalid
-                  :prepared-payload :sidecar))
-    (engine-payload-store-enforce-cache-bounds
-     store kind now finalized-number))
+  (let ((owner store))
+    (setf store (chain-store-require-memory-store store)
+          now (engine-payload-store-cache-time now)
+          finalized-number
+          (engine-payload-store-cache-block-number finalized-number))
+    (dolist (kind '(:remote-block :forkchoice-target :invalid
+                    :prepared-payload :sidecar))
+      (engine-payload-store-enforce-cache-bounds
+       owner kind now finalized-number)))
   store)
 
 (defun engine-payload-store-cache-statistics
     (store kind &key (now (unix-time)))
   "Enforce CACHE-KIND's current non-finality bounds, then return count/bytes."
+  (engine-payload-store-enforce-cache-bounds store kind now nil)
   (setf store (chain-store-require-memory-store store)
         kind (engine-payload-store-cache-kind kind))
-  (engine-payload-store-enforce-cache-bounds store kind now nil)
   (multiple-value-bind (values metadata)
       (engine-payload-store-cache-tables store kind)
     (values (hash-table-count values)
@@ -886,8 +935,17 @@ after the complete import and durability boundary succeeds."
 (defun engine-payload-store-put-blob-sidecar
     (store sidecar
      &key (now (unix-time)) block-number blob-proofs
-          (blob-proof-function #'compute-kzg-blob-proof))
-  (setf store (chain-store-require-memory-store store))
+          (blob-proof-function #'compute-kzg-blob-proof)
+          pool-owned-p proofs-verified-p)
+  "Publish SIDECAR's blobs by versioned hash, all or none.
+
+POOL-OWNED-P marks blobs the transaction pool admitted with their transaction
+(see CHAIN-STORE-CACHE-ENTRY-METADATA). PROOFS-VERIFIED-P is for that one
+caller, which has already verified every KZG proof outside the store guard
+(TXPOOL-VERIFY-BLOB-SIDECAR); the shape checks still run here. STORE stays
+the caller's store, not its chain component: the cache helpers narrow it
+themselves, and the bounds need it to read the txpool's pins."
+  (chain-store-require-memory-store store)
   (unless (typep sidecar 'blob-sidecar)
     (block-validation-fail
      "Engine blob sidecar store value must be a blob sidecar"))
@@ -897,7 +955,7 @@ after the complete import and durability boundary succeeds."
     ;; callers. Verify either the EIP-4844 blob proof or every EIP-7594 cell
     ;; proof before making it visible.
     (validate-blob-sidecar-fields
-     sidecar :require-proof-verification t))
+     sidecar :require-proof-verification (not proofs-verified-p)))
   (let ((hashes (blob-sidecar-versioned-hashes sidecar))
         (blobs (blob-sidecar-blobs sidecar))
         (proofs (blob-sidecar-proofs sidecar))
@@ -958,7 +1016,7 @@ after the complete import and durability boundary succeeds."
         (engine-payload-store-cache-put
          store :sidecar
          (engine-payload-store-key (car record))
-         (cdr record) now block-number)))
+         (cdr record) now block-number pool-owned-p)))
     (engine-payload-store-enforce-cache-bounds store :sidecar now nil))
   sidecar)
 
@@ -969,8 +1027,8 @@ after the complete import and durability boundary succeeds."
 
 (defun engine-payload-store-blob-and-proofs-v1
     (store versioned-hash &key (now (unix-time)))
-  (setf store (chain-store-require-memory-store store))
   (engine-payload-store-enforce-cache-bounds store :sidecar now nil)
+  (setf store (chain-store-require-memory-store store))
   (let ((cached
           (gethash (engine-payload-store-key versioned-hash)
                    (memory-chain-store-blob-sidecars store))))

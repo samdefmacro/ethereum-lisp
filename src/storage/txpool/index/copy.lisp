@@ -136,6 +136,20 @@ list updated by PUSH/SUBSEQ, so retaining its old head is O(1) and exact."
      :transaction-admitted-at
      (engine-pending-txpool-copy-metadata-table
       (engine-pending-txpool-transaction-admitted-at txpool))
+     :authority-transactions
+     (let ((copy (engine-pending-txpool-copy-metadata-table
+                  (engine-pending-txpool-authority-transactions txpool))))
+       (maphash (lambda (authority holders)
+                  (setf (gethash authority copy)
+                        (engine-pending-txpool-copy-metadata-table holders)))
+                copy)
+       copy)
+     :transaction-authorities
+     (engine-pending-txpool-copy-metadata-table
+      (engine-pending-txpool-transaction-authorities txpool))
+     :blob-hash-owners
+     (engine-pending-txpool-copy-metadata-table
+      (engine-pending-txpool-blob-hash-owners txpool))
      :database-change-tracking-enabled-p
      (engine-pending-txpool-database-change-tracking-enabled-p txpool)
      :database-dirty-transaction-keys

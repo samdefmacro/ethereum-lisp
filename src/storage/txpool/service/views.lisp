@@ -72,10 +72,9 @@ The fee cap is what a sender is willing to pay in total; the base fee is burned,
 so the builder receives the priority fee, capped by whatever room the fee cap
 leaves above the base fee. A transaction advertising a huge priority fee it
 cannot afford at this base fee is worth exactly that remaining room, which is why
-this is a MIN rather than the priority fee alone."
-  (let ((cap (transaction-max-fee-per-gas transaction))
-        (tip (transaction-max-priority-fee-per-gas transaction)))
-    (max 0 (min tip (- cap (or base-fee 0))))))
+this is a MIN rather than the priority fee alone. Pool eviction ranks by the
+same quantity (ENGINE-PENDING-TXPOOL-EFFECTIVE-TIP)."
+  (engine-pending-txpool-effective-tip transaction base-fee))
 
 (defun engine-mining-sender-groups (transactions expected-chain-id)
   "TRANSACTIONS grouped by sender, each group in nonce order.
