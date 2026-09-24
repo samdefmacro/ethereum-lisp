@@ -1,0 +1,283 @@
+Section 6 remainder: atomic pooled-blob admission and the EIP-7702 authority index
+
+Status
+
+Branch txpool-section6, from a07c912e. Both plan items of Section 6 that
+docs/evidence/sec5-payload-building.txt left open are implemented, each with a
+RED test at a07c912e, the fix, and the test GREEN; every new negative test has
+a positive control, and four mutations of the fix turn their tests red again.
+Targeted cold selectors green (section 5). Not deployed, not run live, no
+cold-all (the coordinator runs it once at the end). Consensus, execution and
+encodings are unchanged; the only durable-format change is an optional third
+field in the txpool record (section 3c), read by both old and new code paths.
+
+Revision
+
+  bd7906c3  txpool: one atomic admission for a blob transaction and its
+            sidecar; index 7702 authorities; evict by effective tip
+  (this record is in the commit that follows)
+
+================================================================================
+1. What was wrong at a07c912e
+================================================================================
+
+(a) A blob transaction and its sidecar entered the node through two callbacks.
+    Gossip (src/networking/eth-sync/gossip.lisp ETH-ACCEPT-TRANSACTIONS)
+    verified the sidecar, stored it (:ACCEPT-BLOB-SIDECAR ->
+    ENGINE-PAYLOAD-STORE-PUT-BLOB-SIDECAR under the store guard), then offered
+    the transaction to the pool (:ACCEPT-TRANSACTION); eth_sendRawTransaction
+    verified the sidecar, admitted the transaction, then stored the sidecar.
+    Consequences, each reproduced by a test:
+      - a transaction the pool refuses (sender cannot pay, underpriced, ...)
+        left its blobs in the blob store with no pooled owner;
+      - every sidecar was KZG-verified twice, and on the gossip path the
+        second verification ran UNDER the node store guard, which also
+        serializes every Engine request (measured: 2 verifications, 1 under
+        the guard, per one-blob gossip admission; 2 per RPC admission);
+      - the blob store is a bounded cache (512 entries, 64 MiB, 3 h age;
+        src/storage/chain-store/service/cache.lisp) that knew nothing of the
+        pool: count, byte or age pressure evicted a POOLED transaction's blobs
+        while the transaction stayed pending, unbuildable and unservable;
+      - when a blob transaction left the pool (included, replaced, evicted)
+        its blobs stayed until the cache's own 3 h age;
+      - no pool-level blob data cap, and no TTL for blob transactions unless
+        --txpool.lifetime was set (default off);
+      - admission times lived only in memory: the durable txpool record was
+        [subpool, encoding], so every restart gave every parked transaction
+        no admission time at all, and --txpool.lifetime never expired it.
+
+(b) EIP-7702: every admission asked "is this sender (and each authority of a
+    new set-code transaction) named by a pending authorization?" by walking
+    the whole pool and recovering (secp256k1 ecrecover) every authorization of
+    every pooled set-code transaction (TXPOOL-AUTHORITY-RESERVED-P). Measured:
+    one ordinary admission against 8 pooled set-code transactions performed 8
+    recoveries; the cost is O(pool set-code authorizations) per admission,
+    under the guard.
+
+(c) Full-pool eviction ranked by the raw tip cap
+    (ENGINE-PENDING-TXPOOL-CHEAPEST-TRANSACTION), so a transaction whose fee
+    cap leaves 1 wei of tip at the child base fee but that advertises a tip
+    cap of 90 survived, and a newcomer paying 3 was refused as underpriced
+    against one paying 5.
+
+================================================================================
+2. Oracles
+================================================================================
+
+- EIP-4844 (kzg_to_versioned_hash, blob proofs), EIP-7594 (cell proofs),
+  EIP-7702 (authorization recovery).
+- go-ethereum v1.17.6 source as checked out under references/go-ethereum
+  (the brief names v1.17.4; the functions cited are unchanged in intent):
+  core/txpool/blobpool/blobpool.go BlobPool.Add (ValidateTxBasics, then
+  ValidateCells -- KZG -- before AddPooledTx takes p.lock), addLocked (stateful
+  validateTx, then ONE store.Put of transaction and blobs), checkDelegationLimit;
+  core/txpool/legacypool list.go priceHeap.cmp (effective tip at the base fee,
+  then fee cap, then tip cap) and validateAuth/txLookup auths (an index of
+  pending authorities).
+
+================================================================================
+3. Fix
+================================================================================
+
+(a) One admission path: src/application/services/txpool-blob-admission.lisp
+    TXPOOL-ADMIT-BLOB-TRANSACTION runs
+      1. the pool's policy and capacity checks (TXPOOL-CHECK-BLOB-ADMISSION:
+         sender, nonce, balance, fees, price limit, 7702 reservations, the
+         fork's blob count limit, replacement bump, and a pool cap of
+         +TXPOOL-MAX-POOLED-BLOBS+ = 1024 distinct blobs, 128 MiB of blob
+         data) -- reads the store, changes nothing;
+      2. the sidecar's shape without curve arithmetic (counts, element sizes,
+         each commitment's versioned hash);
+      3. KZG verification of every proof, and for a cell-proof sidecar the
+         EIP-4844 blob proof getBlobsV1 serves -- touches no store;
+      4. step 1 again, then ONE CHAIN-STORE-ATOMIC-COMMIT that expires stale
+         blob transactions, puts the transaction in the blob subpool and its
+         blobs in the blob cache marked pool-owned. Any refusal rolls all of
+         it back.
+    CALL-WITH-STORE lets the devnet run steps 1 and 4 under the store guard
+    and steps 2-3 outside it. A malformed or unproven sidecar signals
+    TXPOOL-INVALID-BLOB-SIDECAR (the sender's fault); other refusals signal
+    BLOCK-VALIDATION-ERROR. The no-sidecar entry points
+    (TXPOOL-ADMIT-TRANSACTION(S)) now refuse a blob transaction outright, so
+    the split cannot come back through them.
+    Callers: eth_sendRawTransaction (src/api/public/transactions/
+    send-raw-transaction.lisp); the eth serve backend's new
+    :ACCEPT-BLOB-TRANSACTION (TRANSACTION SIDECAR) callback, which replaces
+    :ACCEPT-BLOB-SIDECAR (src/networking/eth-sync/serve.lisp, gossip.lisp;
+    devnet wiring in src/app/cli/devnet/peer-sync.lisp). The eth layer maps a
+    sidecar fault to a protocol error (peer dropped, as before) and a pool
+    refusal to a skipped entry. At most +ETH-MAX-BLOB-ADMISSIONS-PER-BATCH+ =
+    16 sidecars per received batch go through KZG; the rest stay unadmitted
+    and unremembered.
+
+(b) Sidecar ownership: the txpool index keeps a refcount per versioned hash
+    of every pooled transaction (src/storage/txpool/index/lookups.lisp,
+    maintained at every insert/remove site of a subpool table, journaled so
+    a rolled-back admission restores it). The node store answers the new
+    generic CHAIN-STORE-BLOB-SIDECAR-PINNED-P from it, and the blob cache's
+    bound enforcement (ENGINE-PAYLOAD-STORE-ENFORCE-CACHE-BOUNDS) never ages
+    out, evicts or counts a pinned blob. A pool-owned blob (new metadata flag
+    POOL-OWNED-P) is removed as soon as no pooled transaction references it,
+    unless an inclusion height made it block data. Blob transactions expire
+    +TXPOOL-BLOB-TRANSACTION-LIFETIME-SECONDS+ = 3 h after admission
+    (ENGINE-PAYLOAD-STORE-REMOVE-EXPIRED-BLOB-TRANSACTIONS, run at every blob
+    admission), local ones included.
+
+(c) Persisted admission age: the durable txpool record is now
+    [subpool, encoding, admitted-at] when the time is known
+    (src/storage/node-store/persistence/export/txpool.lisp, both the full
+    exporter and the forkchoice record exporter in export/orchestrator.lisp);
+    the importer accepts 2 or 3 fields and restores the time. Records written
+    before this change still import (no time, as before).
+
+(d) EIP-7702 authority index: the same lookups file keeps authority ->
+    {transaction} and transaction -> authorities, recovered once when a
+    set-code transaction enters a subpool table and never again on removal;
+    TXPOOL-AUTHORITY-RESERVED-P is one table read. Reservation semantics are
+    unchanged (all subpools, pinned by a test that passes before and after).
+
+(e) Eviction by effective tip: ENGINE-PENDING-TXPOOL-CHEAPER-P ranks by
+    effective tip at the child base fee, then fee cap, then tip cap (geth
+    priceHeap.cmp); a newcomer must rank strictly above the victim. Admission
+    computes the child base fee (TXPOOL-CHILD-BASE-FEE) and passes it through
+    the put functions' new :BASE-FEE key. TRANSACTION-EFFECTIVE-TIP (payload
+    ordering) now delegates to the same index function.
+
+================================================================================
+4. Tests (tests/txpool-blob-admission-tests.lisp,
+   tests/txpool-authority-index-tests.lisp), RED at a07c912e -> GREEN
+================================================================================
+
+RED was measured in the warm image at a07c912e with the new test files loaded
+(the code under test unchanged); GREEN at bd7906c3.
+
+  TXPOOL-BLOB-ADMISSION-REJECTS-BAD-SIDECARS-BEFORE-ANY-POOL-MUTATION (unit)
+    eth_sendRawTransaction with (1) a proof that does not verify, (2) a
+    commitment that is not the transaction's, (3) a 7-byte blob: each is
+    refused and TXPOOL-S6-POOL-IMAGE (every pooled transaction's subpool,
+    encoding and admission time, plus every cached blob record, in canonical
+    order) is EQUALP to the image before. Positive control: the same
+    transaction with a verifying proof is admitted and changes the image.
+    PASS at a07c912e too (the RPC path verified before admitting); kept as
+    the regression guard the brief asks for.
+  TXPOOL-BLOB-ADMISSION-VERIFIES-EACH-PROOF-ONCE (unit)
+    RED: 2 verifier calls for a one-blob RPC admission. GREEN: 1.
+  TXPOOL-BLOB-GOSSIP-VERIFIES-ONCE-AND-OUTSIDE-THE-STORE-GUARD (integration,
+  devnet node, production backend DEVNET-PEER-SERVE-BACKEND)
+    RED: (:ACCEPTED 1 :VERIFICATIONS 2 :UNDER-GUARD 1). GREEN: 1 and 0. The
+    guard probe is the one the eth/72 serving test uses (a second thread's
+    CALL-WITH-DEVNET-NODE-STORE-GUARD-IF-FREE from inside the verifier).
+  TXPOOL-BLOB-GOSSIP-REJECTED-BY-THE-POOL-LEAVES-NO-SIDECAR (integration)
+    An unfunded sender's blob transaction through the devnet backend. RED:
+    its blobs were in the store after the pool refused it. GREEN: pool image
+    byte-identical. Positive control: a funded sender's transaction is pooled
+    with its blobs through the same backend.
+  TXPOOL-POOLED-BLOB-SIDECAR-SURVIVES-CACHE-PRESSURE-AND-AGE (unit)
+    Blob cache bounds enforced with count 0, bytes 0, four hours later. RED:
+    the pooled transaction's blobs were evicted while it stayed pooled.
+    GREEN: they stay. Positive control: an unowned sidecar is evicted by the
+    same enforcement.
+  TXPOOL-BLOB-SIDECAR-LEAVES-WITH-ITS-TRANSACTION (unit)
+    Inclusion (ENGINE-PAYLOAD-STORE-REMOVE-INCLUDED-BLOCK-TRANSACTIONS) and a
+    100%-bump replacement. RED: the included transaction's blobs were still
+    readable. GREEN: both departed transactions' blobs are gone, the
+    replacement's are there. Control: both present while pooled.
+  TXPOOL-ADMISSION-AGE-SURVIVES-A-RESTART (unit, file KV export/import)
+    RED: the restored queued transaction had no admission time (NIL, never
+    expires). GREEN: 1000 restored; the one-hour lifetime sweep keeps it at
+    1010 (control) and removes it at 4600.
+  TXPOOL-7702-ADMISSION-RECOVERS-NO-POOLED-AUTHORIZATION (unit)
+    8 pooled set-code transactions, then one ordinary admission. RED: 8
+    authority recoveries. GREEN: 0. Positive control: a set-code admission
+    recovers its own authorization (> 0).
+  TXPOOL-7702-PENDING-AUTHORIZATION-RESERVES-ITS-AUTHORITY-UNTIL-IT-LEAVES
+  (unit)
+    The pending authority is refused ("reserved by a pending set-code
+    authorization"), a bystander is not, a set-code transaction naming an
+    authority with an in-flight transaction is refused, and after inclusion
+    the authority is admitted. PASS at a07c912e too: it pins that the index
+    kept the old semantics (there was no reservation test before).
+  TXPOOL-FULL-POOL-EVICTS-BY-EFFECTIVE-TIP-AT-THE-CHILD-BASE-FEE (unit)
+    Global limit 2, child base fee 100. A (tip cap 90, fee cap 101, earns 1),
+    B (earns 5), then C (earns 3). RED: C refused as underpriced. GREEN: C
+    admitted, A evicted, B kept. Control: D (earns 1) is refused against the
+    cheapest left (C, 3).
+
+Mutations of the fix (warm image, bd7906c3 sources, restored after each):
+  M1 remove the node store's CHAIN-STORE-BLOB-SIDECAR-PINNED-P method
+     -> ...SURVIVES-CACHE-PRESSURE-AND-AGE fails; restored: PASS
+  M2 ENGINE-PENDING-TXPOOL-FORGET-TRANSACTION-LOOKUPS a no-op
+     -> ...RESERVES-ITS-AUTHORITY-UNTIL-IT-LEAVES fails (authority still
+        reserved after inclusion) and ...LEAVES-WITH-ITS-TRANSACTION fails
+        (blob still pinned); restored: PASS
+  M3 ENGINE-PENDING-TXPOOL-CHEAPER-P compares the raw tip cap
+     -> ...EVICTS-BY-EFFECTIVE-TIP... fails; restored: PASS
+
+Changed existing tests (tests/eth-gossip-tests.lisp): protocol-only backends
+now supply :ACCEPT-BLOB-TRANSACTION through ETH-GOSSIP-TEST-BLOB-ACCEPTOR,
+which checks the sidecar as the admission does, so the invalid-cells and
+bad-wrapper tests still see their protocol errors;
+ETH-72-ZERO-BLOB-POOLED-RESPONSE-NEEDS-NO-CELL-FETCH now observes the empty
+blob-typed wrapper offered to the blob admission instead of the plain one.
+
+================================================================================
+5. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: pass. Warm image restarted after the defstruct
+changes (txpool index, cache metadata, eth serve backend). The image build
+reports style-warnings for the same five src files as before this change
+(evm-interpreter-call, execution-state, execution-accounting,
+txpool-admission-service -- its pre-existing &OPTIONAL/&KEY lambda lists --
+and snap-sync-client); none in new or changed code.
+
+Cold, from this checkout on bd7906c3's tree, each redirected to a file with
+its exit code:
+
+  cold-unit --match TXPOOL --match BLOB --match 7702 --match PAYLOAD-BUILDING
+            --match GOSSIP --match ETH-72 --match SIDECAR --match CACHE
+            --match PERSIST --match KZG --match PACKAGE --match ASDF
+      191 tests passed                                        EXIT=0
+      (first run: 190 passed, 1 failed,
+       ETH-72-ZERO-BLOB-POOLED-RESPONSE-NEEDS-NO-CELL-FETCH, whose
+       protocol-only backend had no blob admission; test updated as above)
+  cold-integration --match TXPOOL --match BLOB --match 7702
+            --match PAYLOAD-BUILDING --match GOSSIP --match ETH-72
+            --match SIDECAR --match CACHE --match PERSIST --match SEND-RAW
+            --match DEVNET-PEER
+      112 tests passed                                        EXIT=0
+  cold-unit --match ENGINE --match FORKCHOICE --match PENDING --match REORG
+            --match JOURNAL --match EXPORT --match IMPORT --match PREPARED
+            --match ATOMIC --match MINING
+      241 tests passed                                        EXIT=0
+  cold-integration --match ENGINE --match FORKCHOICE --match PENDING
+            --match DEV-PERIOD --match JOURNAL --match RESTART
+            --match PREPARED --match REMOTE-BLOCK
+      97 passed, 2 skipped (optional EEST engine fixtures, root not set)
+                                                              EXIT=0
+
+All ten new tests appear by name as "ok" in the first two runs; no duplicated
+ok lines.
+
+Not verified
+
+- Not deployed, not run live; no real peer has sent us a blob transaction
+  through the new path.
+- No cold-all (coordinator). EEST blockchain fixtures were not rerun: no
+  execution, root or encoding code changed.
+- Durable blob records are still never swept: a pooled blob exported to
+  RocksDB stays on disk after its transaction leaves (unchanged; "offline
+  rebuild is the compaction path"). Pool-owned marks are not persisted: after
+  a restart, restored pooled blobs are pinned while their transactions stay
+  and then fall back to the cache's ordinary three-hour age.
+- A reorg that reinserts a displaced blob transaction
+  (ENGINE-PAYLOAD-STORE-REINSERT-DISPLACED-BLOCK-TRANSACTIONS) still needs
+  its blobs in the cache; geth keeps included blobs in a limbo until
+  finality. Not examined here.
+- Promotion paths that re-put transactions (queued->pending, basefee
+  promotion) pass no child base fee, so their capacity eviction ranks by the
+  tip capped by the fee cap (base fee 0). The admission paths pass it.
+- The blob pool's capacity policy is refuse-when-full (1024 blobs), not
+  geth's fee-jump eviction; the blob TTL (3 h) has no geth counterpart.
+- Measured with stubbed KZG verifiers and one-blob transactions only; real
+  c-kzg timing for 6-blob EIP-7594 sidecars was not measured here.
