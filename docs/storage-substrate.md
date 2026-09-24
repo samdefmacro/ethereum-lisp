@@ -65,7 +65,8 @@ chunk boundary close them explicitly so a long migration or backup never pins
 one native cursor per batch.
 
 The supported 8-vCPU/16-GiB public-node profile applies RocksDB's leveled bulk
-write preset with a 384 MiB level-compaction budget, two-way memtable flush
+write preset with a 384 MiB level-compaction budget (3/56 of the default
+7 GiB `--memory.budget`, which also sets the 256 MiB block cache), two-way memtable flush
 merging, a matching base level, dynamic level sizing, eight bounded background
 jobs, at most four key-range subcompactions for one large compaction, and 1 MiB
 incremental background-file syncs. WAL remains enabled and each

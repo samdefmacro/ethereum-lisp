@@ -3,8 +3,10 @@
 ;;;; Native (C heap) memory: what glibc malloc holds, and giving it back.
 ;;;;
 ;;;; The node's resident set has two owners.  The Lisp heap is SBCL's dynamic
-;;;; space; SBCL 2.2.9 returns its free pages after every collection that
-;;;; reaches generation 2 or older, so its resident size follows the live heap.
+;;;; space; SBCL 2.2.9 returns pages to the kernel when the collection that
+;;;; frees them runs, so its resident size follows the live heap (measured in
+;;;; the dev image: 243 MB of garbage promoted to generation 2 stayed resident
+;;;; through gen-0 and gen-1 collections and left with the gen-2 one).
 ;;;; Everything else -- RocksDB's memtables, block cache, compaction and write
 ;;;; batch buffers, the KZG and BLS libraries -- lives in glibc malloc arenas.
 ;;;; glibc keeps freed arena memory resident: a free chunk below a live one

@@ -689,9 +689,11 @@ them by their physical location instead reintroduces dependency cycles:
   filesystem cache under the gate's 7 GiB hard limit; Docker's working-set
   display omits inactive file pages that still count at that boundary. At the
   same eight-vCPU boundary, RocksDB receives eight bounded background
-  flush/compaction jobs while its level-compaction preset remains fixed at
+  flush/compaction jobs while its level-compaction preset stays at
   384 MiB. RocksDB divides that preset into 96 MiB write buffers and permits
-  at most six, bounding worst-case memtable residency at 576 MiB. Background
+  at most six, bounding worst-case memtable residency at 576 MiB. Both the
+  cache and the preset are those of the default 7 GiB `--memory.budget`
+  (1/28 and 3/56 of it; `MAKE-ROCKSDB-MEMORY-PROFILE`). Background
   concurrency can therefore drain independent
   SST work without multiplying the range import's memory allowance or changing
   WAL durability. One large level compaction is additionally divided into at

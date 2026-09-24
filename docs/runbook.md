@@ -32,11 +32,70 @@ Add `--metrics --metrics.addr 127.0.0.1 --metrics.port 6060` for the metrics
 endpoint (below). It is off unless both `--metrics` and a port are given.
 
 - Memory: 12 GiB was enough for a whole fresh Hoodi sync at d203fee6 (peak
-  10.32 GiB). 7 GiB was not: the cgroup OOM killer ended a long import.
+  10.32 GiB). 7 GiB was not: the cgroup OOM killer ended a long import. At
+  b5161312, 12 GiB was not enough either (OOM-killed at the head); see Memory
+  below for why, and what `--memory.budget` changes.
 - Discovery uses the preset bootnodes; no static enode is needed.
 - The consensus client must reach the Engine port with the same JWT secret.
   While the EL is down the CL falls behind; after a start expect a burst of
   `peer.snap.pivot_unavailable` until it catches up (below).
+
+## Memory
+
+Source: `docs/evidence/sec5-resident-memory.txt`.
+
+The resident set has two owners, and only one of them is the Lisp heap:
+
+| owner | bounded by | b5161312 Hoodi, 2026-09-24 02:19Z |
+|---|---|---|
+| SBCL dynamic space (the Lisp heap) | the executable's 6 GiB dynamic space; SBCL returns pages to the kernel when the collection that frees them runs, so its resident size follows the live heap | 3,767 MiB resident, `heapMb` 3,3xx-3,5xx |
+| glibc malloc arenas: RocksDB block cache and memtables, compaction and write-batch buffers, KZG/BLS | the RocksDB sizes below, plus the allocator's retention of freed memory | 7,935 MiB resident in 146 arena heaps, against RocksDB's own accounting of 245 MiB block cache and at most 576 MiB of memtables |
+| thread stacks, GC tables, libraries | thread count | about 130 MiB |
+
+The arena figure was the fault: freed C memory stayed resident. Since the
+resident-memory change (after b5161312), the node
+
+- pins glibc's mmap threshold at its 128 KiB default at start-up, so blocks of
+  128 KiB and more (RocksDB's 1 MiB memtable blocks, batch and compaction
+  buffers) are mmapped and go back to the kernel when freed, instead of
+  staying in an arena once the threshold has climbed;
+- returns free arena pages to the kernel once a minute (`malloc_trim`), and at
+  once when a SNAP target completes;
+- sizes RocksDB from one number, `--memory.budget MIB` (default 7168, the gate's
+  7 GiB ceiling): block cache budget/28 and a write-buffer budget of 3/56 of
+  it, so memtables stay under 3/2 of that. At 7 GiB: 256 MiB cache, 576 MiB of
+  memtables at most, 832 MiB in all. WAL and fsync behaviour do not depend on
+  the budget.
+
+The budget does not bound the Lisp heap: the dynamic space is fixed in the
+executable at 6 GiB. So a 7 GiB container holds the node only while the live
+heap stays under about 5.5 GiB (7 GiB less RocksDB's 832 MiB, stacks and
+allocator slack). The live heap peaked at 2,601 MiB before 01:50 on the
+b5161312 run (2,769 MiB in `peer.snap.page_profile`); from 01:50 it grew to
+3,949 MiB while one peer session held the store guard (see the evidence
+record). Keep 12 GiB until a 7 GiB run has passed.
+
+What the node logs:
+
+- `node.memory.budget` once, when the node starts serving: `budgetMb`,
+  `rocksdbBlockCacheMb`, `rocksdbWriteBufferBudgetMb`,
+  `rocksdbMemtableLimitMb`, `lispDynamicSpaceMb`, `headroomMb` (budget less
+  RocksDB's share and the whole dynamic space; negative means the budget does
+  not bound the Lisp heap), and `mallocMmapThresholdBytes` (131072 when
+  pinned; NIL off glibc).
+- `node.memory.sample` every five minutes: `rssMb`, `rssAnonMb`, `rssPeakMb`,
+  `heapMb`, `lispResidentMb` (dynamic space resident), `nativeResidentMb`
+  (`rssAnonMb` less `lispResidentMb`), `mallocInUseMb` (handed out and not
+  freed), `mallocFreeMb` (free chunks malloc holds; still counted after a
+  release, whose pages are gone), `mallocMmapMb`, `mallocHeaps`, and the
+  release that preceded it (`releasedMb`, `releaseMs`).
+- `node.memory.release` with `reason` `snap-target-completed`, or `periodic`
+  for a minute's release that returned 64 MiB or more.
+
+Reading them: `nativeResidentMb` far above `mallocInUseMb` means freed memory
+is still resident (the b5161312 fault); `mallocInUseMb` itself growing means
+something native holds more (a leak or a larger cache); `lispResidentMb`
+following `heapMb` up means the Lisp heap is what grew.
 
 ## Stop
 
@@ -134,7 +193,7 @@ From the d203fee6 fresh-datadir run (2026-09-23, Hoodi, 8 vCPU, 15 GiB host,
 | every Engine request over its 30 s deadline during forward sync | the batch importer held the store guard for a whole response | fixed at 9f84d312 (merge c831c9a6) |
 | `eth_syncing` stuck on an old snapshot while `eth_blockNumber` moves | the view was only refreshed when the guard was free | fixed at f514145f (merge d203fee6) |
 | exit 137 with OOMKilled=false after `docker stop` | the stop outlasted the grace period (SIGKILL); the RocksDB `LOG` has no `Shutdown complete` | look for a long Engine request or join in the last log lines; see Stop. The store recovers on restart |
-| exit 137 with OOMKilled=true | the container memory limit | raise the limit (12 GiB is the tested value) |
+| exit 137 with OOMKilled=true | the container memory limit (b5161312 at 02:25:29Z: 7.9 GiB of retained arena pages plus a Lisp heap growing at the head) | read the last `node.memory.sample` lines (see Memory) to tell native retention from Lisp heap growth; raise the limit (12 GiB is the tested value) |
 | `CORRUPTION WARNING` or `Memory fault` on stderr, even with exit 0 | a memory fault; SBCL can exit 0 after one | treat as a failure and keep the log |
 
 ## Metrics
