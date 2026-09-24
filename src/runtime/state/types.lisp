@@ -34,12 +34,31 @@
   ;; so no stale entry survives. A missed invalidation is a wrong state root,
   ;; i.e. a consensus divergence -- keep the write path down to that one
   ;; function.
-  (cached-storage-root nil))
+  (cached-storage-root nil)
+  ;; True only for an object the state's ACCOUNT-LOADER produced: its STORAGE
+  ;; table is then a partial cache of a backing (the loader's storage trie or
+  ;; the flat STORAGE-LOADER), and a slot absent from it is resolved there. An
+  ;; object this state created (a new, cleared-and-recreated, or materialized
+  ;; account) holds its whole storage in STORAGE, so absence means zero.
+  (backed-p nil)
+  ;; Slot keys of a backed object known to hold zero: read as zero from the
+  ;; backing, or deleted here. Together with STORAGE it is everything this
+  ;; object knows about its slots, and CLONE-STATE-OBJECT copies both, so a
+  ;; journal revert restores a before-image that knows exactly what it knew
+  ;; when it was taken. A slot first read AFTER that before-image is simply
+  ;; unknown to it and is read from the backing again -- correct, because every
+  ;; write reads its slot first, so a slot first read after the before-image
+  ;; was unwritten when it was taken. (These marks used to live in one
+  ;; state-wide table that no revert touched: a slot read after the journal
+  ;; entry and then reverted stayed "known" but vanished from STORAGE, and read
+  ;; as zero for the rest of the state's life. Hoodi block 3684027.)
+  (zero-slots nil))
 
 (defstruct (state-db (:constructor make-state-db ()))
   (objects (make-hash-table :test #'equal))
   ;; Historical states install on-demand readers instead of materialising every
-  ;; account and slot. Loaded sets also cache negative lookups.
+  ;; account and slot. LOADED-ACCOUNTS also caches negative account lookups;
+  ;; storage lookups are cached per object (STATE-OBJECT ZERO-SLOTS).
   account-loader
   storage-loader
   materializer
@@ -49,7 +68,6 @@
   ;; absence of that function alone cannot distinguish it from a direct trie.
   (direct-trie-p nil :type boolean)
   (loaded-accounts (make-hash-table :test #'equal))
-  (loaded-storage (make-hash-table :test #'equal))
   ;; Per-mutation before-images make snapshots integer marks rather than
   ;; whole-world copies. Entries are replayed backwards on revert.
   (journal (make-array 16 :adjustable t :fill-pointer 0))

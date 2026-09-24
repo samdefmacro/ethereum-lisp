@@ -29,6 +29,7 @@ Writes are reported before mutation so a recorder can retain the pre-value.")
                        :code code
                        :storage storage
                        :trie storage-trie
+                       :backed-p t
                        :cached-storage-root
                        (and storage-trie
                             (state-account-storage-root account))))))))))
@@ -372,7 +373,12 @@ revert the transaction."
    ;; for those contents is equally true here. Carrying it matters: snapshots
    ;; are taken per call frame, and dropping it would re-hash the world after
    ;; every one.
-   :cached-storage-root (state-object-cached-storage-root object)))
+   :cached-storage-root (state-object-cached-storage-root object)
+   ;; What the clone knows about its slots must travel with it: a revert that
+   ;; restores this before-image must not inherit marks made after it.
+   :backed-p (state-object-backed-p object)
+   :zero-slots (let ((zero-slots (state-object-zero-slots object)))
+                 (and zero-slots (copy-hash-table zero-slots)))))
 
 (defvar *state-db-copy-observer* nil
   "Internal test hook called when the deliberate full STATE-DB-COPY API runs.")
@@ -395,8 +401,6 @@ revert the transaction."
           (state-db-direct-trie-p copy) (state-db-direct-trie-p state)
           (state-db-loaded-accounts copy)
           (copy-hash-table (state-db-loaded-accounts state))
-          (state-db-loaded-storage copy)
-          (copy-hash-table (state-db-loaded-storage state))
           ;; Carry the commit's changed-account set so a snapshot taken for
           ;; block-level rollback restores it exactly with the rest.
           (state-db-touched copy) (copy-hash-table (state-db-touched state))
@@ -424,8 +428,6 @@ revert the transaction."
         (state-db-direct-trie-p state) (state-db-direct-trie-p snapshot)
         (state-db-loaded-accounts state)
         (copy-hash-table (state-db-loaded-accounts snapshot))
-        (state-db-loaded-storage state)
-        (copy-hash-table (state-db-loaded-storage snapshot))
         (state-db-touched state) (copy-hash-table (state-db-touched snapshot))
         (state-db-loading-p state) (state-db-loading-p snapshot)
         (state-db-trie state)
@@ -462,6 +464,7 @@ revert the transaction."
       ((zerop value)
        (when object
          (remhash storage-key storage)
+         (state-object-mark-zero-slot object storage-key)
          (when (state-object-trie object)
            (mpt-delete
             (state-object-trie object)
@@ -475,43 +478,64 @@ revert the transaction."
           (rlp-encode value)))))
       state)))
 
+(defun state-object-mark-zero-slot (object slot-key)
+  "Record that backed OBJECT's slot SLOT-KEY holds zero (see ZERO-SLOTS)."
+  (when (state-object-backed-p object)
+    (setf (gethash slot-key
+                   (or (state-object-zero-slots object)
+                       (setf (state-object-zero-slots object)
+                             (make-hash-table :test #'equal))))
+          t)))
+
+(defun state-object-backing-storage (state object address slot)
+  "Read SLOT of backed OBJECT from its backing: the storage trie when the
+object has one, else the state's flat storage loader."
+  (cond
+    ((state-object-trie object)
+     (multiple-value-bind (encoded present-p)
+         (mpt-get (state-object-trie object)
+                  (state-db-storage-proof-key slot))
+       (if present-p
+           (handler-case
+               (rlp-uint-field
+                (rlp-decode-one encoded)
+                "Persisted account storage value")
+             (storage-error (condition)
+               (error condition))
+             (error (condition)
+               (storage-fail
+                "Persisted account storage record is invalid: ~A"
+                condition)))
+           0)))
+    (t
+     (let ((loader (state-db-storage-loader state)))
+       (if loader
+           (funcall loader address slot)
+           0)))))
+
 (defun state-db-get-storage (state address slot)
+  "Return SLOT of ADDRESS. A backed object resolves a slot it does not know
+from its backing and remembers the answer on the object itself, so a journal
+revert of the object also reverts what it remembers (see ZERO-SLOTS)."
   (record-state-access :storage-read state address slot)
   (let ((object (state-db-get-object state address)))
     (if object
-        (let* ((key (address-key address))
-               (slot-key (storage-key slot))
-               (loaded-key (format nil "~A:~A" key slot-key))
+        (let* ((slot-key (storage-key slot))
                (storage (state-object-storage object)))
-          (unless (or (nth-value 1 (gethash slot-key storage))
-                      (gethash loaded-key (state-db-loaded-storage state)))
-            (setf (gethash loaded-key (state-db-loaded-storage state)) t)
+          (multiple-value-bind (value present-p) (gethash slot-key storage)
             (cond
-              ((state-object-trie object)
-               (multiple-value-bind (encoded present-p)
-                   (mpt-get (state-object-trie object)
-                            (state-db-storage-proof-key slot))
-                 (when present-p
-                   (let ((value
-                           (handler-case
-                               (rlp-uint-field
-                                (rlp-decode-one encoded)
-                                "Persisted account storage value")
-                             (storage-error (condition)
-                               (error condition))
-                             (error (condition)
-                               (storage-fail
-                                "Persisted account storage record is invalid: ~A"
-                                condition)))))
-                     (unless (zerop value)
-                       (setf (gethash slot-key storage) value))))))
+              (present-p value)
+              ((not (state-object-backed-p object)) 0)
+              ((let ((zero-slots (state-object-zero-slots object)))
+                 (and zero-slots (gethash slot-key zero-slots)))
+               0)
               (t
-               (let ((loader (state-db-storage-loader state)))
-                 (when loader
-                   (let ((value (funcall loader address slot)))
-                     (unless (zerop value)
-                       (setf (gethash slot-key storage) value))))))))
-          (gethash slot-key storage 0))
+               (let ((value (state-object-backing-storage
+                             state object address slot)))
+                 (if (zerop value)
+                     (state-object-mark-zero-slot object slot-key)
+                     (setf (gethash slot-key storage) value))
+                 value)))))
         0)))
 
 (defun uint256-to-32-byte-hash (value)
