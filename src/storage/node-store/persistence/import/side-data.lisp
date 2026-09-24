@@ -224,6 +224,30 @@ before the caller mutates DATABASE."
                 "Bounded invalid recovery cleanup made no progress"))
              (setf cursor next-cursor))))
 
+(defun node-store-discard-invalid-tipsets-from-kv (store database)
+  "Delete every persisted INVALID verdict instead of restoring it at startup.
+
+An INVALID verdict describes the binary that reached it, not only the block: a
+client defect produces one as readily as a bad block does, and a restored
+verdict makes the upgraded binary refuse the block without executing it, so the
+defect outlives its fix (Hoodi block 3684027, 2026-09-24: a gas mismatch from a
+state-read defect, then 113 descendants answered 'links to previously rejected
+block' across a restart onto a revision that no longer had the defect).
+go-ethereum v1.17 keeps its Engine API verdicts (eth/catalyst/api.go
+invalidTipsets, invalidBlocksHits) in memory only; the bad blocks it writes to
+disk (core/blockchain.go reportBadBlock -> rawdb.WriteBadBlock, ten kept)
+serve debug_getBadBlocks and tracing and are never consulted on import.  A new
+process therefore re-executes the block and reaches its own verdict.
+
+Records are removed in the same bounded, BAL-owner-atomic pages the bounded
+import uses for the verdicts it evicts; STORE must hold no verdict yet."
+  (setf store (chain-store-require-memory-store store))
+  (unless (typep database 'key-value-database)
+    (block-validation-fail
+     "Invalid-tipset discard requires a key-value database"))
+  (node-store-clean-bounded-invalid-recovery-records store database)
+  store)
+
 (defun node-store-import-bounded-invalid-tipsets-from-kv
     (store database &key (now (unix-time)) finalized-number)
   "Restore deterministic invalid verdicts without unbounded hydration."

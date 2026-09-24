@@ -232,7 +232,10 @@ past the metadata that actually exists on disk."
      :expected-chain-id (chain-config-chain-id config)
      :chain-config config
      :track-txpool-database-changes-p t
-     :import-txpool-p import-txpool-p)
+     :import-txpool-p import-txpool-p
+     ;; As on the direct path: a restarted node re-validates rather than
+     ;; trusting a verdict an earlier process reached.
+     :import-invalid-tipsets-p nil)
     (devnet-cli-validate-imported-genesis
      store genesis-block database-path)))
 
@@ -259,12 +262,11 @@ past the metadata that actually exists on disk."
              (and finalized
                   (block-header-number (block-header finalized)))))
       ;; Invalid verdicts and buffered candidates are bounded live import state,
-      ;; not chain history. Restore verdicts first so a conflicting legacy
-      ;; remote record cannot be re-admitted as a sync target.
-      (node-store-import-bounded-invalid-tipsets-from-kv
-       store database
-       :now now
-       :finalized-number finalized-number)
+      ;; not chain history. A verdict is not restored: it belongs to the process
+      ;; that reached it, and this process re-executes the block instead (see
+      ;; NODE-STORE-DISCARD-INVALID-TIPSETS-FROM-KV). A remote record of that
+      ;; block is therefore admitted as an ordinary candidate below.
+      (node-store-discard-invalid-tipsets-from-kv store database)
       (node-store-import-bounded-remote-blocks-from-kv
        store database
        :now now

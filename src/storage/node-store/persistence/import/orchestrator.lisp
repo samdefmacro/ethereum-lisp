@@ -3,7 +3,11 @@
 (defun node-store-import-from-kv
     (store database &key expected-chain-id chain-config
                          track-txpool-database-changes-p
-                         (import-txpool-p t))
+                         (import-txpool-p t)
+                         (import-invalid-tipsets-p t))
+  "Hydrate STORE from DATABASE. IMPORT-INVALID-TIPSETS-P NIL leaves persisted
+INVALID verdicts out, so the new process re-executes those blocks (node startup
+does this; see NODE-STORE-DISCARD-INVALID-TIPSETS-FROM-KV)."
   (chain-store-require-memory-store store)
   (unless (txpool-component store)
     (block-validation-fail "Node import target requires a txpool component"))
@@ -39,7 +43,8 @@
     ;; record-scoped forkchoice commit.
     (when track-txpool-database-changes-p
       (engine-payload-store-enable-txpool-database-change-tracking staging))
-    (chain-store-import-invalid-tipsets-from-kv staging database)
+    (when import-invalid-tipsets-p
+      (chain-store-import-invalid-tipsets-from-kv staging database))
     (chain-store-import-remote-blocks-from-kv staging database)
     (chain-store-import-blob-sidecars-from-kv staging database)
     (chain-store-import-prepared-payloads-from-kv staging database)
