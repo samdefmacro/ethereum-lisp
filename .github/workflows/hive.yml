@@ -53,9 +53,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Actions are referenced by major-version tag, matching tests.yml. Pinning both
-# workflows to action digests is plan section 10 work and should land as one
-# change across the repository rather than diverging here.
+# Every action is pinned to a full commit SHA with the release it resolved in a
+# trailing comment, and buildx runs a digest-pinned BuildKit, exactly as in
+# tests.yml; scripts/pins-check.sh (the `pins` job there) fails on a movable
+# reference in either workflow or in any Dockerfile. Refresh a pin by resolving
+# the new release tag to its commit and updating both workflows together.
 env:
   RUNTIME_IMAGE: ethereum-lisp-runtime
   RUNTIME_TAG: ci
@@ -66,12 +68,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
       # Shared gha cache: RocksDB and c-kzg compile once per Dockerfile.runtime
       # change rather than once per job. load: true puts the image in the local
       # daemon under the tag the scripts expect.
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile.runtime
@@ -110,9 +114,11 @@ jobs:
           - sim: devp2p
             allow_failure: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile.runtime
@@ -123,7 +129,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=runtime
       # Hive is a Go program and must run on the same host as dockerd: it
       # dials each client container's bridge address for its liveness check.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.24'
       - name: Run suite
@@ -147,7 +153,7 @@ jobs:
             | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hive-${{ strategy.job-index }}
           path: hive-results

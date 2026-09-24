@@ -21,6 +21,10 @@
 ARG baseimage=ethereum-lisp-runtime
 ARG tag=latest
 
+# The base is the runtime image this repository builds (Dockerfile.runtime), so
+# there is no registry digest to pin; its identity is the revision label and
+# the exported archive's SHA-256 (docs/runbook.md, Release verification).
+# pins-check: project-image
 FROM ${baseimage}:${tag}
 
 # The entry point needs jq for the genesis translation, and the enode retriever
