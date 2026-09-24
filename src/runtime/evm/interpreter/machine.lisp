@@ -25,8 +25,12 @@ hiding them in one large lexical scope."
   gas-limit
   gas-budget
   step-budget
-  (pc 0 :type (integer 0 *))
-  (steps 0 :type (integer 0 *))
+  ;; PC only ever holds a code offset (a jump target is checked against the
+  ;; code length before it is stored) and STEPS counts executed instructions,
+  ;; so both are fixnums and their per-instruction updates are word
+  ;; arithmetic.
+  (pc 0 :type (and fixnum unsigned-byte))
+  (steps 0 :type (and fixnum unsigned-byte))
   (gas-used 0 :type (integer 0 *))
   ;; The operand stack: words in STACK[0..SP), the top at SP-1.  The vector
   ;; starts small and doubles up to +STACK-LIMIT+, so a push or pop is an
@@ -122,6 +126,45 @@ hiding them in one large lexical scope."
   (let* ((left (evm-stack-pop machine))
          (right (evm-stack-pop machine)))
     (evm-stack-push machine (funcall function left right))))
+
+(deftype evm-small-gas ()
+  "A gas quantity whose arithmetic compiles to machine words."
+  '(and fixnum unsigned-byte))
+
+(declaim (inline %evm-machine-charge-small-gas-p))
+(defun %evm-machine-charge-small-gas-p (machine amount)
+  "Charge AMOUNT of regular gas when it and every counter it touches are
+fixnums, and return T; return NIL, charging nothing, when any is not.
+
+This is EVM-GAS-BUDGET-CHARGE-REGULAR plus the frame's GAS-USED on fixnum
+arithmetic: every real gas quantity is a fixnum, so the interpreter's
+per-instruction charge never reaches generic arithmetic.  An unaffordable
+AMOUNT fails exactly as the general path does."
+  (declare (type evm-machine machine))
+  (let ((budget (evm-machine-gas-budget machine))
+        (gas-used (evm-machine-gas-used machine)))
+    (declare (type evm-gas-budget budget))
+    (let ((regular (evm-gas-budget-regular budget))
+          (used-regular (evm-gas-budget-used-regular budget)))
+      (when (and (typep amount 'evm-small-gas)
+                 (typep regular 'evm-small-gas)
+                 (typep used-regular 'evm-small-gas)
+                 (typep gas-used 'evm-small-gas))
+        (when (> amount regular)
+          (fail "EVM out of gas (regular dimension) at pc ~D"
+                (evm-machine-pc machine)))
+        (setf (evm-gas-budget-regular budget) (- regular amount)
+              (evm-gas-budget-used-regular budget) (+ used-regular amount)
+              (evm-machine-gas-used machine) (+ gas-used amount))
+        t))))
+
+(declaim (inline %evm-machine-charge-gas))
+(defun %evm-machine-charge-gas (machine amount)
+  (declare (type evm-machine machine))
+  (if (and (evm-machine-gas-limit machine)
+           (%evm-machine-charge-small-gas-p machine amount))
+      amount
+      (evm-machine-charge-gas machine amount)))
 
 (defun evm-machine-charge-gas (machine amount)
   (declare (type evm-machine machine))
