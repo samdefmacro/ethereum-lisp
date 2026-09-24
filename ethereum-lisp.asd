@@ -496,6 +496,7 @@
      (:file "eth-pump-tests")
      (:file "cli-devnet-peer-manager-tests")
      (:file "cli-devnet-metrics-tests")
+     (:file "cli-devnet-observability-tests")
      (:file "websocket-tests")
      (:file "debug-tracing-tests")
      (:file "cli-devnet-dial-tests")
