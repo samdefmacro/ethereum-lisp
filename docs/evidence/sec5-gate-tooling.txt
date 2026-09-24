@@ -1,0 +1,202 @@
+Section 5: control-plane broker debt (gate tooling)
+
+Status
+
+Branch gate-tooling, from a07c912e. Four of the five items are done, each
+in one commit with a bash self-test run from the integration layer:
+
+  68fbc985  (1) live-gate logs summarises the Engine and store-guard
+            telemetry
+  c6b61cd8  (2) live-gate complete says why a syncing node is not at the
+            head
+  77c1f2e1  (4) hive-gate upload can stage an exported archive without
+            Docker
+  e81b5ba8  (5) hoodi-fleet-status prints the whole Hoodi host read-only
+            in one call
+
+(3) the live-gate `stop` action is written but NOT in the broker: the
+permission classifier refused the edit that wires a new remote-mutating
+action into scripts/hoodi-live-gate.sh ("Remote Shell Writes"). The full
+change is kept as a patch for review (section 4). No src/ change, no
+deployment, no mutating action run against the host, no cold-all (the
+coordinator runs it once at the end).
+
+================================================================================
+1. live-gate logs: the Engine and store-guard summary
+================================================================================
+
+Mechanism. The node writes engine.rpc.http.request with bare integer fields
+(("handlerMs" . 25269)) and node.store_guard.long_hold with string fields
+(("holdMs" . "5996")); neither carries a time. The EL window (last 10,000
+lines, as before) is now read with `docker logs --timestamps`; the stamps are
+stripped into the copy every existing reader uses, so their patterns (the
+anchored allocation-profile-row pass-through included) see the node's lines
+unchanged. One awk pass over the stamped copy accepts both field spellings
+and prints, sorted for stable output:
+
+  el-engine-requests method=M count=N           per rpcMethods, and -total
+  el-engine-latency series=handlerMs|npExecuteMs method=M
+                    samples= min= p50= p90= max=   nearest rank
+  el-engine-np-cpu-gc samples= npExecuteCpuMs-sum= npExecuteGcMs-sum=
+  el-engine-guard-wait samples= maxMs=           guardWaitMs
+  el-engine-last-new-payload timestamp= method= status=
+                                              (none-in-window when older)
+  el-guard-long-hold holder=H count= maxMs=      and -total, -last
+  el-connection-error port=P class=C count=      and -total
+
+"Per method deadline" for connection errors: the event carries only the
+listener fields and the error text, and a request that reaches its deadline
+writes no engine.rpc.http.request line (all 1,245 request lines in the
+b5161312 window had status 200). So the method is not observable from the
+log; the class is: request-deadline-Ns and idle-deadline-Ns come from the two
+fixed messages in src/transport/http/parser.lisp, everything else is other.
+Only numbers, method names, holder labels and the class leave the host;
+guardWaitedFor lists and error text never do.
+
+Live read (read-only, b5161312, 2026-09-24T02:1x Z, before the OOM kill in
+section 6), last 10,000 lines:
+  el-connection-error port=8545 class=request-deadline-30s count=6
+  el-connection-error port=8551 class=request-deadline-30s count=670
+  el-engine-requests method=eth_syncing count=410 (and 7 others)
+  el-engine-last-new-payload timestamp=none-in-window
+  el-guard-long-hold-total count=0 maxMs=0
+i.e. no Engine request completed in that window at all.
+
+================================================================================
+2. live-gate complete: why the node is not at the head
+================================================================================
+
+When eth_syncing is not false, complete still exits 1 and prints one
+completion-why line. A hold is logged only at release, so an open hold is
+not observable without a new event (src/ was out of scope). The line
+reports the last observable release instead (latest long_hold, newPayload or
+forkchoiceUpdated line, each of which took and released the guard) and says
+no-release-logged-since:<ts> once that is >= 30 s old (the Engine request
+deadline). complete now reads the whole log with --timestamps; all of its
+patterns are unanchored.
+
+Live read (read-only, b5161312, 2026-09-24T02:24Z):
+  completion-eth-syncing=not-false
+  completion-why=syncing current=3684026 highest=3684118 gap=92
+    last-new-payload=2026-09-24T01:50:27.243535660Z age=2066s
+    np-status=SYNCING
+    guard=no-release-logged-since:2026-09-24T01:50:27.391393628Z
+    guard-release-age=2066s
+    last-long-hold=ethereum-lisp-devnet-dial-session:110731ms@2026-09-24T01:50:17.789708979Z
+
+================================================================================
+3. hive-gate upload from an exported archive
+================================================================================
+
+HOODI_HIVE_IMAGE_TAR=PATH with HOODI_HIVE_IMAGE_SHA256=HEX replaces the
+local-daemon identity check: the archive's SHA-256 must equal the pin
+(prepare checks it again), and its single image's RepoTags must include
+ethereum-lisp-runtime:sec5-<rev8>-amd64, its configuration must carry
+exactly one org.opencontainers.image.revision label equal to the revision,
+and os/architecture must be linux/amd64, read with tar, grep and sed (the
+test image has no jq). The revision fence runs first and is unchanged; the
+nested runner still checks revision, platform and user at load time.
+
+================================================================================
+4. live-gate stop: written, not wired (needs review)
+================================================================================
+
+Patch: /private/tmp/claude-501/-Users-sen-common-lisp-ethereum-lisp/
+3c4dc9bc-19fd-4c34-a833-57625f4e27ae/scratchpad/T-stop-action.patch
+(against 68fbc985..e81b5ba8's scripts/hoodi-live-gate.sh; the full file is
+hoodi-live-gate.with-stop.sh beside it). It adds:
+
+  HOODI_GATE_STOP_TIMEOUT  SIGTERM grace, default 120 s (the 30 s request
+                           deadline + 5 s drain + 12 s join budget + store
+                           close, docs/runbook.md "Stop", with margin),
+                           accepted 30-600 s;
+  stop                     mutating (HOODI_GATE_ALLOW_MUTATION=1, clean
+                           checkout, revision fence); refuses a container
+                           that is absent, not labelled with the revision and
+                           agent=codex-sec5-live-gate, or mounted outside the
+                           remote root; `docker stop --time GRACE`; prints
+                           stop-requested, stop-elapsed, stop-exit/oom/
+                           finished, the chaindata/LOG "Shutdown complete"
+                           count before->after and whether it is in the LOG's
+                           last 20 lines, and the runtime-fault count since
+                           the request; exits 1 with stop-clean=false
+                           reason=... on a non-zero exit, sigkill-after-grace,
+                           OOM, no (new) Shutdown complete, or a fault.
+
+It was never executed, not even against stubs; only its text exists.
+
+================================================================================
+5. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed (EXIT=0).
+
+Cold, on e81b5ba8 (tree clean):
+  cl-workbench validation run cold-integration --match HOODI
+    3 tests passed, EXIT=0
+    HOODI-HIVE-GATE-SELFTEST-COVERS-REFUSALS          70 checks, 0 failed
+    HOODI-LIVE-GATE-SELFTEST-SUMMARISES-ENGINE-TELEMETRY 49 checks, 0 failed
+    HOODI-FLEET-STATUS-SELFTEST-STAYS-READ-ONLY       32 checks, 0 failed
+
+Positive controls (mutations of scripts/hoodi-live-gate.sh, reverted with
+git checkout afterwards; cold-integration --match HOODI-LIVE-GATE, EXIT=1,
+49 checks, 4 failed, exactly the expected ones):
+  stamp strip replaced by cp          -> "prints: allocation-profile-row
+                                          rank=1 bytes=4096" red
+  nearest rank without the ceiling    -> handlerMs and npExecuteMs
+                                          newPayload distributions red
+  no-release threshold 30 -> 300 s    -> the no-release completion-why red
+The hive and fleet mutation controls (skip the archive revision check; keep
+HOODI_GATE_ALLOW_MUTATION in the brokers' environment) were refused by the
+permission classifier and were not run. Each of those self-tests pairs its
+refusals with positive controls in-script instead (the archive path reaching
+the host, the daemon-down control, the docs-only fence control; the
+mutation=unset assertion is made with the allowances set by the caller).
+
+Read-only against the host (test-ethereum-sophon2-symbiosis), from this
+branch with HOODI_GATE_RUNTIME_REVISION=b5161312...:
+  hoodi-live-gate.sh logs     EXIT=0 (before and after the OOM kill)
+  hoodi-live-gate.sh complete EXIT=1 with the line in section 2
+  hoodi-fleet-status.sh       EXIT=0, 5 sections, 0 failed (after the OOM
+                              kill: live-gate=none-running, three Hive
+                              aee866f7 runs 47/48, 401/403, 234/234, shadow)
+
+Not run: cold-e2e --match GATE. The brief named it, but the broker tests
+are integration-layer tests (as the existing Hive one was), and the e2e
+GATE selection is the devnet smoke-gate suite, which these changes do not
+touch. cold-all is left to the coordinator.
+
+================================================================================
+6. Seen on the way (out of scope)
+================================================================================
+
+- b5161312 was OOM-killed by its own memory cgroup at 2026-09-24T02:25:28Z
+  (kernel: CONSTRAINT_MEMCG, usage 12582908 kB of 12582912 kB, anon-rss
+  12416028 kB; docker: exit 137, OOMKilled=true). The container is stopped.
+  The read-only log copies above went to a disk-backed /tmp on the host.
+- For ~35 min before that, no Engine request completed: 660-670
+  request-deadline-30s connection errors on 8551 in the last 10,000 lines,
+  eth_syncing 92 blocks behind, and the last guard release logged at
+  01:50:27Z. The last long_hold was ethereum-lisp-devnet-dial-session holding
+  the store guard for 110,731 ms; an earlier newPayload waited 19,425 ms
+  behind "ethereum-lisp-devnet-dial-session:36877". A peer dial session
+  holding the store guard for tens of seconds is not covered by the
+  deferral in sec5-newpayload-six-second-quantum.txt.
+- restart_gate still stops with `docker stop --time 30`, below the
+  runbook's own stop budget when a request runs to its deadline.
+
+Not verified
+
+- The stop action (section 4) in any form.
+- The archive upload against the real host. The selftest's archive is a
+  minimal manifest.json plus configuration blob. A real export of an
+  earlier runtime image on this control plane
+  (/private/tmp/ethereum-lisp-runtime-s10-85e453e2-amd64.tar) was opened
+  read-only with the same tar/grep patterns: one "Config":"blobs/sha256/..."
+  entry, RepoTags ["ethereum-lisp-runtime:s10-85e453e2-amd64"], and exactly
+  one revision label, "os":"linux" and "architecture":"amd64" in its
+  configuration, so the parser's assumptions hold for that format; the
+  broker itself was not run against it (its tag is not sec5-*).
+- fleet-status against a host with a running live-gate container through
+  the real brokers (the stubbed selftest covers the plumbing; the one real
+  run found none running).

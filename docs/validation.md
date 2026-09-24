@@ -1155,6 +1155,14 @@ and statistics pass before RocksDB, while
 previous commit. Use a
 pair of these samples with Docker's block-I/O delta to calculate backend write
 amplification instead of comparing physical writes directly with wire bytes.
+The Engine request, store-guard long-hold and HTTP connection-error events are
+reduced the same way, to counts, per-method nearest-rank latency
+distributions, CPU/GC sums, and a fixed error class; `docs/runbook.md` lists
+every line. `complete` explains a not-yet-false `eth_syncing` in one
+`completion-why=` line. `scripts/hoodi-live-gate-selftest.sh` checks both
+against a stubbed host (`HOODI-LIVE-GATE-SELFTEST-SUMMARISES-ENGINE-TELEMETRY`),
+and `scripts/hoodi-fleet-status.sh` prints every gate's read-only status in
+one call (`HOODI-FLEET-STATUS-SELFTEST-STAYS-READ-ONLY`).
 
 When a performance claim needs a same-host geth control, use the separate
 `scripts/hoodi-geth-benchmark-gate.sh`. Its defaults pin the already-installed
