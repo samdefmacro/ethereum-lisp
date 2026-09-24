@@ -113,7 +113,11 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest direct-restart-restores-bounded-invalid-verdict-without-reexecution
+(deftest direct-restart-re-executes-a-block-an-earlier-process-rejected
+  ;; A verdict belongs to the process that reached it (go-ethereum keeps its
+  ;; Engine verdicts in memory only).  Hoodi block 3684027: a client defect
+  ;; rejected a canonical block, and the persisted verdict made the fixed
+  ;; binary refuse it again without executing it.
   (:layer :integration :module :persistence)
   (let* ((path
            (merge-pathnames
@@ -159,31 +163,63 @@
            (engine-payload-store-mark-invalid source invalid)
            (node-store-export-invalid-candidate-to-kv
             source invalid database)
-           (let ((restored
-                   (ethereum-lisp.cli::devnet-cli-import-direct-chain-database
-                    (make-file-key-value-database path)
-                    "direct-invalid-file-test" config genesis
-                    :import-txpool-p nil)))
-             (is (engine-payload-store-invalid-block
-                  restored (block-hash invalid)))
-             (is (engine-payload-store-durable-cache-change-tracking-enabled-p
-                  restored))
-             (multiple-value-bind (status candidate receipts)
-                 (ethereum-lisp.block-import:import-p2p-block-candidate
-                  restored invalid config
-                  :import-function
-                  (lambda (&rest arguments)
-                    (declare (ignore arguments))
-                    (incf executor-calls)
-                    (error "cached invalid block must not execute")))
-               (declare (ignore candidate receipts))
-               (is (string= +payload-status-invalid+
-                            (payload-status-status status)))
-               (is (zerop executor-calls)))))
+           (is (nth-value
+                1 (kv-get-chain-record database :invalid-tipset
+                                       (hash32-bytes (block-hash invalid)))))
+           (flet ((import-counting (store)
+                    (multiple-value-bind (status candidate receipts)
+                        (ethereum-lisp.block-import:import-p2p-block-candidate
+                         store invalid config
+                         :import-function
+                         (lambda (&rest arguments)
+                           (declare (ignore arguments))
+                           (incf executor-calls)
+                           (ethereum-lisp.validation:block-validation-fail
+                            "re-executed and rejected")))
+                      (declare (ignore candidate receipts))
+                      status)))
+             ;; Positive control: within the process that reached it, the
+             ;; verdict still answers without executing the block.
+             (is (string= +payload-status-invalid+
+                          (payload-status-status (import-counting source))))
+             (is (zerop executor-calls))
+             ;; The hydrating (non-direct) startup path leaves it out too.
+             (let ((legacy (make-engine-payload-memory-store)))
+               (ethereum-lisp.cli::devnet-cli-import-chain-database
+                legacy (make-file-key-value-database path)
+                "legacy-invalid-file-test" config genesis
+                :import-txpool-p nil)
+               (is (null (engine-payload-store-invalid-block
+                          legacy (block-hash invalid)))))
+             (let ((restored
+                     (ethereum-lisp.cli::devnet-cli-import-direct-chain-database
+                      (make-file-key-value-database path)
+                      "direct-invalid-file-test" config genesis
+                      :import-txpool-p nil)))
+               (is (null (engine-payload-store-invalid-block
+                          restored (block-hash invalid))))
+               (is (engine-payload-store-durable-cache-change-tracking-enabled-p
+                    restored))
+               ;; The persisted record is gone, not merely unread.
+               (is (not (nth-value
+                         1 (kv-get-chain-record
+                            (make-file-key-value-database path)
+                            :invalid-tipset
+                            (hash32-bytes (block-hash invalid))))))
+               ;; A new process executes the block and reaches its own verdict.
+               (let ((status (import-counting restored)))
+                 (is (string= +payload-status-invalid+
+                              (payload-status-status status)))
+                 (is (string= "re-executed and rejected"
+                              (payload-status-validation-error status))))
+               (is (= 1 executor-calls)))))
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest direct-startup-streams-and-durably-bounds-legacy-invalid-tipsets
+(deftest direct-startup-discards-every-persisted-invalid-tipset-in-bounded-pages
+  ;; No verdict survives a restart (see the test above).  The records are
+  ;; removed over several bounded pages, and a BAL goes with its invalid
+  ;; record unless another owner still holds it.
   (:layer :integration :module :persistence :estimated-seconds 15)
   (let* ((path
            (merge-pathnames
@@ -271,23 +307,13 @@
                (is (> invalid-count
                       (* 2
                          ethereum-lisp.node-store.persistence::+node-store-remote-recovery-cleanup-batch-size+)))
-               (is (= ethereum-lisp.chain-store:+engine-invalid-tipsets-cap+
-                      (hash-table-count
-                       (ethereum-lisp.chain-store.state:memory-chain-store-invalid-tipsets
-                        chain))))
-               (is (= ethereum-lisp.chain-store:+engine-invalid-tipsets-cap+
-                      (length durable-invalids)))
-               ;; The staged owner keeps one extra BAL after its invalid body
-               ;; is evicted; every retained invalid owns one more.
-               (is (= (1+ (length durable-invalids))
-                      (length durable-side-data)))
-               (dolist (entry durable-invalids)
-                 (is (nth-value
-                      1
-                      (gethash
-                       (bytes-to-hex (car entry))
-                       (ethereum-lisp.chain-store.state:memory-chain-store-invalid-tipsets
-                        chain)))))
+               (is (zerop
+                    (hash-table-count
+                     (ethereum-lisp.chain-store.state:memory-chain-store-invalid-tipsets
+                      chain))))
+               (is (null durable-invalids))
+               ;; Only the staged owner's BAL outlives its invalid record.
+               (is (= 1 (length durable-side-data)))
                (is (not
                     (nth-value
                      1
