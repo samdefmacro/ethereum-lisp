@@ -166,6 +166,35 @@ verify-kzg-blob-proof wrapper."
              collect
              (subseq proof-bytes (* index 48) (* (1+ index) 48)))))))
 
+(defun kzg-compute-cells (blob)
+  "Return the 128 EIP-7594 cells of BLOB, without their proofs.
+
+The cells are the blob's extension; the proofs are nearly all the cost of
+KZG-COMPUTE-CELLS-AND-PROOFS (about 2 ms against 130 ms per blob in the cold
+test image). c-kzg's compute_cells_and_kzg_proofs skips the proofs when their
+output is NULL, as the shim's own cell-proof verifier asks it to, so a caller
+that already holds a blob's cell proofs pays for the cells alone."
+  (let ((settings (kzg-cffi-settings))
+        (blob (kzg-cffi-octets blob)))
+    (unless settings
+      (block-validation-fail "KZG cell computation is unavailable"))
+    (unless (= +kzg-cffi-blob-byte-size+ (length blob))
+      (block-validation-fail "KZG cell computation requires one full blob"))
+    (let ((cell-bytes
+            (make-byte-vector
+             (* +kzg-cffi-cells-per-blob+ +bytes-per-cell+))))
+      (cffi:with-pointer-to-vector-data (bp blob)
+        (cffi:with-pointer-to-vector-data (cp cell-bytes)
+          (unless (= 1
+                     (%eth-ckzg-compute-cells-and-proofs
+                      settings bp cp (cffi:null-pointer)))
+            (block-validation-fail "KZG cell computation failed"))))
+      (loop for index below +kzg-cffi-cells-per-blob+
+            collect
+            (subseq cell-bytes
+                    (* index +bytes-per-cell+)
+                    (* (1+ index) +bytes-per-cell+))))))
+
 (defun kzg-cffi-verifier-available-p ()
   "True when the CFFI verifier can be built (library and setup both present)."
   (and *libethckzg-loaded-p* (kzg-cffi-settings) t))

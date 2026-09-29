@@ -39,7 +39,8 @@ Availability flags (see ENGINE-RPC-METHOD-AVAILABLE-P):
                stronger requirement than :kzg-p -- proof verification can be
                satisfied by a mock verifier, but computation only by the c-kzg
                CFFI backend.  engine_getBlobsV4 is the only method whose handler
-               computes cells (KZG-COMPUTE-CELLS-AND-PROOFS).
+               computes cells (KZG-COMPUTE-CELLS; KZG-COMPUTE-CELLS-AND-PROOFS
+               only for a blob stored without its cell proofs).
   :bls-p       needs the BLS12-381 backend.
   :amsterdam-p needs Amsterdam execution semantics (AMSTERDAM-EXECUTION-
                AVAILABLE-P), currently NIL, so these methods stay unadvertised

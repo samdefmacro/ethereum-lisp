@@ -40,4 +40,5 @@
    #:compute-kzg-blob-proof
    #:compute-kzg-cell-proofs
    #:kzg-compute-cells-and-proofs
+   #:kzg-compute-cells
    #:validate-blob-sidecar-fields))

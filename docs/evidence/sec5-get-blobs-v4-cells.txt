@@ -1,0 +1,143 @@
+Section 5: engine_getBlobsV4 reads each blob once and serves the stored
+cell proofs
+
+Status
+
+Branch wave7-getblobs-v4, from 05bbd4c5. A finding of the wave-6 E1 work
+(68c2f376), left out of its scope: the getBlobsV4 handler still read every
+requested blob through a call that enforced the blob cache bounds, and it
+derived every blob's 128 cells AND 128 cell proofs with c-kzg although the
+store holds the cell proofs. It now reads inside one blob read batch, computes
+only the cells of a blob whose cell proofs are stored, and computes each
+distinct blob once per request. Measured in the cold test image; not deployed,
+no Hive run (the coordinator runs Hive). No consensus surface: the change is
+confined to an Engine read method and a new c-kzg wrapper; no gas, state,
+receipt, root or validity path is touched, so the EEST, ported_static, Hoodi
+fixture and replay gates were not run.
+
+Revision
+
+  5fbbd9a2  engine: getBlobsV4 reads each blob once and serves the stored
+            cell proofs
+
+================================================================================
+1. Mechanism
+================================================================================
+
+ENGINE-RPC-HANDLE-GET-BLOBS-V4 (src/api/engine/blobs.lisp) mapped over the
+requested hashes and, for each one:
+
+  - called ENGINE-PAYLOAD-STORE-BLOB-AND-PROOFS-V1 outside any read batch, so
+    each call ran ENGINE-PAYLOAD-STORE-ENFORCE-CACHE-BOUNDS, a walk and two
+    sorts of the whole blob cache. 68c2f376 wrapped the V1, V2, V3 and
+    hasBlobs reads in CALL-WITH-ENGINE-PAYLOAD-STORE-BLOB-READ-BATCH; V4 was
+    the one reader left;
+  - called KZG-COMPUTE-CELLS-AND-PROOFS on the blob and kept the requested
+    cells and proofs. The proofs are nearly all of that cost, and for a blob
+    admitted after Osaka the store already holds exactly those 128 proofs.
+
+go-ethereum v1.17.6 (references/go-ethereum, version.go 1.17.6)
+eth/catalyst/api.go GetBlobsV4 answers from blobpool Cache.GetCells
+(core/txpool/blobpool/cache.go) and BlobPool.GetBlobCells (blobpool.go),
+which serve the stored cells and stored proofs at the requested indices and
+answer nil for a hash they do not hold; a repeated hash is looked up once
+(the indices map). geth stores cells; we store blobs, so the cells are still
+computed, but c-kzg's compute_cells_and_kzg_proofs skips the proofs when their
+output pointer is NULL (tools/ckzg-ffi/shim.c already calls it that way to
+verify cell proofs), so no shim or image change is needed.
+
+================================================================================
+2. Reproduction (RED before GREEN)
+================================================================================
+
+Base tree: the five source files restored from 05bbd4c5 with the new tests in
+place, every restored file touched; cold runs.
+
+  cl-workbench validation run cold-unit --match ENGINE-RPC-GET-BLOBS-V4 \
+    --match Z4-PROBE-HANDLER                                  EXIT=1
+    ok     ENGINE-RPC-GET-BLOBS-V4-AND-HAS-BLOBS
+    not ok ENGINE-RPC-GET-BLOBS-V4-READS-EACH-BLOB-ONCE-AND-SERVES-STORED-CELL-PROOFS
+           (EQUAL EXPECTED-PROOFS ...): the answered proofs were c-kzg's, not
+           the stored ones (the cell assertion before it held)
+    not ok ENGINE-RPC-GET-BLOBS-V4-ANSWERS-EACH-POSITION-AND-BOUNDS-THE-REQUEST
+           (KZG-COMPUTE-CELLS undefined: expected, it is the new function)
+    not ok Z4-PROBE-HANDLER-TIMING: 781,400 us per 6-blob request
+
+  cl-workbench validation run cold-unit --match Z4-PROBE-COUNTS   EXIT=1
+    6-blob request: enforcements 6, cell-and-proof derivations 6
+
+Fixed tree, same probes (temporary deftests, removed before the commit):
+
+  cl-workbench validation run cold-unit --match Z4-PROBE \
+    --match ENGINE-RPC-GET-BLOBS-V4                           EXIT=1 (probes)
+    ok x3 (the three V4 tests)
+    Z4-PROBE-HANDLER-TIMING  13,000 us per 6-blob request (13,800 in a first run)
+    Z4-PROBE-CELL-TIMING     per blob: cells and proofs 132,083 us, cells
+                             only 2,417 us (131,750 / 2,000 in a first run)
+    Z4-PROBE-COUNTS          enforcements 1, cell-and-proof derivations 0
+
+The request selected cells 0, 9 and 127 of six distinct canonical blobs; the
+probes measured GET-INTERNAL-REAL-TIME over 5 requests and 12 blobs.
+
+================================================================================
+3. Fix
+================================================================================
+
+- src/protocol/kzg/cffi-verifier.lisp: KZG-COMPUTE-CELLS, the 128 cells of a
+  blob with a NULL proof output; exported from ethereum-lisp.kzg and the
+  facade.
+- src/api/engine/blobs.lisp: ENGINE-RPC-HANDLE-GET-BLOBS-V4 reads every
+  distinct hash once inside one blob read batch, then builds each distinct
+  blob's object once, outside the batch; ENGINE-RPC-BLOB-CELLS-AND-PROOFS-V1
+  serves the stored cell proofs and computes only the cells, derives both only
+  for a blob stored before Osaka with its one EIP-4844 proof (as before; geth
+  converts such sidecars at the fork), and computes nothing for an empty mask.
+- src/api/engine/methods.lisp: the :cell-p note names both computations.
+
+Unchanged and pinned by the parity test: one entry per hash in request order,
+null for an unknown hash (never an error, never a null response for a partial
+hit), -38004 "The number of requested blobs must not exceed 128" above 128
+hashes and 128 served (geth len(hashes) > 128), null before Osaka, -32602 for
+a bitmap that is not 16 bytes. The shapes follow execution-apis
+src/engine/amsterdam.md engine_getBlobsV4 (read from the main branch on
+2026-09-29; the method is not in osaka.md).
+
+================================================================================
+4. Verification of record
+================================================================================
+
+Final tree, probes removed:
+
+  cl-workbench validation run cold-unit --match GET-BLOBS --match BLOB \
+    --match KZG --match PACKAGE-BOUNDARY --match COMPATIBILITY-FACADE \
+    --match ENGINE-RPC-CAPABILIT --match PROJECT-PACKAGE-DEPENDENCY \
+    --match ENGINE-RPC-BLOB                                   EXIT=0
+    99 tests passed, among them
+    ENGINE-RPC-GET-BLOBS-V4-READS-EACH-BLOB-ONCE-AND-SERVES-STORED-CELL-PROOFS,
+    ENGINE-RPC-GET-BLOBS-V4-ANSWERS-EACH-POSITION-AND-BOUNDS-THE-REQUEST,
+    ENGINE-RPC-GET-BLOBS-V4-AND-HAS-BLOBS, KZG-PACKAGE-BOUNDARY,
+    CORE-PACKAGE-IS-A-COMPATIBILITY-FACADE,
+    PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC
+
+  cl-workbench validation run cold-integration --match GET-BLOBS \
+    --match BLOB --match KZG                                  EXIT=0
+    21 tests passed (the eth/72 blob serving tests, the blob sidecar store
+    tests, KZG-VERIFIES-CANONICAL-VECTORS,
+    ENGINE-PAYLOAD-BUILD-ENFORCES-THE-BLOB-CACHE-BOUNDS-ONCE-PER-PASS)
+
+The count assertions have a positive control in the same test: a blob stored
+with a single EIP-4844 proof must be derived, and the derivation counter reads
+1 after it. The cells are checked against KZG-COMPUTE-CELLS-AND-PROOFS for
+every blob answered, and KZG-COMPUTE-CELLS against it for all 128 cells.
+
+================================================================================
+5. Not verified
+================================================================================
+
+- No Hive engine run (the coordinator's), no live run, no cold-all.
+- A blob stored before Osaka without cell proofs still costs a full
+  derivation per request (about 0.13 s a blob), as it did before; V2/V3
+  answer null for such a blob instead. Converting stored sidecars at the fork,
+  as geth's blob pool does, is not done here.
+- Cells are computed per request and not cached across requests; geth keeps
+  them in its pool.
