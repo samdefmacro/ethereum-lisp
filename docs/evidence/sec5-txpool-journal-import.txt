@@ -1,0 +1,226 @@
+Section 5: a restart refused its own healthy datadir over one parked txpool record
+
+Status
+
+Branch txpool-journal-import, from 3c0cfeab (sec5-public-bootstrap-sync,
+3c0cfeabbf80f3b9e951572856e179f570986df4). Reproduced
+and fixed locally. Not deployed, no live run, no cold-all (the coordinator runs
+it once at the end). No consensus change (txpool restore only), so no EEST,
+ported_static, Hoodi fixture or replay gate.
+
+Revisions
+
+  eb2882a7  test: a restart on a datadir whose txpool records the head no
+            longer admits keeps the node up                         (RED)
+  9f7fe4d0  storage: a restart drops a txpool record the head no longer
+            admits instead of refusing to start                     (fix)
+  c064cd50  test: the parked-blob restore test builds a whole Cancun head and
+            compares encodings                                      (test)
+
+================================================================================
+1. Live evidence (Hoodi host, container hoodi-el-sec5-f8c882bc; read-only
+   docker logs -t)
+================================================================================
+
+  09:10:01Z  "Devnet shutdown requested; closing RPC listeners." A clean stop.
+  09:10:05Z  The last engine_forkchoiceUpdatedV3 answered 200 and the Engine
+             listener finished. That FCU reconciled the pool at the head the
+             datadir then kept.
+  15:06:47Z  Restarted on the same datadir.
+  15:06:54Z  The only line: "KV txpool record: Max fee per blob gas below blob
+             base fee". Exit 1.
+
+The node was stopped, so the head did not move between 09:10 and 15:06: the
+blob transaction the restart refused was in the pool, parked, at the same head
+the running process had just reconciled.
+
+================================================================================
+2. Mechanism
+================================================================================
+
+1. The running pool deliberately keeps a blob transaction whose max fee per
+   blob gas is below the head's blob base fee: the fee falls again after blocks
+   with little blob gas, payload building skips it while it is ineligible, and
+   ENGINE-PAYLOAD-STORE-NEW-HEAD-INVALID-REASON does not remove it. Its record
+   is written to the KV store with the rest of the pool.
+2. On restart CHAIN-STORE-IMPORT-TXPOOL-TRANSACTION-FROM-KV
+   (src/storage/node-store/persistence/import/txpool.lisp) re-ran admission
+   checks against the restored head, among them
+   ENGINE-PAYLOAD-STORE-VALIDATE-TXPOOL-BLOB-FEE-CAP with label "KV txpool
+   record" (src/storage/txpool/service/chain-rules.lisp). Every failure was a
+   BLOCK-VALIDATION-ERROR, which aborts the importer before anything is
+   published, and the CLI turns that into exit 1.
+3. The same shape covered two other chain-rule checks: a transaction type the
+   head's fork rules do not admit (VALIDATE-TRANSACTION-TYPE-FOR-CONFIG) and a
+   record whose transaction a canonical block already includes ("KV txpool
+   record duplicates an indexed transaction"). Each answer can change while
+   the node is stopped (a fork schedule change; a mined transaction whose
+   record survived), and each turned a stale pool entry into a dead node.
+
+Reference: go-ethereum v1.17.6 never refuses to start on its pool.
+core/txpool/locals/journal.go (journal).load hands each journaled transaction
+to the pool's add path, logs "Failed to add journaled transaction" at debug,
+counts it as dropped and continues; TxTracker.Start ignores load's result.
+core/txpool/blobpool/blobpool.go (BlobPool).Init collects every entry
+parseTransaction cannot decode or recover, logs "Dropping invalidated blob
+transactions", deletes them from the store and keeps starting. Neither
+checks the blob fee cap against the current blob base fee: the blob pool keeps
+such transactions and orders them by blob-fee jumps (blobfeeJumps,
+evictionBlobFeeJumps); admission requires only the protocol minimum
+(core/txpool/validation.go, BlobTxMinBlobGasprice).
+
+================================================================================
+3. Fix (9f7fe4d0)
+================================================================================
+
+The importer separates three classes.
+
+- Restored as held: a blob transaction below the blob base fee. The import no
+  longer runs the admission-time blob fee check; the record goes back into the
+  blob subpool with its persisted admission time, exactly as the stopped
+  process held it. This is the live failure.
+- Dropped (chain rule at the restored head): the head's rules do not admit the
+  type, or a canonical block includes the transaction.
+  CHAIN-STORE-IMPORT-TXPOOL-TRANSACTION-DROP-REASON names the reason; the
+  importer returns a drop plist (hash, subpool, reason, transaction) instead of
+  signalling. NODE-STORE-IMPORT-TXPOOL-RECORDS-FROM-KV returns the drops and the
+  number of records read; NODE-STORE-IMPORT-FROM-KV returns them as its second
+  and third values. Once txpool change tracking is on, the drops are marked
+  dirty (NODE-STORE-NOTE-DROPPED-TXPOOL-RECORDS, new
+  ENGINE-PENDING-TXPOOL-MARK-DATABASE-DIRTY-TRANSACTION-HASHES), so the next
+  txpool delta deletes the record and the following restart does not meet it
+  again. A full snapshot export deletes it anyway.
+- Still fatal (a record no process could have written): bytes that do not
+  decode or round-trip, a key that is not the transaction's hash, fields no
+  admission accepts, a sender that does not recover for this chain, a blob
+  transaction outside the blob subpool, two records with one hash or one
+  sender nonce. geth drops some of these too (blobpool Init deletes an entry
+  whose sender does not recover); this change keeps them fatal on purpose,
+  as the brief required: they indicate corruption, not staleness.
+
+Logging: the CLI collects the drops during the datadir import
+(*DEVNET-CLI-TXPOOL-RESTORE*, on the direct RocksDB path, the legacy file path
+and the journal path) and the node logs them once it serves, beside
+node.memory.budget: one txpool.restore.dropped warning per record (hash,
+subpool, reason; no peer is involved) and a txpool.restore.loaded summary
+(records, dropped), the counterpart of geth's "Loaded local transaction
+journal". They are not written during the import, because start-up output on
+stdout precedes the CLI's JSON summary (the lesson recorded for 35c4453b).
+
+================================================================================
+4. Reproduction and verification of record
+================================================================================
+
+Tests (all :integration):
+  DEVNET-LIVE-PERSISTENCE-RESTART-KEEPS-A-DATADIR-WITH-STALE-TXPOOL-RECORDS
+    The production path: two MAKE-DEVNET-NODE starts on one RocksDB datadir
+    (direct provider). Genesis: Cancun, no Prague, excess blob gas 64 MiB (blob
+    base fee about 5.4e8 wei). Four records written as an earlier process left
+    them: a blob transaction bidding 100 wei per blob gas, with its sidecar,
+    admitted at 1000; a set-code transaction (no Prague at the head); a
+    pending legacy transaction at 1 wei gas price; a payable legacy one at 1003.
+    Asserts the restart succeeds; the blob one is in the blob subpool with age
+    1000 and its sidecar; only the set-code one is dropped (reason names
+    Prague; records 4); the underpriced one is demoted to the basefee subpool;
+    the payable one is pending with age 1003; the drop is dirty, a persisted
+    transition deletes its record and keeps the other three; a third start
+    reads three records and drops none.
+  DEVNET-LIVE-PERSISTENCE-RESTORE-LOGS-EACH-DROPPED-TXPOOL-RECORD
+  NODE-STORE-IMPORT-FROM-KV-RESTORES-A-PARKED-BLOB-TRANSACTION-BELOW-THE-BLOB-BASE-FEE
+    (was NODE-STORE-IMPORT-FROM-KV-ENFORCES-TXPOOL-BLOB-FEE-CAP)
+  NODE-STORE-IMPORT-FROM-KV-ENFORCES-TXPOOL-FORK-RULES (now: dropped)
+  NODE-STORE-IMPORT-FROM-KV-DROPS-A-MINED-TXPOOL-RECORD
+    (was NODE-STORE-IMPORT-FROM-KV-REJECTS-INDEXED-TXPOOL-RECORD)
+  NODE-STORE-TXPOOL-IMPORT-KEEPS-CORRUPT-RECORDS-FATAL-BESIDE-A-STALE-ONE
+    Positive controls: undecodable bytes, a key/hash mismatch and a sender that
+    does not recover each abort the import with their own message and leave the
+    target store untouched, while the stale record alone imports (control).
+
+RED, base src with the final tests (branch from eb2882a7 plus the c064cd50
+test change; src identical to 3c0cfeab):
+  cl-workbench validation run cold-integration --match
+    DEVNET-LIVE-PERSISTENCE-RESTART-KEEPS --match
+    DEVNET-LIVE-PERSISTENCE-RESTORE-LOGS --match
+    NODE-STORE-TXPOOL-IMPORT-KEEPS-CORRUPT --match
+    NODE-STORE-IMPORT-FROM-KV-DROPS-A-MINED --match
+    NODE-STORE-IMPORT-FROM-KV-RESTORES-A-PARKED --match
+    NODE-STORE-IMPORT-FROM-KV-ENFORCES-TXPOOL-FORK-RULES
+  EXIT=1, 0 passed, 6 failed:
+    ...RESTART-KEEPS...: "KV txpool record: Max fee per blob gas below blob
+      base fee" (the live line)
+    ...RESTORES-A-PARKED...: the same message
+    ...ENFORCES-TXPOOL-FORK-RULES: "Blob transaction before Cancun"
+    ...DROPS-A-MINED...: "KV txpool record duplicates an indexed transaction"
+    ...KEEPS-CORRUPT...: the stale-only control failed (import signalled)
+    ...RESTORE-LOGS...: DEVNET-LOG-TXPOOL-RESTORE undefined
+
+  The first RED of the parked-blob test (eb2882a7 alone) failed on "Block
+  header RLP must contain a supported fork field count": its head was a
+  partial Cancun header. The pre-existing SIGNALS assertion in that test had
+  been passing on exactly that codec refusal, never on the blob fee check it
+  named. c064cd50 builds a whole Cancun header.
+
+GREEN, same command on c064cd50: EXIT=0, 6 passed (the two tests changed by
+c064cd50 re-run alone: EXIT=0, 2 passed).
+
+Targeted lanes on c064cd50:
+  cl-workbench validation run cold-unit --match TXPOOL --match PERSIST
+    --match IMPORT --match JOURNAL                     EXIT=0, 113 passed
+  cl-workbench validation run cold-integration --match TXPOOL --match
+    PERSIST --match RESTART --match DEVNET-LIVE-PERSISTENCE
+                                                       EXIT=0, 63 passed
+    (includes the five new or renamed tests whose names match; the
+    parked-blob test matches none of the patterns and is covered by the
+    targeted GREEN run above)
+  cl-workbench validation run cold-e2e --match RESTART --match PERSIST
+                                                       EXIT=0, 3 passed
+    (OPS-SIGKILL-DURING-A-REORG-RESTARTS-ON-ONE-BRANCH-AND-COMPLETES-IT,
+    ETHEREUM-LISP-SCRIPT-LIVE-PERSISTENCE-SURVIVES-ABRUPT-RESTART,
+    OPS-SIGKILL-DURING-A-PAYLOAD-BUILD-RESTARTS-CONSISTENT-AND-REBUILDS; the
+    script test also shows the serve-time log hook leaves an empty-pool
+    start's stdout untouched)
+
+================================================================================
+5. Audit of the other start-up imports
+================================================================================
+
+- Blob sidecars (import/blobs.lisp): the direct path point-reads only the
+  sidecars of transactions the pool restored, so a dropped transaction's
+  sidecar is never read. Fatal cases are a missing sidecar for a restored
+  blob transaction (every pool snapshot writes both in one batch) and a record
+  that does not decode or verify: corruption. No chain-rule check. Unchanged.
+- Prepared payloads (import/prepared-payloads.lisp): legacy file path only
+  (validation.md: process-private, not restart state on the direct path). A
+  payload whose block is known with other bytes, or has an in-process INVALID
+  verdict, is skipped silently; the fatal cases are structural. Unchanged.
+- Remote blocks (import/side-data.lisp): known or verdict-owned blocks are
+  skipped, age/finality pruning removes the rest; fatal only on corruption.
+- INVALID verdict sweep (NODE-STORE-DISCARD-INVALID-TIPSETS-FROM-KV): deletes
+  by key without decoding; nothing can be stale-fatal. Node start-up passes
+  :IMPORT-INVALID-TIPSETS-P NIL on the legacy path.
+- Txpool journal (DEVNET-CLI-IMPORT-TXPOOL-JOURNAL): uses the same importer,
+  so the fix covers it; drops are collected and, with tracking on, marked.
+- Rejournal (DEVNET-NODE-REJOURNAL): an export of the current pool, no
+  re-validation; nothing stale to meet.
+- Found and left alone: CHAIN-STORE-IMPORT-INVALID-TIPSETS-FROM-KV still fails
+  on "KV invalid-tipset record duplicates a known block". Node start-up never
+  calls it; NODE-STORE-HYDRATE-STAGED-IMPORT (the staged execution pipeline)
+  does, through NODE-STORE-IMPORT-FROM-KV's default :IMPORT-INVALID-TIPSETS-P
+  T, so a legacy datadir whose rejected block was later backfilled as known
+  would stop a staged import.
+
+================================================================================
+6. Not verified
+================================================================================
+
+- No live restart of the Hoodi node on this revision; the container is still
+  exited on the old binary.
+- The age a transaction was admitted at is kept for records restored in their
+  subpool. A record the restore moves (demotion pending -> basefee, queued ->
+  pending promotion) loses it, because every subpool move in the running pool
+  clears it (ENGINE-PENDING-TXPOOL-REMOVE-INDEXED-TRANSACTION); that is the
+  running pool's behaviour, not new, and not changed here.
+- The drop of a mined record on the direct path relies on the next head change
+  carrying the dirty hash (CANONICAL-CHAIN-SET-HEAD adds every dirty txpool
+  hash to the transition); the test drives the persisted transition directly.
+- cold-all not run (coordinator).

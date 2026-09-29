@@ -27,6 +27,7 @@
    #:engine-pending-txpool-database-change-tracking-enabled-p
    #:engine-pending-txpool-enable-database-change-tracking
    #:engine-pending-txpool-database-dirty-transaction-hashes
+   #:engine-pending-txpool-mark-database-dirty-transaction-hashes
    #:engine-pending-txpool-clear-database-dirty-transaction-hashes
    #:engine-pending-txpool-changes-since
    #:call-with-engine-pending-txpool-change-tracking

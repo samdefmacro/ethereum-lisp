@@ -264,8 +264,11 @@ default."
              (let ((node (first node-box)))
                (when node
                  (devnet-node-notify-payload-improvement node)))))
+         ;; What the txpool import read and dropped, logged once the node
+         ;; serves (DEVNET-LOG-TXPOOL-RESTORE).
+         (txpool-restore-cell (list nil))
          (store
-           (progn
+           (let ((*devnet-cli-txpool-restore* txpool-restore-cell))
              (chain-store-put-block
               initial-store genesis-block :state-available-p t)
              (commit-state-db-to-chain-store
@@ -454,6 +457,8 @@ default."
     ;; validated at parse time; ignore-errors is for a peer supplied
     ;; programmatically by a test, which must not break node construction.
     (let ((node (first node-box)))
+      (setf (devnet-node-startup-txpool-restore node)
+            (car txpool-restore-cell))
       (dolist (enode (devnet-node-peers node))
         (ignore-errors
          (devnet-dial-registry-put-static

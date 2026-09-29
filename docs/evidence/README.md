@@ -185,6 +185,7 @@ record names no fix.
 
 - Payload building was unbounded and could miss the proposer window → [sec5-payload-building.txt](sec5-payload-building.txt) → f35bc82c
 - Non-atomic pooled-blob admission; no EIP-7702 authority index → [sec5-txpool-section6.txt](sec5-txpool-section6.txt) → bd7906c3
+- A restart on a healthy datadir exited 1 on "KV txpool record: Max fee per blob gas below blob base fee": the import re-ran chain-rule checks as fatal; a parked blob transaction is now restored, a record the head no longer admits is dropped and logged, corruption stays fatal → [sec5-txpool-journal-import.txt](sec5-txpool-journal-import.txt) → 9f7fe4d0
 
 ### Section 7: public RPC hardening
 

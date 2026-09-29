@@ -375,7 +375,11 @@ entry."
   ;; these under the peer-table lock, so a changed endpoint/fork id increments
   ;; monotonically even across a chain reorg whose head number decreases.
   (enr-seq 1)
-  (enr-pairs nil))
+  (enr-pairs nil)
+  ;; What the start-up txpool import read and dropped as no longer valid at the
+  ;; restored head, as (:RECORDS n :DROPS drops); logged once the node serves
+  ;; (DEVNET-LOG-TXPOOL-RESTORE). NIL when nothing was imported.
+  (startup-txpool-restore nil))
 
 (defun devnet-make-mutex (name)
   "A mutex on SBCL, NIL elsewhere. CALL-WITH-DEVNET-MUTEX degrades accordingly."

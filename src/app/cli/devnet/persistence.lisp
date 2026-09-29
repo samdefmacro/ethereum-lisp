@@ -222,19 +222,65 @@ past the metadata that actually exists on disk."
            "Persistence artifact genesis hash is incompatible: ~A" path))
         metadata))))
 
+(defvar *devnet-cli-txpool-restore* nil
+  "While MAKE-DEVNET-NODE imports its datadir: a one-cell list whose car is the
+plist (:RECORDS n :DROPS drops) of the txpool records read and the ones dropped
+as no longer valid at the restored head. The node logs it once it serves
+(DEVNET-LOG-TXPOOL-RESTORE), not during the import: start-up output on stdout
+would precede the node's JSON summary. NIL outside that extent.")
+
+(defun devnet-cli-note-txpool-restore (drops records)
+  "Add one txpool import's DROPS and RECORDS count to *DEVNET-CLI-TXPOOL-RESTORE*."
+  (let ((cell *devnet-cli-txpool-restore*))
+    (when cell
+      (setf (car cell)
+            (list :records (+ (or (getf (car cell) :records) 0)
+                              (or records 0))
+                  :drops (append (getf (car cell) :drops) drops)))))
+  drops)
+
+(defun devnet-log-txpool-restore (sink restore)
+  "Log RESTORE, the plist *DEVNET-CLI-TXPOOL-RESTORE* collected at start-up:
+one txpool.restore.dropped warning per dropped record (its hash, subpool and
+reason; no peer is involved), then txpool.restore.loaded with the counts, as
+go-ethereum logs 'Loaded local transaction journal' with transactions and
+dropped. Nothing is logged when no txpool record was read."
+  (let ((records (or (getf restore :records) 0))
+        (drops (getf restore :drops)))
+    (dolist (drop drops)
+      (telemetry-log
+       :warning "txpool.restore.dropped"
+       :fields (list (cons "hash"
+                           (hash32-to-hex (getf drop :transaction-hash)))
+                     (cons "subpool"
+                           (string-downcase
+                            (symbol-name (getf drop :subpool))))
+                     (cons "reason" (getf drop :reason)))
+       :sink sink))
+    (when (plusp records)
+      (telemetry-log
+       :info "txpool.restore.loaded"
+       :fields (list (cons "records" (princ-to-string records))
+                     (cons "dropped" (princ-to-string (length drops))))
+       :sink sink))
+    (length drops)))
+
 (defun devnet-cli-import-chain-database
     (store database database-path config genesis-block &key import-txpool-p)
   (when database
-    (node-store-import-from-kv
-     store
-     database
-     :expected-chain-id (chain-config-chain-id config)
-     :chain-config config
-     :track-txpool-database-changes-p t
-     :import-txpool-p import-txpool-p
-     ;; As on the direct path: a restarted node re-validates rather than
-     ;; trusting a verdict an earlier process reached.
-     :import-invalid-tipsets-p nil)
+    (multiple-value-bind (imported drops records)
+        (node-store-import-from-kv
+         store
+         database
+         :expected-chain-id (chain-config-chain-id config)
+         :chain-config config
+         :track-txpool-database-changes-p t
+         :import-txpool-p import-txpool-p
+         ;; As on the direct path: a restarted node re-validates rather than
+         ;; trusting a verdict an earlier process reached.
+         :import-invalid-tipsets-p nil)
+      (declare (ignore imported))
+      (devnet-cli-note-txpool-restore drops records))
     (devnet-cli-validate-imported-genesis
      store genesis-block database-path)))
 
@@ -270,15 +316,22 @@ past the metadata that actually exists on disk."
        store database
        :now now
        :finalized-number finalized-number))
-    (when import-txpool-p
-      (node-store-import-txpool-records-from-kv
-       store database
-       :expected-chain-id (chain-config-chain-id config)
-       :chain-config config)
-      (node-store-import-txpool-blob-sidecars-from-kv store database))
-    ;; As in the legacy importer, normalization after this point is part of the
-    ;; next changed-key database delta rather than an invisible startup edit.
-    (engine-payload-store-enable-txpool-database-change-tracking store)
+    (let ((drops '()))
+      (when import-txpool-p
+        (multiple-value-bind (dropped records)
+            (node-store-import-txpool-records-from-kv
+             store database
+             :expected-chain-id (chain-config-chain-id config)
+             :chain-config config)
+          (setf drops dropped)
+          (devnet-cli-note-txpool-restore dropped records))
+        (node-store-import-txpool-blob-sidecars-from-kv store database))
+      ;; As in the legacy importer, normalization after this point is part of
+      ;; the next changed-key database delta rather than an invisible startup
+      ;; edit. A record dropped as stale is part of it: the next delta deletes
+      ;; it, so the following restart does not meet it again.
+      (engine-payload-store-enable-txpool-database-change-tracking store)
+      (node-store-note-dropped-txpool-records store drops))
     (node-store-restore-txpool-consistency
      store
      :expected-chain-id (chain-config-chain-id config)
@@ -294,12 +347,21 @@ past the metadata that actually exists on disk."
   ;; A selected journal is a complete snapshot, including the valid empty
   ;; snapshot represented by metadata with no :TXPOOL records.
   (when journal
-    (node-store-import-txpool-records-from-kv
-     store
-     journal
-     :expected-chain-id (chain-config-chain-id config)
-     :chain-config config
-     :skip-indexed-transactions-p t)
+    (multiple-value-bind (drops records)
+        (node-store-import-txpool-records-from-kv
+         store
+         journal
+         :expected-chain-id (chain-config-chain-id config)
+         :chain-config config
+         :skip-indexed-transactions-p t)
+      (devnet-cli-note-txpool-restore drops records)
+      ;; The caller enables tracking before a journal is imported whenever a
+      ;; chain database exists; the next delta then deletes a dropped record
+      ;; the database may still hold. Journal-only nodes rewrite the whole
+      ;; snapshot, which leaves it out anyway.
+      (when (engine-payload-store-txpool-database-change-tracking-enabled-p
+             store)
+        (node-store-note-dropped-txpool-records store drops)))
     (node-store-import-txpool-blob-sidecars-from-kv store journal)
     (node-store-restore-txpool-consistency
      store

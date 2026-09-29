@@ -15,6 +15,7 @@
    #:engine-payload-store-enable-txpool-database-change-tracking
    #:engine-payload-store-txpool-database-change-tracking-enabled-p
    #:engine-payload-store-txpool-database-dirty-transaction-hashes
+   #:engine-payload-store-mark-txpool-database-dirty-transaction-hashes
    #:engine-payload-store-clear-txpool-database-dirty-transaction-hashes
    #:engine-payload-store-txpool-changes-since
    #:engine-payload-store-configure-txpool-promotion-policy

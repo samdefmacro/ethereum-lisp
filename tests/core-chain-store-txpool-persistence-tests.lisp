@@ -562,12 +562,27 @@
               (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :blob
                transaction)))
-           (signals block-validation-error
-             (node-store-import-from-kv
-              (make-engine-payload-memory-store)
-              (make-file-key-value-database path)
-              :expected-chain-id 1337
-              :chain-config pre-cancun-config))
+           ;; A head whose rules do not admit the type drops the record, as
+           ;; geth's journal load drops what its add path refuses; the import
+           ;; itself succeeds and reports the drop.
+           (let ((restored (make-engine-payload-memory-store)))
+             (multiple-value-bind (imported drops records)
+                 (node-store-import-from-kv
+                  restored
+                  (make-file-key-value-database path)
+                  :expected-chain-id 1337
+                  :chain-config pre-cancun-config)
+               (is (eq restored imported))
+               (is (= 1 records))
+               (is (= 1 (length drops)))
+               (is (hash32= (transaction-hash transaction)
+                            (getf (first drops) :transaction-hash)))
+               (is (eq :blob (getf (first drops) :subpool)))
+               (is (search "Blob transaction before Cancun"
+                           (getf (first drops) :reason))))
+             (is (= 0
+                    (ethereum-lisp.txpool:engine-payload-store-blob-transaction-count
+                     restored))))
            (let ((restored (make-engine-payload-memory-store)))
              (node-store-import-from-kv
               restored
@@ -585,7 +600,11 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest node-store-import-from-kv-enforces-txpool-blob-fee-cap
+(deftest node-store-import-from-kv-restores-a-parked-blob-transaction-below-the-blob-base-fee
+  ;; The running pool keeps a blob transaction whose blob bid fell below the
+  ;; blob base fee (ENGINE-PAYLOAD-STORE-NEW-HEAD-INVALID-REASON), as geth's
+  ;; blob pool does, so the restart restores it where it was. It used to be a
+  ;; fatal import error: the Hoodi node of 2026-09-29 could not restart.
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -604,8 +623,14 @@
              :number 1
              :timestamp 12
              :gas-limit 30000000
+             :base-fee-per-gas 1
              :blob-gas-used 0
-             :excess-blob-gas (* 64 1024 1024))))
+             :excess-blob-gas (* 64 1024 1024)
+             :parent-beacon-root (zero-hash32))
+            ;; A whole Cancun header: the export/import round trip refuses a
+            ;; partial fork shape (which the old SIGNALS assertion here
+            ;; accepted as its expected failure).
+            :withdrawals '()))
          (transaction
            (transaction-from-encoding
             (hex-to-bytes
@@ -616,7 +641,9 @@
            (is (> (block-header-blob-base-fee (block-header head-block))
                   (blob-transaction-max-fee-per-blob-gas transaction)))
            (is (transaction-sender transaction :expected-chain-id 1337))
-           (chain-store-put-block source head-block :state-available-p t)
+           ;; No head state: the fixture's sender is unfunded, and the
+           ;; balance-dependent overdraft pruning is not what this pins.
+           (chain-store-put-block source head-block :state-available-p nil)
            (let ((database (make-file-key-value-database path)))
              (node-store-export-to-kv source database)
              (kv-put-chain-record
@@ -625,13 +652,27 @@
               (hash32-bytes (transaction-hash transaction))
               (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :blob
-               transaction)))
-           (signals block-validation-error
-             (node-store-import-from-kv
-              (make-engine-payload-memory-store)
-              (make-file-key-value-database path)
-              :expected-chain-id 1337
-              :chain-config config)))
+               transaction
+               1000)))
+           (let ((restored (make-engine-payload-memory-store)))
+             (multiple-value-bind (imported drops records)
+                 (node-store-import-from-kv
+                  restored
+                  (make-file-key-value-database path)
+                  :expected-chain-id 1337
+                  :chain-config config)
+               (is (eq restored imported))
+               (is (= 1 records))
+               (is (null drops)))
+             (is (bytes= (transaction-encoding transaction)
+                         (transaction-encoding
+                          (ethereum-lisp.txpool:engine-payload-store-blob-transaction
+                           restored
+                           (transaction-hash transaction)))))
+             (is (eql 1000
+                      (ethereum-lisp.txpool.index:engine-pending-txpool-admission-time
+                       (ethereum-lisp.txpool:engine-payload-store-txpool restored)
+                       transaction)))))
       (when (probe-file path)
         (delete-file path)))))
 
@@ -943,3 +984,120 @@
                  (transaction-hash queued-conflict)))))
       (when (probe-file path)
         (delete-file path)))))
+
+(deftest node-store-txpool-import-keeps-corrupt-records-fatal-beside-a-stale-one
+  ;; Positive controls for the restart fix: a record no process could have
+  ;; written stays fatal even when the same import also drops a stale one.
+  ;; Undecodable bytes, a key that is not the transaction's hash, and a
+  ;; sender that does not recover for this chain each abort the import with
+  ;; their own message and leave the target store untouched.
+  (let* ((pre-cancun-config
+           (make-chain-config :chain-id 1337
+                              :london-block 0
+                              :cancun-time 100))
+         (stale
+           (transaction-from-encoding
+            (hex-to-bytes
+             "0x03f8b1820539806485174876e800825208940c2c51a0990aee1d73c1228de1586883415575088080c083020000f842a00100c9fbdf97f747e85847b4f3fff408f89c26842f77c882858bf2c89923849aa00138e3896f3c27f2389147507f8bcec52028b0efca6ee842ed83c9158873943880a0dbac3f97a532c9b00e6239b29036245a5bfbb96940b9d848634661abee98b945a03eec8525f261c2e79798f7b45a5d6ccaefa24576d53ba5023e919b86841c0675")))
+         (recipient
+           (address-from-hex "0x3535353535353535353535353535353535353535"))
+         (sentinel
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 9 :gas-price 100 :gas-limit 21000 :to recipient)
+            1 1337))
+         (first-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1 :gas-price 100 :gas-limit 21000 :to recipient)
+            2 1337))
+         (second-transaction
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 2 :gas-price 100 :gas-limit 21000 :to recipient)
+            3 1337))
+         (wrong-chain
+           (fixture-sign-legacy-transaction
+            (make-legacy-transaction
+             :nonce 1 :gas-price 100 :gas-limit 21000 :to recipient)
+            4 2))
+         (record-rlp
+           (lambda (subpool transaction)
+             (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
+              subpool transaction))))
+    (labels ((call-with-records (records thunk)
+               (let ((path
+                       (merge-pathnames
+                        (make-pathname
+                         :name (format nil "ethereum-lisp-txpool-corrupt-~A"
+                                       (gensym))
+                         :type "sexp")
+                        #P"/private/tmp/")))
+                 (unwind-protect
+                      (let ((database (make-file-key-value-database path)))
+                        (kv-put-chain-record
+                         database :txpool
+                         (hash32-bytes (transaction-hash stale))
+                         (funcall record-rlp :blob stale))
+                        (loop for (key value) in records
+                              do (kv-put-chain-record
+                                  database :txpool key value))
+                        (funcall thunk (make-file-key-value-database path)))
+                   (when (probe-file path)
+                     (delete-file path)))))
+             (import-outcome (records)
+               "The import's error message, or :IMPORTED with the drop count."
+               (call-with-records
+                records
+                (lambda (database)
+                  (let ((target (make-engine-payload-memory-store)))
+                    (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+                     target sentinel)
+                    (handler-case
+                        (multiple-value-bind (imported drops)
+                            (node-store-import-from-kv
+                             target database
+                             :expected-chain-id 1337
+                             :chain-config pre-cancun-config)
+                          (declare (ignore imported))
+                          (list :imported (length drops)))
+                      (block-validation-error (condition)
+                        ;; A failed import publishes nothing.
+                        (is (eq sentinel
+                                (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                                 target (transaction-hash sentinel))))
+                        (is (= 1
+                               (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
+                                target)))
+                        (princ-to-string condition))))))))
+      (is (typep stale 'blob-transaction))
+      (is (transaction-sender stale :expected-chain-id 1337))
+      (is (null (transaction-sender wrong-chain :expected-chain-id 1337)))
+      ;; Control: the stale record alone is dropped, not fatal.
+      (is (equal '(:imported 1) (import-outcome '())))
+      ;; Undecodable bytes.
+      (let ((outcome
+              (import-outcome
+               (list (list (make-byte-vector 32 :initial-element #x11)
+                           (make-array 2 :element-type '(unsigned-byte 8)
+                                         :initial-contents '(#xff #xff)))))))
+        (is (stringp outcome))
+        (is (and (stringp outcome)
+                 (search "txpool transaction record" outcome))))
+      ;; A key that is not the transaction's hash.
+      (let ((outcome
+              (import-outcome
+               (list (list (hash32-bytes (transaction-hash first-transaction))
+                           (funcall record-rlp :pending second-transaction))))))
+        (is (stringp outcome))
+        (is (and (stringp outcome)
+                 (search "key does not match encoded transaction hash"
+                         outcome))))
+      ;; A sender that does not recover for this chain.
+      (let ((outcome
+              (import-outcome
+               (list (list (hash32-bytes (transaction-hash wrong-chain))
+                           (funcall record-rlp :pending wrong-chain))))))
+        (is (stringp outcome))
+        (is (and (stringp outcome)
+                 (search "sender recovery failed" outcome)))))))
