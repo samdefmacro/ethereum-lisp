@@ -1914,7 +1914,9 @@ cl-workbench validation run cold-unit --match MERGE-TRANSITION
 cl-workbench validation run cold-unit --match PUBLIC-PRESET-POST-MERGE
 cl-workbench validation run cold-unit --match POST-MERGE-AUTHORITY
 cl-workbench validation run cold-unit --match TOTAL-DIFFICULTY-SURVIVES
-``` Ommer lists are checked against the two-ommer cap, the six-block depth
+```
+
+Ommer lists are checked against the two-ommer cap, the six-block depth
 window, duplicate and canonical-ancestor rejection, and full header validation
 of each ommer against the supplied recent ancestry; block and ommer rewards are
 paid. The DAO fork's ten-block extra-data rule and its drain-list balance
@@ -1932,3 +1934,30 @@ full-DAG path.
 
 Genesis parsing retains historical fork fields because they are part of public
 network configurations and the EIP-2124 fork-id schedule.
+
+The official Frontier-through-Paris blockchain fixtures run as an optional
+burn-down, not a gate: the legacy `v5.4.0` corpus's `blockchain_tests/<fork>/`
+tree and the `tests@v20.0.2` corpus's pre-Merge `for_<network>/` trees, which
+the current-fork gates never open. Each case is replayed as go-ethereum v1.17.6
+`BlockTest.Run` does, through candidate import with the seal unchecked
+(`NoProof`):
+
+```sh
+ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$PWD/.eest-fixtures-legacy/v5.4.0 \
+ETHEREUM_LISP_PRE_MERGE_EEST_REQUIRED=frontier/precompiles,frontier/create,frontier/examples,frontier/opcodes,frontier/touch \
+  cl-workbench validation run cold-integration \
+  --match OPTIONAL-LEGACY-EEST-PRE-MERGE-BLOCKCHAIN-BURN-DOWN > pre-merge.log 2>&1
+ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$PWD/.eest-fixtures-sec5-REV/tests-v20.0.2 \
+  cl-workbench validation run cold-integration \
+  --match OPTIONAL-LEGACY-EEST-PRE-MERGE-BLOCKCHAIN-BURN-DOWN > pre-merge-v20.log 2>&1
+cl-workbench validation run cold-unit --match PRE-SPURIOUS-DRAGON
+cl-workbench validation run cold-unit --match FRONTIER-CREAT
+```
+
+It prints one `PRE-MERGE-EEST` line per directory and a total, and fails only
+for directories named in `ETHEREUM_LISP_PRE_MERGE_EEST_REQUIRED`;
+`ETHEREUM_LISP_PRE_MERGE_EEST_DIRECTORIES` and
+`ETHEREUM_LISP_PRE_MERGE_EEST_NETWORKS` narrow the walk. At `7ad834c7` every
+selected case passes: 5,466 legacy (two files over 48 MB unparsed) and 21,260
+stable. The rule inventory, the counts before and after, and the gaps are in
+`docs/gap-analysis/mainnet-inventory.md`.

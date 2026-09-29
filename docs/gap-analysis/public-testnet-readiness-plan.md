@@ -1583,6 +1583,10 @@ the source record listed at `docs/evidence/gates.md`, row 6e3e9b1d.
 - Support normal mainnet startup through the same verified snap/checkpoint path
   while retaining exact historical replay as a validation mode. Do not require
   operators to replay PoW history to join.
+- The inventory of pre-Merge rules, the burn-down over both pinned corpora and
+  what the first slice changed (total difficulty and the EIP-3675 terminal
+  rule; pre-Spurious-Dragon account existence and Frontier creation) are in
+  `docs/gap-analysis/mainnet-inventory.md`.
 
 ### 10. Package, observe, and soak
 

@@ -22,7 +22,7 @@ The directory holds two kinds of record.
    `git show <commit>^:docs/evidence/<file>`. Other documents cite a gate
    result as "`docs/evidence/gates.md`, row <rev8>".
 2. **Root-cause records** (`sec5-<topic>.txt`, `sec5-<rev8>-<topic>.txt`,
-   `sec10-<topic>.txt`). Each covers one defect or one question: mechanism,
+   `sec9-<topic>.txt`, `sec10-<topic>.txt`). Each covers one defect or one question: mechanism,
    reproduction, fix, verification of record, and what is not verified. The
    index below lists every one of them.
 
@@ -189,6 +189,10 @@ record names no fix.
 ### Section 7: public RPC hardening
 
 - Public reads under the store guard, no response work budgets, WebSocket limits unenforced → [sec5-rpc-hardening.txt](sec5-rpc-hardening.txt) → 6043c88b, 75a07323, 6d0dbad7, 0ec0eb5c
+
+### Section 9: mainnet path
+
+- Every mainnet proof-of-stake header, and Sepolia's below its netsplit block, was held to the Ethash rules because the configuration alone decided the Merge; the chain store now keeps total difficulty and applies EIP-3675's terminal rule → [sec9-merge-by-total-difficulty.txt](sec9-merge-by-total-difficulty.txt) → b6c095a1
 
 ### Section 10: operations, observability and packaging
 
