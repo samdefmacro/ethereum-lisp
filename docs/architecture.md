@@ -857,7 +857,12 @@ them by their physical location instead reintroduces dependency cycles:
   budgets are capped. The eth/72 GetCells/Cells shapes and 128-bit custody mask
   follow pinned geth: custody bits are little-endian within each byte, groups are
   flat per transaction, responses must echo the requested mask, and both cell
-  count and encoded response bytes are bounded. Transaction gossip advances a
+  count and encoded response bytes are bounded. Deployed geth has two GetCells/
+  Cells packet layouts under the one eth/72 version: v1.17.5 nests the fields
+  after the request id, v1.17.6 (38271784) and the devp2p text do not, and each
+  drops a peer that sends the other. We read both, answer in the request's
+  layout, and send our own GetCells in the layout the peer last used, else the
+  one its client id implies (see `docs/evidence/sec5-eth72-interop.txt`). Transaction gossip advances a
   per-peer pending cursor only for hashes actually offered, so a burst larger
   than one wire batch is retained rather than silently skipped. During an
   active catch-up claim the CLI backend also follows pinned geth's `AcceptTxs`

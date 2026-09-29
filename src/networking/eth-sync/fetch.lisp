@@ -118,17 +118,23 @@ semantics."
 
 (defun eth-peer-get-cells
     (peer hashes custody-mask &key (request-id (eth-peer-next-request-id peer)))
-  "Request eth/72 blob cells, returning hashes, cell groups, and custody mask."
+  "Request eth/72 blob cells, returning hashes, cell groups, and custody mask.
+
+The request uses the packet layout PEER is known or expected to decode (see
+ETH-PEER-CELLS-DIALECT); the reply is read in either layout."
   (when (< (eth-peer-eth-version peer) +eth-protocol-version-72+)
     (error "GetCells requires eth/72"))
   (eth-peer-send peer +eth-message-get-cells+
-                 (encode-eth-get-cells request-id hashes custody-mask))
+                 (encode-eth-get-cells request-id hashes custody-mask
+                                       :dialect (eth-peer-cells-dialect peer)))
   (let ((result
           (eth-peer-await
            peer +eth-message-cells+ request-id
            (lambda (payload)
-             (multiple-value-bind (id response-hashes groups response-mask)
+             (multiple-value-bind (id response-hashes groups response-mask
+                                   dialect)
                  (decode-eth-cells payload)
+               (eth-peer-note-cells-dialect peer dialect)
                (unless (bytes= response-mask custody-mask)
                  (error "eth/72 Cells response custody mask differs from the request"))
                (values id (list response-hashes groups response-mask)))))))

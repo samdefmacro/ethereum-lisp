@@ -305,6 +305,130 @@
         (is (bytes= hash (first hashes)))
         (is (bytes= mask decoded-mask))))))
 
+;;; eth/72 GetCells and Cells in both deployed geth packet layouts.
+;;;
+;;; geth v1.17.5 (9621c6ad) wraps the request id around an EMBEDDED
+;;; GetCellsRequest / CellsResponse struct, and geth's RLP encodes an embedded
+;;; struct as one nested list: [id, [hashes, mask]] and
+;;; [id, [hashes, cells, mask]].  geth 38271784 (#35428, "fix Cells/GetCells
+;;; RLP encoding", first released in v1.17.6) inlined the fields to the devp2p
+;;; eth/72 layout: [id, hashes, mask] and [id, hashes, cells, mask].  Both
+;;; releases advertise eth/72.  The vectors below are hand-derived RLP.
+
+(defun eth-wire-test-repeat-hex (octet-hex count)
+  (with-output-to-string (stream)
+    (loop repeat count do (write-string octet-hex stream))))
+
+(defun eth-wire-test-error-text (thunk)
+  "Return the report of the error THUNK signals, or NIL when it returns."
+  (handler-case (progn (funcall thunk) nil)
+    (error (condition) (princ-to-string condition))))
+
+(deftest eth-72-get-cells-reads-both-deployed-geth-packet-layouts
+  (:layer :unit :module :p2p)
+  ;; Every "eth/72 GetCells must contain exactly 3 items" session loss in the
+  ;; 1a7b9059 Hoodi run (17 sessions, 2026-09-24) is the v1.17.5 nested form.
+  (let* ((hash (make-byte-vector 32 :initial-element #x11))
+         (mask (make-byte-vector 16 :initial-element #xff))
+         (hash-hex (eth-wire-test-repeat-hex "11" 32))
+         (mask-hex (eth-wire-test-repeat-hex "ff" 16))
+         ;; [1, [hash], mask]: payload 1 + 34 + 17 = 52 = #x34.
+         (flat (concatenate 'string "0xf401e1a0" hash-hex "90" mask-hex))
+         ;; [1, [[hash], mask]]: inner payload 51 = #x33, outer 53 = #x35.
+         (nested (concatenate 'string "0xf501f3e1a0" hash-hex "90" mask-hex)))
+    (loop for (hex dialect) in (list (list nested :nested) (list flat :flat))
+          do (multiple-value-bind (request-id hashes decoded-mask decoded-dialect)
+                 (ethereum-lisp.eth-wire:decode-eth-get-cells (hex-to-bytes hex))
+               (is (= 1 request-id))
+               (is (= 1 (length hashes)))
+               (is (bytes= hash (first hashes)))
+               (is (bytes= mask decoded-mask))
+               (is (eq dialect decoded-dialect))))
+    (is (string= flat
+                 (bytes-to-hex
+                  (ethereum-lisp.eth-wire:encode-eth-get-cells
+                   1 (list hash) mask))))
+    (is (string= nested
+                 (bytes-to-hex
+                  (ethereum-lisp.eth-wire:encode-eth-get-cells
+                   1 (list hash) mask :dialect :nested))))))
+
+(deftest eth-72-get-cells-still-rejects-shapes-neither-geth-sends
+  (:layer :unit :module :p2p)
+  ;; geth handleGetCells returns its decode error, which drops the peer, so a
+  ;; shape neither layout produces stays a protocol error.  The previous test
+  ;; is the positive control: the same fields in a real layout decode.
+  (let ((id (make-byte-vector 1 :initial-element 1))
+        (extra (make-byte-vector 1 :initial-element 2))
+        (hash (make-byte-vector 32 :initial-element #x11))
+        (mask (make-byte-vector 16 :initial-element #xff)))
+    (dolist (object
+             (list
+              ;; A flat request with a trailing extra field.
+              (make-rlp-list id (make-rlp-list hash) mask extra)
+              ;; A nested request whose inner list has a third field.
+              (make-rlp-list id (make-rlp-list (make-rlp-list hash) mask extra))
+              ;; A nested request missing its mask.
+              (make-rlp-list id (make-rlp-list (make-rlp-list hash)))
+              ;; The request id alone.
+              (make-rlp-list id)))
+      (let ((text (eth-wire-test-error-text
+                   (lambda ()
+                     (ethereum-lisp.eth-wire:decode-eth-get-cells
+                      (rlp-encode object))))))
+        (is text)
+        (is (and text (search "GetCells" text)))))))
+
+(deftest eth-72-cells-reads-and-writes-both-deployed-geth-packet-layouts
+  (:layer :unit :module :p2p)
+  (let* ((hash (make-byte-vector 32 :initial-element #x11))
+         (mask (make-byte-vector 16 :initial-element #xff))
+         (cell (make-byte-vector 2048 :initial-element #xa5))
+         (hash-hex (eth-wire-test-repeat-hex "11" 32))
+         (mask-hex (eth-wire-test-repeat-hex "ff" 16))
+         (cell-hex (eth-wire-test-repeat-hex "a5" 2048))
+         ;; [1, [], [], mask]: payload 20.  Nested inner 19, outer 21.
+         (empty-flat (concatenate 'string "0xd401c0c090" mask-hex))
+         (empty-nested (concatenate 'string "0xd501d3c0c090" mask-hex))
+         ;; One cell: b90800 cell = 2,051 octets, [cell] f90803 = 2,054,
+         ;; [[cell]] f90806 = 2,057.  Flat payload 1 + 34 + 2,057 + 17 =
+         ;; 2,109 (#x083d); nested inner 2,108 (#x083c), outer 2,112 (#x0840).
+         (groups-hex (concatenate 'string "f90806f90803b90800" cell-hex))
+         (one-flat (concatenate 'string "0xf9083d01e1a0" hash-hex
+                                groups-hex "90" mask-hex))
+         (one-nested (concatenate 'string "0xf9084001f9083ce1a0" hash-hex
+                                  groups-hex "90" mask-hex)))
+    (loop for (hex dialect hashes groups)
+            in (list (list empty-flat :flat nil nil)
+                     (list empty-nested :nested nil nil)
+                     (list one-flat :flat (list hash) (list (list cell)))
+                     (list one-nested :nested (list hash) (list (list cell))))
+          do (is (string= hex
+                          (bytes-to-hex
+                           (ethereum-lisp.eth-wire:encode-eth-cells
+                            1 hashes groups mask :dialect dialect))))
+             (multiple-value-bind (request-id decoded-hashes decoded-groups
+                                   decoded-mask decoded-dialect)
+                 (ethereum-lisp.eth-wire:decode-eth-cells (hex-to-bytes hex))
+               (is (= 1 request-id))
+               (is (= (length hashes) (length decoded-hashes)))
+               (is (every #'bytes= hashes decoded-hashes))
+               (is (= (length groups) (length decoded-groups)))
+               (is (every (lambda (expected actual) (every #'bytes= expected actual))
+                          groups decoded-groups))
+               (is (bytes= mask decoded-mask))
+               (is (eq dialect decoded-dialect))))
+    ;; A nested response whose inner list lacks the mask stays rejected.
+    (let ((text (eth-wire-test-error-text
+                 (lambda ()
+                   (ethereum-lisp.eth-wire:decode-eth-cells
+                    (rlp-encode
+                     (make-rlp-list (make-byte-vector 1 :initial-element 1)
+                                    (make-rlp-list (make-rlp-list)
+                                                   (make-rlp-list)))))))))
+      (is text)
+      (is (and text (search "Cells" text))))))
+
 (deftest eth-wire-rejects-a-request-list-above-its-item-cap
   (:layer :unit :module :p2p)
   (let ((hashes

@@ -348,8 +348,11 @@ serve backend — so the caller can handle it."
         ((= eth-id +eth-message-get-cells+)
          (when (< (eth-peer-eth-version peer) +eth-protocol-version-72+)
            (error "GetCells requires eth/72"))
-         (multiple-value-bind (request-id hashes mask)
+         ;; geth v1.17.5 and v1.17.6 lay GetCells out differently and each
+         ;; decodes only its own Cells layout, so answer in the request's.
+         (multiple-value-bind (request-id hashes mask dialect)
              (decode-eth-get-cells payload)
+           (eth-peer-note-cells-dialect peer dialect)
            (let ((reader (eth-serve-backend-blob-cells backend)))
              (multiple-value-bind (response-hashes groups response-mask)
                  (if reader
@@ -360,7 +363,7 @@ serve backend — so the caller can handle it."
                (eth-peer-send
                 peer +eth-message-cells+
                 (encode-eth-cells request-id response-hashes groups
-                                  response-mask)))))
+                                  response-mask :dialect dialect)))))
          t)
         (t nil)))))
 

@@ -147,6 +147,7 @@ record names no fix.
 - Account range boundaries → [sec5-981112ac-snap-account-range-boundaries.txt](sec5-981112ac-snap-account-range-boundaries.txt) → 981112ac (test)
 - Cumulative account byte targets → [sec5-306e5f4f-snap-account-byte-targets.txt](sec5-306e5f4f-snap-account-byte-targets.txt) → 306e5f4f (test)
 - Inbound RLPx session failures on Hoodi: whose they are; admission defects fixed → [sec5-rlpx-inbound-auth.txt](sec5-rlpx-inbound-auth.txt) → 6fa17eb7, 479c1e5b
+- 17 of 57 Hoodi eth/72 sessions died on "GetCells must contain exactly 3 items": geth v1.17.5 nests GetCells/Cells, v1.17.6 does not; both layouts read, replies in the requester's → [sec5-eth72-interop.txt](sec5-eth72-interop.txt) → 635a9667
 
 ### Section 5: public RPC and eth_simulateV1
 
