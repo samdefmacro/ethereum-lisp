@@ -279,15 +279,29 @@ that left it off cannot make this run exercise the legacy writer.  Set
 process-globally, not bound: the multi-source importer prepares and completes
 pages on worker threads, where a LET binding is invisible.  Which writer a
 store gets is then decided by the store itself: a fresh store enters the
-closure epoch, one seeded by SNAP-TEST-SEED-LEGACY-TRIE-STORE never does."
+closure epoch, one seeded by SNAP-TEST-SEED-LEGACY-TRIE-STORE never does.
+
+The fixture's snap/1 server runs without its per-request time budget
+(*SNAP-SYNC-SERVE-SECONDS* NIL).  That budget is serving policy: once it is
+spent the server cuts the account in progress and proves the cut, which snap/1
+allows anywhere.  This fixture serves from a flat in-memory state, where every
+requested account's storage lookup scans the whole account range, so a
+StorageRanges request of a few hundred small contracts can outlast one second
+on a loaded container, and the contract being walked then arrives in two
+responses and is judged as a chunked one.  The population counts pinned below
+(three chunked contracts, the withheld totals) must be a function of the
+fixture data and the byte cap, not of the container's speed; the writer's
+invariant I1 does not depend on where a server cuts, and stays asserted."
   (let ((writes ethereum-lisp.snap-sync::*snap-sync-account-closure-writes*)
         (lookup ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*)
         (coarse ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*)
         (nested
-          ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*))
+          ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*)
+        (serve-seconds ethereum-lisp.snap-sync::*snap-sync-serve-seconds*))
     (unwind-protect
          (progn
-           (setf ethereum-lisp.snap-sync::*snap-sync-account-closure-writes*
+           (setf ethereum-lisp.snap-sync::*snap-sync-serve-seconds* nil
+                 ethereum-lisp.snap-sync::*snap-sync-account-closure-writes*
                  t
                  ethereum-lisp.snap-sync::*snap-sync-healed-subtree-prefix-nibbles*
                  depth
@@ -302,7 +316,8 @@ closure epoch, one seeded by SNAP-TEST-SEED-LEGACY-TRIE-STORE never does."
             ethereum-lisp.snap-sync::*snap-sync-range-subtree-prefix-nibbles*
             coarse
             ethereum-lisp.snap-sync::*snap-sync-range-nested-subtree-prefix-nibbles*
-            nested))))
+            nested
+            ethereum-lisp.snap-sync::*snap-sync-serve-seconds* serve-seconds))))
 
 (defun snap-density-counting-source (backend counter)
   "A snap source over BACKEND that records each AccountRange page's size."

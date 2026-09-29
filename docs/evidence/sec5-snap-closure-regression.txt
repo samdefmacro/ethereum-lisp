@@ -1,0 +1,169 @@
+Section 5: the closed-writer density test went red after the snap serving fix
+
+Status
+
+Branch snap-closure-regression, from 0af3bef7
+(0af3bef7d07b00ee686b15392656a9b52cd194cf). Root-caused and fixed in the
+test fixture. The product (the closed account writer, invariant I1, the
+healer) is not wrong. No production code changed, so no EEST gates. No
+cold-all (the coordinator runs it once at the end).
+
+Revision
+
+  36954cd1  test: the density fixture's snap server runs without its time
+            budget
+
+================================================================================
+1. The failure
+================================================================================
+
+cold-all at a6d2b58b, and the test alone:
+
+  cl-workbench validation run cold-integration \
+    --match SNAP-CLOSED-ACCOUNT-WRITER-AT-PAGE-DENSITY-AND-AFTER-A-MID-RANGE-REBASE
+
+  not ok ... Assertion failed: (= 3 (GETF UNCLOSED :OPEN-VERDICTS))
+
+The test harness ends a test at its first failed assertion, so the two rebase
+arms were not reached in the failing runs.
+
+The test (tests/snap-closure-density-tests.lisp) imports a 2,000-account
+state through the production single-source importer, serving it from
+MAKE-PERSISTENT-SNAP-STATE-BACKEND over a flat in-memory state, with a
+30,000-byte cap. The "no storage closure" arm stubs out
+SNAP-SYNC-PUBLISH-STORAGE-ROOT-CLOSURE, so every contract whose storage
+arrived in more than one StorageRanges response keeps an open account leaf.
+The fixture has three such contracts by construction (the byte-capped
+giants), and the assertion pins that population at three. It is a population
+count, not I1: I1 is asserted separately as :I1-SUBTREE-VIOLATIONS = 0 on the
+closed arms and read back off the store the healer faced.
+
+================================================================================
+2. Bisection (first-parent merges, single-test cold runs)
+================================================================================
+
+  886afd05  green  (cold-all, per the brief)
+  4d51d222  green  open-verdicts=3, all four arms reported, ok
+  04a3aff4  RED    open-verdicts=4 (range-persisted 2,626)
+  b4e46d96  RED    open-verdicts=4 (range-persisted 2,627)
+  a6d2b58b  RED    open-verdicts=4 (range-persisted 2,628, the brief's run)
+
+First bad: 04a3aff4 (04a3aff4f1bf6e68856131e641e9ddcedeb3f6fa), "Merge the
+snap serving fix", whose functional commit is 6dae34ea (snap: serve a range
+from its origin and stop at the request's bounds, and step aside for a
+waiting Engine request). The last good first-parent merge is 4d51d222
+(4d51d2221084482fe398fd924bc2fe44fb3e8cae). The open-verdict count was 4 in
+every red run while the persisted count varied (2,626 to 2,628): the cut
+lands at a different place each run.
+
+================================================================================
+3. Mechanism
+================================================================================
+
+6dae34ea added a per-request time budget to the snap/1 server,
+*SNAP-SYNC-SERVE-SECONDS* = 1 (src/networking/snap-sync/backend.lisp).
+SNAP-SYNC-STORAGE-RESPONSE asks the stop function after every slot; once
+the second is spent it sets TRUNCATED-P, attaches the edge proof and ends the
+response, even when the slot just pushed was the account's last one. snap/1
+allows a server to answer any proved prefix, and the importer handles it
+correctly: the account is resumed from the cut, so its storage has arrived in
+two responses and it is treated as a chunked contract.
+
+The fixture makes that cut happen. For a flat state,
+SNAP-SYNC-ACCOUNT-STORAGE-TRIE finds each requested account with
+SNAP-SYNC-FIND-ACCOUNT-ENTRY, a FIND over STATE-DB-ACCOUNT-RANGE (every
+account of the state), and then rebuilds its storage trie. A StorageRanges
+request that names a few hundred small contracts therefore costs a few
+hundred whole-state scans, and in the cold container that is more than a
+second. One small contract gets cut, is judged chunked, and in the
+storage-closure-off arm nothing publishes its whole-root proof: the fourth
+open verdict. Before 6dae34ea the server had no clock and the population was
+three.
+
+Measured with a temporary probe (deleted before commit) that wrapped
+SNAP-SYNC-SERVE-STOP-FUNCTION to count true answers and ran the
+storage-closure-off arm twice on 0af3bef7:
+
+  budget 1 s (default)   serve-stops=1  open-verdicts=4  withheld=19 of 2,647
+  budget NIL             serve-stops=0  open-verdicts=3  withheld=17 of 2,647
+
+17 is the "measured 17 of 2,647" that the test's comment records.
+
+================================================================================
+4. Product or test?
+================================================================================
+
+Test. Nothing in the failure shows the closed writer or I1 going wrong:
+
+- The production arm (storage closure on) ran first in every red run, under
+  the same budget. In the 04a3aff4 and b4e46d96 runs it reported
+  open-verdicts=0, withheld-open-storage=0 and i1-subtree-violations=0, the
+  same as 4d51d222. The saved a6d2b58b line is cut off after open-verdicts=0.
+  Whether a time cut also hit that arm was not counted (section 6). So the partitioned-storage
+  closure step closes the cut contract before its account page resumes, as
+  docs/snap-account-closure.md section 3.2 says it must.
+- The fourth verdict appears only in the arm that switches that step off. It
+  is the correct fail-closed result: the contract's storage came in two
+  responses, nothing proved its root, and its path was withheld. Withholding
+  is the safe direction.
+- A server may cut a StorageRanges answer anywhere and prove the cut (geth
+  cuts on its byte budget). The client's writer has to hold I1 for any such
+  cut, not for one particular server timing.
+
+What the assertion encoded incidentally is that the fixture's server cuts
+only on the byte cap. After 6dae34ea that depends on the wall clock. The
+fix keeps the pinned numbers and makes them a function of the fixture data
+and the byte cap again. CALL-WITH-SNAP-DENSITY-WRITER, the fixture's global
+seam, now sets *SNAP-SYNC-SERVE-SECONDS* to NIL for the run and restores it
+in the same UNWIND-PROTECT. It sets rather than binds, like the seam's other
+globals, because the multi-source importer serves on worker threads. The
+fixture's backend has no yield predicate, so with the budget off its stop
+function is always false. No assertion was loosened: (= 3 open-verdicts) and
+every I1 assertion stay as they were.
+
+================================================================================
+5. Verification of record (branch snap-closure-regression at 36954cd1)
+================================================================================
+
+cl-workbench doctor --strict                                        EXIT=0
+
+cl-workbench validation run cold-integration \
+  --match SNAP-CLOSED-ACCOUNT-WRITER-AT-PAGE-DENSITY-AND-AFTER-A-MID-RANGE-REBASE
+                                                    EXIT=0, 1 test, ok
+  All four arms equal 4d51d222's numbers field for field:
+    no-rebase closed          open-verdicts=0 withheld=10 i1=0
+    no-rebase, no closure     open-verdicts=3 withheld=17 i1=0
+    rebase legacy             expanded=257 fetched=50 i1=2
+    rebase closed             expanded=59 fetched=59 touched=352 i1=0
+
+cl-workbench validation run cold-integration --match SNAP-CLOSED \
+  --match SNAP-MARKER --match SNAP-PARTITIONED --match SNAP-STORAGE-ROOT \
+  --match SNAP-HEAL --match SNAP-STATE-IMPORT
+                                                    EXIT=0, 33 tests passed
+
+cl-workbench validation run cold-unit --match SNAP --match TRIE --match STATE
+                                  EXIT=0, 333 tests passed, 3 skipped
+  (the three skips are the optional EEST trie/state fixture-root tests, which
+  need ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT)
+
+Bisect runs (detached worktrees, removed afterwards): 04a3aff4 EXIT=1,
+b4e46d96 EXIT=1, 4d51d222 EXIT=0, each the single-test cold-integration
+command above.
+
+================================================================================
+6. Not verified
+================================================================================
+
+- No test cuts a small contract on the server's clock and then asserts I1 on
+  the production arm. That evidence comes from the red runs above, where the
+  cut happened by timing, and it is not pinned. Those runs also do not show
+  whether the production arm's own run was cut: the probe counted stops only
+  in the storage-closure-off arm.
+- Other fixtures that serve a large flat state through
+  MAKE-PERSISTENT-SNAP-STATE-BACKEND are exposed to the same budget. None of
+  the 33 + 333 selected tests failed, but they were not audited one by one.
+- The flat-state storage lookup is O(accounts) per requested account. That is
+  a server cost on in-memory states only: SNAP-SYNC-ACCOUNT-STORAGE-TRIE skips
+  it for lazy states. It was not changed.
+- cold-all and the eight EEST gates were not run. No execution or state code
+  changed.
