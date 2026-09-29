@@ -561,3 +561,361 @@ the pool."
                          'ethereum-lisp.eth-sync:eth-peer-protocol-error
                          :format-control "injected protocol violation"
                          :format-arguments nil)))))))
+
+;;;; A real dialed session that the node gap-fills over: the fixture of the
+;;;; tests below (docs/evidence/sec5-robustness-followups.txt).
+
+(defvar *peer-attribution-number-request-hook* nil
+  "NIL, or a function the serving side calls with the origin of each
+number-origin GetBlockHeaders before answering it (it runs on the server's
+thread, so a test sets it globally).")
+
+(defun peer-attribution-serve-by-hash (peer blocks)
+  "Answer GetBlockHeaders and GetBlockBodies from BLOCKS until the connection
+ends, and return how the loop ended: (:DISCONNECTED reason) for a devp2p
+Disconnect, else the condition. A hash-origin request walks parent hashes
+(every one the node sends is a reverse backfill walk), so BLOCKS may hold two
+branches at the same heights; a number-origin request answers from the first
+block listed at each height."
+  (let ((by-hash (make-hash-table :test #'equalp))
+        (by-number (make-hash-table)))
+    (dolist (block blocks)
+      (setf (gethash (hash32-bytes (block-hash block)) by-hash) block)
+      (let ((number (block-header-number (block-header block))))
+        (unless (gethash number by-number)
+          (setf (gethash number by-number) block))))
+    (handler-case
+        (loop
+          (multiple-value-bind (eth-id payload) (eth-peer-read peer)
+            (cond
+              ((= eth-id ethereum-lisp.eth-wire:+eth-message-get-block-headers+)
+               (let* ((request
+                        (ethereum-lisp.eth-wire:decode-eth-get-block-headers
+                         payload))
+                      (amount
+                        (ethereum-lisp.eth-wire:eth-get-block-headers-amount
+                         request))
+                      (origin-hash
+                        (ethereum-lisp.eth-wire:eth-get-block-headers-origin-hash
+                         request))
+                      (headers
+                        (if origin-hash
+                            (loop repeat amount
+                                  for block = (gethash origin-hash by-hash)
+                                    then (gethash
+                                          (hash32-bytes
+                                           (block-header-parent-hash
+                                            (block-header block)))
+                                          by-hash)
+                                  while block
+                                  collect (block-header block))
+                            (let ((origin
+                                    (ethereum-lisp.eth-wire:eth-get-block-headers-origin-number
+                                     request)))
+                              (when *peer-attribution-number-request-hook*
+                                (funcall *peer-attribution-number-request-hook*
+                                         origin))
+                              (loop for number from origin
+                                    repeat amount
+                                    for block = (gethash number by-number)
+                                    while block
+                                    collect (block-header block))))))
+                 (eth-peer-send
+                  peer ethereum-lisp.eth-wire:+eth-message-block-headers+
+                  (ethereum-lisp.eth-wire:encode-eth-block-headers
+                   (ethereum-lisp.eth-wire:eth-get-block-headers-request-id
+                    request)
+                   headers))))
+              ((= eth-id ethereum-lisp.eth-wire:+eth-message-get-block-bodies+)
+               (multiple-value-bind (request-id hashes)
+                   (ethereum-lisp.eth-wire:decode-eth-get-block-bodies payload)
+                 (eth-peer-send
+                  peer ethereum-lisp.eth-wire:+eth-message-block-bodies+
+                  (ethereum-lisp.eth-wire:encode-eth-block-bodies
+                   request-id
+                   (loop for hash in hashes
+                         for block = (gethash hash by-hash)
+                         while block
+                         collect (ethereum-lisp.eth-wire:block-eth-body
+                                  block)))))))))
+      (rlpx-disconnect (condition)
+        (list :disconnected (rlpx-disconnect-reason condition)))
+      (serious-condition (condition) condition))))
+
+(defun call-with-peer-attribution-session (build thunk)
+  "Run THUNK against a live dialed session and return how the serving side's
+loop ended (see PEER-ATTRIBUTION-SERVE-BY-HASH).
+
+A fresh devnet node dials a loopback eth/68 peer. BUILD is called with the
+node's genesis block and chain config and returns the blocks the peer serves.
+Once the session is admitted, THUNK is called with the node, its peer entry
+and a function of no arguments that returns the node's log events so far,
+oldest first, as (NAME . FIELDS) with every field printed. The dial scheduler
+and the session are shut down afterwards, and a session condition that
+reached the scheduler's error callback fails the test."
+  #+sbcl
+  (let* ((server-key
+           #xb71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291)
+         (listener (make-instance 'sb-bsd-sockets:inet-socket
+                                  :type :stream :protocol :tcp))
+         (controller (ethereum-lisp.cli::make-devnet-shutdown-controller))
+         (logs '())
+         (logs-lock (sb-thread:make-mutex :name "peer-attribution-logs"))
+         (server-outcome nil)
+         (server-thread nil)
+         (dial-thread nil)
+         (client-sessions nil)
+         (client-error nil))
+    (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+    (sb-bsd-sockets:socket-bind
+     listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+    (sb-bsd-sockets:socket-listen listener 1)
+    (let* ((port (nth-value 1 (sb-bsd-sockets:socket-name listener)))
+           (client (ethereum-lisp.cli:make-devnet-node
+                    :genesis-json *eth-sync-paris-genesis-json*
+                    :port 0 :public-port 0 :max-peers 4
+                    :peers (list (enode-url
+                                  (node-id-from-private-key server-key)
+                                  "127.0.0.1" port))))
+           (config (ethereum-lisp.cli::devnet-node-config client))
+           (genesis (ethereum-lisp.cli::devnet-node-genesis-block client))
+           (genesis-hash (hash32-bytes (block-hash genesis)))
+           (served (funcall build genesis config)))
+      (unwind-protect
+           (progn
+             (setf server-thread
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (handler-case
+                          (let* ((socket (sb-bsd-sockets:socket-accept
+                                          listener))
+                                 (peer
+                                   (eth-peer-connect
+                                    (rlpx-accept-stream
+                                     (p2p-binary-socket-stream socket)
+                                     server-key)
+                                    (make-devp2p-hello
+                                     :client-id "attribution-server"
+                                     :capabilities
+                                     (list (make-devp2p-capability "eth" 68))
+                                     :node-id (secp256k1-private-key-public-key
+                                               server-key))
+                                    (eth-build-status config genesis-hash
+                                                      2 0 genesis-hash 0))))
+                            (setf server-outcome
+                                  (peer-attribution-serve-by-hash
+                                   peer served)))
+                        (serious-condition (condition)
+                          (setf server-outcome condition))))
+                    :name "peer-attribution-server"))
+             (devnet-peer-sync-call-with-function-overrides
+              (list
+               (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+                     (lambda (seen-node name &rest fields)
+                       (declare (ignore seen-node))
+                       (sb-thread:with-mutex (logs-lock)
+                         (push (cons name
+                                     (mapcar #'princ-to-string fields))
+                               logs)))))
+              (lambda ()
+                (multiple-value-setq (dial-thread client-sessions)
+                  (ethereum-lisp.cli:devnet-start-dial-scheduler-thread
+                   client controller
+                   (lambda (condition) (setf client-error condition))))
+                (wait-for-test-condition
+                 "dialed session admitted" 15d0
+                 (lambda () (peer-attribution-entry client)))
+                (funcall thunk client (peer-attribution-entry client)
+                         (lambda ()
+                           (sb-thread:with-mutex (logs-lock)
+                             (reverse logs)))))))
+        (ethereum-lisp.cli:devnet-shutdown-request controller)
+        (when dial-thread
+          (sb-thread:join-thread dial-thread :timeout 15 :default :timeout))
+        (when client-sessions
+          (ethereum-lisp.cli:devnet-join-peer-sessions client-sessions
+                                                       :timeout 10))
+        (ignore-errors (sb-bsd-sockets:socket-close listener))
+        (when server-thread
+          (sb-thread:join-thread server-thread :timeout 10
+                                               :default :timeout))))
+    (is (null client-error))
+    server-outcome)
+  #-sbcl
+  (declare (ignore build thunk)))
+
+(defun peer-attribution-fill-gap (client target)
+  "Run the coordinator's hash gap fill toward TARGET on CLIENT's live session
+and return (:RETURNED value) or (:SIGNALLED condition)."
+  (devnet-peer-sync-call-with-function-overrides
+   (list
+    (cons 'ethereum-lisp.cli::devnet-node-sync-targets
+          (lambda (seen-node)
+            (declare (ignore seen-node))
+            (list target)))
+    (cons 'ethereum-lisp.cli::devnet-node-forkchoice-sync-targets
+          (lambda (seen-node)
+            (declare (ignore seen-node))
+            nil)))
+   (lambda ()
+     (handler-case
+         (list :returned
+               (ethereum-lisp.cli::devnet-node-fill-sync-gaps-with-live-peer
+                client))
+       (serious-condition (condition)
+         (list :signalled condition))))))
+
+(defun peer-attribution-session-intact-p (client entry)
+  "Whether ENTRY is still CLIENT's live session, with an open queue and a zero
+score, and that queue still carries a GetBlockHeaders exchange."
+  (let ((queue (ethereum-lisp.cli::devnet-peer-entry-request-queue entry))
+        (peer (ethereum-lisp.cli::devnet-peer-entry-peer entry)))
+    (and (eq entry (peer-attribution-entry client))
+         (not (ethereum-lisp.cli::devnet-peer-request-queue-closed-p queue))
+         (= 0 (ethereum-lisp.cli::devnet-peer-score
+               (ethereum-lisp.cli:devnet-node-peer-table client)
+               (ethereum-lisp.cli::devnet-peer-entry-id-hex entry)))
+         (consp
+          (handler-case
+              (ethereum-lisp.cli::devnet-peer-request-queue-submit
+               queue
+               (lambda ()
+                 (ethereum-lisp.eth-sync:eth-peer-get-block-headers
+                  peer :origin-number 1 :amount 1)))
+            (serious-condition () nil))))))
+
+(defun peer-attribution-end-with-protocol-violation (client entry)
+  "Positive control: a peer protocol violation raised in a job on ENTRY's queue
+ends the session and costs 25. Returns true when both hold."
+  (let ((queue (ethereum-lisp.cli::devnet-peer-entry-request-queue entry)))
+    (handler-case
+        (ethereum-lisp.cli::devnet-peer-request-queue-submit
+         queue
+         (lambda ()
+           (ethereum-lisp.eth-sync::eth-peer-protocol-fail
+            "injected peer protocol violation")))
+      (serious-condition () nil))
+    (wait-for-test-condition
+     "session teardown after a protocol violation" 5d0
+     (lambda () (null (peer-attribution-entry client))))
+    (and (ethereum-lisp.cli::devnet-peer-request-queue-closed-p queue)
+         (= -25 (ethereum-lisp.cli::devnet-peer-score
+                 (ethereum-lisp.cli:devnet-node-peer-table client)
+                 (ethereum-lisp.cli::devnet-peer-entry-id-hex entry))))))
+
+(defun peer-attribution-execution-type-error (hash)
+  "An override of EXECUTE-AND-COMMIT-ENGINE-PAYLOAD that raises the host
+TYPE-ERROR Hoodi 3685491 raised before d7a28c6c when it executes block HASH."
+  (let ((original
+          (fdefinition
+           'ethereum-lisp.execution-service:execute-and-commit-engine-payload)))
+    (cons 'ethereum-lisp.execution-service:execute-and-commit-engine-payload
+          (lambda (store block config &rest arguments)
+            (if (hash32= hash (block-hash block))
+                (error 'type-error :datum (expt 2 256)
+                                   :expected-type '(mod 4611686018427387901))
+                (apply original store block config arguments))))))
+
+(deftest devnet-peer-session-outlives-an-internal-execution-error-from-its-gap-fill
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; sec5-evm-edge-audit.txt, Not verified: a block that failed INTERNALLY
+  ;; in a gap fill on a peer's session thread ended that session
+  ;; (peer.dial.failed) and cost the peer 25: our defect charged to the peer
+  ;; that delivered the block. The failure must reach the coordinator, which
+  ;; contains it and retries later, while the session, its queue and its
+  ;; score survive. RED at c677bdf0: the session was gone.
+  #+sbcl
+  (let ((blocks nil))
+    (call-with-peer-attribution-session
+     (lambda (genesis config)
+       ;; The peer serves blocks 1 and 2; block 3 is the buffered target.
+       (setf blocks (eth-sync-produce-empty-blocks genesis config 3))
+       (subseq blocks 0 2))
+     (lambda (client entry logs)
+       (let ((outcome
+               (devnet-peer-sync-call-with-function-overrides
+                (list (peer-attribution-execution-type-error
+                       (block-hash (second blocks))))
+                (lambda ()
+                  (peer-attribution-fill-gap client (third blocks))))))
+         ;; The coordinator gets the typed internal error, naming block 2.
+         (is (eq :signalled (first outcome)))
+         (is (typep (second outcome) 'block-execution-internal-error))
+         (is (hash32= (block-hash (second blocks))
+                      (block-execution-internal-error-block-hash
+                       (second outcome))))
+         ;; Block 1 executed and was kept.
+         (is (chain-store-state-available-p
+              (ethereum-lisp.cli::devnet-node-store client)
+              (block-hash (first blocks))))
+         ;; Give a torn-down session time to show it.
+         (sleep 0.5)
+         (is (peer-attribution-session-intact-p client entry))
+         (is (null (find "peer.dial.failed" (funcall logs)
+                         :key #'first :test #'string=)))
+         ;; The retry, now that the defect is gone, executes blocks 2 and 3
+         ;; over the same session.
+         (is (equal '(:returned 2)
+                    (peer-attribution-fill-gap client (third blocks))))
+         (is (chain-store-state-available-p
+              (ethereum-lisp.cli::devnet-node-store client)
+              (block-hash (third blocks))))
+         (is (peer-attribution-end-with-protocol-violation client entry))))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-gossiped-block-internal-execution-error-stays-on-the-session
+  (:layer :unit :module :p2p)
+  ;; The same defect met by a propagated block runs inside the session's
+  ;; message handler, where an escaping condition ends the session. The
+  ;; backend's block admission contains it and logs it instead.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (store (ethereum-lisp.cli::devnet-node-store node))
+         (blocks (eth-sync-produce-empty-blocks
+                  (ethereum-lisp.cli::devnet-node-genesis-block node)
+                  (ethereum-lisp.cli::devnet-node-config node)
+                  2))
+         (backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+         (logs '()))
+    (devnet-peer-sync-call-with-function-overrides
+     (list (peer-attribution-execution-type-error (block-hash (second blocks)))
+           (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+                 (lambda (seen-node name &rest fields)
+                   (declare (ignore seen-node))
+                   (push (cons name fields) logs))))
+     (lambda ()
+       ;; Control: an ordinary propagated block imports.
+       (is (eq t (ethereum-lisp.eth-sync::eth-accept-propagated-block
+                  backend (first blocks))))
+       (is (chain-store-state-available-p store (block-hash (first blocks))))
+       (is (eq t (ethereum-lisp.eth-sync::eth-accept-propagated-block
+                  backend (second blocks))))
+       (is (not (chain-store-state-available-p
+                 store (block-hash (second blocks)))))
+       (let ((event (find "peer.sync.execution_internal_error" logs
+                          :key #'first :test #'string=)))
+         (is event)
+         (is (equal "gossip" (second (member "source" (rest event)
+                                             :test #'equal))))
+         (is (eql 2 (second (member "block" (rest event) :test #'equal)))))))
+    (is (null (engine-payload-store-invalid-block
+               store (block-hash (second blocks)))))))
+
+(deftest devnet-peer-session-end-does-not-charge-our-execution-defect
+  (:layer :unit :module :p2p)
+  ;; Should an internal execution failure ever end a session, it is ours and
+  ;; costs the peer nothing; a peer protocol violation still costs 25.
+  (is (= 0 (peer-attribution-session-score
+            (make-condition
+             'block-execution-internal-error
+             :block-number 2
+             :block-hash (make-hash32 (make-byte-vector 32 :initial-element 2))
+             :cause (make-condition 'type-error :datum -1
+                                                :expected-type 'unsigned-byte)))))
+  (is (= -25 (peer-attribution-session-score
+              (make-condition
+               'ethereum-lisp.eth-sync:eth-peer-protocol-error
+               :format-control "injected protocol violation"
+               :format-arguments nil)))))

@@ -298,7 +298,19 @@ batch is admitted in chunks of +DEVNET-TX-ADMISSION-CHUNK+, one hold each."
          ;; validation, execution, and durable candidate path.  In particular,
          ;; this does not publish a peer tip as canonical.
          (let ((*telemetry-activity-label* "peer-block-import"))
-           (devnet-peer-sync-import-block node block)))))))
+           (handler-case (devnet-peer-sync-import-block node block)
+             (block-execution-internal-error (condition)
+               ;; Our defect, on the peer's session thread: escaping would end
+               ;; the session and charge the peer for it. The import rolled
+               ;; back and cached nothing, so the block can arrive again.
+               (devnet-peer-manager-log
+                node "peer.sync.execution_internal_error"
+                "source" "gossip"
+                "block" (block-execution-internal-error-block-number condition)
+                "hash" (hash32-to-hex
+                        (block-execution-internal-error-block-hash condition))
+                "error" (block-execution-internal-error-cause condition))
+               nil))))))))
 
 (defun devnet-node-snap-state-provider (node)
   "Return a root-indexed resolver for NODE's retained canonical states.

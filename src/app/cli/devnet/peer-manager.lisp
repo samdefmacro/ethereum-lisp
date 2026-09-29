@@ -790,26 +790,29 @@ routed back to their waiting worker by message type plus request id."
               (devnet-peer-request-job-finish job nil condition)
               ;; A mid-frame fault makes the stream unusable. Wake the
               ;; coordinator, then propagate so session teardown closes it.
-              ;; An INVALID verdict is the exception: it judges a block the
-              ;; job executed after the exchange completed, the stream is
-              ;; intact, and the verdict may be our own bug (Hoodi 3685491).
-              (unless (devnet-peer-request-verdict-p condition)
+              ;; The outcome of executing a block the job received is the
+              ;; exception: the exchange completed, the stream is intact, and
+              ;; the outcome may be our own bug (Hoodi 3685491).
+              (unless (devnet-peer-request-block-outcome-p condition)
                 (error condition)))))))))
 
-(defun devnet-peer-request-verdict-p (condition)
-  "Whether CONDITION, raised by a session job, is a verdict on block content
-rather than a fault of the peer's session.
+(defun devnet-peer-request-block-outcome-p (condition)
+  "Whether CONDITION, raised by a session job, is the outcome of executing a
+block the peer delivered rather than a fault of the peer's session.
 
-Only a deterministic INVALID from executing a block the peer delivered
-qualifies. geth v1.17.6 never disconnects for one: importBlockResults
-(eth/downloader/downloader.go) reports it through the badBlock callback and
-aborts the sync cycle with errInvalidChain, while fetchers_concurrent.go hands
-only errInvalidBody / errInvalidReceipt back to the peer's handler
-(validityErrorOfRequest), and the beacon backfiller only logs the failed cycle
-(beaconsync.go resume). A body that does not match its header is the peer's
-doing; it is refused before execution (ETH-SYNC-VALIDATE-BODY) and never
-reaches this predicate."
-  (typep condition 'devnet-peer-sync-invalid))
+Two outcomes qualify: a deterministic INVALID verdict (DEVNET-PEER-SYNC-
+INVALID), and an internal failure of our own execution (BLOCK-EXECUTION-
+INTERNAL-ERROR, a defect in this node that says nothing about the block, let
+alone about the peer). geth v1.17.6 never disconnects for either:
+importBlockResults (eth/downloader/downloader.go) reports any InsertChain
+error through the badBlock callback and aborts the sync cycle with
+errInvalidChain, while fetchers_concurrent.go hands only errInvalidBody /
+errInvalidReceipt back to the peer's handler (validityErrorOfRequest), and the beacon backfiller only
+logs the failed cycle (beaconsync.go resume). A body that does not match its
+header is the peer's doing; it is refused before execution
+(ETH-SYNC-VALIDATE-BODY) and never reaches this predicate."
+  (typep condition '(or devnet-peer-sync-invalid
+                        block-execution-internal-error)))
 
 (defun devnet-peer-session-end-charges-peer-p (condition)
   "Whether CONDITION, which ended an admitted session, lowers the peer's score.
@@ -818,7 +821,9 @@ The session ends either way; the score is what bans a peer (at
 +DEVNET-PEER-BAN-SCORE+, four charges) for the rest of the process. A peer is
 not charged for leaving: a devp2p Disconnect it sent (any reason, including
 too-many-peers, or a protocol error WE caused), a reset, broken pipe, EOF or
-timeout on the connection, or a local storage fault. geth v1.17.6 keeps no
+timeout on the connection, or a local storage fault. Nor for a block it
+delivered that our own execution failed on (BLOCK-EXECUTION-INTERNAL-ERROR),
+should one ever end a session. geth v1.17.6 keeps no
 score at all and handles each of these as an ordinary disconnect (p2p/peer.go
 run). On Hoodi (1a7b9059, 33 minutes) the unconditional charge banned nine
 SNAP-capable peers for broken pipes, remote Disconnects, our own INVALID
@@ -837,6 +842,7 @@ peer message from a local program error, and both stay charged."
                   #+sbcl sb-bsd-sockets:socket-error
                   #+sbcl sb-ext:timeout
                   storage-error
+                  block-execution-internal-error
                   devnet-peer-request-queue-closed)))))
 
 (defun devnet-peer-manager-log (node event &rest fields)
