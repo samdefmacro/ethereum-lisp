@@ -79,6 +79,7 @@ record names no fix.
 - Post-order sentinels closed heal read batches, and checkpoint room held the width at one → [sec5-heal-sentinel-width.txt](sec5-heal-sentinel-width.txt) → daa95d7f, e62f647f, 3e7cbd65
 - Hunting a false completion behind "Persisted trie node ... is missing": the cause is the forward batch importer's storage overlay → [sec5-false-completion-hunt.txt](sec5-false-completion-hunt.txt) → branch pending-storage-overlay (merged at 8e95b990)
 - Acceptance plan for the 8e95b990 live run (a plan, prepared and not run) → [sec5-8e95b990-acceptance-plan.txt](sec5-8e95b990-acceptance-plan.txt) → —
+- The closed-writer density test went red at 04a3aff4: the snap server's one-second budget cut a small contract in the flat-state fixture, which then counted as chunked; the writer and I1 were not at fault → [sec5-snap-closure-regression.txt](sec5-snap-closure-regression.txt) → 36954cd1 (test)
 
 ### Section 5: Engine API, forward sync and head following
 
