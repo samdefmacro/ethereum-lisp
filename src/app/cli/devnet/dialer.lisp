@@ -995,10 +995,24 @@ target."
   ;; Production installs a CL-authorized pivot-age predicate. A stream of new
   ;; peers which all reject an old root must not keep the pool artificially
   ;; live forever merely because the finite generation keeps changing.
-  stale-function)
+  stale-function
+  ;; Latched the first time STALE-FUNCTION proves the target moved past this
+  ;; pivot. From then on every lane of the generation gets the same
+  ;; scheduling result at once, without another request and without waiting
+  ;; for a busy peer that serves a pruned root.
+  (stale-p nil))
 
 (defconstant +devnet-snap-source-pool-failure-cooldown-seconds+ 30
   "How long one failed dependency transport is excluded from pooled work.")
+
+(defconstant +devnet-snap-source-pool-recheck-seconds+ 1
+  "Longest a pool waiter sleeps before it re-reads the live peer set.
+
+A release wakes a waiter at once. The bound covers what no release announces:
+a SNAP peer that connected while every lane waited (the range coordinator,
+which would register it, may itself be joining those lanes), and any change of
+eligibility whose wake-up was consumed by another waiter.
+docs/evidence/sec5-snap-range-silence.txt.")
 
 (define-condition devnet-snap-pooled-state-unavailable
     (ethereum-lisp.snap-sync:snap-sync-state-unavailable)
@@ -1062,9 +1076,16 @@ condition, kept for the log."))
 Each peer has one independent slot per response type, matching geth's idle-peer
 dispatch. Work waits in the global pool instead of becoming a stale request in
 one peer's private queue. Among idle peers, the largest learned delivery
-capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
+capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment.
+
+Return (VALUES NIL NIL) when no candidate remains: every live peer is retired
+for this pivot, or the pool has latched the pivot as stale. A wait never
+outlasts +DEVNET-SNAP-SOURCE-POOL-RECHECK-SECONDS+ without re-reading the live
+set, so neither a newly connected peer nor a lost wake-up can strand a lane."
   (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
     (loop
+      (when (devnet-snap-source-pool-stale-p pool)
+        (return (values nil nil)))
       (let ((now (get-universal-time))
             (best nil)
             (best-finish nil)
@@ -1134,22 +1155,44 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
                       (devnet-snap-source-pool-fixed-sources pool)))))
         (cond
           (eligible-p
-           ;; Every eligible type slot is busy. A release wakes this waiter.
+           ;; Every eligible type slot is busy. A release wakes this waiter;
+           ;; the bounded timeout re-reads the live set for peers that
+           ;; connected meanwhile and for eligibility that changed while
+           ;; another waiter held the wake-up.
            (sb-thread:condition-wait
             (devnet-snap-source-pool-waitqueue pool response-id)
-            (devnet-snap-source-pool-lock pool)))
+            (devnet-snap-source-pool-lock pool)
+            :timeout +devnet-snap-source-pool-recheck-seconds+))
           (cooldown-until
            ;; A transient transport failure is not aggregate source
-           ;; exhaustion. Wait for its bounded cooldown, or wake earlier when
-           ;; a source is registered or another scheduler event changes the
-           ;; pool. Returning NIL here tears down every account worker and can
+           ;; exhaustion. Wait out its bounded cooldown, re-reading the live
+           ;; set each recheck interval, or wake earlier when a source is
+           ;; registered or another scheduler event changes the pool.
+           ;; Returning NIL here tears down every account worker and can
            ;; needlessly rebase a productive pivot.
            (sb-thread:condition-wait
             (devnet-snap-source-pool-waitqueue pool response-id)
             (devnet-snap-source-pool-lock pool)
-            :timeout (max 1 (- cooldown-until now))))
+            :timeout +devnet-snap-source-pool-recheck-seconds+))
           (t
            (return (values nil nil))))))))
+
+#+sbcl
+(defun devnet-snap-source-pool-broadcast-locked (pool)
+  "Wake every waiter of every response type while POOL is locked."
+  (maphash
+   (lambda (response-id changed)
+     (declare (ignore response-id))
+     (sb-thread:condition-broadcast changed))
+   (devnet-snap-source-pool-changed-by-response pool)))
+
+#+sbcl
+(defun devnet-snap-source-pool-latch-stale (pool)
+  "Record that POOL's pivot is stale and release every waiting lane."
+  (sb-thread:with-mutex ((devnet-snap-source-pool-lock pool))
+    (setf (devnet-snap-source-pool-stale-p pool) t)
+    (devnet-snap-source-pool-broadcast-locked pool))
+  t)
 
 #+sbcl
 (defun devnet-snap-source-pool-release-locked (pool entry response-id)
@@ -1211,7 +1254,11 @@ capacity wins and RTT breaks ties, matching geth's capacity-sorted assignment."
         (+ (get-universal-time)
            +devnet-snap-source-pool-failure-cooldown-seconds+))))
     (devnet-snap-source-pool-release-locked pool entry response-id)
-    (sb-thread:condition-notify
+    ;; Broadcast, not notify: a retired or cooling peer changed eligibility
+    ;; for every waiter. One wake-up let the woken lane find the last busy
+    ;; peer and sleep again, and when the last eligible peer was retired the
+    ;; other lanes slept with no request left to wake them (Hoodi, a18b84e2).
+    (sb-thread:condition-broadcast
      (devnet-snap-source-pool-waitqueue pool response-id)))
   (devnet-node-set-snap-peer-degraded
    (devnet-snap-source-pool-node pool) entry response-id t)
@@ -1235,6 +1282,9 @@ the transport which supplied it."
           (devnet-snap-source-pool-acquire pool response-id)
         (unless entry
           (cond
+            ((devnet-snap-source-pool-stale-p pool)
+             ;; Another lane proved the target moved past this pivot.
+             (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))
             ((typep
               last-condition
               'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
@@ -1341,11 +1391,15 @@ the transport which supplied it."
                  (typep
                   transport-condition
                  'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
-                 (devnet-snap-source-pool-stale-function pool)
-                 (funcall (devnet-snap-source-pool-stale-function pool)))
+                 (or (devnet-snap-source-pool-stale-p pool)
+                     (and (devnet-snap-source-pool-stale-function pool)
+                          (funcall
+                           (devnet-snap-source-pool-stale-function pool))
+                          (devnet-snap-source-pool-latch-stale pool))))
             ;; The callback proves a newer CL-authorized target lies beyond
             ;; geth's pivot window. Propagate a scheduler result, not a source
             ;; failure: this peer accurately reported ordinary state pruning.
+            ;; The latch hands every other lane the same result at once.
             (error 'ethereum-lisp.snap-sync:snap-sync-heal-yielded))
           (setf last-condition transport-condition))))))
 
@@ -1718,6 +1772,40 @@ root identity, so the live-gate broker may expose its numeric fields."
    (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile-elapsed-ms
     profile)))
 
+(defun devnet-log-snap-storage-closure-progress (node pivot-number progress)
+  "Log a storage-root closure walk still running, as
+peer.snap.storage_closure_progress.  Numeric fields only, like the closure
+event itself."
+  (devnet-peer-manager-log
+   node "peer.snap.storage_closure_progress"
+   "pivot" pivot-number
+   "nodesVisited"
+   (ethereum-lisp.snap-sync:snap-sync-storage-closure-progress-nodes-visited
+    progress)
+   "multiGets"
+   (ethereum-lisp.snap-sync:snap-sync-storage-closure-progress-multi-gets
+    progress)
+   "levels"
+   (ethereum-lisp.snap-sync:snap-sync-storage-closure-progress-levels progress)
+   "elapsedMs"
+   (ethereum-lisp.snap-sync:snap-sync-storage-closure-progress-elapsed-ms
+    progress)))
+
+(defun devnet-log-snap-generation-stop (node pivot-number profile)
+  "Log a stopping range generation whose lanes have not all joined, as
+peer.snap.generation_stop (docs/evidence/sec5-snap-range-silence.txt)."
+  (devnet-peer-manager-log
+   node "peer.snap.generation_stop"
+   "pivot" pivot-number
+   "liveThreads"
+   (ethereum-lisp.snap-sync:snap-sync-generation-stop-profile-live-threads
+    profile)
+   "joined"
+   (ethereum-lisp.snap-sync:snap-sync-generation-stop-profile-joined-p profile)
+   "elapsedMs"
+   (ethereum-lisp.snap-sync:snap-sync-generation-stop-profile-elapsed-ms
+    profile)))
+
 (defun devnet-node-snap-import-with-failover
     (node database pivot-header target-hash
      &key preferred-entry
@@ -1957,6 +2045,9 @@ root identity, so the live-gate broker may expose its numeric fields."
        ;; durable cursors while selecting a serviceable newer pivot.
        :range-yield-p nil
        :heal-yield-p #'yield-for-stale-target-p
+       :on-generation-stop
+       (lambda (profile)
+         (devnet-log-snap-generation-stop node pivot-number profile))
        ;; The multi-source importer invokes this on the coordinator thread only
        ;; after the task's account nodes, code, complete small storage tries,
        ;; and cursor are durable. Byte-capped storage is mandatory work for the
@@ -2022,6 +2113,9 @@ root identity, so the live-gate broker may expose its numeric fields."
          (typecase profile
            (ethereum-lisp.snap-sync:snap-sync-storage-closure-profile
             (devnet-log-snap-storage-closure node pivot-number profile))
+           (ethereum-lisp.snap-sync:snap-sync-storage-closure-progress
+            (devnet-log-snap-storage-closure-progress
+             node pivot-number profile))
            (t
             (incf
              storage-profile-pages

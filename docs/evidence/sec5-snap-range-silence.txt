@@ -1,0 +1,242 @@
+Section 5: the fresh-datadir acceptance run went silent in the SNAP range phase
+
+Status
+
+Branch snap-range-silence, from 7cef5a67
+(7cef5a67 is the tip of sec5-public-bootstrap-sync on 2026-09-30). Root cause
+found from the live log, a read-only thread listing and the code, and fixed;
+the mechanism is reproduced deterministically by unit tests that are RED on
+7cef5a67 and GREEN on the fix. Not yet confirmed live: the running container
+still carries a18b84e2 and was not touched. No consensus path changed (the
+SNAP dependency scheduler, telemetry and a gate script only), so no EEST or
+replay gates. No cold-all (the coordinator runs it once at the end).
+
+Revision
+
+  (filled in by the commit that adds this record; see the branch log)
+
+================================================================================
+1. What the live run showed
+================================================================================
+
+Container hoodi-el-sec5-a18b84e2, revision a18b84e2, empty datadir, started
+2026-09-29T16:24Z. Read-only: docker logs -t, docker inspect, /proc.
+
+  16:40:04  dependency_failed (storage ranges) -> target_stale
+            (sources-unavailable) -> 16:40:07 pivot_rebased 3719811->3719875
+            -> 16:40:09 sources_refreshed added 13
+  16:54:13  the same shape, rebased 2 s later to 3719939
+  17:06:56  the same shape, rebased at 17:08:39 to 3720005 (target 3720069),
+            sources_refreshed added 18
+  17:08-17:23  range phase on 3720005: 7,509 storage pages, 79,120,438
+            slots, 12.4 GB logical; sources_refreshed "added 1" every
+            minute or two; last one 17:23:07 (15 sources)
+  17:24:12.525 / .823 / .853  dependency_failed "Snap peer does not have
+            the requested storage-range state" from three different peers
+  17:24:12.535 / .827 / .974  target_stale 3720069 -> 3720133,
+            reason sources-unavailable, once after each of them
+  17:24:15, 17:24:40  two storage_closure "closed" (3,172 ms; 43,657 ms,
+            66,470 nodes, 84 multi-gets, 11 levels) -- dependency lanes
+            finishing the closure they were already in
+  after 17:24:40  no peer.snap.* and no peer.sync.* event at all for the
+            rest of the run (checked to 18:36Z): no pivot_rebased, no
+            sources_refreshed, although 43 peer.dial.connected events, most
+            advertising snap/1, arrived after 17:24; node.memory.sample every
+            five minutes, heap 0.6-0.9 GB, RSS ~1.45 GB flat; Engine answered.
+
+Thread listing at 18:38Z (/proc/<pid>/task/*/{comm,wchan,stat}; syscall and
+stack were not readable): 68 threads. Every one of the generation's 32
+dependency and 32 ByteCodes workers was gone. Three Lisp threads created by
+that generation remained, all asleep in futex waits: two started 17:08:40
+(the 3720005 import start) and one 17:13:23 (with the source added at
+17:13:24). A 10-second CPU sample then charged no Lisp worker at all: 40
+session threads in do_poll used about 2.2% of a core each, RocksDB was idle.
+(The coordinator's earlier sample saw rocksdb:low compaction threads at ~6%
+each; either way the SNAP coordinator was not computing.)
+
+So the coordinator was waiting, not working: a range generation had been told
+to stop and was joining lanes that never returned.
+
+================================================================================
+2. Mechanism
+================================================================================
+
+The three target_stale lines come from the dependency pool's stale check
+(DEVNET-SNAP-SOURCE-POOL-CALL, src/app/cli/devnet/dialer.lisp): a pooled
+StorageRanges request answered state-unavailable, the CL-authorized successor
+was far ahead, and the lane signalled SNAP-SYNC-HEAL-YIELDED. The storage lane
+pushed a :yield event (SNAP-SYNC-MULTI-PUSH-YIELD), the coordinator in
+SNAP-SYNC-IMPORT-STATE-MULTI re-signalled it, and its unwind set the runtime's
+stopped flag and then called SB-THREAD:JOIN-THREAD, with no timeout and no
+log line, on every account, dependency, ByteCodes and StorageRanges lane and
+the storage committer.
+
+Every runtime wait checks the stopped flag. The pool's wait does not know the
+runtime exists. DEVNET-SNAP-SOURCE-POOL-ACQUIRE, when every eligible peer's
+slot for a response type is busy, slept on that type's waitqueue with no
+timeout, and three things could wake it:
+
+  - DEVNET-SNAP-SOURCE-POOL-RELEASE, CONDITION-NOTIFY (one waiter);
+  - DEVNET-SNAP-SOURCE-POOL-FAIL-AND-RELEASE, CONDITION-NOTIFY (one waiter);
+  - DEVNET-SNAP-SOURCE-POOL-REGISTER and the session-close release,
+    CONDITION-BROADCAST.
+
+A state-unavailable failure retires the peer for this pivot: it changes the
+eligibility of every waiter, but woke one. The woken lane re-evaluated, found
+another eligible peer still busy and slept again, consuming the wake-up. When
+the last eligible peer was retired, the one lane it woke found no candidate
+and returned (the pool-exhausted error); every other waiting lane stayed
+asleep, and no request was left in flight to release a slot. The only
+remaining wake-up, REGISTER, is called by the range coordinator's
+REFRESH-SOURCES -- the thread now blocked in JOIN-THREAD on those very lanes.
+New peers connecting did not help: ACQUIRE reads the live peer set only when
+it wakes.
+
+On Hoodi that shape was exactly what an aged pivot produces: 15 sources, one
+StorageRanges lane each, fewer peers still serving 3720005 than lanes, and in
+one second three of the remaining ones refusing the root. Earlier rebases
+(16:40, 16:54, 17:08) went through because the refusing request was not
+racing a queue of pool waiters; the 17:24 one was.
+
+A second, independent silence sat under it: the coordinator's join printed
+nothing however long it waited, and the storage-root closure walk (bounded by
+*SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES*, 1,048,576) printed nothing until
+it finished, 43,657 ms for its last attempt on a store under compaction.
+
+The brief's first hypothesis, an O(trie) closure walk at completion, is not
+what happened and is not the walk's shape: it descends only nodes no
+range-derived :STORAGE proof covers. Measured control (section 4): a
+20,000-slot contract imported in byte-capped pages has 26,864 trie nodes and
+the closure visits 4,346 of them. No incremental-marking change was made; I1
+is untouched.
+
+================================================================================
+3. Fix
+================================================================================
+
+src/app/cli/devnet/dialer.lisp
+
+  - ACQUIRE never sleeps longer than +DEVNET-SNAP-SOURCE-POOL-RECHECK-SECONDS+
+    (1 s) without re-reading the live peer set: a peer that connected while
+    every lane waited is used, and an eligibility change whose wake-up another
+    lane consumed is seen within a second.
+  - FAIL-AND-RELEASE broadcasts instead of notifying: a retired or cooling
+    peer changes eligibility for every waiter.
+  - The first stale verdict is latched on the pool (STALE-P,
+    DEVNET-SNAP-SOURCE-POOL-LATCH-STALE), which broadcasts to every waiter;
+    from then on ACQUIRE answers no-candidate and POOL-CALL signals
+    SNAP-SYNC-HEAL-YIELDED at once, without another request and without
+    calling the stale predicate again (the live run logged target_stale
+    three times for one event).
+  - New events: peer.snap.generation_stop (pivot, liveThreads, joined,
+    elapsedMs) and peer.snap.storage_closure_progress (pivot, nodesVisited,
+    multiGets, levels, elapsedMs). Both carry no peer identity.
+
+src/networking/snap-sync/client.lisp
+
+  - SNAP-SYNC-JOIN-GENERATION-THREADS replaces the five unbounded join loops
+    of SNAP-SYNC-IMPORT-STATE-MULTI's unwind. The join itself stays unbounded
+    (a lane still running may publish a batch and is never abandoned), but
+    every *SNAP-SYNC-GENERATION-STOP-REPORT-SECONDS* (10 s) it reports the
+    lanes still alive through the new :ON-GENERATION-STOP callback, and once
+    more when a slow join completes. A lane that died on an unhandled
+    condition still signals at the join, as before.
+  - SNAP-SYNC-STORAGE-ROOT-CLOSURE-WALK takes :PROGRESS and reports a
+    SNAP-SYNC-STORAGE-CLOSURE-PROGRESS after a multi-get at most every
+    *SNAP-SYNC-STORAGE-CLOSURE-PROGRESS-SECONDS* (10 s);
+    SNAP-SYNC-PUBLISH-STORAGE-ROOT-CLOSURE passes it through and
+    SNAP-SYNC-MULTI-FILL-STORAGE-ROOT routes it to the storage profile
+    callback. What the walk visits and publishes is unchanged.
+
+scripts/hoodi-live-gate.sh counts the two new events and matches event names
+with their quotes, because peer.snap.storage_closure is a prefix of
+peer.snap.storage_closure_progress.
+
+Does a closure survive a pivot rebase (brief item 3)? Yes, and now pinned:
+the StorageRanges cursor set is keyed by account hash and storage root, not
+the state root, and the :STORAGE-ROOT proof by the storage root. A generation
+rebased to another state root meets the same content-addressed contract with
+a complete cursor set and answers :ALREADY-CLOSED without a walk or a request.
+Only the owning account page is re-fetched, since its cursor had not advanced.
+
+================================================================================
+4. Tests
+================================================================================
+
+RED at 7cef5a67 (warm image, cl-workbench test NAME, each EXIT=1 at the
+named assertion; the harness stops a test at its first failure):
+
+  DEVNET-SNAP-SOURCE-POOL-WAKES-EVERY-WAITER-WHEN-ITS-LAST-PEER-IS-RETIRED
+    three lanes wait for the one busy eligible peer (positive control: all
+    three :BLOCKED); the peer is retired state-unavailable. RED:
+    (= 3 (COUNT '(NIL NIL) OUTCOMES)) -- one lane woke, two slept.
+  DEVNET-SNAP-SOURCE-POOL-WAITER-ADMITS-A-PEER-THAT-CONNECTS-WHILE-IT-WAITS
+    RED: (NOT (EQ :BLOCKED OUTCOME)) -- the new peer was never read.
+  DEVNET-SNAP-SOURCE-POOL-STALE-PIVOT-RELEASES-EVERY-WAITER
+    the caller's request proves the pivot stale (its own assertions pass);
+    RED: (NOT (EQ :BLOCKED WAITED)) -- the other lane slept on.
+
+GREEN on the fix, all three EXIT=0. Either of the recheck bound and the
+broadcast alone turns the first test green; the second needs the recheck, the
+third the latch.
+
+New telemetry and pins (no meaningful RED: the callbacks did not exist):
+
+  SNAP-GENERATION-JOIN-REPORTS-A-LANE-THAT-HAS-NOT-RETURNED (unit)
+    reports while one lane is alive, a final joined report, none for a fast
+    join, and an aborted lane still signals.
+  SNAP-STATE-IMPORT-MULTI-REPORTS-A-STOPPING-GENERATION-THAT-WAITS-FOR-A-LANE
+    (integration) the shipped importer, two byte-capped contracts and two
+    sources: one StorageRanges lane is held inside its request while another
+    proves the pivot stale; ON-GENERATION-STOP reports live lanes, then the
+    join. Five consecutive warm runs EXIT=0.
+  SNAP-STORAGE-ROOT-CLOSURE-WALK-REPORTS-PROGRESS-WHILE-IT-READS (unit)
+  SNAP-STORAGE-ROOT-CLOSURE-SURVIVES-A-PIVOT-REBASE (integration)
+  SNAP-STORAGE-ROOT-CLOSURE-OF-A-PAGED-IMPORT-WALKS-ONLY-ITS-UNPROVED-TOP
+    (integration) measured: trie nodes=26,864 visited=4,346 multi-gets=17
+    levels=5 elapsed-ms=132 (20,000 slots, 64,000-byte pages).
+  DEVNET-SNAP-PIVOT-LOGS-EACH-DURABLE-STATE-PAGE (extended) the dialer logs
+    both new events and does not count a progress report as a storage page.
+
+Verification of record (cold, on the committed tree):
+
+  cl-workbench validation run cold-unit --match SNAP
+    EXIT=0, 176 tests passed, 0 not ok (includes the three pool tests,
+    SNAP-GENERATION-JOIN-... and ...-WALK-REPORTS-PROGRESS-...)
+  cl-workbench validation run cold-integration --match SNAP-CLOSED
+    --match SNAP-PARTITIONED --match SNAP-STORAGE-ROOT --match SNAP-HEAL
+    --match SNAP-STATE-IMPORT --match DEVNET-SNAP
+    EXIT=0, 50 tests passed, 0 not ok (I1: the density arms report
+    i1-subtree-violations=0 on every closed arm; the paged closure line
+    above reproduced at elapsed-ms=141)
+  cl-workbench validation run cold-unit --match PROJECT-PACKAGE
+    --match DEVNET-PEER
+    EXIT=0, 18 tests passed
+  cl-workbench validation run cold-integration --match DEVNET-PEER
+    EXIT=0, 25 tests passed
+
+Not run: cold-all (the coordinator's), cold-e2e (no CLI option or process
+boundary changed), scripts/hoodi-live-gate-selftest.sh (its one event-count
+fixture line uses a quoted :NAME, which the quoted match still counts).
+
+================================================================================
+5. Not verified
+================================================================================
+
+- Live confirmation. The a18b84e2 container was only read. The next Hoodi
+  run on a revision with this fix should show, at the next stale pivot,
+  pivot_rebased within seconds of target_stale, and generation_stop lines
+  only if a lane is slow.
+- Which three threads were stuck. /proc syscall and stack were not
+  readable; the identification as pool waiters rests on the thread start
+  times, the code, and the deterministic reproduction, not on a stack.
+- A dialer-level loopback reproduction of the whole stall (several real
+  sessions losing the pivot while lanes queue in the pool). The pool tests
+  reproduce the wake-up loss and the stale latch directly; the importer test
+  reproduces the silent join.
+- Why the closure walk on Hoodi ran at ~1,500 nodes per second (compaction
+  after the 12 GB import is the likely cause) and why that contract needed
+  66,470 unproved nodes. The walk is bounded and now reports; it did not
+  cause this stall.
+- The 40 session threads each spending ~2.2% of a core in do_poll while idle
+  (about 0.9 core in total) is a separate cost, not investigated here.

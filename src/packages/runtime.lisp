@@ -552,6 +552,15 @@
    #:snap-sync-storage-closure-profile-multi-gets
    #:snap-sync-storage-closure-profile-levels
    #:snap-sync-storage-closure-profile-elapsed-ms
+   #:snap-sync-storage-closure-progress
+   #:snap-sync-storage-closure-progress-nodes-visited
+   #:snap-sync-storage-closure-progress-multi-gets
+   #:snap-sync-storage-closure-progress-levels
+   #:snap-sync-storage-closure-progress-elapsed-ms
+   #:snap-sync-generation-stop-profile
+   #:snap-sync-generation-stop-profile-live-threads
+   #:snap-sync-generation-stop-profile-elapsed-ms
+   #:snap-sync-generation-stop-profile-joined-p
    #:snap-sync-heal-progress
    #:snap-sync-heal-progress-processed-nodes
    #:snap-sync-heal-progress-reused-nodes
