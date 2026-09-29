@@ -170,7 +170,10 @@ repaid."
           (transfer-log nil))
       (handler-case
           (if (execution-contract-address-collision-p state contract)
-              (finalize-transaction-receipt
+              (progn
+               (evm-call-tracer-note-top-level
+                :failure "contract address collision")
+               (finalize-transaction-receipt
                state sender coinbase tx
                (make-receipt
                 :status 0
@@ -180,7 +183,7 @@ repaid."
                 :regular-gas-used
                 (transaction-exceptional-regular-gas-used
                  tx effective-chain-rules))
-               base-fee)
+               base-fee))
               (progn
                 (setf transfer-log
                       (transfer-value
@@ -229,6 +232,9 @@ repaid."
                             :gas-budget runtime-budget))))
                   (if (eq (evm-result-status result) :reverted)
                       (progn
+                        (evm-call-tracer-note-top-level
+                         :output (evm-result-return-data result)
+                         :failure :reverted)
                         (state-db-revert-to-snapshot state snapshot)
                         (finalize-transaction-receipt
                          state sender coinbase tx
@@ -276,6 +282,13 @@ repaid."
                                   (not deposit-ok-p)
                                   (> gas-used gas-limit))
                               (progn
+                                (evm-call-tracer-note-top-level
+                                 :failure
+                                 (if (invalid-contract-runtime-code-p
+                                      runtime-code
+                                      (evm-context-chain-rules context))
+                                     "invalid code"
+                                     "contract creation code storage out of gas"))
                                 (state-db-revert-to-snapshot state snapshot)
                                 (finalize-transaction-receipt
                                  state sender coinbase tx
@@ -288,6 +301,8 @@ repaid."
                                                 tx effective-chain-rules))
                                  base-fee))
                               (progn
+                                (evm-call-tracer-note-top-level
+                                 :output runtime-code)
                                 (state-db-set-code state contract runtime-code)
                                 (let ((receipt
                                         (finalize-transaction-receipt
@@ -313,7 +328,8 @@ repaid."
                                          (evm-result-refund-counter result))))
                                   (finalize-evm-selfdestructs state context)
                                   receipt)))))))))
-                (evm-error ()
+                (evm-error (condition)
+          (evm-call-tracer-note-top-level :failure condition)
           (state-db-revert-to-snapshot state snapshot)
           (finalize-transaction-receipt
            state sender coinbase tx

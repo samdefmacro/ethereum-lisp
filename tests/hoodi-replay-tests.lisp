@@ -1007,6 +1007,196 @@ diverges=~D comparator=~D prestate=~D unreplayable=~D~%"
         (error "Hoodi replay: ~D failure~:P~{~%  ~A~}"
                (length failures) failures)))))
 
+;;; Call traces against the reference's callTracer.
+;;;
+;;; scripts/fetch-hoodi-call-traces.sh adds calltrace.json, the reference's
+;;; debug_traceBlockByNumber(N, callTracer), to chosen corpus blocks. Here the
+;;; block is traced the way debug_traceBlockByNumber traces it
+;;; (ETH-RPC-TRACE-BLOCK-FRAMES: one execution, a tracer per transaction), from
+;;; the witness-backed parent state, and every frame of every transaction is
+;;; compared field by field: type, from, to, value, gas, gasUsed, input,
+;;; output, error and the number of child calls.
+
+(defparameter +hoodi-replay-call-trace-fields+
+  '("type" "from" "to" "value" "gas" "gasUsed" "input" "output" "error"))
+
+(defun hoodi-replay-call-trace-text (value)
+  (and value (string-downcase (princ-to-string value))))
+
+(defun hoodi-replay-compare-call-frame (ours reference path)
+  "Differences between our frame object OURS and the reference's, as
+(PATH FIELD OURS REFERENCE) lists, children included. Also returns the frame
+types seen, one per frame."
+  (let ((differences '())
+        (types (list (cdr (assoc "type" ours :test #'string=)))))
+    (dolist (field +hoodi-replay-call-trace-fields+)
+      (let ((mine (hoodi-replay-call-trace-text
+                   (cdr (assoc field ours :test #'string=))))
+            (theirs (hoodi-replay-call-trace-text
+                     (hoodi-replay-field reference field))))
+        (unless (equal mine theirs)
+          (push (list path field mine theirs) differences))))
+    (let ((our-calls (cdr (assoc "calls" ours :test #'string=)))
+          (their-calls (hoodi-replay-array (hoodi-replay-field reference "calls"))))
+      (unless (= (length our-calls) (length their-calls))
+        (push (list path "calls" (length our-calls) (length their-calls))
+              differences))
+      (loop for mine in our-calls
+            for theirs in their-calls
+            for index from 0
+            do (multiple-value-bind (child-differences child-types)
+                   (hoodi-replay-compare-call-frame
+                    mine theirs (append path (list index)))
+                 (setf differences (append differences child-differences)
+                       types (append types child-types)))))
+    (values differences types)))
+
+(defun hoodi-replay-call-trace-block (directory)
+  "Trace DIRECTORY's block and compare it with its calltrace.json. Returns a
+plist: :number, :transactions, :frames, :types (type name to count, an alist),
+:differences, and :gap when the witness lacked a node."
+  (let* ((manifest (hoodi-replay-json directory "calltrace.manifest.json"))
+         (number (hoodi-replay-quantity (hoodi-replay-field manifest "number")))
+         (path (merge-pathnames "calltrace.json" directory))
+         (*hoodi-replay-gaps* nil))
+    (unless (string-equal (hoodi-replay-field manifest "sha256")
+                          (bytes-to-hex
+                           (ethereum-lisp.crypto:sha256
+                            (with-open-file (stream path
+                                                    :element-type
+                                                    '(unsigned-byte 8))
+                              (let ((bytes (make-array
+                                            (file-length stream)
+                                            :element-type '(unsigned-byte 8))))
+                                (read-sequence bytes stream)
+                                bytes)))
+                           :prefix nil))
+      (hoodi-replay-corpus-fail "~A does not match its manifest"
+                                (namestring path)))
+    (let* ((block (block-from-rlp
+                   (hex-to-bytes
+                    (hoodi-replay-json directory "raw-block.json"))))
+           (config (ethereum-lisp.genesis::hoodi-chain-config))
+           (witness (hoodi-replay-read-witness directory))
+           (reference (hoodi-replay-array
+                       (hoodi-replay-json directory "calltrace.json"))))
+      (hoodi-replay-add-trace-codes
+       witness (hoodi-replay-json directory "prestate.json") nil)
+      (hoodi-replay-add-trace-codes
+       witness (hoodi-replay-json directory "diff.json") t)
+      (multiple-value-bind (hashes parent)
+          (hoodi-replay-block-hashes block witness)
+        (let ((frames (ethereum-lisp.public-api::eth-rpc-trace-block-frames
+                       (hoodi-replay-backed-state
+                        witness (block-header-state-root parent))
+                       block config
+                       :block-hashes (hoodi-replay-copy-hashes hashes)
+                       :parent-header parent))
+              (differences '())
+              (types '()))
+          (unless (= (length frames) (length reference)
+                     (length (block-transactions block)))
+            (push (list nil "transactions" (length frames) (length reference))
+                  differences))
+          (loop for frame in frames
+                for entry in reference
+                for index from 0
+                do (multiple-value-bind (frame-differences frame-types)
+                       (hoodi-replay-compare-call-frame
+                        (ethereum-lisp.public-api::eth-rpc-call-frame-object
+                         frame)
+                        (hoodi-replay-field entry "result")
+                        (list index))
+                     (setf differences (append differences frame-differences)
+                           types (append types frame-types))))
+          (list :number number
+                :transactions (length (block-transactions block))
+                :frames (length types)
+                :types (let ((counts '()))
+                         (dolist (type types counts)
+                           (let ((cell (assoc type counts :test #'equal)))
+                             (if cell
+                                 (incf (cdr cell))
+                                 (push (cons type 1) counts)))))
+                :differences differences
+                :gap (first *hoodi-replay-gaps*)))))))
+
+(deftest hoodi-replay-call-traces-match-the-reference
+  (:layer :integration)
+  ;; The frame labels (CALLCODE, DELEGATECALL, CREATE, CREATE2) and the linear
+  ;; block tracer against a real block's reference trace. Skips without a
+  ;; corpus; with one, fails unless at least one block had a calltrace.json and
+  ;; every frame of every traced block matched.
+  (let ((root (hoodi-replay-corpus-root)))
+    (unless root
+      (skip-test
+       (format nil "Set ~A to a corpus with calltrace.json files (scripts/fetch-hoodi-call-traces.sh) to run this test"
+               +hoodi-replay-root-env+)))
+    (let ((results
+            (loop for number in (hoodi-replay-corpus-blocks root)
+                  for directory = (merge-pathnames (format nil "~D/" number)
+                                                   root)
+                  when (probe-file (merge-pathnames "calltrace.json" directory))
+                    collect (hoodi-replay-call-trace-block directory))))
+      (dolist (result results)
+        (format t "~&HOODI-CALLTRACE block=~D txs=~D frames=~D types=~{~A~^,~} differences=~D~@[ gap=~A~]~%"
+                (getf result :number) (getf result :transactions)
+                (getf result :frames)
+                (loop for (type . count) in (reverse (getf result :types))
+                      collect (format nil "~A:~D" type count))
+                (length (getf result :differences))
+                (getf result :gap))
+        (loop for difference in (getf result :differences)
+              repeat 10
+              do (format t "~&HOODI-CALLTRACE   tx/frame ~{~A~^/~} ~A ours=~A reference=~A~%"
+                         (first difference) (second difference)
+                         (third difference) (fourth difference))))
+      (format t "~&HOODI-CALLTRACE summary: blocks=~D frames=~D differences=~D~%"
+              (length results)
+              (reduce #'+ results :key (lambda (r) (getf r :frames)))
+              (reduce #'+ results
+                      :key (lambda (r) (length (getf r :differences)))))
+      (is (plusp (length results)))
+      (dolist (result results)
+        (is (null (getf result :gap)))
+        (is (null (getf result :differences)))))))
+
+(deftest hoodi-replay-call-frame-comparator-finds-each-difference
+  ;; The positive control for the call-trace comparison above, which needs no
+  ;; corpus: a relabelled frame, a missing value, a changed gas and a missing
+  ;; child are each reported, and an identical frame is not.
+  (let* ((child (list (cons "type" "STATICCALL") (cons "from" "0xaa")
+                      (cons "to" "0xbb") (cons "gas" "0x10")
+                      (cons "gasUsed" "0x1") (cons "input" "0x")))
+         (ours (list (cons "type" "DELEGATECALL") (cons "from" "0xaa")
+                     (cons "to" "0xbb") (cons "value" "0x0")
+                     (cons "gas" "0x64") (cons "gasUsed" "0x5")
+                     (cons "input" "0x12") (cons "calls" (list child))))
+         (reference
+           (ethereum-lisp.json:parse-json
+            (concatenate
+             'string
+             "{\"type\":\"CALL\",\"from\":\"0xAA\",\"to\":\"0xbb\","
+             "\"gas\":\"0x65\",\"gasUsed\":\"0x5\",\"input\":\"0x12\"}"))))
+    (is (null (hoodi-replay-compare-call-frame
+               ours
+               (ethereum-lisp.json:parse-json
+                (concatenate
+                 'string
+                 "{\"type\":\"DELEGATECALL\",\"from\":\"0xAA\",\"to\":\"0xbb\","
+                 "\"value\":\"0x0\",\"gas\":\"0x64\",\"gasUsed\":\"0x5\","
+                 "\"input\":\"0x12\",\"calls\":[{\"type\":\"STATICCALL\","
+                 "\"from\":\"0xaa\",\"to\":\"0xbb\",\"gas\":\"0x10\","
+                 "\"gasUsed\":\"0x1\",\"input\":\"0x\"}]}"))
+               nil)))
+    (let ((fields (mapcar #'second
+                          (hoodi-replay-compare-call-frame ours reference nil))))
+      (is (member "type" fields :test #'string=))
+      (is (member "value" fields :test #'string=))
+      (is (member "gas" fields :test #'string=))
+      (is (member "calls" fields :test #'string=))
+      (is (not (member "from" fields :test #'string=))))))
+
 ;;; Controls that need no corpus: the comparator finds what it must, the gate
 ;;; refuses a run that replayed nothing, and the selection reads as documented.
 

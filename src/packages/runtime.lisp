@@ -150,6 +150,10 @@
    #:evm-call-tracer-enter
    #:evm-call-tracer-exit
    #:evm-call-tracer-root
+   #:evm-call-tracer-note-top-level
+   #:evm-call-tracer-top-output
+   #:evm-call-tracer-top-failure
+   #:evm-call-trace-error-text
    #:evm-call-frame
    #:evm-call-frame-type
    #:evm-call-frame-from
@@ -162,6 +166,7 @@
    #:evm-call-frame-error
    #:evm-call-frame-children
    #:call-with-evm-call-trace
+   #:call-with-evm-create-trace
    #:evm-error
    #:evm-step-limit-error
    #:evm-step-limit-error-limit
@@ -266,6 +271,10 @@
    #:evm-call-tracer-enter
    #:evm-call-tracer-exit
    #:evm-call-tracer-root
+   #:evm-call-tracer-note-top-level
+   #:evm-call-tracer-top-output
+   #:evm-call-tracer-top-failure
+   #:evm-call-trace-error-text
    #:evm-call-frame
    #:evm-call-frame-type
    #:evm-call-frame-from
@@ -388,6 +397,8 @@
         #:ethereum-lisp.evm)
   (:export
    #:execute-message-call
+   #:execute-block-with-message-applier
+   #:execution-create-address
    #:call-transaction-effective-gas-price
    #:finalized-transaction-gas-values
    #:apply-withdrawal

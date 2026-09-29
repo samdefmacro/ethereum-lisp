@@ -242,7 +242,8 @@ frame's EVM context."
                           ;; runtime charges; before Amsterdam this is
                           ;; exactly the gas limit less intrinsic gas.
                           (evm-gas-budget-regular runtime-budget))
-                       (declare (ignore output active-p))
+                       (declare (ignore active-p))
+                       (evm-call-tracer-note-top-level :output output)
                        (finalize-transaction-receipt
                         state sender coinbase tx
                         (make-receipt
@@ -261,7 +262,8 @@ frame's EVM context."
                                    '()))
                         base-fee
                         :refund-counter refund-counter))
-                   (evm-error ()
+                   (evm-error (condition)
+                     (evm-call-tracer-note-top-level :failure condition)
                      (state-db-revert-to-snapshot state snapshot)
                      (finalize-transaction-receipt
                       state sender coinbase tx
@@ -327,6 +329,10 @@ frame's EVM context."
                                :gas-limit
                                (evm-gas-budget-regular runtime-budget)
                                :gas-budget runtime-budget)))
+                       (evm-call-tracer-note-top-level
+                        :output (evm-result-return-data result)
+                        :failure (and (eq (evm-result-status result) :reverted)
+                                      :reverted))
                        (if (eq (evm-result-status result) :reverted)
                            (progn
                              (state-db-revert-to-snapshot state snapshot)
@@ -368,7 +374,8 @@ frame's EVM context."
                                        (evm-result-refund-counter result)))))
                              (finalize-evm-selfdestructs state context)
                              receipt)))
-                   (evm-error ()
+                   (evm-error (condition)
+                     (evm-call-tracer-note-top-level :failure condition)
                      (state-db-revert-to-snapshot state snapshot)
                      (finalize-transaction-receipt
                       state sender coinbase tx
