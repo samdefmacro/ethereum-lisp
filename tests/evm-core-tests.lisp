@@ -875,3 +875,29 @@
                 first)))
     (is (eq :stopped (evm-result-status
                       (execute-bytecode code :gas-limit 100))))))
+
+(deftest evm-word-to-bytes-matches-a-byte-by-byte-reference
+  ;; WORD-TO-HASH32 and WORD-TO-ADDRESS write a fixnum's low eight bytes and
+  ;; a wider word 32 bits at a time; both must equal the per-byte big-endian
+  ;; write of the value's low 32 or 20 bytes.
+  (let ((random-state (sb-ext:seed-random-state 2929)))
+    (flet ((reference (value size)
+             (let ((out (make-byte-vector size)))
+               (dotimes (i size out)
+                 (setf (aref out (- size 1 i))
+                       (ldb (byte 8 (* 8 i)) value))))))
+      (dolist (value (append (list 0 1 255 256 (1- (expt 2 62)) (expt 2 62)
+                                   (1- (expt 2 64)) (expt 2 64)
+                                   (1- (expt 2 160)) (expt 2 160)
+                                   (1+ (expt 2 160)) (1- (expt 2 256))
+                                   (expt 2 255))
+                             (loop repeat 200
+                                   collect (random (expt 2 256) random-state))
+                             (loop repeat 50
+                                   collect (random (expt 2 61) random-state))))
+        (is (equalp (reference value 32)
+                    (hash32-bytes
+                     (ethereum-lisp.evm.internal::word-to-hash32 value))))
+        (is (equalp (reference value 20)
+                    (address-bytes
+                     (ethereum-lisp.evm.internal::word-to-address value))))))))
