@@ -1,0 +1,273 @@
+Section 5: eth/72 sessions died on "GetCells must contain exactly 3 items"
+
+Status
+
+Branch eth72-interop, from 1a7b9059 (sec5-public-bootstrap-sync head,
+1a7b9059fef8ab705e6b0b56db831c7e6adef911). Cause found, reproduced and fixed
+locally. Not deployed, no live run, no Hive run, no cold-all (the
+coordinator runs it once at the end).
+
+Deployed geth has two GetCells/Cells packet layouts under the one eth/72
+version. Our codec followed the newer one (geth v1.17.6 and the devp2p
+text); the Hoodi peers that sent GetCells used the older one (geth v1.17.5).
+The decode error ended the whole session, including its snap/1 source.
+
+Revision
+
+  635a9667  eth-wire: read both deployed eth/72 GetCells/Cells layouts and
+            answer in the requester's
+
+================================================================================
+1. Live evidence (container hoodi-el-sec5-1a7b9059, docker logs -t, read-only)
+================================================================================
+
+Window: 2026-09-24T06:42:33Z (start) to 07:15:46Z (exit), 33 minutes.
+
+  peer.dial.connected                      76 (eth/72 57, eth/71 14,
+                                               eth/69 1, eth/68 4)
+  peer.dial.failed "eth/72 GetCells must
+    contain exactly 3 items"               17, from 11 distinct peers
+  p2p.peer.session_failed "eth/69 Status
+    must contain exactly 7 items"           3, inbound, 2 hosts (section 5)
+  any other "must contain exactly"          0
+  peer.snap.source_closed ("peer session
+    request queue is closed")               8; 5 of them are the GetCells
+                                               failures above (59a1631a twice,
+                                               b24a14b1, c8d09bb6, ecff0230,
+                                               all at pivot 3685520)
+
+So 17 of 57 outbound eth/72 sessions (30%) ended on this one decode error,
+each 3 to 7 seconds after the handshake, and the node then refused some of
+those peers as USELESS-PEER. The other three source closures were a peer
+that reset the connection 0.2 s after connecting (b2767f76, fa106671, one
+host) and one invalid peer range block (7d350d81); neither is this defect.
+
+Example (07:15:08Z connected, 07:15:13Z failed, 07:15:14Z source closed):
+  peer.dial.connected 59a1631a... host 194.33.40.141 eth 72 snap 1
+  peer.dial.failed    59a1631a... "eth/72 GetCells must contain exactly 3 items"
+  peer.snap.source_closed 59a1631a... "peer session request queue is closed"
+                      pivot 3685520
+
+The log records no client id, so which geth release each peer ran is an
+inference (section 2), not an observation.
+
+================================================================================
+2. The wire shapes, and why ours disagreed
+================================================================================
+
+devp2p caps/eth.md (master, fetched 2026-09-29):
+  GetCells (0x14) [request-id: P, [txhash1: B_32, ...], cells: B_16]
+  Cells (0x15)    [request-id: P, [txhash1: B_32, ...],
+                   [[cell1: B_2048, ...], ...], cells: B_16]
+  The eth/66 envelope is the request id as the FIRST ELEMENT of the message
+  list, not a [request-id, payload] pair; there are no extra fields.
+
+geth releases (tags from the GitHub API; source fetched 2026-09-29):
+  v1.17.4 (36a7dc72)  ProtocolVersions {71, 70, 69}: no eth/72 at all.
+  v1.17.5 (9621c6ad)  ProtocolVersions {72, 71, 70, 69}, lengths
+                      {69:18, 70:18, 71:20, 72:22}.
+                        type GetCellsRequestPacket struct {
+                            RequestId uint64
+                            GetCellsRequest        // {Hashes, Mask}
+                        }
+                        type CellsPacket struct {
+                            RequestId uint64
+                            CellsResponse          // {Hashes, Cells, Mask}
+                        }
+                      geth's RLP encodes an embedded struct as ONE nested
+                      field (as it does for GetBlockHeadersPacket's
+                      *GetBlockHeadersRequest), so the wire is
+                        GetCells [id, [hashes, mask]]           2 items
+                        Cells    [id, [hashes, cells, mask]]    2 items
+                      Peer.RequestPayload sends it, Peer.ReplyCells replies
+                      with it, handleGetCells/handleCells decode only it.
+  38271784 (#35428, 2026-07-28, "eth/protocols: fix Cells/GetCells RLP
+                      encoding"): "Previously, GetCellsPacket and CellsPacket
+                      embedded GetCellsRequest and CellsResponse. This caused
+                      them to be encoded as nested lists, which does not match
+                      the wire format defined by the spec." The fields are
+                      inlined: [id, hashes, mask] and [id, hashes, cells,
+                      mask]. No version bump, no protocol-length change.
+  v1.17.6 (3d84c6b2)  contains 38271784: flat. The v1.17.5..v1.17.6 compare
+                      shows no other change to eth/protocols/eth wire types
+                      (NewPooledTransactionHashesPacket72, BAL packets,
+                      Receipts and Status are identical in both).
+
+Why ours disagreed: this repository's pinned reference checkout is
+go-ethereum 1.17.6-unstable at exactly 38271784 (docs/reference-map.md), the
+flattening commit, so the codec implemented the flat layout. The only
+release that advertises eth/72 and predates the fix is v1.17.5, whose
+GetCells has two items where we required three; that is the logged error.
+A v1.17.5 peer would equally fail to decode our flat Cells reply and our
+flat GetCells (its handleCells/handleGetCells return the decode error), so
+one layout cannot serve both releases.
+
+geth itself is not interoperable across the two: v1.17.6 handleGetCells
+(eth/protocols/eth/handlers.go:691-696 at 38271784) returns the decode
+error, eth/protocols/eth/handler.go Handle returns it from the message loop,
+and p2p/peer.go run (lines 307-311) disconnects with discReasonForError,
+i.e. DiscSubprotocolError. Our session teardown on a decode error is
+therefore geth's behaviour; the defect was only which layouts we accept.
+
+================================================================================
+3. Fix (635a9667)
+================================================================================
+
+src/protocol/eth-wire/messages.lisp
+  ETH-CELLS-PACKET-FIELDS splits a decoded GetCells/Cells into its request
+  id, its fields and the layout read: 1+N items is :FLAT, 2 items whose
+  second is a list of exactly N items is :NESTED; anything else is an error
+  naming both expected shapes. DECODE-ETH-GET-CELLS and DECODE-ETH-CELLS
+  return the layout as an extra (last) value; ENCODE-ETH-GET-CELLS and
+  ENCODE-ETH-CELLS take :DIALECT (:FLAT default, the devp2p text).
+src/networking/eth-sync/serve.lisp
+  A GetCells is answered with Cells in the request's layout, and the peer's
+  layout is remembered.
+src/networking/eth-sync/peer.lisp, fetch.lisp
+  ETH-PEER-CELLS-DIALECT: the layout the peer last sent (GetCells or Cells),
+  else ETH-CELLS-DIALECT-FOR-CLIENT-ID, which answers :NESTED only when the
+  Hello client id is Geth[/identity]/v1.17.5[-...]/... (geth
+  node.Config.NodeName), else :FLAT. ETH-PEER-GET-CELLS sends in that layout
+  and reads the reply in either.
+
+A shape neither geth sends (a trailing extra field, a nested list with a
+missing or extra field, a bare request id) remains a session-ending
+protocol error, as in geth.
+
+================================================================================
+4. Audit: every eth-wire decoder with :exact N (src/protocol/eth-wire/
+   messages.lisp at 1a7b9059) against geth 38271784 and v1.17.5
+================================================================================
+
+  decoder / context                :exact   geth struct (both releases
+                                            identical unless noted)
+  eth fork id                      2        forkid.ID {Hash, Next}
+  eth Status (eth/68)              6        StatusPacket68 (dropped from geth
+                                            by 723aae2b; eth/68 spec shape)
+  eth/69 Status                    7        StatusPacket {7 fields}
+  eth BlockRangeUpdate             3        BlockRangeUpdatePacket {3}
+  eth NewBlockHashes entry         2        eth/68 spec [hash, number] (no
+                                            geth 1.17 packet)
+  eth NewBlock                     2        eth/68 spec [block, td] (no geth
+                                            1.17 packet)
+  eth GetBlockHeaders              2        GetBlockHeadersPacket {RequestId,
+                                            *GetBlockHeadersRequest} (nested)
+  eth GetBlockHeaders query        4        GetBlockHeadersRequest {Origin,
+                                            Amount, Skip, Reverse}
+  eth BlockHeaders                 2        BlockHeadersPacket {RequestId, List}
+  eth GetBlockBodies               2        GetBlockBodiesPacket {RequestId,
+                                            GetBlockBodiesRequest []Hash}
+  eth BlockBodies                  2        BlockBodiesPacket {RequestId, List}
+  eth NewPooledTransactionHashes   3 / 4    ...Packet71 {Types, Sizes, Hashes}
+                                            / ...Packet72 {+ Mask} (flat in
+                                            both releases)
+  eth GetPooledTransactions        2        {RequestId, GetPooledTransactions-
+                                            Request []Hash}
+  eth PooledTransactions           2        {RequestId, List}
+  eth/71 GetBlockAccessLists       2        {RequestId, GetBlockAccessLists-
+                                            Request []Hash}
+  eth/71 BlockAccessLists          2        BlockAccessListPacket {RequestId,
+                                            List}
+  eth/72 GetCells                  3        DIFFERS: v1.17.5 2 (nested),
+                                            38271784 3 -> fixed, both read
+  eth/72 Cells                     4        DIFFERS: v1.17.5 2 (nested),
+                                            38271784 4 -> fixed, both read
+  eth GetReceipts                  2 / 3    GetReceiptsPacket69 {RequestId,
+                                            []Hash} / ...70 {RequestId,
+                                            FirstBlockReceiptIndex, []Hash}
+  eth Receipts                     2 / 3    ReceiptsPacket69 {RequestId, List}
+                                            / ...70 {RequestId,
+                                            LastBlockIncomplete, List}
+  eth receipt log                  3        Log [address, topics, data]
+  eth/69 receipt                   4        [type, status, cumulative, logs]
+  eth/68 receipt                   4        [status, cumulative, bloom, logs]
+
+Every embedded slice type (GetBlockBodiesRequest and the like) is one field
+holding a list, which our decoders already read as the second item; only the
+two embedded STRUCTS matter, and GetBlockHeadersRequest was already nested
+on our side. GetCells/Cells were the only envelope mismatch.
+
+The three inbound "eth/69 Status must contain exactly 7 items" failures are
+not this mistake: geth's readStatusMsg (eth/protocols/eth/handshake.go:97-
+109) decodes the same seven-field StatusPacket strictly and ends the
+handshake on any other count. Which client sent them is not logged.
+
+================================================================================
+5. Verification of record
+================================================================================
+
+Preflight: cl-workbench doctor --strict, EXIT=0.
+
+RED (tests added, src at 1a7b9059):
+  cl-workbench validation run cold-unit --match ETH-72-GET-CELLS-READS-BOTH
+    EXIT=1; not ok ETH-72-GET-CELLS-READS-BOTH-DEPLOYED-GETH-PACKET-LAYOUTS -
+    eth/72 GetCells must contain exactly 3 items   (the live error text)
+  cl-workbench validation run cold-unit --match ETH-72-GET-CELLS
+    --match ETH-72-CELLS
+    EXIT=1; 3 passed, 4 failed (the four new positive tests; the new
+    negative ETH-72-GET-CELLS-STILL-REJECTS-SHAPES-NEITHER-GETH-SENDS passes
+    before and after, as it must)
+
+Byte vectors (hand-derived RLP, tests/eth-wire-tests.lisp):
+  GetCells flat    f4 01 e1 a0 <11 x32> 90 <ff x16>
+  GetCells nested  f5 01 f3 e1 a0 <11 x32> 90 <ff x16>
+  Cells, empty     flat d4 01 c0 c0 90 <ff x16>;
+                   nested d5 01 d3 c0 c0 90 <ff x16>
+  Cells, one cell  flat f9083d 01 e1a0<hash> f90806 f90803 b90800<cell>
+                   90<mask>; nested f90840 01 f9083c e1a0<hash> ...
+  Both encoders produce these bytes exactly and both decoders read them.
+  The pre-existing flat vector
+  ETH-72-CUSTODY-BITMAP-IS-THE-PINNED-GETH-LITTLE-ENDIAN-WIRE-VALUE is
+  unchanged and green.
+
+GREEN (635a9667):
+  cl-workbench validation run cold-unit --match ETH-72
+    EXIT=0; 19 tests passed
+  cl-workbench validation run cold-unit --match ETH-WIRE --match ETH-72
+    --match GOSSIP --match SERVE --match RLPX --match PROJECT-PACKAGE
+    EXIT=0; 115 tests passed, 0 failed
+  cl-workbench validation run cold-integration --match ETH-72
+    --match ETH-GOSSIP --match DEVNET-PEER --match ETH-SYNC
+    EXIT=0; 31 tests passed, 0 failed (includes
+    ETH-SYNC-MULTIPLEXES-ETH-72-AND-SNAP-1-OVER-ONE-SOCKET)
+
+Mutation controls (each reverted afterwards):
+  1. serve.lisp replies :FLAT always and fetch.lisp sends :FLAT always:
+     cold-unit --match ETH-72-GET-CELLS-IS-ANSWERED
+     --match ETH-72-GET-CELLS-REQUEST-USES -> EXIT=1, both not ok.
+  2. ETH-CELLS-DIALECT-FOR-CLIENT-ID answers :FLAT always: same command ->
+     EXIT=1, ETH-72-GET-CELLS-REQUEST-USES-THE-PEERS-PACKET-LAYOUT not ok,
+     ETH-72-GET-CELLS-IS-ANSWERED-IN-THE-REQUESTERS-PACKET-LAYOUT ok.
+
+New tests:
+  ETH-72-GET-CELLS-READS-BOTH-DEPLOYED-GETH-PACKET-LAYOUTS        (unit)
+  ETH-72-GET-CELLS-STILL-REJECTS-SHAPES-NEITHER-GETH-SENDS        (unit)
+  ETH-72-CELLS-READS-AND-WRITES-BOTH-DEPLOYED-GETH-PACKET-LAYOUTS (unit)
+  ETH-72-GET-CELLS-IS-ANSWERED-IN-THE-REQUESTERS-PACKET-LAYOUT    (unit)
+  ETH-72-GET-CELLS-REQUEST-USES-THE-PEERS-PACKET-LAYOUT           (unit)
+
+External oracle not run: the Hive devp2p eth suite. Its pinned geth is
+101035a1 (sec5-f19ee8d5-hive-devp2p-geth-pin.txt), 109 commits after
+38271784, so its test client sends and expects the flat layout; flat is
+still our default and the reply to a flat request, so TestGetCells and the
+other eth/72 cases are expected to behave as at the last Hive devp2p row
+in gates.md. Hive has no v1.17.5 client, so it cannot exercise the nested
+path.
+
+================================================================================
+6. Not verified
+================================================================================
+
+- No live Hoodi run of 635a9667: that the 17-in-57 session losses disappear
+  and the snap source pool stops losing eth/72 peers is expected, not
+  observed.
+- The peers' client versions: the Hello client id is not logged, so
+  "the failing peers ran geth v1.17.5" rests on section 2 (v1.17.5 is the
+  only release that advertises eth/72 with the two-item GetCells), not on a
+  captured Hello or a captured packet.
+- Outbound GetCells to a geth build between 3dad51ec and 38271784 (two
+  commits named 1.17.6-unstable that still nest) goes out flat until that
+  peer has sent us a GetCells or Cells; a non-geth eth/72 client is assumed
+  to follow the devp2p text.
+- Why v1.17.5 peers request cells from us within seconds of connecting was
+  not traced (presumably our eth/72 blob announcements).
