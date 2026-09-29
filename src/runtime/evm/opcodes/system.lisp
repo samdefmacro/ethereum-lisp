@@ -218,13 +218,17 @@
               context
               beneficiary
               (lambda (amount) (evm-machine-charge-gas machine amount)))
+            ;; geth v1.17.6 gasSelfdestruct8037And8038 asks whether the
+            ;; beneficiary is empty before it reads the balance, so a paid
+            ;; SELFDESTRUCT always reads (and lists in the block access list)
+            ;; its beneficiary, even with nothing to send.
             (if (and (amsterdam-context-p context)
+                     (empty-account-p
+                      (evm-context-state context) beneficiary)
                      (plusp
                       (account-balance
                        (evm-context-state context)
-                       (evm-context-address context)))
-                     (empty-account-p
-                      (evm-context-state context) beneficiary))
+                       (evm-context-address context))))
                 (progn
                   (evm-machine-charge-gas
                    machine +account-write-amsterdam+)
@@ -271,15 +275,17 @@
                         burn-self-balance-p)))
                  (when transfer-log
                    (push transfer-log logs)))
+               ;; EIP-8246 (geth v1.17.6 StateDB.finaliseAmsterdam): at the
+               ;; end of the transaction a destructed account that holds a
+               ;; balance -- kept by a SELFDESTRUCT to itself, or sent to it
+               ;; afterwards -- stays as a balance-only account.
                (when delete-p
                  (mark-selfdestructed-address
                   context
                   address
                   (if (and created-p
                            rules
-                           (chain-rules-amsterdam-p rules)
-                           (bytes= (address-bytes address)
-                                   (address-bytes beneficiary)))
+                           (chain-rules-amsterdam-p rules))
                       :balance-only
                       t)))))
            (setf status :selfdestructed

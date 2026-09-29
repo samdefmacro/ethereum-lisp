@@ -1117,3 +1117,106 @@
       (is (= 0 (receipt-state-gas-used receipt)))
       (is (= (- 10000000 expected)
              (state-account-balance (state-db-get-account state sender)))))))
+
+(defmacro with-recorded-state-accesses ((accesses) &body body)
+  "Run BODY with the EIP-7928 recorder collecting (EVENT ADDRESS-HEX SLOT)
+entries into the list ACCESSES names, oldest first."
+  `(let ((,accesses '()))
+     (let ((ethereum-lisp.state:*state-access-recorder*
+             (lambda (event state address slot)
+               (declare (ignore state))
+               (push (list event (address-to-hex address) slot) ,accesses))))
+       ,@body)
+     (setf ,accesses (nreverse ,accesses))))
+
+(deftest eip7928-paid-selfdestruct-lists-its-empty-beneficiary
+  ;; geth v1.17.6 gasSelfdestruct8037And8038 asks whether the beneficiary is
+  ;; empty before it reads the balance, so a SELFDESTRUCT with nothing to
+  ;; send still reads its beneficiary into the block access list
+  ;; (tests-glamsterdam-devnet v7.2.1 eip8246 selfdestructing_initcode_*
+  ;; initial_balance_0, eip8038 selfdestruct_zero_balance_no_account_write).
+  (let ((state (make-state-db))
+        (contract
+          (address-from-hex "0x0000000000000000000000000000000000000044"))
+        (accesses '()))
+    (setf accesses
+          (with-recorded-state-accesses (recorded)
+            (execute-bytecode
+             #(#x60 #x22 #xff)
+             :context (amsterdam-state-gas-test-context state contract)
+             :gas-limit 100000
+             :gas-budget (make-evm-gas-budget :regular 100000))))
+    (is (find "0x0000000000000000000000000000000000000022" accesses
+              :key #'second :test #'string=))))
+
+(deftest eip8246-destructed-account-given-a-balance-stays-balance-only
+  ;; geth v1.17.6 StateDB.finaliseAmsterdam: an account destructed in its
+  ;; creating transaction that holds a balance at the end of it -- here one
+  ;; wei sent after its SELFDESTRUCT to another account -- is kept with that
+  ;; balance, nonce 0 and no code, not deleted (tests-glamsterdam-devnet
+  ;; v7.2.1 eip8246 selfdestructing_initcode_preserves_balance, success).
+  (let* ((state (make-state-db))
+         (contract
+           (address-from-hex "0x0000000000000000000000000000000000000044"))
+         (context (amsterdam-state-gas-test-context state contract)))
+    (state-db-set-account state contract (make-state-account :nonce 1))
+    (state-db-set-code state contract #(#x60 #x22 #xff))
+    (ethereum-lisp.evm:mark-created-account context contract)
+    (execute-bytecode #(#x60 #x22 #xff)
+                      :context context
+                      :gas-limit 100000
+                      :gas-budget (make-evm-gas-budget :regular 100000))
+    (state-db-add-balance state contract 1)
+    (ethereum-lisp.evm:finalize-evm-selfdestructs state context)
+    (let ((account (state-db-get-account state contract)))
+      (is account)
+      (is (= 1 (state-account-balance account)))
+      (is (= 0 (state-account-nonce account)))
+      (is (= 0 (length (state-db-get-code state contract)))))))
+
+(deftest eip7928-storage-access-that-cannot-be-paid-reads-no-slot
+  ;; geth v1.17.6 gasSLoad8038 and gasSStore8037And8038 charge the slot
+  ;; access before the slot is read, so an SLOAD or SSTORE that runs out of
+  ;; gas there lists no read (tests-glamsterdam-devnet v7.2.1 eip7928
+  ;; bal_sload_and_oog, bal_sstore_and_oog).  Positive control: with the gas
+  ;; to pay, the same SLOAD reads the slot.
+  (flet ((storage-reads (code gas)
+           (let ((state (make-state-db))
+                 (contract
+                   (address-from-hex
+                    "0x0000000000000000000000000000000000000044")))
+             (count :storage-read
+                    (with-recorded-state-accesses (recorded)
+                      (handler-case
+                          (execute-bytecode
+                           code
+                           :context (amsterdam-state-gas-test-context
+                                     state contract)
+                           :gas-limit gas
+                           :gas-budget (make-evm-gas-budget :regular gas))
+                        (evm-error () nil)))
+                    :key #'first))))
+    ;; PUSH0 SLOAD: 2 + 3,000 for the cold slot.
+    (is (= 1 (storage-reads #(#x5f #x54 0) 3002)))
+    (is (= 0 (storage-reads #(#x5f #x54 0) 3001)))
+    ;; PUSH1 1 PUSH0 SSTORE with 2,301 left: past the sentry, short of the
+    ;; 3,000 cold access.
+    (is (= 0 (storage-reads #(#x60 1 #x5f #x55 0) 2306)))))
+
+(deftest eip7928-zero-withdrawal-lists-its-account
+  ;; geth v1.17.6 ProcessWithdrawals credits a zero amount too, loading the
+  ;; account, so the block access list names it with no change and the
+  ;; state is untouched (tests-glamsterdam-devnet v7.2.1 eip7928
+  ;; bal_zero_withdrawal).
+  (let* ((state (make-state-db))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000055"))
+         (accesses
+           (with-recorded-state-accesses (recorded)
+             (apply-withdrawal state
+                               (make-withdrawal :index 0 :validator-index 0
+                                                :address address
+                                                :amount 0)))))
+    (is (find "0x0000000000000000000000000000000000000055" accesses
+              :key #'second :test #'string=))
+    (is (null (state-db-get-account state address)))))
