@@ -20,8 +20,10 @@ The node is one container. The Section 5 gate starts it like this (see
 docker run ... --read-only --cap-drop ALL --security-opt no-new-privileges \
   --memory 12g --memory-swap 12g \
   --mount type=bind,source=$DATADIR,target=/data \
+  --mount type=bind,source=$NODEKEY_DIR,target=/nodekey \
   --mount type=bind,source=$JWT_DIR,target=/jwt,readonly \
-  $IMAGE --hoodi --datadir /data --port 30303 --nat extip:$PUBLIC_IP \
+  $IMAGE --hoodi --datadir /data --nodekey /nodekey/nodekey.hex \
+  --port 30303 --nat extip:$PUBLIC_IP \
   --http --http.addr 0.0.0.0 --http.port 8545 \
   --http.api eth,net,web3,txpool,admin --http.vhosts '*' \
   --authrpc.addr 0.0.0.0 --authrpc.port 8551 \
@@ -36,6 +38,8 @@ endpoint (below). It is off unless both `--metrics` and a port are given.
   b5161312, 12 GiB was not enough either (OOM-killed at the head); see Memory
   below for why, and what `--memory.budget` changes.
 - Discovery uses the preset bootnodes; no static enode is needed.
+- The node key lives outside the datadir, so the node keeps one identity
+  across revisions and datadirs (see Node identity below).
 - The consensus client must reach the Engine port with the same JWT secret.
   While the EL is down the CL falls behind; after a start expect a burst of
   `peer.snap.pivot_unavailable` until it catches up (below).
@@ -157,6 +161,63 @@ Restart on the same datadir (`scripts/hoodi-live-gate.sh restart`, or
   Hoodi) with `peer.snap.pivot_rebased` / `peer.snap.target_completed` pairs.
 - A forward download resumes from its durable peer cursor; a payload build or
   a reorg that was cut is simply redone when the CL repeats forkchoiceUpdated.
+
+## Node identity
+
+The node's P2P identity is its secp256k1 node key: the enode, the discovery
+record and every RLPx handshake are derived from it. Without `--nodekey` the
+node keeps the key in its datadir (`geth/nodekey`), so a fresh datadir means a
+fresh identity.
+
+Why it must persist. Peers remember a node by its identity at an IP:port. The
+live gate used a fresh datadir for every revision while advertising the same
+165.154.224.110:30303, and the network kept dialling the retired identities
+for hours: the b5161312 run logged 12,398 inbound handshakes failing with
+"ECIES tag does not authenticate the message", from 692 hosts, because each
+initiator encrypted its auth to a key the node no longer had
+(`docs/evidence/sec5-rlpx-inbound-auth.txt`, section 2a). Those sessions were
+wasted slots and the peers never reached us.
+
+Where it lives. `scripts/hoodi-live-gate.sh` keeps one key for every revision
+in `HOODI_GATE_NODEKEY_DIR` (default `$REMOTE_ROOT/nodekey`, i.e.
+`/data/hoodi-sec5-20260814/nodekey`), outside every datadir. `start` and
+`upgrade` create the directory (owner 1000:1000, mode 0700) if it is absent,
+mount it read-write at `/nodekey` and pass `--nodekey /nodekey/nodekey.hex`.
+On its first start the node generates the key there as a 64-hex-character
+file, mode 0600 (go-ethereum `--nodekey` semantics: load it, or create it
+when absent); every later start loads the same file. The node runs as
+1000:1000, and every action that starts or restarts a node refuses, before
+touching any container:
+
+- a directory that is a symbolic link, not owned by 1000:1000, or not 0700;
+- a key file that is a symbolic link, not a regular file, not owned by uid
+  1000, or not 0600;
+- a node user other than 1000:1000;
+- for `restart`, a container created without the `/nodekey` mount or the
+  `--nodekey` argument (such a container keeps its datadir-local identity on
+  every start; replace it with `upgrade`, which gives the replacement the
+  persistent key).
+
+`status` prints `nodekey-mount=`, the key file's owner and mode, and the
+identity from `admin_nodeInfo`: `node-id=` (the 64-hex id, keccak-256 of the
+public key) and `node-pubkey=` (the 128-hex public key in the enode URL). It
+never reads, prints or hashes the key itself. Compare `node-id` across
+revisions: it must not change. A container from before this change reports
+`nodekey-mount=absent`.
+
+The first run with the persistent key still changes the identity once (the
+old per-datadir keys are not copied); every run after it keeps it.
+
+Rotating it (only when the key may have leaked, or the host changes hands).
+Rotation retires the identity, so expect the ECIES failures above for a while
+from peers that still remember it.
+
+1. Stop the node (see Stop).
+2. On the host, as the gate user, move the key aside; never delete it until
+   the new identity is confirmed:
+   `mv $NODEKEY_DIR/nodekey.hex $NODEKEY_DIR/nodekey.hex.retired-$(date -u +%Y%m%dT%H%M%SZ)`.
+3. Start the node again (`restart`). It creates a new key; `status` shows the
+   new `node-id`.
 
 ## What a healthy sync looks like
 

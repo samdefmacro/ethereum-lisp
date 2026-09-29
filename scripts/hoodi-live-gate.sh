@@ -79,16 +79,33 @@ memory_limit_bytes="${HOODI_GATE_MEMORY_BYTES:-7516192768}"
 allocation_profile_seconds="${HOODI_GATE_ALLOC_PROFILE_SECONDS:-0}"
 allow_same_revision_profile="${HOODI_GATE_ALLOW_SAME_REVISION_PROFILE:-0}"
 rocksdb_async_read_io="${HOODI_GATE_ROCKSDB_ASYNC_READ_IO:-1}"
+# The node's P2P identity lives in one host directory outside every
+# per-revision datadir.  A fresh datadir used to mean a fresh node key while the
+# advertised IP:port stayed the same, and the network kept dialling the old
+# identity for hours: 12,398 inbound "ECIES tag does not authenticate" failures
+# in one run (docs/evidence/sec5-rlpx-inbound-auth.txt).  Every container this
+# gate starts mounts this directory at /nodekey and passes
+# --nodekey /nodekey/nodekey.hex; the node creates the key there, mode 0600, on
+# its first start and reuses it afterwards.
+nodekey_dir="${HOODI_GATE_NODEKEY_DIR:-$remote_root/nodekey}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
     /data/hoodi-sec5-*) ;;
     *) fail "remote root must stay below /data/hoodi-sec5-*" ;;
 esac
-case "$remote_root$datadir$remote_artifact$remote_seccomp_profile$jwt_dir" in
+case "$remote_root$datadir$remote_artifact$remote_seccomp_profile$jwt_dir$nodekey_dir" in
     *'..'*|*$'\n'*|*$'\r'*|*$'\t'*|*' '*) fail "remote paths must be absolute, normalized, and whitespace-free" ;;
 esac
 case "$datadir" in "$remote_root"/*) ;; *) fail "datadir must stay below $remote_root" ;; esac
+case "$nodekey_dir" in
+    /data/hoodi-sec5-*/*) ;;
+    *) fail "node key directory must stay below /data/hoodi-sec5-*" ;;
+esac
+case "$nodekey_dir" in */|*//*) fail "node key directory must be a normalized path" ;; esac
+# One key across revisions: it must never live in, or contain, a datadir.
+case "$nodekey_dir/" in "$datadir"/*) fail "node key directory must not be inside the datadir" ;; esac
+case "$datadir/" in "$nodekey_dir"/*) fail "datadir must not be inside the node key directory" ;; esac
 case "$remote_artifact" in "$remote_root"/*) ;; *) fail "artifact must stay below $remote_root" ;; esac
 case "$image" in *[!A-Za-z0-9_.:/+-]*|'') fail "unsafe image name: $image" ;; esac
 for name in "$container" "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" "$cl_alias"; do
@@ -161,6 +178,81 @@ if [ "$actual_head" != "$revision" ]; then
                fail "checkout changed runtime-sensitive paths after $revision: $runtime_sensitive_changes" ;;
     esac
 fi
+
+# Functions shared by the remote scripts that start, restart or inspect a node
+# container.  remote() prepends them to the script it reads from stdin.
+remote_lib="$(cat <<'LIB'
+# The reviewed runtime user.  It owns the node key directory, so every node
+# container the gate runs must run as exactly this uid:gid.
+gate_node_user=1000:1000
+gate_node_uid=1000
+gate_nodekey_path=/nodekey/nodekey.hex
+
+gate_fail() {
+    echo "$*" >&2
+    exit 1
+}
+
+gate_require_node_user() {
+    [ "$1" = "$gate_node_user" ] ||
+        gate_fail "the node must run as $gate_node_user, the owner of its node key; got: ${1:-unset}"
+}
+
+# gate_check_nodekey DIR create|existing: fail closed unless DIR is a real
+# directory owned by the node user with mode 0700, and any key in it is a
+# regular file owned by the node uid with mode 0600.  Only metadata is read;
+# the key itself never leaves the host and is never hashed.
+gate_check_nodekey() {
+    nk_dir="$1"
+    [ ! -L "$nk_dir" ] || gate_fail "node key directory is a symbolic link: $nk_dir"
+    if [ ! -e "$nk_dir" ]; then
+        [ "$2" = create ] || gate_fail "node key directory is absent: $nk_dir"
+        install -d -m 0700 "$nk_dir"
+        printf 'nodekey-dir=%s created\n' "$nk_dir"
+    fi
+    [ -d "$nk_dir" ] || gate_fail "node key path is not a directory: $nk_dir"
+    nk_meta="$(stat -c '%u:%g:%a' "$nk_dir")"
+    [ "$nk_meta" = "$gate_node_user:700" ] ||
+        gate_fail "node key directory must be owned by $gate_node_user with mode 0700: $nk_dir is $nk_meta"
+    nk_file="$nk_dir/nodekey.hex"
+    if [ -L "$nk_file" ]; then
+        gate_fail "node key is a symbolic link: $nk_file"
+    elif [ -e "$nk_file" ]; then
+        [ -f "$nk_file" ] || gate_fail "node key is not a regular file: $nk_file"
+        nk_meta="$(stat -c '%u:%a' "$nk_file")"
+        [ "$nk_meta" = "$gate_node_uid:600" ] ||
+            gate_fail "node key must be owned by uid $gate_node_uid with mode 0600: $nk_file is $nk_meta"
+        printf 'nodekey-file=present uid=%s mode=600\n' "$gate_node_uid"
+    else
+        printf '%s\n' 'nodekey-file=absent (the node creates it on its first start)'
+    fi
+}
+
+gate_nodekey_mount() {
+    docker container inspect --format \
+        '{{range .Mounts}}{{if eq .Destination "/nodekey"}}{{.Source}}{{end}}{{end}}' "$1"
+}
+
+# gate_require_nodekey_container CONTAINER DIR: the container was created with
+# DIR at /nodekey and told to use the key there.
+gate_require_nodekey_container() {
+    nk_source="$(gate_nodekey_mount "$1")"
+    [ "$nk_source" = "$2" ] ||
+        gate_fail "container $1 does not mount the node key directory $2 at /nodekey: ${nk_source:-none}"
+    nk_args="$(docker container inspect --format '{{range .Args}}{{.}} {{end}}' "$1")"
+    case " $nk_args" in
+        *" --nodekey $gate_nodekey_path "*) ;;
+        *) gate_fail "container $1 does not pass --nodekey $gate_nodekey_path" ;;
+    esac
+}
+LIB
+)"
+
+# remote ARG...: run the remote script on stdin, after the shared functions,
+# with the given positional arguments.
+remote() {
+    { printf '%s\n' "$remote_lib"; cat; } | ssh "$host" bash -s -- "$@"
+}
 
 require_clean_checkout() {
     git -C "$repo_root" diff --quiet || fail "checkout has unstaged changes"
@@ -384,12 +476,13 @@ start_gate() {
     # positional argument. Keep the optional revision slot present so every
     # following ownership argument retains its reviewed position.
     local old_revision_arg="${old_revision:-none}"
-    ssh "$host" bash -s -- \
+    remote \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
         "$cl_alias" "$p2p_port" "$memory_limit_bytes" \
-        "$allocation_profile_seconds" "$rocksdb_async_read_io" "$old_revision_arg" <<'REMOTE'
+        "$allocation_profile_seconds" "$rocksdb_async_read_io" "$old_revision_arg" \
+        "$nodekey_dir" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
@@ -398,6 +491,7 @@ memory_limit="${15}"
 allocation_profile_seconds="${16}"
 rocksdb_async_read_io="${17}"
 old_expected_revision="${18}"
+nodekey_dir="${19}"
 [ "$old_expected_revision" != none ] || old_expected_revision=""
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
@@ -428,6 +522,7 @@ fi
 
 gate_uid="$(id -u)"; gate_gid="$(id -g)"
 [ "$gate_uid" -ne 0 ] || { echo "remote gate must run as a non-root uid" >&2; exit 1; }
+gate_require_node_user "$gate_uid:$gate_gid"
 docker run --rm --pull never \
     --user "$gate_uid:$gate_gid" \
     --read-only \
@@ -439,6 +534,7 @@ docker run --rm --pull never \
     --network none \
     --entrypoint /usr/local/libexec/ethereum-lisp-io-uring-probe \
     "$image"
+gate_check_nodekey "$nodekey_dir" create
 if [ -d "$datadir" ]; then
     [ -z "$(find "$datadir" -mindepth 1 -maxdepth 1 -print -quit)" ] || {
         echo "fresh gate datadir is not empty: $datadir" >&2
@@ -516,6 +612,7 @@ if ! docker run --detach --pull never \
     --env "ETHEREUM_LISP_ALLOC_PROFILE_SECONDS=$allocation_profile_seconds" \
     --env "ETHEREUM_LISP_ROCKSDB_ASYNC_READ_IO=$rocksdb_async_read_io" \
     --mount "type=bind,source=$datadir,target=/data" \
+    --mount "type=bind,source=$nodekey_dir,target=/nodekey" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
     --network-alias "$cl_alias" \
@@ -525,6 +622,7 @@ if ! docker run --detach --pull never \
     "$image" \
     --hoodi \
     --datadir /data \
+    --nodekey /nodekey/nodekey.hex \
     --port "$p2p_port" \
     --nat "extip:$public_ip" \
     --http \
@@ -556,7 +654,8 @@ fi
 docker container inspect --format \
     'container={{.Name}} running={{.State.Running}} started={{.State.StartedAt}} image={{.Image}} user={{.Config.User}} read-only={{.HostConfig.ReadonlyRootfs}} memory={{.HostConfig.Memory}} memory-swap={{.HostConfig.MemorySwap}} caps={{json .HostConfig.CapDrop}} security-options={{len .HostConfig.SecurityOpt}} networks={{len .NetworkSettings.Networks}}' \
     "$container"
-printf 'fresh-datadir=%s uid=%s gid=%s\n' "$datadir" "$gate_uid" "$gate_gid"
+printf 'fresh-datadir=%s uid=%s gid=%s nodekey-dir=%s\n' \
+    "$datadir" "$gate_uid" "$gate_gid" "$nodekey_dir"
 REMOTE
 }
 
@@ -572,13 +671,14 @@ upgrade_gate() {
             fail "same-revision replacement requires a non-zero allocation profile duration"
     fi
     note "replacing the exact previous EL while preserving its durable datadir"
-    ssh "$host" bash -s -- \
+    remote \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$previous_container" "$previous_revision" \
         "$cl_network" "$egress_network" "$cl_alias" "$p2p_port" \
         "$restart_ready_timeout" "$memory_limit_bytes" \
-        "$allocation_profile_seconds" "$rocksdb_async_read_io" <<'REMOTE'
+        "$allocation_profile_seconds" "$rocksdb_async_read_io" \
+        "$nodekey_dir" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; previous="${10}"
@@ -587,6 +687,7 @@ cl_alias="${14}"; p2p_port="${15}"; ready_timeout="${16}"
 memory_limit="${17}"
 allocation_profile_seconds="${18}"
 rocksdb_async_read_io="${19}"
+nodekey_dir="${20}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -626,6 +727,7 @@ esac
 [ "$previous_datadir" = "$datadir" ] || { echo "previous datadir mismatch: $previous_datadir" >&2; exit 1; }
 [ "$previous_read_only" = true ] || { echo "previous gate root filesystem is not read-only" >&2; exit 1; }
 case "$previous_user" in 0|0:*|*:0|'') echo "previous gate does not have an explicit non-root user" >&2; exit 1 ;; esac
+gate_require_node_user "$previous_user"
 docker run --rm --pull never \
     --user "$previous_user" \
     --read-only \
@@ -648,6 +750,9 @@ if docker container inspect "$container" >/dev/null 2>&1; then
     echo "refusing to replace existing upgrade container: $container" >&2
     exit 1
 fi
+# A previous container without the mount has a datadir-local identity; its
+# replacement takes the persistent key (created here on the first such run).
+gate_check_nodekey "$nodekey_dir" create
 
 resolve_rpc_port() {
     docker port "$1" 8545/tcp |
@@ -724,6 +829,7 @@ if ! docker run --detach --pull never \
     --env "ETHEREUM_LISP_ALLOC_PROFILE_SECONDS=$allocation_profile_seconds" \
     --env "ETHEREUM_LISP_ROCKSDB_ASYNC_READ_IO=$rocksdb_async_read_io" \
     --mount "type=bind,source=$datadir,target=/data" \
+    --mount "type=bind,source=$nodekey_dir,target=/nodekey" \
     --mount "type=bind,source=$jwt_dir,target=/jwt,readonly" \
     --network "$cl_network" \
     --network-alias "$cl_alias" \
@@ -733,6 +839,7 @@ if ! docker run --detach --pull never \
     "$image" \
     --hoodi \
     --datadir /data \
+    --nodekey /nodekey/nodekey.hex \
     --port "$p2p_port" \
     --nat "extip:$public_ip" \
     --http \
@@ -793,12 +900,12 @@ REMOTE
 
 remote_status() {
     note "remote gate status"
-    ssh "$host" bash -s -- \
+    remote \
         "$revision" "$image" "$container" "$remote_root" "$memory_limit_bytes" \
-        "$lighthouse_container" <<'REMOTE'
+        "$lighthouse_container" "$nodekey_dir" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; remote_root="$4"; memory_limit="$5"
-lighthouse="$6"
+lighthouse="$6"; nodekey_dir="$7"
 date -u +timestamp=%Y-%m-%dT%H:%M:%SZ
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 [ "$image_revision" = "$revision" ] || { echo "image revision mismatch: $image_revision" >&2; exit 1; }
@@ -846,6 +953,24 @@ rpc() {
 printf 'eth_blockNumber='; rpc eth_blockNumber; printf '\n'
 printf 'eth_syncing='; rpc eth_syncing; printf '\n'
 printf 'net_peerCount='; rpc net_peerCount; printf '\n'
+# Node identity.  Only public values leave the host: the 64-hex node id and the
+# 128-hex public key from admin_nodeInfo, and the key file's owner and mode.
+nodekey_source="$(gate_nodekey_mount "$container")"
+if [ -z "$nodekey_source" ]; then
+    printf '%s\n' 'nodekey-mount=absent (identity is datadir-local and changes with the datadir)'
+else
+    [ "$nodekey_source" = "$nodekey_dir" ] ||
+        gate_fail "node key mount mismatch: $nodekey_source, expected $nodekey_dir"
+    printf 'nodekey-mount=%s\n' "$nodekey_source"
+    gate_check_nodekey "$nodekey_source" existing
+fi
+node_info="$(rpc admin_nodeInfo || true)"
+node_id="$(printf '%s' "$node_info" |
+    sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p')"
+node_pubkey="$(printf '%s' "$node_info" |
+    sed -n 's/.*"enode"[[:space:]]*:[[:space:]]*"enode:\/\/\([0-9a-f]\{128\}\)@.*/\1/p')"
+printf 'node-id=%s\n' "${node_id:-unavailable}"
+printf 'node-pubkey=%s\n' "${node_pubkey:-unavailable}"
 cl_rpc_port="$(docker port "$lighthouse" 5052/tcp 2>/dev/null |
     awk -F: '/127[.]0[.]0[.]1/ {print $NF; exit}')"
 if [ -n "$cl_rpc_port" ]; then
@@ -862,12 +987,12 @@ REMOTE
 restart_gate() {
     require_mutation
     note "recording progress, restarting the same container, and recording it again"
-    ssh "$host" bash -s -- \
+    remote \
         "$revision" "$container" "$datadir" "$restart_ready_timeout" \
-        "$memory_limit_bytes" <<'REMOTE'
+        "$memory_limit_bytes" "$nodekey_dir" <<'REMOTE'
 set -eu
 revision="$1"; container="$2"; datadir="$3"; ready_timeout="$4"
-memory_limit="$5"
+memory_limit="$5"; nodekey_dir="$6"
 label="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$container")"
 [ "$label" = "$revision" ] || { echo "gate ownership mismatch: $label" >&2; exit 1; }
 mount_source="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")"
@@ -882,6 +1007,11 @@ actual_memory_swap="$(docker container inspect --format '{{.HostConfig.MemorySwa
     echo "gate memory-swap limit mismatch: $actual_memory_swap" >&2
     exit 1
 }
+# A container created before the persistent node key keeps its datadir-local
+# identity on every start; replace it with upgrade instead of restarting it.
+gate_require_node_user "$(docker container inspect --format '{{.Config.User}}' "$container")"
+gate_require_nodekey_container "$container" "$nodekey_dir"
+gate_check_nodekey "$nodekey_dir" existing
 
 resolve_rpc_port() {
     docker port "$container" 8545/tcp |
@@ -1531,6 +1661,11 @@ readiness window (accepted range: 30-1800 seconds).
 HOODI_GATE_ROCKSDB_ASYNC_READ_IO defaults to 1. Set it to 0 only to isolate a
 diagnosed native asynchronous RocksDB read failure; the gate validates the
 binary value and records it in the replacement container environment.
+Every node container mounts HOODI_GATE_NODEKEY_DIR (default REMOTE_ROOT/nodekey,
+owned by 1000:1000, mode 0700) at /nodekey and runs with
+--nodekey /nodekey/nodekey.hex, so the node keeps one identity across
+revisions and datadirs; a key file that is not 0600 or not owned by uid 1000
+is refused.
 USAGE
         exit 2
         ;;

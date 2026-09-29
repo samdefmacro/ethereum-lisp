@@ -1056,6 +1056,18 @@ probe to create RocksDB's exact 256-entry ring. Linux 5.15 must report the
 compatibility retry; any kernel, memory-lock, or seccomp failure leaves the
 previous client running.
 
+Every container the broker starts (`start`, `upgrade`, including a
+same-revision replacement) mounts one host directory,
+`HOODI_GATE_NODEKEY_DIR` (default `REMOTE_ROOT/nodekey`, outside every
+datadir), at `/nodekey` and passes `--nodekey /nodekey/nodekey.hex`, so the
+node keeps one P2P identity across revisions. The remote side creates the
+directory as 1000:1000 mode 0700 and refuses a key that is not a regular
+0600 file owned by uid 1000, a node user other than 1000:1000, and (for
+`restart`) a container created without the mount or the flag. `status`
+prints the node id from `admin_nodeInfo`, never the key. The self-test checks
+the generated run line, with a positive control for each missing piece
+(`docs/runbook.md`, Node identity).
+
 `HOODI_GATE_P2P_PORT` selects the same explicit TCP/UDP port inside and outside
 the container when the default 30303 is already reserved. If a live run exposes
 a runtime-only fix after its fresh datadir has accumulated durable progress,
