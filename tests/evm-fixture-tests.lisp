@@ -761,19 +761,22 @@ TXBYTES, so callers retain a reconstruction fallback for those fixtures only."
        (and (typep condition 'transaction-validation-error)
             (search "gas limit" message :test #'char-equal)
             (search "intrinsic gas" message :test #'char-equal)))
-      ((member token
-               '("TransactionException.GAS_ALLOWANCE_EXCEEDED"
-                 "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST")
-               :test #'string=)
+      ((string= token "TransactionException.GAS_ALLOWANCE_EXCEEDED")
        (or (and (typep condition 'transaction-validation-error)
                 (search "gas limit below intrinsic gas" message
                         :test #'char-equal))
-           ;; The Amsterdam state runner's single-transaction block gas
-           ;; check (EXECUTE-EEST-STATE-TEST-POST-ENTRY).
-           (and (string= token "TransactionException.GAS_ALLOWANCE_EXCEEDED")
-                (typep condition 'block-validation-error)
-                (search "block gas dimension unavailable" message
-                        :test #'char-equal))))
+           ;; go-ethereum ErrGasLimitReached: the transaction's gas limit is
+           ;; more than the block's (EEST-STATE-TEST-CHECK-BLOCK-GAS), in
+           ;; the words the block path uses before Amsterdam and at it.
+           (and (typep condition 'block-validation-error)
+                (or (search "block gas limit exceeded" message
+                            :test #'char-equal)
+                    (search "block gas dimension unavailable" message
+                            :test #'char-equal)))))
+      ((string= token "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST")
+       (and (typep condition 'transaction-validation-error)
+            (search "gas limit below intrinsic gas" message
+                    :test #'char-equal)))
       ((string= token "TransactionException.GAS_LIMIT_EXCEEDS_MAXIMUM")
        (and (typep condition 'transaction-validation-error)
             (search "transaction gas limit exceeds the EIP-7825 cap" message
@@ -831,7 +834,9 @@ TXBYTES, so callers retain a reconstruction fallback for those fixtures only."
             (or (search "blob transaction cannot create contracts" message
                         :test #'char-equal)
                 ;; As for TYPE_4 below: typed-envelope decoding rejects the
-                ;; empty recipient first (ported_static create_blobhash_tx).
+                ;; empty recipient first (ported_static create_blobhash_tx),
+                ;; as go-ethereum's BlobTx (To common.Address, not a
+                ;; pointer) cannot decode one either.
                 (search "blob transaction recipient must be exactly 20 bytes"
                         message :test #'char-equal))))
       ((string= token "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST")
@@ -972,6 +977,54 @@ protocol-visible 256-block window with that deterministic test-only provider.
                 (hash32-from-hex previous-hash)))))
     hashes))
 
+(defun eest-state-test-check-block-gas (gas-limit env rules)
+  "Refuse a transaction whose GAS-LIMIT exceeds the environment's block gas
+limit, as a block does.
+
+A state test is one transaction in one block.  go-ethereum's state-test runner
+applies it against core.NewGasPool(block.GasLimit()) (v1.17.6
+tests/state_test_util.go), whose check in buyGas refuses a larger limit with
+ErrGasLimitReached, EEST's GAS_ALLOWANCE_EXCEEDED, and EXECUTE-BLOCK's message
+list (APPLY-MESSAGE-LIST) refuses the same transaction with the message this
+signals:
+
+- before Amsterdam, `Block gas limit exceeded'.  Under Osaka a limit above the
+  EIP-7825 cap is left to APPLY-MESSAGE, whose cap check geth runs earlier, in
+  preCheck.
+- at Amsterdam, `Amsterdam block gas dimension unavailable'.  EIP-8037
+  reserves min(limit, 2^24) in the regular dimension and the whole limit in
+  the state dimension (GasPool.CheckGasAmsterdam); in a one-transaction block
+  only the state dimension can overflow, and preCheck applies no cap."
+  (let ((block-gas-limit
+          (eest-state-test-quantity-string
+           (fixture-required-field env "currentGasLimit")
+           "EEST state test currentGasLimit")))
+    (cond
+      ((<= gas-limit block-gas-limit) nil)
+      ((chain-rules-amsterdam-p rules)
+       (error 'block-validation-error
+              :message "Amsterdam block gas dimension unavailable"))
+      ((and (chain-rules-osaka-p rules)
+            (> gas-limit +transaction-gas-limit-cap-eip7825+))
+       nil)
+      (t
+       (error 'block-validation-error :message "Block gas limit exceeded")))))
+
+(deftest eest-state-test-refuses-a-transaction-above-the-block-gas-limit
+  ;; EEST ported_static/stEIP1559/low_gas_limit: 90,000 gas in an 80,000-gas
+  ;; block is GAS_ALLOWANCE_EXCEEDED.  Equal is allowed; under Osaka a limit
+  ;; above the EIP-7825 cap is left to the cap check.
+  (let ((env '(("currentGasLimit" . "0x013880")))
+        (cancun (eest-state-test-chain-rules "Cancun"))
+        (osaka (eest-state-test-chain-rules "Osaka")))
+    (signals block-validation-error
+      (eest-state-test-check-block-gas 90000 env cancun))
+    (is (null (eest-state-test-check-block-gas 80000 env cancun)))
+    (is (null (eest-state-test-check-block-gas
+               (1+ +transaction-gas-limit-cap-eip7825+) env osaka)))
+    (signals block-validation-error
+      (eest-state-test-check-block-gas 90000 env osaka))))
+
 (deftest eest-state-test-block-hashes-preserve-explicit-history
   (let ((hashes
           (eest-state-test-block-hashes
@@ -1008,21 +1061,6 @@ protocol-visible 256-block window with that deterministic test-only provider.
     (is (chain-rules-osaka-p osaka))
     (is (= 6 (chain-rules-max-blobs-per-transaction osaka)))))
 
-(defun eest-state-test-check-amsterdam-block-gas (fork env tx)
-  "Refuse TX as the Amsterdam block path would: a state test is a one-
-transaction block of the environment's gas limit, and EIP-8037 reserves
-min(gas limit, 2^24) of it in the regular dimension and the whole gas limit in
-the state dimension (geth v1.17.6 GasPool.CheckGasAmsterdam; our
-APPLY-MESSAGE-LIST).  The current-fork gates, which stop at Osaka, are not
-checked here."
-  (when (and (string= fork "Amsterdam")
-             (> (transaction-gas-limit tx)
-                (hex-to-quantity
-                 (fixture-required-field env "currentGasLimit"))))
-    (error 'block-validation-error
-           :message "Amsterdam block gas dimension unavailable"))
-  t)
-
 (defun execute-eest-state-test-post-entry (case post-entry &key (fork "London"))
   (let* ((fixture (fixture-required-field case "fixture"))
          (env (fixture-required-field fixture "env"))
@@ -1033,11 +1071,6 @@ checked here."
     (let ((snapshot (state-db-copy state)))
       (handler-case
           (let* ((signed-tx (eest-state-test-post-transaction post-entry))
-                 (block-gas-checked
-                   (eest-state-test-check-amsterdam-block-gas
-                    fork env
-                    (or signed-tx
-                        (eest-state-test-transaction case post-entry))))
                  (arguments
                    (list :chain-rules rules
                          :base-fee
@@ -1056,15 +1089,16 @@ checked here."
                          :difficulty
                          (hex-to-quantity
                           (or (fixture-object-field env "currentDifficulty") "0x0"))
-                         ;; PREVRANDAO reads the environment's currentRandom
-                         ;; (EEST's default is 0x...020000); the tests that
-                         ;; read it are the ported_static trees the
-                         ;; Amsterdam burn-down walks.
+                         ;; Opcode 0x44 reads the environment's currentRandom
+                         ;; after the Merge (EEST's default is 0x...020000)
+                         ;; and its difficulty before it, as EXECUTE-BLOCK
+                         ;; passes a header's mix hash and post-Merge flag.
+                         ;; London is the one pre-Merge fork this harness
+                         ;; runs.
                          :prev-randao
                          (let ((random (fixture-object-field env "currentRandom")))
-                           (if random
-                               (hash32-from-hex random)
-                               (zero-hash32)))
+                           (if random (hash32-from-hex random) (zero-hash32)))
+                         :random-p (not (string= fork "London"))
                          :context-gas-limit
                          (hex-to-quantity
                           (fixture-required-field env "currentGasLimit"))
@@ -1075,14 +1109,25 @@ checked here."
                          (hex-to-quantity
                           (or (fixture-object-field env "slotNumber") "0x0"))))
                  (receipt
-                   (if signed-tx
-                       (apply #'apply-signed-message state signed-tx
-                              :expected-chain-id 1 arguments)
-                       (apply #'apply-message state
-                              (eest-state-test-sender case)
-                              (eest-state-test-transaction case post-entry)
-                              :chain-id 1 arguments))))
-            (declare (ignore block-gas-checked))
+                   (progn
+                     (eest-state-test-check-block-gas
+                      (if signed-tx
+                          (transaction-gas-limit signed-tx)
+                          (eest-state-test-quantity-string
+                           (eest-state-test-indexed-transaction-value
+                            (fixture-required-field fixture "transaction")
+                            "gasLimit"
+                            (fixture-required-field post-entry "indexes")
+                            "gas")
+                           "EEST state test transaction gasLimit"))
+                      env rules)
+                     (if signed-tx
+                         (apply #'apply-signed-message state signed-tx
+                                :expected-chain-id 1 arguments)
+                         (apply #'apply-message state
+                                (eest-state-test-sender case)
+                                (eest-state-test-transaction case post-entry)
+                                :chain-id 1 arguments)))))
             (values state receipt post-entry nil))
         (error (condition)
           (state-db-restore state snapshot)
@@ -1517,6 +1562,18 @@ checked here."
          (make-condition 'transaction-validation-error
                          :message "Invalid transaction signature")
          "TransactionException.INVALID_SIGNATURE_VRS"))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Block gas limit exceeded")
+         "TransactionException.GAS_ALLOWANCE_EXCEEDED"))
+    (is (not (eest-state-test-condition-matches-expected-exception-p
+              (make-condition 'block-validation-error
+                              :message "Block gas limit exceeded")
+              "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST")))
+    (is (eest-state-test-condition-matches-expected-exception-p
+         (make-condition 'block-validation-error
+                         :message "Blob transaction recipient must be exactly 20 bytes")
+         "TransactionException.TYPE_3_TX_CONTRACT_CREATION"))
     (signals error
       (eest-state-test-condition-matches-expected-exception-p
        intrinsic-gas-condition
@@ -1619,20 +1676,32 @@ absence is an explicit gate failure."
   ;; GAS_ALLOWANCE_EXCEEDED), and a blob transaction with no recipient is
   ;; refused while its envelope decodes (stEIP4844 create_blobhash_tx,
   ;; TYPE_3_TX_CONTRACT_CREATION).  Control: the same gas limit is accepted
-  ;; at the environment's limit, and before Amsterdam the runner does not
-  ;; check it at all.
+  ;; at the environment's limit; at Amsterdam the EIP-7825 cap does not exempt
+  ;; a limit (preCheck applies it only before Amsterdam); and before
+  ;; Amsterdam the same refusal carries the pre-Amsterdam block message
+  ;; (EEST-STATE-TEST-REFUSES-A-TRANSACTION-ABOVE-THE-BLOCK-GAS-LIMIT).
   (let ((env (list (cons "currentGasLimit" "0x013880")))
-        (tx (make-legacy-transaction :gas-limit #x15f90)))
-    (is (eest-state-test-condition-matches-expected-exception-p
-         (handler-case
-             (progn (eest-state-test-check-amsterdam-block-gas
-                     "Amsterdam" env tx)
-                    nil)
-           (block-validation-error (condition) condition))
-         "TransactionException.GAS_ALLOWANCE_EXCEEDED"))
-    (is (eest-state-test-check-amsterdam-block-gas
-         "Amsterdam" env (make-legacy-transaction :gas-limit #x13880)))
-    (is (eest-state-test-check-amsterdam-block-gas "Osaka" env tx)))
+        (amsterdam (eest-state-test-chain-rules "Amsterdam"))
+        (big-env (list (cons "currentGasLimit" "0x2000000"))))
+    (flet ((refusal (gas-limit env rules)
+             (handler-case
+                 (progn (eest-state-test-check-block-gas gas-limit env rules)
+                        nil)
+               (block-validation-error (condition) condition))))
+      (let ((refused (refusal #x15f90 env amsterdam)))
+        (is (search "block gas dimension unavailable"
+                    (princ-to-string refused) :test #'char-equal))
+        (is (eest-state-test-condition-matches-expected-exception-p
+             refused "TransactionException.GAS_ALLOWANCE_EXCEEDED"))
+        (is (not (eest-state-test-condition-matches-expected-exception-p
+                  refused
+                  "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST"))))
+      (is (null (refusal #x13880 env amsterdam)))
+      (is (refusal (1+ #x2000000) big-env amsterdam))
+      (is (search "block gas limit exceeded"
+                  (princ-to-string
+                   (refusal #x15f90 env (eest-state-test-chain-rules "Osaka")))
+                  :test #'char-equal))))
   (is (eest-state-test-condition-matches-expected-exception-p
        (make-condition 'block-validation-error
                        :message "Blob transaction recipient must be exactly 20 bytes")
