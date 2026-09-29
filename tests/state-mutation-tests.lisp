@@ -335,3 +335,151 @@ durable node store does; otherwise through the flat storage loader."
       (state-db-clear-account state address)
       (state-db-set-account state address (make-state-account :balance 2))
       (is (= 0 (state-db-get-storage state address slot))))))
+
+;;; Storage writes, account changes and touches journal only what they change
+;;; (STATE-JOURNAL-ENTRY kinds :STORAGE, :ACCOUNT, :TOUCH) instead of cloning
+;;; the whole account.  The oracle for every kind: after any revert, the state
+;;; must read exactly as a fresh state that was only given the operations the
+;;; revert kept.  Random nested snapshots over lazily backed accounts whose
+;;; storage is served by a storage trie, as the durable node store serves it,
+;;; with reads in between that fill the read caches.  (Flat-loader storage is
+;;; left out: there a storage-root computation caches a trie of the loaded
+;;; slots, which later reads consult instead of the loader, so what such a
+;;; state reads depends on its read history, reverts or not.)
+
+(defun journal-oracle-state (trie-backed-p)
+  (let ((backing
+          (list (cons (address-from-hex
+                       "0x00000000000000000000000000000000000000a1")
+                      (list (cons (lazy-storage-test-slot 1) 5)
+                            (cons (lazy-storage-test-slot 2) 9)))
+                (cons (address-from-hex
+                       "0x00000000000000000000000000000000000000a2")
+                      (list (cons (lazy-storage-test-slot 3) 4))))))
+    (flet ((entry (address)
+             (assoc address backing
+                    :test (lambda (a b) (bytes= (address-bytes a)
+                                                (address-bytes b))))))
+      (make-lazy-state-db
+       (lambda (requested)
+         (let ((entry (entry requested)))
+           (if entry
+               (values (make-state-account :balance 100 :nonce 1)
+                       (make-byte-vector 0)
+                       t
+                       '()
+                       (when trie-backed-p
+                         (let ((trie (make-mpt)))
+                           (loop for (slot . value) in (cdr entry)
+                                 do (mpt-put
+                                     trie
+                                     (ethereum-lisp.state::state-db-storage-proof-key
+                                      slot)
+                                     (rlp-encode value)))
+                           trie)))
+               (values nil nil nil))))
+       (lambda (requested slot)
+         (or (cdr (assoc slot (cdr (entry requested)) :test #'hash32=)) 0))
+       (lambda (state) (declare (ignore state)))))))
+
+(defun journal-oracle-apply (state op)
+  (destructuring-bind (kind address &optional a b) op
+    (ecase kind
+      (:store (state-db-set-storage state address a b))
+      (:balance (state-db-set-account
+                 state address
+                 (make-state-account
+                  :nonce (let ((account (state-db-get-account state address)))
+                           (if account (state-account-nonce account) 0))
+                  :balance a)))
+      (:add (state-db-add-balance state address a))
+      (:touch (state-db-touch-account state address))
+      (:clear (state-db-clear-account state address))
+      (:code (state-db-set-code state address a)))))
+
+(defun journal-oracle-reading (state addresses slots trie-backed-p)
+  "What STATE says about ADDRESSES: the slots first, then the account.  The
+storage root is compared only for trie-backed storage: a flat-backed object's
+root covers just the slots it has loaded, and computing it first caches an
+empty trie the slot reads would then consult."
+  (loop for address in addresses
+        collect (let* ((values (mapcar (lambda (slot)
+                                         (state-db-get-storage
+                                          state address slot))
+                                       slots))
+                       (account (state-db-get-account state address)))
+                  (list (and account (state-account-nonce account))
+                        (and account (state-account-balance account))
+                        (and account trie-backed-p
+                             (hash32-to-hex
+                              (state-account-storage-root account)))
+                        (and account (hash32-to-hex
+                                      (state-account-code-hash account)))
+                        (bytes-to-hex (state-db-get-code state address))
+                        values))))
+
+(deftest state-journal-entries-revert-to-the-state-that-never-saw-them
+  (dolist (seed '(11 12 13))
+    (let* ((addresses (list (address-from-hex
+                             "0x00000000000000000000000000000000000000a1")
+                            (address-from-hex
+                             "0x00000000000000000000000000000000000000a2")
+                            (address-from-hex
+                             "0x00000000000000000000000000000000000000a3")))
+           (slots (loop for i from 1 to 4 collect (lazy-storage-test-slot i)))
+           (trie-backed-p t)
+           (random-state (sb-ext:seed-random-state seed))
+           (state (journal-oracle-state trie-backed-p))
+           (log '())
+           (marks '())
+           (checks 0)
+           (mismatches '()))
+      (flet ((pick (list) (nth (random (length list) random-state) list)))
+        (loop repeat 1500
+              do (let ((roll (random 20 random-state)))
+                   (cond
+                     ((< roll 10)
+                      (let ((op (ecase (random 6 random-state)
+                                  ((0 1) (list :store (pick addresses) (pick slots)
+                                               (pick '(0 0 1 2 7 255
+                                                       115792089237316195423570985008687907853269984665640564039457584007913129639935))))
+                                  (2 (list :balance (pick addresses)
+                                           (random 1000 random-state)))
+                                  (3 (list :add (pick addresses) (random 5 random-state)))
+                                  (4 (list :touch (pick addresses)))
+                                  (5 (if (zerop (random 4 random-state))
+                                         (list :clear (pick addresses))
+                                         (list :code (pick addresses)
+                                               (make-byte-vector
+                                                (random 3 random-state)
+                                                :initial-element 96)))))))
+                        (journal-oracle-apply state op)
+                        (push op log)))
+                     ((< roll 13)
+                      ;; Reads fill the lazy read caches.
+                      (state-db-get-storage state (pick addresses) (pick slots)))
+                     ((< roll 16)
+                      (push (cons (state-db-snapshot state) (length log)) marks))
+                     ((and marks (< roll 19))
+                      (destructuring-bind (mark . length) (pop marks)
+                        (state-db-revert-to-snapshot state mark)
+                        (setf log (last log length))
+                        (let ((reference (journal-oracle-state trie-backed-p)))
+                          (dolist (op (reverse log))
+                            (journal-oracle-apply reference op))
+                          (incf checks)
+                          (let ((ours (journal-oracle-reading
+                                       state addresses slots trie-backed-p))
+                                (theirs (journal-oracle-reading
+                                         reference addresses slots
+                                         trie-backed-p)))
+                            (unless (equal ours theirs)
+                              (push (list :after (length log) :ours ours
+                                          :reference theirs)
+                                    mismatches))))))
+                     (marks (pop marks))))))
+      (when mismatches
+        (format t "~&~D mismatches; the first: ~S~%" (length mismatches)
+                (car (last mismatches))))
+      (is (> checks 50))
+      (is (null mismatches)))))

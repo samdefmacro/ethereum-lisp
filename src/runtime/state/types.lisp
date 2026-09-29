@@ -116,8 +116,24 @@
   (loading-p nil :type boolean))
 
 (defstruct state-journal-entry
+  "One undoable change to the account at address KEY (db.lisp).
+
+KIND :OBJECT holds PREVIOUS-OBJECT, a clone of the whole object or NIL when
+there was none, and its undo puts that back.  The frequent changes journal only
+what they change, and their undo writes it back into the object then present,
+which the undo of every later entry has returned to its state right after this
+change: :STORAGE one slot (its STORAGE entry, its zero mark, the storage trie
+and the memoized storage root), :ACCOUNT the account record, :TOUCH nothing."
   key
-  previous-object)
+  (kind :object)
+  previous-object
+  slot-key
+  previous-value
+  previous-present-p
+  previous-zero-p
+  previous-trie
+  previous-storage-root
+  previous-account)
 
 (defstruct (state-transaction-snapshot
             (:constructor make-state-transaction-snapshot
