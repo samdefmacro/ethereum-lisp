@@ -106,6 +106,7 @@ record names no fix.
 - Engine requests timed out behind long store-guard holds (R4) → [sec5-engine-availability.txt](sec5-engine-availability.txt) → 1b84073c, 28721a06
 - Peer-session holds of 20-134 s and heap growth: snap serving enumerated whole tries → [sec5-peer-session-holds.txt](sec5-peer-session-holds.txt) → 6dae34ea
 - forkchoiceUpdated's growing CPU cost was the txpool reconciliation → [sec5-fcu-canonical-cost.txt](sec5-fcu-canonical-cost.txt) → 80da9d7c
+- A pooled transaction was ecrecovered three times (the sender cache kept one answer per expected chain id), and the payload builder sorted by keys recomputed per comparison → [sec5-txpool-sender-cache.txt](sec5-txpool-sender-cache.txt) → a1577a56
 - 11.5 GB anonymous RSS with a 0.5-4 GB Lisp heap: freed C-heap memory stayed resident → [sec5-resident-memory.txt](sec5-resident-memory.txt) → a910eeea, 35c4453b
 
 ### Section 5: shutdown and exit
