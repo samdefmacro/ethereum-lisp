@@ -52,6 +52,8 @@ container="${HOODI_GATE_CONTAINER:-hoodi-el-sec5-${short_revision}}"
 datadir="${HOODI_GATE_DATADIR:-$remote_root/datadir-${short_revision}}"
 remote_artifact="$remote_root/${artifact##*/}"
 seccomp_profile="$repo_root/tools/runtime/docker-26.1.4-io-uring-seccomp.json"
+log_redact_lib="$repo_root/scripts/hoodi-log-redact.sh"
+[ -f "$log_redact_lib" ] || fail "log redaction filter is absent: $log_redact_lib"
 remote_seccomp_profile="$remote_root/${seccomp_profile##*/}"
 expected_seccomp_sha256="68afe4d839d125a335c352d1707caa1482923a4c2adf5fa7c1789ca1da72672b"
 
@@ -186,7 +188,9 @@ if [ "$actual_head" != "$revision" ]; then
         ':(exclude)scripts/hoodi-hive-gate-remote.sh' \
         ':(exclude)scripts/hoodi-hive-gate-selftest.sh' \
         ':(exclude)tests/control-plane-broker-tests.lisp' \
+        ':(exclude)scripts/hoodi-log-redact.sh' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
+        ':(exclude)scripts/hoodi-geth-benchmark-gate-selftest.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
     # An old runtime may remain live while a later revision changes production
     # code.  That must block every action which could replace or restart it,
@@ -424,10 +428,11 @@ gate_stop() {
 LIB
 }
 
-# remote ARG...: run the remote script on stdin, after the shared functions,
-# with the given positional arguments.
+# remote ARG...: run the remote script on stdin, after the shared functions
+# and the log redaction filter every failure path pipes container logs
+# through (scripts/hoodi-log-redact.sh), with the given positional arguments.
 remote() {
-    { print_remote_lib; cat; } | ssh "$host" bash -s -- "$@"
+    { print_remote_lib; cat "$log_redact_lib"; cat; } | ssh "$host" bash -s -- "$@"
 }
 
 # read_runtime_marker: the datadir's RUNTIME-REVISION marker (a revision,
@@ -909,7 +914,7 @@ if ! docker network connect "$egress_network" "$container"; then
 fi
 sleep 2
 if [ "$(docker container inspect --format '{{.State.Running}}' "$container")" != true ]; then
-    docker logs "$container" 2>&1 | tail -80 >&2 || true
+    docker logs --tail 80 "$container" 2>&1 | tail -n 80 | hoodi_redact_peer_identities >&2 || true
     rollback
     echo "exact-revision EL exited during startup; old container put back as it was" >&2
     exit 1
@@ -1061,7 +1066,7 @@ if [ "$previous_initially_running" = true ]; then
         sleep 1
     done
     if [ "$previous_ready" != true ]; then
-        docker logs "$previous" 2>&1 | tail -80 >&2 || true
+        docker logs --tail 80 "$previous" 2>&1 | tail -n 80 | hoodi_redact_peer_identities >&2 || true
         echo "previous public RPC did not return within ${ready_timeout}s" >&2
         exit 1
     fi
@@ -1179,7 +1184,7 @@ while :; do
     sleep 1
 done
 if [ "$ready" != true ]; then
-    docker logs "$container" 2>&1 | tail -80 >&2 || true
+    docker logs --tail 80 "$container" 2>&1 | tail -n 80 | hoodi_redact_peer_identities >&2 || true
     rollback
     trap - EXIT HUP INT TERM
     echo "upgraded public RPC did not return within ${ready_timeout}s; previous container put back as it was" >&2
@@ -1398,7 +1403,7 @@ while :; do
     sleep 1
 done
 [ "$ready" = true ] || {
-    docker logs "$container" 2>&1 | tail -80 >&2 || true
+    docker logs --tail 80 "$container" 2>&1 | tail -n 80 | hoodi_redact_peer_identities >&2 || true
     echo "public RPC did not return within ${ready_timeout}s after restart" >&2
     exit 1
 }
@@ -2030,6 +2035,11 @@ the replaced container of start and upgrade use the same grace. stop reports
 the exit code, OOMKilled, the RocksDB "Shutdown complete" count before and
 after, and runtime faults, and exits non-zero unless the stop was clean. It
 never removes the container or touches the datadir.
+When start, upgrade or restart fails on a container that did not come up, it
+prints that container's last 80 log lines with peer identities masked (node
+ids and keys to their first 8 and last 4 hex digits, enode endpoints, enr
+records, and every IPv4/IPv6 address but loopback; scripts/hoodi-log-redact.sh).
+The full log stays on the remote host in Docker's container log.
 USAGE
         exit 2
         ;;

@@ -10,7 +10,9 @@
 # refusal is paired with a positive control proving the same fixture passes
 # that gate and stops at the next one, so a refusal cannot pass vacuously.
 # No stub ever lets `docker run`, `docker image load` or scp happen: the
-# final check asserts none of them was reached.
+# final check asserts none of them was reached.  `logs` runs over a planted
+# runner log and suite log (STUB_REMOTE_DATA moves /data/ paths into the
+# scratch directory) and must print them masked by scripts/hoodi-log-redact.sh.
 #
 # Run it from the tests (tests/control-plane-broker-tests.lisp) in the
 # project container; it prints one line per check and exits non-zero on any
@@ -25,7 +27,8 @@ trap 'rm -rf "$work"' EXIT
 repo="$work/repo"
 bin="$work/bin"
 mkdir -p "$repo/scripts" "$bin"
-cp "$source_root/scripts/hoodi-hive-gate.sh" "$source_root/scripts/hoodi-hive-gate-remote.sh" "$repo/scripts/"
+cp "$source_root/scripts/hoodi-hive-gate.sh" "$source_root/scripts/hoodi-hive-gate-remote.sh" \
+    "$source_root/scripts/hoodi-log-redact.sh" "$repo/scripts/"
 broker="$repo/scripts/hoodi-hive-gate.sh"
 
 head_rev=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -49,12 +52,19 @@ case "$1" in
 esac
 STUB
 
+# With STUB_REMOTE_DATA set, every remote path argument under /data/ is moved
+# below that scratch directory, so a read-only action can read planted files.
 cat > "$bin/ssh" <<'STUB'
-#!/bin/sh
+#!/usr/bin/env bash
 echo "ssh $*" >> "$STUB_LOG"
 # The tar-upload checks stop at the first remote contact.
 [ "${STUB_SSH_REFUSE:-0}" = 0 ] || { echo "ssh stub: remote contact refused" >&2; exit 97; }
 shift
+if [ -n "${STUB_REMOTE_DATA:-}" ]; then
+    args=()
+    for arg in "$@"; do args+=("${arg//\/data\//$STUB_REMOTE_DATA/}"); done
+    set -- "${args[@]}"
+fi
 exec "$@"
 STUB
 
@@ -93,6 +103,7 @@ case "$1 $2" in
             *io.ethereum-lisp.hive-role*) printf '%s' "${STUB_RUNNERS:-}" ;;
         esac ;;
     "ps --format") echo "container=hoodi-lighthouse-public" ;;
+    "logs "*) cat "${STUB_RUNNER_LOG:-/dev/null}" ;;
     *) ;;
 esac
 STUB
@@ -133,7 +144,7 @@ reset_world() {
     export STUB_LIVE_EL="" STUB_RUNNERS="" STUB_CONTAINERS="" STUB_RUNNING=false
     export STUB_IMAGES_ABSENT=0 STUB_DOCKER_DOWN=0 STUB_SSH_REFUSE=0
     unset HOODI_HIVE_REVISION HOODI_GATE_ALLOW_MUTATION HOODI_HIVE_NESTED_DOCKER_PRIVILEGED
-    unset HOODI_HIVE_IMAGE_TAR HOODI_HIVE_IMAGE_SHA256
+    unset HOODI_HIVE_IMAGE_TAR HOODI_HIVE_IMAGE_SHA256 STUB_REMOTE_DATA STUB_RUNNER_LOG
     export HOODI_HIVE_SOURCE_ARTIFACT="$source_tar" HOODI_HIVE_RUNTIME_ARTIFACT="$runtime_tar"
     export HOODI_HIVE_COLLECT_DIR="$work/collect"
     : > "$STUB_LOG"
@@ -314,6 +325,50 @@ expect 0 "run-root=/data/hoodi-sec5-hive/runs/aaaaaaaa-engine-full-r3-20260923T1
 expect 0 "hive-binary=/data/hoodi-sec5-hive/staging/hive-dde4f59d absent" "inspect reports the Hive binary" -- \
     "$broker" inspect
 expect_no_mutation "read-only actions"
+
+# --- logs: container and Hive log tails are masked -----------------------------
+# The runner's log and the suite log's tail name a node id, an enode endpoint
+# and addresses; logs prints them masked by scripts/hoodi-log-redact.sh, and a
+# line without a peer identity unchanged.  The planted suite log itself (the
+# host's copy) keeps every byte.
+absent() {  # TEXT DESCRIPTION: the last run never printed TEXT.
+    if grep -qF -- "$1" "$out"; then
+        echo "unexpected text: $1" >> "$out"; record fail "$2"
+    else
+        record ok "$2"
+    fi
+}
+reset_world
+export STUB_CONTAINERS=sec5-hive-aaaaaaaa-engine-full-r3 STUB_RUNNING=false
+export STUB_REMOTE_DATA="$work/remote-data" STUB_RUNNER_LOG="$work/runner.log"
+hive_run_root="$STUB_REMOTE_DATA/hoodi-sec5-hive/runs/aaaaaaaa-engine-full-r3-20260923T120000Z"
+mkdir -p "$hive_run_root"
+peer_id=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+printf '%s\n' "runner: client started enode://$peer_id$peer_id@172.17.0.3:30303" \
+    "runner: nested docker ready" > "$STUB_RUNNER_LOG"
+printf '%s\n' "engine client id=$peer_id ip=172.17.0.4 ip6=fd00::4" \
+    "hive 1234abcd :: suite ethereum/engine passed" > "$hive_run_root/hive-engine-full.log"
+cp "$hive_run_root/hive-engine-full.log" "$work/hive-engine-full.log.orig"
+# shellcheck disable=SC2086
+expect 0 "runner: client started enode://fedcba98…3210@<addr>" "logs masks the runner log" -- \
+    "$broker" logs --sim engine $id
+cp "$out" "$work/logs.out"
+expect 0 "engine client id=fedcba98…3210 ip=<ip> ip6=<ip>" "logs masks the suite log tail" -- \
+    cat "$work/logs.out"
+expect 0 "runner: nested docker ready" "logs keeps a runner line without an identity" -- cat "$work/logs.out"
+expect 0 "hive 1234abcd :: suite ethereum/engine passed" "logs keeps a suite line without an identity" -- \
+    cat "$work/logs.out"
+expect 0 "full log in $hive_run_root" "logs names where the full log stays" -- cat "$work/logs.out"
+absent "$peer_id" "logs never prints the node id"
+absent "172.17.0." "logs never prints a peer address"
+absent "fd00::4" "logs never prints an IPv6 peer address"
+if cmp -s "$hive_run_root/hive-engine-full.log" "$work/hive-engine-full.log.orig"; then
+    record ok "the host's suite log is unchanged"
+else
+    record fail "the host's suite log is unchanged"
+fi
+expect_no_mutation "logs"
+expect 0 "print log lines with peer identities masked" "help names the log masking" -- "$broker" help
 
 # --- upload from an exported archive (HOODI_HIVE_IMAGE_TAR) --------------------
 # make_image_tar NAME TAG REVISION ARCH: a minimal `docker image save` archive

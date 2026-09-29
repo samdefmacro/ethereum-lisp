@@ -70,3 +70,17 @@ check count it printed after MARKER (NIL when it printed none)."
     (is (null (search "not ok" stdout)))
     ;; 32 checks in all.
     (is (and count (>= count 30)))))
+
+(deftest hoodi-geth-benchmark-gate-selftest-keeps-the-revision-fence
+  (:layer :integration :module :control-plane :launches-processes t)
+  (multiple-value-bind (status stdout count)
+      (%control-plane-selftest-check-count
+       "scripts/hoodi-geth-benchmark-gate-selftest.sh"
+       "hoodi-geth-benchmark-gate selftest: ")
+    (is (= 0 status))
+    (is (search ", 0 failed" stdout))
+    (is (null (search "not ok" stdout)))
+    ;; The revision fence alone (usage, control-plane refusals, the source's
+    ;; revision labels, the RUNTIME-REVISION marker on restore) is more than
+    ;; eighty checks; the masked geth log adds eleven.
+    (is (and count (>= count 90)))))

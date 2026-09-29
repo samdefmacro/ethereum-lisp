@@ -1263,6 +1263,40 @@ HOODI_GETH_ALLOW_MUTATION=1 scripts/hoodi-geth-benchmark-gate.sh start
 HOODI_GETH_ALLOW_MUTATION=1 scripts/hoodi-geth-benchmark-gate.sh restore
 ```
 
+The ethereum-lisp source that `start` stops and `restore` starts again is a
+live-gate container, so the benchmark broker keeps the live gate's revision
+fence with the same knobs and messages. `HOODI_GATE_RUNTIME_REVISION`
+(default HEAD) names the source's full runtime revision; the source container
+(`HOODI_GETH_SOURCE_CONTAINER`, default `hoodi-el-sec5-<rev8>`) must carry it
+in both revision labels, belong to the live gate, and mount
+`HOODI_GETH_SOURCE_DATADIR` (default
+`/data/hoodi-sec5-20260814/datadir-<rev8>`) at `/data`. A revision behind
+HEAD is accepted for `start` and `restore` only when every change since is
+below `docs/` or one of the reviewed Hoodi gate scripts, and both need a clean
+checkout. `restore` reads the source datadir's `RUNTIME-REVISION` marker first
+and refuses a runtime revision that is not the marker's or a descendant of
+it, naming the reason; `HOODI_GATE_ALLOW_DOWNGRADE=1` overrides that and
+leaves the newer revision in the marker. The host re-reads the marker before
+stopping geth and rewrites it just before the source starts. `status` prints
+it (`source-runtime-revision-marker=`). A geth that does not come up has its
+last 80 log lines printed masked, as below. `scripts/hoodi-geth-benchmark-gate-selftest.sh`
+pairs every refusal with an accepted case or the allowance
+(`HOODI-GETH-BENCHMARK-GATE-SELFTEST-KEEPS-THE-REVISION-FENCE`).
+
+No Hoodi broker prints a raw container log line. When `start`, `upgrade` or
+`restart` of the live gate, `start` of the geth benchmark, or the Hive gate's
+`logs` and `prepare` echo container or Hive log lines to the terminal, they
+pipe them on the remote host through `hoodi_redact_peer_identities`
+(`scripts/hoodi-log-redact.sh`, the one shared filter): a run of 64 or more
+hex digits (node ids, public keys) keeps its first 8 and last 4 digits, an
+`enode://` URL's endpoint becomes `<addr>`, an `enr:` record
+`enr:<redacted>`, and every IPv4 or IPv6 address (and Lisp address vector)
+other than loopback and the unspecified address becomes `<ip>`; other lines
+pass unchanged. The full log stays on the remote host, in Docker's container
+log or the Hive run's evidence root, where `logs`, `complete` and `collect`
+read it. The live-gate and Hive self-tests check each masked class against
+lines that must pass unchanged, and each failure path's printed tail.
+
 To measure a new ethereum-lisp revision from an empty datadir without
 discarding the current live gate's recovery point, use the matching same-host
 broker. It verifies the exact amd64 runtime revision and io_uring seccomp

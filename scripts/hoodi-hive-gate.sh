@@ -79,6 +79,12 @@ checks the same pin when the variables are set.
 run refuses unless MemAvailable reaches the suite's need (rpc-compat 4.5 GiB,
 engine and devp2p 8 GiB), /data has 12 GiB available, no other Hive runner is
 running, and, for engine and devp2p, no live-gate EL container is running.
+
+logs, and prepare's tail of hive-prepare.log, print log lines with peer
+identities masked (node ids and keys to their first 8 and last 4 hex digits,
+enode endpoints, enr records, and every IPv4/IPv6 address but loopback;
+scripts/hoodi-log-redact.sh). The full logs stay in the run's evidence root
+on the host; collect copies them unmodified.
 USAGE
 }
 
@@ -291,7 +297,9 @@ if [ "$actual_head" != "$revision" ]; then
         ':(exclude)scripts/hoodi-fleet-status.sh' \
         ':(exclude)scripts/hoodi-fleet-status-selftest.sh' \
         ':(exclude)tests/control-plane-broker-tests.lisp' \
+        ':(exclude)scripts/hoodi-log-redact.sh' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
+        ':(exclude)scripts/hoodi-geth-benchmark-gate-selftest.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
     # Read-only evidence stays available for an older revision; nothing that
     # stages, prepares or starts a run may act for a revision the checkout has
@@ -383,6 +391,9 @@ inspect_local_runtime_image() {
     [ "$image_platform" = "linux/amd64" ] ||
         fail "local runtime image platform is $image_platform, expected linux/amd64"
 }
+
+log_redact_lib="$repo_root/scripts/hoodi-log-redact.sh"
+[ -f "$log_redact_lib" ] || fail "log redaction filter is absent: $log_redact_lib"
 
 # shellcheck source=scripts/hoodi-hive-gate-remote.sh
 . "$repo_root/scripts/hoodi-hive-gate-remote.sh"
