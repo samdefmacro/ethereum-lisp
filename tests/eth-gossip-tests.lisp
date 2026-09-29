@@ -1914,8 +1914,9 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
            (mapcar #'eth-gossip-transaction-hash-bytes transactions))
          (sent-hashes (make-hash-table :test #'equalp))
          (batch-calls 0)
-         (batch-size nil)
-         (batch-accepted nil)
+         (batch-size 0)
+         (largest-batch 0)
+         (batch-accepted 0)
          (scalar-calls 0)
          (responses '())
          (batch-name
@@ -1934,8 +1935,9 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
        (lambda (seen-transactions seen-store seen-config seen-policy
                 &key admitted-at)
          (incf batch-calls)
-         (setf batch-size (length seen-transactions)
-               batch-accepted
+         (incf batch-size (length seen-transactions))
+         (setf largest-batch (max largest-batch (length seen-transactions)))
+         (incf batch-accepted
                (funcall batch-function
                         seen-transactions seen-store seen-config seen-policy
                         :admitted-at admitted-at))))
@@ -1955,7 +1957,11 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
         (eth-peer-gossip-message
          sending-peer ethereum-lisp.eth-wire:+eth-message-transactions+
          (ethereum-lisp.eth-wire:encode-eth-transactions transactions)))
-       (is (= 1 batch-calls))
+       ;; One wire batch, admitted in store-guard chunks of
+       ;; +DEVNET-TX-ADMISSION-CHUNK+ (6dae34ea), never one call per transaction.
+       (is (= (ceiling count ethereum-lisp.cli::+devnet-tx-admission-chunk+)
+              batch-calls))
+       (is (= ethereum-lisp.cli::+devnet-tx-admission-chunk+ largest-batch))
        (is (= count batch-size))
        (is (= count batch-accepted))
        (is (zerop scalar-calls))
