@@ -287,7 +287,9 @@ the pool until the cell fetcher assembles its full data."
                              (not (typep entry 'blob-transaction))))
                       transactions))
       (return-from eth-accept-transactions
-        (funcall accept-batch transactions)))
+        (call-with-eth-peer-local-work
+         "admitting delivered transactions"
+         (lambda () (funcall accept-batch transactions)))))
     (dolist (entry transactions)
       (let ((transaction entry)
             (sidecar nil)
@@ -318,10 +320,15 @@ the pool until the cell fetcher assembles its full data."
              (funcall omitted-blob-function transaction sidecar)))
           ((>= blob-admissions +eth-max-blob-admissions-per-batch+))
           ((null accept-blob)
-           (error "Received blob transaction but no blob admission is configured"))
+           (eth-peer-internal-fail
+            "admitting a blob transaction"
+            "Received blob transaction but no blob admission is configured"))
           (t
            (incf blob-admissions)
-           (when (handler-case (funcall accept-blob transaction sidecar)
+           (when (handler-case
+                     (call-with-eth-peer-local-work
+                      "admitting a blob transaction"
+                      (lambda () (funcall accept-blob transaction sidecar)))
                    (ethereum-lisp.validation:block-validation-error (condition)
                      (eth-peer-protocol-fail "~A" condition)))
              (incf accepted))))))
@@ -394,8 +401,11 @@ the pool until the cell fetcher assembles its full data."
     (when accept
       ;; Every signaled failure reaches the session supervisor. A malformed
       ;; bundle may disconnect one peer; a storage/capability/program failure
-      ;; must never be converted into a false successful admission.
-      (funcall accept block)
+      ;; must never be converted into a false successful admission. Only its
+      ;; type decides whom it is charged to: an untyped failure is ours.
+      (call-with-eth-peer-local-work
+       "admitting a propagated block"
+       (lambda () (funcall accept block)))
       t)))
 
 (defstruct (eth-transaction-announcement
@@ -427,7 +437,10 @@ retained so a fetched response must match what this peer advertised."
         (return))
       (when (and (= (length hash) 32)
                  (not (gethash hash table))
-                 (not (and known (funcall known hash))))
+                 (not (and known
+                           (call-with-eth-peer-local-work
+                            "looking up an announced transaction"
+                            (lambda () (funcall known hash))))))
         (setf (gethash hash table)
               (make-eth-transaction-announcement
                hash (when types (nth index types))
@@ -635,7 +648,9 @@ messages, matching pinned geth's Backend.AcceptTxs gate. A backend which omits
 the predicate retains the protocol library's historical accepting behavior."
   (let ((predicate
           (eth-serve-backend-accept-transactions-p backend)))
-    (or (null predicate) (funcall predicate))))
+    (or (null predicate)
+        (call-with-eth-peer-local-work
+         "deciding whether to accept transactions" predicate))))
 
 (defun eth-peer-gossip-message (peer eth-id payload)
   "Handle one gossip message from PEER, returning T if it was one."
@@ -702,11 +717,14 @@ the predicate retains the protocol library's historical accepting behavior."
          (multiple-value-bind (request-id hashes)
              (decode-eth-get-pooled-transactions payload)
            (eth-peer-send peer +eth-message-pooled-transactions+
-                          (encode-eth-pooled-transactions
-                           request-id
-                           (eth-serve-pooled-transactions
-                            backend hashes
-                            :version (eth-peer-eth-version peer)))))
+                          (call-with-eth-peer-local-work
+                           "serving GetPooledTransactions"
+                           (lambda ()
+                             (encode-eth-pooled-transactions
+                              request-id
+                              (eth-serve-pooled-transactions
+                               backend hashes
+                               :version (eth-peer-eth-version peer)))))))
          t)
         ((= eth-id +eth-message-pooled-transactions+)
          (when (eth-accept-inbound-transactions-p backend)

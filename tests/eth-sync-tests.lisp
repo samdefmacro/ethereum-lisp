@@ -1564,3 +1564,96 @@ until the peer disconnects."
         (is fetching-2)
         (is (= 0 abandoned))
         (is (= 1 cancelled))))))
+
+(deftest eth-sync-multi-peer-charges-no-source-for-a-lost-transport
+  (:layer :unit :module :p2p)
+  ;; sec5-peer-attribution.txt D7: every fetch failure that was not a
+  ;; malformed delivery was :FAILED and cost -25, so a reset, a broken pipe,
+  ;; a remote Disconnect or a session that ended under the request was
+  ;; charged to the peer. go-ethereum v1.17.6 eth/downloader/
+  ;; fetchers_concurrent.go returns a departed peer's request to the queue and
+  ;; charges nothing. Those are :LOST now and our own defect :INTERNAL, both
+  ;; unscored; the source still leaves the download. RED at 3c0cfeab: each
+  ;; lost case recorded (:FAILED -25).
+  (flet ((attempt (condition)
+           (let ((penalties '())
+                 (events '()))
+             (handler-case
+                 (eth-sync-download-blocks-multi
+                  (list
+                   (make-eth-sync-peer-source
+                    nil :id :only :head-number 1
+                    :fetch-headers
+                    (lambda (origin amount)
+                      (declare (ignore origin amount))
+                      (error condition))
+                    :fetch-bodies (lambda (headers) (declare (ignore headers)))
+                    :penalty
+                    (lambda (reason score detail)
+                      (declare (ignore detail))
+                      (push (list reason score) penalties))))
+                  (lambda (block) (declare (ignore block)))
+                  :start-number 1 :target-number 1
+                  :fetch-receipts-p nil
+                  :request-timeout-seconds 5d0
+                  :progress
+                  (lambda (snapshot event)
+                    (declare (ignore snapshot))
+                    (push (getf event :event) events)))
+               (ethereum-lisp.eth-sync:eth-sync-multi-peer-error () nil))
+             (values penalties
+                     (find-if (lambda (kind)
+                                (member kind '(:lost :internal :failed
+                                               :malformed)))
+                              events)))))
+    (let ((broken-pipe
+            (make-condition 'sb-int:simple-stream-error
+                            :stream *standard-output*
+                            :format-control "Couldn't write to ~A: Broken pipe"
+                            :format-arguments (list "socket"))))
+      (dolist (make-lost
+               (list (lambda () broken-pipe)
+                     (lambda () (make-condition 'rlpx-disconnect :reason 4))
+                     (lambda ()
+                       (make-condition
+                        'ethereum-lisp.eth-sync:eth-sync-peer-transport-error
+                        :operation "GetBlockHeaders"
+                        :cause (make-condition 'rlpx-disconnect :reason 3)))
+                     ;; Types this change adds, made last so a run against
+                     ;; the old tree fails on the behaviour above first.
+                     (lambda ()
+                       (make-condition 'ethereum-lisp.p2p:rlpx-write-failed
+                                       :stream *standard-output*
+                                       :cause broken-pipe))
+                     (lambda ()
+                       (make-condition
+                        'ethereum-lisp.eth-sync:eth-sync-source-lost))))
+        (multiple-value-bind (penalties kind) (attempt (funcall make-lost))
+          (is (null penalties))
+          (is (eq :lost kind))))
+      (multiple-value-bind (penalties kind)
+          (attempt (make-condition
+                    'ethereum-lisp.eth-sync:eth-peer-internal-error
+                    :operation "encoding a request"
+                    :cause (make-condition 'type-error :datum 1
+                                                       :expected-type 'list)))
+        (is (null penalties))
+        (is (eq :internal kind))))
+    ;; Controls: a reply we could not accept is still the peer's.
+    (multiple-value-bind (penalties kind)
+        (attempt (make-condition
+                  'ethereum-lisp.eth-sync:eth-peer-protocol-error
+                  :format-control "undecodable BlockHeaders"
+                  :format-arguments nil))
+      (is (equal '((:failed -25)) penalties))
+      (is (eq :failed kind)))
+    (multiple-value-bind (penalties kind)
+        (attempt (make-condition
+                  'ethereum-lisp.eth-sync:eth-sync-peer-transport-error
+                  :operation "GetBlockHeaders"
+                  :cause (make-condition
+                          'ethereum-lisp.eth-sync:eth-peer-protocol-error
+                          :format-control "undecodable BlockHeaders"
+                          :format-arguments nil)))
+      (is (equal '((:failed -25)) penalties))
+      (is (eq :failed kind)))))

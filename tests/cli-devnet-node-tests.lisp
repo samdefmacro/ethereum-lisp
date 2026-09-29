@@ -5891,18 +5891,23 @@ loop cannot block on a message that never comes."
                        (ethereum-lisp.cli::devnet-peer-score
                         (ethereum-lisp.cli:devnet-node-peer-table node)
                         "account-page-source")))
-                ;; Positive control: the same callback must retain the generic
-                ;; import-failure event and score policy for an ordinary error.
+                ;; Positive control: the same callback still tells the other
+                ;; outcomes apart. The page source's own answer failing
+                ;; verification ends its session (docs/evidence/
+                ;; sec5-peer-parity-2.txt; an ordinary error used to cost 50
+                ;; here and is now our defect, charged to nobody).
                 (funcall callback (first sources)
-                         (make-condition 'simple-error
-                                         :format-control "injected import error"
-                                         :format-arguments nil))
-                (is (= 1 (count "peer.snap.import_failed" logs
+                         (make-condition
+                          'ethereum-lisp.snap-sync:snap-sync-invalid-response
+                          :kind "account-range"
+                          :cause (make-condition
+                                  'simple-error
+                                  :format-control "injected proof failure"
+                                  :format-arguments nil)))
+                (is (= 1 (count "peer.session.invalid_delivery" logs
                                 :key #'first :test #'string=)))
-                (is (= -50
-                       (ethereum-lisp.cli::devnet-peer-score
-                        (ethereum-lisp.cli:devnet-node-peer-table node)
-                        "account-page-source"))))
+                (is (= 0 (count "peer.snap.import_failed" logs
+                                :key #'first :test #'string=))))
               :callback-driven))
       (cons 'ethereum-lisp.cli::devnet-peer-manager-log
             (lambda (seen-node name &rest fields)

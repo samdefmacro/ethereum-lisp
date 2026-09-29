@@ -28,12 +28,21 @@ follow.")
                 name version)))))
 
 (define-condition rlpx-disconnect (error)
-  ((reason :initarg :reason :reader rlpx-disconnect-reason))
+  ((reason :initarg :reason :reader rlpx-disconnect-reason)
+   (write-error :initarg :write-error :initform nil
+                :reader rlpx-disconnect-write-error))
   (:report (lambda (condition stream)
-             (format stream "peer sent devp2p Disconnect (reason ~D)"
-                     (rlpx-disconnect-reason condition))))
+             (format stream "peer sent devp2p Disconnect (reason ~D)~@[ ~
+                             before our write failed: ~A~]"
+                     (rlpx-disconnect-reason condition)
+                     (rlpx-disconnect-write-error condition))))
   (:documentation "Signalled when a peer sends Disconnect where we expected a
-protocol message."))
+protocol message.
+
+WRITE-ERROR, when present, is the RLPX-WRITE-FAILED that came first: the peer
+said why it was leaving and closed, our next write failed, and the Disconnect
+was read afterwards from what the peer had already sent (see
+ETH-PEER-DRAIN-DISCONNECT-REASON)."))
 
 (defstruct (rlpx-shared-capability
             (:constructor %make-rlpx-shared-capability (name version offset)))

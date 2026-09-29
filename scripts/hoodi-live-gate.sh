@@ -1247,6 +1247,9 @@ for event in \
     peer.snap.pivot_unavailable \
     peer.snap.storage_failed \
     peer.snap.import_failed \
+    peer.snap.source_lost \
+    peer.snap.internal_error \
+    peer.session.internal_error \
     peer.snap.target_completed \
     engine.execution.internal_error \
     peer.sync.execution_internal_error \

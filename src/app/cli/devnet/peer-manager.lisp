@@ -458,7 +458,8 @@ it is not independently doubled/halved or frozen at an obsolete deadline."
        (devnet-peer-request-job-changed job))
       t)))
 
-(define-condition devnet-peer-request-queue-closed (error)
+(define-condition devnet-peer-request-queue-closed
+    (ethereum-lisp.eth-sync:eth-sync-source-lost)
     ((peer-id
       :initarg :peer-id
       :initform nil
@@ -525,7 +526,9 @@ as reported while preserving this condition's type."))
   (devnet-peer-request-queue-submit-job
    queue (make-devnet-peer-request-job function)))
 
-(define-condition devnet-peer-request-abandoned (error) ()
+(define-condition devnet-peer-request-abandoned
+    (ethereum-lisp.eth-sync:eth-sync-source-lost)
+    ()
   (:report
    (lambda (condition stream)
      (declare (ignore condition))
@@ -899,26 +902,76 @@ should one ever end a session. geth v1.17.6 keeps no
 score at all and handles each of these as an ordinary disconnect (p2p/peer.go
 run). On Hoodi (1a7b9059, 33 minutes) the unconditional charge banned nine
 SNAP-capable peers for broken pipes, remote Disconnects, our own INVALID
-verdict and our own eth/72 GetCells decoder. A peer message we
-could not accept (an ETH protocol violation, an undecodable or invalid
-payload) is still charged: the condition types do not separate a malformed
-peer message from a local program error, and both stay charged."
+verdict and our own eth/72 GetCells decoder. Nor for our own defect met on
+the session (ETH-PEER-INTERNAL-ERROR: serving from our chain, admitting what
+it delivered, encoding what we send). A peer message we could not accept (an
+ETH protocol violation, an undecodable or invalid payload, which the decoders
+still signal as plain ERRORs) is charged."
   (let ((cause
           (if (typep condition 'eth-sync-peer-transport-error)
               (ethereum-lisp.eth-sync:eth-sync-peer-transport-error-cause
                condition)
               condition)))
-    (not (or (typep cause
-                    '(or rlpx-disconnect
-                      stream-error
-                      #+sbcl sb-bsd-sockets:socket-error
-                      #+sbcl sb-ext:timeout
-                      storage-error
+    (not (or (ethereum-lisp.eth-sync:eth-sync-transport-loss-p cause)
+             (typep cause
+                    '(or storage-error
                       block-execution-internal-error
-                      devnet-peer-request-queue-closed))
+                      ethereum-lisp.eth-sync:eth-peer-internal-error))
              ;; Already charged by the requester that found it.
              (and (typep cause 'devnet-peer-invalid-delivery)
                   (devnet-peer-invalid-delivery-charged-p cause))))))
+
+(defun devnet-peer-condition-cause (condition)
+  "CONDITION, or the cause it carries when it is an
+ETH-SYNC-PEER-TRANSPORT-ERROR."
+  (if (typep condition 'eth-sync-peer-transport-error)
+      (ethereum-lisp.eth-sync:eth-sync-peer-transport-error-cause condition)
+      condition))
+
+(defun devnet-peer-internal-error-of (condition)
+  "The ETH-PEER-INTERNAL-ERROR that CONDITION is or wraps, or NIL."
+  (let ((cause (devnet-peer-condition-cause condition)))
+    (and (typep cause 'ethereum-lisp.eth-sync:eth-peer-internal-error)
+         cause)))
+
+(defun devnet-peer-disconnect-reason-of (condition)
+  "The devp2p reason of the RLPX-DISCONNECT that CONDITION is or wraps, or
+NIL."
+  (let ((cause (devnet-peer-condition-cause condition)))
+    (and (typep cause 'rlpx-disconnect)
+         (rlpx-disconnect-reason cause))))
+
+(defun devnet-peer-session-failure-reason (condition)
+  "A bounded, payload-free token naming how a session ended: the condition's
+class, and for a devp2p Disconnect the reason the peer gave, as
+rlpx-disconnect-4. The metrics endpoint counts session failures by it."
+  (let ((reason (devnet-peer-disconnect-reason-of condition)))
+    (if (and (integerp reason) (<= 0 reason 255))
+        (format nil "rlpx-disconnect-~D" reason)
+        (string-downcase (symbol-name (type-of condition))))))
+
+(defun devnet-peer-failure-log-fields (condition)
+  "The fields every session-ending log line carries for CONDITION: the error,
+the reason token, and the devp2p reason when the peer gave one."
+  (let ((reason (devnet-peer-disconnect-reason-of condition)))
+    (append (list "error" condition
+                  "reason" (devnet-peer-session-failure-reason condition))
+            (and reason (list "disconnectReason" reason)))))
+
+(defun devnet-peer-log-internal-error (node entry condition)
+  "Log, at error level, our own defect that ended ENTRY's session."
+  (let ((internal (devnet-peer-internal-error-of condition)))
+    (when internal
+      (telemetry-log
+       :error "peer.session.internal_error"
+       :fields
+       (list (cons "peer" (devnet-peer-entry-id-hex entry))
+             (cons "operation"
+                   (princ-to-string
+                    (ethereum-lisp.eth-sync:eth-peer-internal-error-operation
+                     internal)))
+             (cons "error" (princ-to-string internal)))
+       :sink (devnet-node-telemetry-sink node)))))
 
 (defun devnet-peer-manager-log (node event &rest fields)
   (telemetry-log :info event
@@ -1060,6 +1113,7 @@ a dial knows who it is calling before it connects and so never reserves."
                          ;; the session loop sends -- never another thread.
                          :pending-broadcast pending-broadcast))
                     (serious-condition (condition)
+                      (devnet-peer-log-internal-error node entry condition)
                       (when (devnet-peer-session-end-charges-peer-p condition)
                         (call-with-devnet-peer-table
                          node
@@ -1185,13 +1239,13 @@ terminates the whole node under sbcl --script."
   (handler-case
       (funcall thunk)
     (serious-condition (condition)
-      (devnet-peer-manager-log
-       node "p2p.peer.session_failed"
-       "host" remote-host
-       "error" condition
-       ;; The condition's class name: a bounded, payload-free token the
-       ;; metrics endpoint counts failures by, unlike the free-form message.
-       "reason" (string-downcase (symbol-name (type-of condition)))))))
+      ;; "reason" is a bounded, payload-free token the metrics endpoint counts
+      ;; failures by, unlike the free-form message: the condition's class, or
+      ;; the devp2p reason the peer gave (DEVNET-PEER-SESSION-FAILURE-REASON).
+      (apply #'devnet-peer-manager-log
+             node "p2p.peer.session_failed"
+             "host" remote-host
+             (devnet-peer-failure-log-fields condition)))))
 
 (defun devnet-start-p2p-listener-thread
     (node listener shutdown-controller error-callback)

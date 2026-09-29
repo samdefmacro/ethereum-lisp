@@ -2860,22 +2860,30 @@ again."
             (snap-sync-source-account-range source)
             request "account ranges"))
          (account-response-at (get-internal-real-time))
-         (wire-entries (snap-sync-account-entries response))
-         (proof (snap-account-range-proof response)))
-    (unless (= 1 (snap-account-range-id response))
-      (error "Snap account response id mismatch"))
-    (when (and (null wire-entries) (null proof))
-      (snap-sync-state-unavailable "account-range"))
+         (wire-entries nil)
+         (proof nil))
     ;; Geth's inclusive task limit may produce the first account beyond the
     ;; requested partition.  Verify the complete wire response first, then
-    ;; discard that overlap before inserting this task's accounts.
+    ;; discard that overlap before inserting this task's accounts. A response
+    ;; that fails is the peer's (go-ethereum v1.17.6 OnAccounts returns
+    ;; "Account range failed proof" and the peer is dropped), so it is typed
+    ;; SNAP-SYNC-INVALID-RESPONSE; an empty answer stays STATE-UNAVAILABLE.
     (multiple-value-bind (verified-p account-trie)
-        (if wire-entries
-            (mpt-verify-range-proof
-             state-root wire-entries proof :start origin)
-            (mpt-verify-range-proof
-             state-root wire-entries proof :start origin
-             :end (snap-sync-increment-hash limit)))
+        (snap-sync-call-verifying-response
+         "account-range"
+         (lambda ()
+           (unless (= 1 (snap-account-range-id response))
+             (error "Snap account response id mismatch"))
+           (setf wire-entries (snap-sync-account-entries response)
+                 proof (snap-account-range-proof response))
+           (when (and (null wire-entries) (null proof))
+             (snap-sync-state-unavailable "account-range"))
+           (if wire-entries
+               (mpt-verify-range-proof
+                state-root wire-entries proof :start origin)
+               (mpt-verify-range-proof
+                state-root wire-entries proof :start origin
+                :end (snap-sync-increment-hash limit)))))
       (declare (ignore verified-p))
       (let* ((account-records
                (snap-sync-verified-account-records account-trie proof))
@@ -4100,8 +4108,11 @@ the returned record in the same batch as its new skeleton metadata."
                  (snap-sync-source-call
                   (snap-sync-source-trie-nodes source)
                   request "trie nodes")))
-          (unless (= 1 (snap-trie-nodes-id packet))
-            (error "Snap trie-node response id mismatch"))
+          (snap-sync-call-verifying-response
+           "trie-nodes"
+           (lambda ()
+             (unless (= 1 (snap-trie-nodes-id packet))
+               (error "Snap trie-node response id mismatch"))))
           (when (null (snap-trie-nodes-nodes packet))
             (snap-sync-state-unavailable "trie-nodes"))
           (make-snap-sync-heal-fetch-result
@@ -7605,31 +7616,39 @@ for more missing hashes."
                                (fetched-bytes 0)
                                (unmatched '()))
                           ;; Validate and decode the entire individual response
-                          ;; before any of its content becomes visible.
-                          (dolist
-                              (encoded
-                               (snap-trie-nodes-nodes
-                                (snap-sync-heal-fetch-result-response result)))
-                            (let ((hash (keccak-256 encoded))
-                                  (found nil))
-                              (loop while (< cursor (length order))
-                                    for index = (aref order cursor)
-                                    for work = (aref works index)
-                                    for expected =
-                                      (snap-sync-heal-work-reference work)
-                                    do (incf cursor)
-                                       (when (bytes= hash expected)
-                                         (setf found index)
-                                         (return)))
-                              (unless found
-                                (error
-                                 "Snap peer returned an unrequested healing node"))
-                              (setf (aref matched found) encoded
-                                    (aref decoded found)
-                                    (decode-encoded
-                                     (aref works found) encoded nil))
-                              (incf fills)
-                              (incf fetched-bytes (length encoded))))
+                          ;; before any of its content becomes visible. A node
+                          ;; that was not requested, or does not decode, is
+                          ;; the peer's: go-ethereum v1.17.6 OnTrieNodes
+                          ;; returns "unexpected healing trienode" and the
+                          ;; peer is dropped.
+                          (snap-sync-call-verifying-response
+                           "trie-nodes"
+                           (lambda ()
+                             (dolist
+                                 (encoded
+                                  (snap-trie-nodes-nodes
+                                   (snap-sync-heal-fetch-result-response
+                                    result)))
+                               (let ((hash (keccak-256 encoded))
+                                     (found nil))
+                                 (loop while (< cursor (length order))
+                                       for index = (aref order cursor)
+                                       for work = (aref works index)
+                                       for expected =
+                                         (snap-sync-heal-work-reference work)
+                                       do (incf cursor)
+                                          (when (bytes= hash expected)
+                                            (setf found index)
+                                            (return)))
+                                 (unless found
+                                   (error
+                                    "Snap peer returned an unrequested healing node"))
+                                 (setf (aref matched found) encoded
+                                       (aref decoded found)
+                                       (decode-encoded
+                                        (aref works found) encoded nil))
+                                 (incf fills)
+                                 (incf fetched-bytes (length encoded))))))
                           (dotimes (index (length works))
                             (let ((work (aref works index))
                                   (encoded (aref matched index)))

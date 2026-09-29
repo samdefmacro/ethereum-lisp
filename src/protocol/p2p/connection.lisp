@@ -21,6 +21,20 @@
 A STREAM-ERROR, like the reset and broken-pipe errors SBCL signals for the same
 socket, so a caller can classify every way a peer hangs up by one type."))
 
+(define-condition rlpx-write-failed (stream-error)
+  ((cause :initarg :cause :reader rlpx-write-failed-cause))
+  (:report
+   (lambda (condition stream)
+     (format stream "~A" (rlpx-write-failed-cause condition))))
+  (:documentation
+   "Writing a devp2p message failed: a broken pipe, a reset, a write timeout.
+
+A STREAM-ERROR, so every caller that classifies a hang-up by that type still
+does. It is its own type because the peer may have said why it was leaving
+just before it closed, and that Disconnect is still unread in our input: only
+a failed WRITE makes it worth reading on (a failed read has already met the
+end of the peer's data). CAUSE is the original stream condition."))
+
 (defun rlpx-read-exactly (stream count)
   "Read exactly COUNT octets from STREAM or signal RLPX-STREAM-ENDED if it ends
 first."
@@ -167,13 +181,24 @@ The connection's remote public key is the initiator's, taken from its auth."
 
 (defun rlpx-connection-write-message
     (connection code payload &key (compressed t) max-frame-size)
-  "Write a devp2p message over CONNECTION, Snappy-compressing unless told not to."
-  (rlpx-write-frame-to-stream
-   (rlpx-connection-session connection)
-   code
-   (if compressed (snappy-compress payload) (ensure-byte-vector payload))
-   (rlpx-connection-stream connection)
-   :max-frame-size max-frame-size)
+  "Write a devp2p message over CONNECTION, Snappy-compressing unless told not to.
+
+A stream failure while writing is re-signalled as RLPX-WRITE-FAILED."
+  (let ((data (if compressed
+                  (snappy-compress payload)
+                  (ensure-byte-vector payload))))
+    (handler-case
+        (rlpx-write-frame-to-stream
+         (rlpx-connection-session connection)
+         code data
+         (rlpx-connection-stream connection)
+         :max-frame-size max-frame-size)
+      (rlpx-write-failed (condition)
+        (error condition))
+      (stream-error (condition)
+        (error 'rlpx-write-failed
+               :stream (stream-error-stream condition)
+               :cause condition))))
   (values))
 
 (defun rlpx-connection-read-message

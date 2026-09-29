@@ -77,6 +77,26 @@ the whole request must be retried on another peer. The CAUSE is the original
 condition: a stream error (reset, broken pipe, EOF), a socket error, a devp2p
 Disconnect, a wall-clock timeout, or an eth protocol violation."))
 
+(defun eth-sync-transport-loss-p (condition)
+  "Whether CONDITION says only that the peer's transport went away: a reset,
+broken pipe or EOF, a socket error, a wall-clock timeout, a devp2p Disconnect
+the peer sent, or a request whose session ended under it
+(ETH-SYNC-SOURCE-LOST). An ETH-SYNC-PEER-TRANSPORT-ERROR is judged by its
+cause, since it also wraps protocol violations.
+
+None of these is data the peer sent. go-ethereum v1.17.6's concurrent
+fetcher (eth/downloader/fetchers_concurrent.go) meets them as a peer that
+left: its pending request is unreserved and returned to the queue, and
+nothing is charged."
+  (let ((cause (if (typep condition 'eth-sync-peer-transport-error)
+                   (eth-sync-peer-transport-error-cause condition)
+                   condition)))
+    (typep cause '(or stream-error
+                   #+sbcl sb-bsd-sockets:socket-error
+                   #+sbcl sb-ext:timeout
+                   rlpx-disconnect
+                   eth-sync-source-lost))))
+
 (defun call-with-eth-sync-peer-transport (operation thunk)
   "Call THUNK, a request/reply exchange with one peer, classifying its failures.
 

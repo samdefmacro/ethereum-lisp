@@ -203,6 +203,83 @@ exchange and false for an admission refusal sent before it."
        (rlpx-send-disconnect connection reason :compressed compressed))))
   t)
 
+(defparameter *eth-peer-disconnect-drain-seconds* 0.5
+  "How long, at most, reading a peer's pending Disconnect after one of our
+writes failed may take. Our policy: long enough for bytes the peer sent
+before it closed, which are already in our buffers, and short enough that
+nobody waits on a peer that has gone.")
+
+(defconstant +eth-peer-disconnect-drain-messages+ 4
+  "How many messages reading a pending Disconnect may skip past. Our policy: a
+peer that closes says goodbye within its last few messages.")
+
+(defun eth-peer-drain-disconnect-reason
+    (connection &key (compressed t)
+                     (timeout-seconds *eth-peer-disconnect-drain-seconds*)
+                     (max-messages +eth-peer-disconnect-drain-messages+))
+  "Read what the peer already sent on CONNECTION for a devp2p Disconnect, and
+return its reason, or NIL.
+
+For use after one of OUR writes failed: a peer that disconnects sends its
+reason and closes, and when our next write meets the closed socket (a broken
+pipe, a reset) the Disconnect is still unread in our buffers. geth, for
+instance, writes the reason and then closes (p2p/transport.go close). Reads
+at most MAX-MESSAGES messages and gives up after TIMEOUT-SECONDS or on any
+error; it never writes. COMPRESSED is false only before the Hello exchange,
+when Snappy has not started."
+  #-sbcl
+  (declare (ignore connection compressed timeout-seconds max-messages))
+  #-sbcl
+  nil
+  #+sbcl
+  (handler-case
+      (sb-sys:with-deadline (:seconds timeout-seconds)
+        (let ((stream (rlpx-connection-stream connection)))
+          (loop repeat max-messages
+                do (unless (or (listen stream)
+                               (and (sb-sys:fd-stream-p stream)
+                                    (sb-sys:wait-until-fd-usable
+                                     (sb-sys:fd-stream-fd stream)
+                                     :input timeout-seconds nil)))
+                     (return nil))
+                   (multiple-value-bind (code payload)
+                       (rlpx-connection-read-message
+                        connection
+                        :compressed compressed
+                        :max-frame-size (1+ +devp2p-max-message-size+)
+                        :max-message-size +devp2p-max-message-size+)
+                     (when (= code +devp2p-message-disconnect+)
+                       (return (decode-devp2p-disconnect payload)))))))
+    (serious-condition () nil)))
+
+(defun eth-peer-write-failure (condition)
+  "The RLPX-WRITE-FAILED that CONDITION is, or wraps as the cause of an
+ETH-SYNC-PEER-TRANSPORT-ERROR; otherwise NIL."
+  (cond ((typep condition 'rlpx-write-failed) condition)
+        ((and (typep condition 'eth-sync-peer-transport-error)
+              (typep (eth-sync-peer-transport-error-cause condition)
+                     'rlpx-write-failed))
+         (eth-sync-peer-transport-error-cause condition))))
+
+(defun call-with-eth-peer-disconnect-drain (connection thunk &key (compressed t))
+  "Call THUNK, a stretch of a session on CONNECTION, and return its values.
+
+When one of our writes fails inside it (RLPX-WRITE-FAILED, bare or as the
+cause of an ETH-SYNC-PEER-TRANSPORT-ERROR), read any Disconnect the peer sent
+before it closed (ETH-PEER-DRAIN-DISCONNECT-REASON). If there is one, signal
+RLPX-DISCONNECT with its reason and the write failure, so the session ends
+with the peer's stated reason; otherwise re-signal the original condition."
+  (handler-case (funcall thunk)
+    (serious-condition (condition)
+      (let* ((write-failure (eth-peer-write-failure condition))
+             (reason (and write-failure
+                          (eth-peer-drain-disconnect-reason
+                           connection :compressed compressed))))
+        (if reason
+            (error 'rlpx-disconnect :reason reason
+                                    :write-error write-failure)
+            (error condition))))))
+
 (defun eth-sync-reject-connection (connection reason)
   "Tell a peer we are refusing it, without blocking if it will not read.
 

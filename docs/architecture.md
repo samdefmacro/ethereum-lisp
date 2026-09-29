@@ -971,12 +971,22 @@ Non-obvious properties the implementation relies on:
   live peer left charge nobody; neither outcome raised inside a session job
   ends that session, and an aborted multi-peer download abandons its requests
   in flight rather than closing their streams. Data that contradicts its
-  request -- a body or receipt list not matching its header, a snap
-  dependency that fails verification -- ends the session with a Disconnect,
-  as it does in geth v1.17.6, which keeps no score and disconnects only for
-  such wire-level faults (`importBlockResults` reports an execution failure
-  as a bad block). The records are `docs/evidence/sec5-peer-attribution.txt`
-  and `docs/evidence/sec5-robustness-followups.txt`.
+  request -- a body or receipt list not matching its header, any snap answer
+  that fails verification (account or storage range proof, bytecodes, trie
+  nodes) -- ends the session with a Disconnect, as it does in geth v1.17.6,
+  which keeps no score and disconnects only for such wire-level faults
+  (`importBlockResults` reports an execution failure as a bad block). A lost
+  transport is charged by no layer: not the session, the forward downloader
+  or the snap importer. Our own work on a session thread (serving from our
+  chain, admitting what the peer delivered, encoding what we send) runs
+  inside `call-with-eth-peer-local-work`, so its untyped failure is an
+  `eth-peer-internal-error`: logged at error level, never charged; a plain
+  ERROR elsewhere on the session is a message we could not decode and is
+  charged. When one of our writes fails, the Disconnect the peer sent before
+  it closed is read and becomes the session's end. The records are
+  `docs/evidence/sec5-peer-attribution.txt`,
+  `docs/evidence/sec5-robustness-followups.txt` and
+  `docs/evidence/sec5-peer-parity-2.txt`.
 - **Peer progress names durable candidate state.** A persistent node records a
   peer's identity, persistence authority, chain ID, genesis hash, last completed
   number, and last hash in a strict versioned RLP record. The executed candidate,
