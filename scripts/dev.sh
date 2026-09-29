@@ -253,7 +253,7 @@ start_server() {
     --env ETHEREUM_LISP_DEV_IMAGE_WAIT=1 \
     --env XDG_CACHE_HOME=/tmp/ethereum-lisp-asdf-cache \
     "$IMAGE" \
-    sbcl --noinform --load scripts/dev-image.lisp >/dev/null
+    sbcl --control-stack-size 8 --noinform --load scripts/dev-image.lisp >/dev/null
 
   local i
   for i in {1..600}; do

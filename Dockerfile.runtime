@@ -202,7 +202,7 @@ COPY <<'LISP' /opt/build-core.lisp
                           :save-runtime-options t)
 LISP
 # No network: every system it compiles must already be on disk and verified.
-RUN --network=none sbcl --dynamic-space-size 6144 --non-interactive --load /opt/build-core.lisp
+RUN --network=none sbcl --dynamic-space-size 6144 --control-stack-size 8 --non-interactive --load /opt/build-core.lisp
 
 # :save-runtime-options t means the SBCL runtime parses NO argv of its own, so
 # `ethereum-lisp --version` is the client's flag and not SBCL's.  It also freezes
@@ -213,6 +213,16 @@ RUN --network=none sbcl --dynamic-space-size 6144 --non-interactive --load /opt/
 # GiB no longer justify starving a colocated consensus client on the documented
 # 16-GiB deployment profile. SBCL commits it on demand, while the operator's
 # container memory limit remains the physical RSS authority.
+#
+# The control stack is frozen the same way: every thread of the node, the main
+# one included, gets 8 MiB instead of SBCL's 2 MiB default.  A block may nest
+# 1,024 CALL or CREATE levels, each a fixed run of Lisp frames, and a thread
+# that runs out does not fail the transaction: SBCL dies.  1,024 levels take
+# under 1 MiB, and at most 1.5 MiB at the per-level ceiling the tests hold the
+# interpreter to; 8 MiB holds twice that and leaves 5 MiB for the
+# import and RPC frames beneath it (docs/validation.md, "The EVM depth
+# budget").  SBCL 2.2.9 has no per-thread size, and changing it in a running
+# image faulted, so the runtime option is the one place to set it.
 RUN /opt/ethereum-lisp/ethereum-lisp version
 
 # ---------------------------------------------------------------------------

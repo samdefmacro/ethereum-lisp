@@ -19,17 +19,21 @@ esac
 
 # The all-layer runner starts three SBCL processes concurrently. Compile and
 # load the suite once first so those workers only read the shared ASDF cache.
-sbcl --script tests/run-tests.lisp --layer all --list >/dev/null
+#
+# Every runner gets the runtime executable's 8 MiB control stack per thread:
+# a block may nest 1,024 CALL levels, and a thread that runs out kills SBCL
+# (docs/validation.md, "The EVM depth budget").
+sbcl --control-stack-size 8 --script tests/run-tests.lisp --layer all --list >/dev/null
 
 case "$layer" in
   unit)
-    sbcl --script tests/run-tests.lisp --layer unit "$@"
+    sbcl --control-stack-size 8 --script tests/run-tests.lisp --layer unit "$@"
     ;;
   integration)
-    sbcl --script tests/run-tests.lisp --layer integration "$@"
+    sbcl --control-stack-size 8 --script tests/run-tests.lisp --layer integration "$@"
     ;;
   e2e)
-    sbcl --script tests/run-tests.lisp \
+    sbcl --control-stack-size 8 --script tests/run-tests.lisp \
       --layer e2e \
       --jobs "${E2E_JOBS:-2}" \
       --worker-timeout "${E2E_WORKER_TIMEOUT:-900}" \

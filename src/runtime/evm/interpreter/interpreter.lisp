@@ -66,9 +66,10 @@
 ;;; (EXECUTE-OPCODE when the loop charged the base gas, STEP-EVM-MACHINE when
 ;;; the fork decides it), then enters the register loop again.  Returning
 ;;; rather than calling the handler from inside the loop keeps the loop's
-;;; stack frame off the stack while a CALL runs the next level: 1,024 levels
-;;; must fit a default thread stack, and with the loop's frame on every level
-;;; they did not (EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK).
+;;; stack frame off the stack while a CALL runs the next level: every byte
+;;; kept live across a CALL is paid 1,024 times over, and the level's budget
+;;; is a test (EVM-CALL-LEVEL-CONTROL-STACK-FITS-THE-DEPTH-BUDGET;
+;;; docs/evidence/sec5-call-depth-stack.txt).
 ;;;
 ;;; The registers are also stored before any failure the loop signals and
 ;;; when the code runs out.  A host error inside the loop itself (heap
