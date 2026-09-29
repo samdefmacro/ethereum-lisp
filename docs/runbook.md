@@ -103,8 +103,38 @@ following `heapMb` up means the Lisp heap is what grew.
 
 ## Stop
 
-Stop with SIGTERM and a grace period of at least 30 s:
-`docker stop --time 30 $CONTAINER`. The gate uses exactly this.
+Stop with SIGTERM and a grace period well above the 30 s Engine request
+deadline. On the live gate:
+
+```
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh stop
+```
+
+It checks that the container is this gate's (agent label, gate and image
+revision, `/data` mount, read-only root, non-root user) and running, then
+runs `docker stop --time $HOODI_GATE_STOP_TIMEOUT` (default 120 s, accepted
+30-600 s) and prints:
+
+```
+stop-requested=<UTC> container=<name> timeout=120s
+stop-elapsed=<s>s
+stop-exit=<code> oom-killed=<bool> running=<bool>
+stop-shutdown-complete=<before>-><after>
+stop-runtime-faults=<n>
+stop-clean=true | stop-clean=false reason=<list>
+```
+
+A clean stop is exit 0, not OOM-killed, exactly one new `Shutdown complete`
+line in the datadir's `chaindata/LOG` (RocksDB starts a new LOG at every
+open, so a running node's LOG has none) and no `CORRUPTION WARNING`,
+`Memory fault at` or `fatal error encountered` line logged since the
+request. Anything else exits 1 with the reasons (`exit-137`, `oom-killed`,
+`shutdown-complete-0-to-0`, `runtime-faults-N`, `still-running`). The action
+never removes the container or touches the datadir. `restart` stops through
+the same check and grace (it still starts the node after an unclean stop,
+then exits 1), and `start` and `upgrade` use it for the container they
+replace (`old-stop-` and `previous-stop-` lines, reported but not fatal: the
+store recovers on its next open).
 
 What the node does with SIGTERM, in order, and the budgets involved:
 
@@ -135,12 +165,11 @@ Measured stop-to-exit (sec5-ops-recovery.txt):
 | a payload build holding the guard 30 s | 30.0 s (cut by the request deadline) | 0 inside the node, 137 under `--time 30` |
 
 So the stop takes about as long as the longest Engine request in flight, up to
-that request's 30 s deadline. Under `docker stop --time 30` a request that runs
-to its deadline makes the stop miss the grace period. Normal Engine requests on
-Hoodi took 1.8-29 s before the Engine-priority guard (8e95b990) and are well
-under a second after it; if you see `engine.rpc.http.request` handlerMs near
-30,000 in the log, give the stop more time (`--time 60`) rather than letting it
-be killed.
+that request's 30 s deadline, plus the drain, the join budget and the store
+close. Under the gate's former `docker stop --time 30` a request that ran to
+its deadline made the stop miss the grace period; hence the 120 s default.
+Normal Engine requests on Hoodi took 1.8-29 s before the Engine-priority guard
+(8e95b990) and are well under a second after it.
 
 A SIGKILL (or a stop that ran out of grace) does not corrupt the store: every
 durable step is one atomic RocksDB batch and the node resumes from its cursors
@@ -212,7 +241,8 @@ Rotating it (only when the key may have leaked, or the host changes hands).
 Rotation retires the identity, so expect the ECIES failures above for a while
 from peers that still remember it.
 
-1. Stop the node (see Stop).
+1. Stop the node (`HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh
+   stop`, see Stop).
 2. On the host, as the gate user, move the key aside; never delete it until
    the new identity is confirmed:
    `mv $NODEKEY_DIR/nodekey.hex $NODEKEY_DIR/nodekey.hex.retired-$(date -u +%Y%m%dT%H%M%SZ)`.
@@ -406,6 +436,7 @@ scripts/hoodi-live-gate.sh logs       # recent log window with the snap/engine/g
 scripts/hoodi-fleet-status.sh         # live, Hive and shadow gates, host memory and /data, in one call
 scripts/hoodi-live-gate.sh complete   # the Section 5 completion check; exit 0 = complete
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh stop   # exit 0 = clean stop
 ```
 
 `complete` checks: `peer.snap.target_completed` present, the healer's last
@@ -447,12 +478,8 @@ and shadow-gate `status`, each discovered from container labels. It strips
 every mutation allowance from the brokers it calls, retries a dropped ssh
 session up to three times, and exits non-zero if any section failed.
 
-A `stop` action for the live gate (SIGTERM with a parameterised grace,
-default 120 s, then the exit code, OOMKilled, the RocksDB `Shutdown
-complete` line and runtime faults) is written but not yet in the broker; see
-`docs/evidence/sec5-gate-tooling.txt`. Until it lands, stop with `docker stop
---time 120` and read the store's `chaindata/LOG` tail for `Shutdown
-complete`.
+`HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh stop` stops the gate
+with a parameterised grace and says whether the stop was clean (see Stop).
 
 ## Release verification
 

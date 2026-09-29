@@ -88,6 +88,13 @@ rocksdb_async_read_io="${HOODI_GATE_ROCKSDB_ASYNC_READ_IO:-1}"
 # --nodekey /nodekey/nodekey.hex; the node creates the key there, mode 0600, on
 # its first start and reuses it afterwards.
 nodekey_dir="${HOODI_GATE_NODEKEY_DIR:-$remote_root/nodekey}"
+# SIGTERM grace for every stop the gate performs (stop, restart, and the stop
+# of the container that start or upgrade replaces).  A clean stop takes as long
+# as the longest Engine request in flight, up to its 30 s deadline, plus the
+# 5 s HTTP drain, the 12 s worker-join budget and the store close
+# (docs/runbook.md, Stop); the former fixed 30 s grace could SIGKILL a node
+# whose request ran to its deadline.
+stop_timeout="${HOODI_GATE_STOP_TIMEOUT:-120}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
@@ -130,6 +137,11 @@ case "$restart_ready_timeout" in
 esac
 [ "$restart_ready_timeout" -ge 30 ] && [ "$restart_ready_timeout" -le 1800 ] ||
     fail "restart ready timeout must be between 30 and 1800 seconds"
+case "$stop_timeout" in
+    *[!0-9]*|'') fail "stop timeout must be an integer number of seconds" ;;
+esac
+[ "$stop_timeout" -ge 30 ] && [ "$stop_timeout" -le 600 ] ||
+    fail "stop timeout must be between 30 and 600 seconds"
 case "$allocation_profile_seconds" in
     *[!0-9]*|'') fail "allocation profile seconds must be an integer" ;;
 esac
@@ -179,9 +191,12 @@ if [ "$actual_head" != "$revision" ]; then
     esac
 fi
 
-# Functions shared by the remote scripts that start, restart or inspect a node
-# container.  remote() prepends them to the script it reads from stdin.
-remote_lib="$(cat <<'LIB'
+# Functions shared by the remote scripts that start, stop, restart or inspect a
+# node container.  remote() prepends them to the script it reads from stdin.
+# (A function that prints them, not a $(...) capture: bash would otherwise
+# parse the heredoc's comments for quotes while scanning the substitution.)
+print_remote_lib() {
+    cat <<'LIB'
 # The reviewed runtime user.  It owns the node key directory, so every node
 # container the gate runs must run as exactly this uid:gid.
 gate_node_user=1000:1000
@@ -245,13 +260,96 @@ gate_require_nodekey_container() {
         *) gate_fail "container $1 does not pass --nodekey $gate_nodekey_path" ;;
     esac
 }
+
+# gate_verify_owned CONTAINER REVISION DATADIR: the container belongs to this
+# gate at exactly REVISION, on DATADIR, with the reviewed confinement -- the
+# restart checks (gate revision label, /data mount) and upgrade's (agent
+# label, image revision, read-only root, explicit non-root user) together.
+gate_verify_owned() {
+    ow_agent="$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$1")"
+    ow_gate="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$1")"
+    ow_image="$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$1")"
+    ow_datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$1")"
+    ow_read_only="$(docker container inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$1")"
+    ow_user="$(docker container inspect --format '{{.Config.User}}' "$1")"
+    [ "$ow_agent" = codex-sec5-live-gate ] || gate_fail "gate ownership mismatch: agent=$ow_agent"
+    [ "$ow_gate" = "$2" ] || gate_fail "gate ownership mismatch: $ow_gate"
+    [ "$ow_image" = "$2" ] || gate_fail "gate image revision mismatch: $ow_image"
+    [ "$ow_datadir" = "$3" ] || gate_fail "gate datadir mismatch: $ow_datadir"
+    [ "$ow_read_only" = true ] || gate_fail "gate root filesystem is not read-only: $1"
+    case "$ow_user" in
+        0|0:*|*:0|'') gate_fail "gate does not have an explicit non-root user: $1" ;;
+    esac
+}
+
+# SBCL prints "CORRUPTION WARNING" and continues, so a faulted process can
+# still exit 0 (docs/evidence/sec5-shutdown-memory-fault-trace.txt).
+gate_runtime_fault_pattern='CORRUPTION WARNING|Memory fault at|fatal error encountered'
+
+# gate_shutdown_count DATADIR: "Shutdown complete" lines in the RocksDB info
+# LOG.  RocksDB starts a new LOG at every open, so a running node's LOG has
+# none and a clean close adds exactly one.
+gate_shutdown_count() {
+    if [ -f "$1/chaindata/LOG" ]; then
+        grep -c -F 'Shutdown complete' "$1/chaindata/LOG" || true
+    else
+        echo 0
+    fi
+}
+
+# gate_stop CONTAINER DATADIR TIMEOUT PREFIX: SIGTERM with TIMEOUT seconds of
+# grace, then report the exit code, OOMKilled, the "Shutdown complete" count
+# before and after, and the runtime faults logged since the request.  Returns 0
+# for a clean stop (exit 0, not OOM-killed, exactly one new "Shutdown
+# complete", no fault), 1 for an unclean one, 2 when Docker could not stop or
+# inspect the container.  Never removes the container or touches the datadir.
+# Callers may run it under `||`, where errexit is off, so every step that
+# matters is checked here.
+gate_stop() {
+    st_container="$1"; st_datadir="$2"; st_timeout="$3"; st_prefix="$4"
+    st_before="$(gate_shutdown_count "$st_datadir")"
+    st_requested="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    st_started="$(date +%s)"
+    printf '%s-requested=%s container=%s timeout=%ss\n' \
+        "$st_prefix" "$st_requested" "$st_container" "$st_timeout"
+    docker stop --time "$st_timeout" "$st_container" >/dev/null || {
+        echo "docker stop failed for $st_container" >&2
+        return 2
+    }
+    printf '%s-elapsed=%ss\n' "$st_prefix" "$(( $(date +%s) - st_started ))"
+    st_state="$(docker container inspect \
+        --format '{{.State.Running}} {{.State.ExitCode}} {{.State.OOMKilled}}' \
+        "$st_container")" || return 2
+    st_running="${st_state%% *}"; st_rest="${st_state#* }"
+    st_exit="${st_rest%% *}"; st_oom="${st_rest#* }"
+    st_after="$(gate_shutdown_count "$st_datadir")"
+    st_faults="$(docker logs --since "$st_requested" "$st_container" 2>&1 |
+        grep -E -c "$gate_runtime_fault_pattern" || true)"
+    printf '%s-exit=%s oom-killed=%s running=%s\n' \
+        "$st_prefix" "$st_exit" "$st_oom" "$st_running"
+    printf '%s-shutdown-complete=%s->%s\n' "$st_prefix" "$st_before" "$st_after"
+    printf '%s-runtime-faults=%s\n' "$st_prefix" "$st_faults"
+    st_reason=""
+    [ "$st_running" = false ] || st_reason="$st_reason,still-running"
+    [ "$st_exit" = 0 ] || st_reason="$st_reason,exit-$st_exit"
+    [ "$st_oom" = false ] || st_reason="$st_reason,oom-killed"
+    [ "$st_after" = "$(( st_before + 1 ))" ] ||
+        st_reason="$st_reason,shutdown-complete-$st_before-to-$st_after"
+    [ "$st_faults" = 0 ] || st_reason="$st_reason,runtime-faults-$st_faults"
+    if [ -z "$st_reason" ]; then
+        printf '%s-clean=true\n' "$st_prefix"
+        return 0
+    fi
+    printf '%s-clean=false reason=%s\n' "$st_prefix" "${st_reason#,}"
+    return 1
+}
 LIB
-)"
+}
 
 # remote ARG...: run the remote script on stdin, after the shared functions,
 # with the given positional arguments.
 remote() {
-    { printf '%s\n' "$remote_lib"; cat; } | ssh "$host" bash -s -- "$@"
+    { print_remote_lib; cat; } | ssh "$host" bash -s -- "$@"
 }
 
 require_clean_checkout() {
@@ -482,7 +580,7 @@ start_gate() {
         "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
         "$cl_alias" "$p2p_port" "$memory_limit_bytes" \
         "$allocation_profile_seconds" "$rocksdb_async_read_io" "$old_revision_arg" \
-        "$nodekey_dir" <<'REMOTE'
+        "$nodekey_dir" "$stop_timeout" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
@@ -492,6 +590,7 @@ allocation_profile_seconds="${16}"
 rocksdb_async_read_io="${17}"
 old_expected_revision="${18}"
 nodekey_dir="${19}"
+stop_timeout="${20}"
 [ "$old_expected_revision" != none ] || old_expected_revision=""
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
@@ -585,13 +684,18 @@ if docker container inspect "$old" >/dev/null 2>&1 &&
             exit 1
             ;;
     esac
-    docker stop --time 30 "$old" >/dev/null
+    # The replaced container's own store: reported, not fatal, because the
+    # new EL uses a fresh datadir and the old one recovers on its next start.
+    old_datadir="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$old")"
+    old_stop_status=0
+    gate_stop "$old" "$old_datadir" "$stop_timeout" old-stop || old_stop_status=$?
+    [ "$old_stop_status" -le 1 ] || gate_fail "could not stop $old; nothing was replaced"
     old_was_running=true
 fi
 
 rollback() {
     if docker container inspect "$container" >/dev/null 2>&1; then
-        docker stop --time 10 "$container" >/dev/null 2>&1 || true
+        docker stop --time "$stop_timeout" "$container" >/dev/null 2>&1 || true
     fi
     if [ "$old_was_running" = true ]; then
         docker start "$old" >/dev/null 2>&1 || true
@@ -678,7 +782,7 @@ upgrade_gate() {
         "$cl_network" "$egress_network" "$cl_alias" "$p2p_port" \
         "$restart_ready_timeout" "$memory_limit_bytes" \
         "$allocation_profile_seconds" "$rocksdb_async_read_io" \
-        "$nodekey_dir" <<'REMOTE'
+        "$nodekey_dir" "$stop_timeout" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; previous="${10}"
@@ -688,6 +792,7 @@ memory_limit="${17}"
 allocation_profile_seconds="${18}"
 rocksdb_async_read_io="${19}"
 nodekey_dir="${20}"
+stop_timeout="${21}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -792,7 +897,7 @@ done
 if [ "$previous_ready" != true ]; then
     docker logs "$previous" 2>&1 | tail -80 >&2 || true
     if [ "$previous_initially_running" != true ]; then
-        docker stop --time 10 "$previous" >/dev/null 2>&1 || true
+        docker stop --time "$stop_timeout" "$previous" >/dev/null 2>&1 || true
     fi
     echo "previous public RPC did not return within ${ready_timeout}s" >&2
     exit 1
@@ -805,10 +910,15 @@ printf 'before-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
 printf 'before-block='; rpc "$previous" eth_blockNumber; printf '\n'
 printf 'before-syncing='; rpc "$previous" eth_syncing; printf '\n'
 
-docker stop --time 30 "$previous" >/dev/null
+# Reported, not fatal: the replacement opens the same store, and RocksDB
+# recovers an unclean close on open (docs/runbook.md, Stop).
+previous_stop_status=0
+gate_stop "$previous" "$datadir" "$stop_timeout" previous-stop || previous_stop_status=$?
+[ "$previous_stop_status" -le 1 ] ||
+    gate_fail "could not stop $previous; nothing was replaced"
 rollback() {
     if docker container inspect "$container" >/dev/null 2>&1; then
-        docker stop --time 10 "$container" >/dev/null 2>&1 || true
+        docker stop --time "$stop_timeout" "$container" >/dev/null 2>&1 || true
     fi
     docker start "$previous" >/dev/null 2>&1 || true
 }
@@ -989,14 +1099,11 @@ restart_gate() {
     note "recording progress, restarting the same container, and recording it again"
     remote \
         "$revision" "$container" "$datadir" "$restart_ready_timeout" \
-        "$memory_limit_bytes" "$nodekey_dir" <<'REMOTE'
+        "$memory_limit_bytes" "$nodekey_dir" "$stop_timeout" <<'REMOTE'
 set -eu
 revision="$1"; container="$2"; datadir="$3"; ready_timeout="$4"
-memory_limit="$5"; nodekey_dir="$6"
-label="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$container")"
-[ "$label" = "$revision" ] || { echo "gate ownership mismatch: $label" >&2; exit 1; }
-mount_source="$(docker container inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")"
-[ "$mount_source" = "$datadir" ] || { echo "gate datadir mismatch: $mount_source" >&2; exit 1; }
+memory_limit="$5"; nodekey_dir="$6"; stop_timeout="$7"
+gate_verify_owned "$container" "$revision" "$datadir"
 actual_memory="$(docker container inspect --format '{{.HostConfig.Memory}}' "$container")"
 actual_memory_swap="$(docker container inspect --format '{{.HostConfig.MemorySwap}}' "$container")"
 [ "$actual_memory" = "$memory_limit" ] || {
@@ -1046,8 +1153,15 @@ else
     printf '%s\n' 'before-syncing=unavailable'
 fi
 
+stop_clean=true
 if [ "$before_running" = true ]; then
-    docker stop --time 30 "$container" >/dev/null
+    stop_status=0
+    gate_stop "$container" "$datadir" "$stop_timeout" stop || stop_status=$?
+    case "$stop_status" in
+        0) ;;
+        1) stop_clean=false ;;
+        *) gate_fail "could not stop $container; it was not restarted" ;;
+    esac
 fi
 docker start "$container" >/dev/null
 
@@ -1080,6 +1194,22 @@ printf 'after-started='; docker container inspect --format '{{.State.StartedAt}}
 printf 'after-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
 printf 'after-block='; rpc eth_blockNumber; printf '\n'
 printf 'after-syncing='; rpc eth_syncing; printf '\n'
+# The node is serving again either way; the status records an unclean stop.
+[ "$stop_clean" = true ] ||
+    gate_fail "restarted, but the stop before it was not clean (see stop-clean above)"
+REMOTE
+}
+
+stop_gate() {
+    require_mutation
+    note "stopping the exact gate container: SIGTERM, then up to ${stop_timeout}s before SIGKILL"
+    remote "$revision" "$container" "$datadir" "$stop_timeout" <<'REMOTE'
+set -eu
+revision="$1"; container="$2"; datadir="$3"; stop_timeout="$4"
+gate_verify_owned "$container" "$revision" "$datadir"
+[ "$(docker container inspect --format '{{.State.Running}}' "$container")" = true ] ||
+    gate_fail "gate container is not running: $container"
+gate_stop "$container" "$datadir" "$stop_timeout" stop
 REMOTE
 }
 
@@ -1639,6 +1769,7 @@ case "$action" in
     upgrade) upgrade_gate ;;
     status) remote_status ;;
     restart) restart_gate ;;
+    stop) stop_gate ;;
     logs) gate_logs ;;
     complete) complete_gate ;;
     *)
@@ -1646,7 +1777,7 @@ case "$action" in
 Usage: scripts/hoodi-live-gate.sh ACTION
 
 Read-only actions: inspect, status, logs, complete
-Mutating actions:  upload, load, start, upgrade, restart
+Mutating actions:  upload, load, start, upgrade, restart, stop
 
 Mutating actions require HOODI_GATE_ALLOW_MUTATION=1. The default artifact,
 image, container, and datadir are derived from the current full Git revision.
@@ -1666,6 +1797,12 @@ owned by 1000:1000, mode 0700) at /nodekey and runs with
 --nodekey /nodekey/nodekey.hex, so the node keeps one identity across
 revisions and datadirs; a key file that is not 0600 or not owned by uid 1000
 is refused.
+stop sends SIGTERM to the exact gate container and waits HOODI_GATE_STOP_TIMEOUT
+seconds (default 120, accepted 30-600) before Docker's SIGKILL; restart and
+the replaced container of start and upgrade use the same grace. stop reports
+the exit code, OOMKilled, the RocksDB "Shutdown complete" count before and
+after, and runtime faults, and exits non-zero unless the stop was clean. It
+never removes the container or touches the datadir.
 USAGE
         exit 2
         ;;

@@ -23,7 +23,12 @@
 # passes --nodekey (with a positive control per missing piece), a key that is
 # not 0600 or not owned by uid 1000 is refused before any container starts,
 # restart refuses a container created without the key, and status prints the
-# node id but never the key.
+# node id but never the key.  It also drives stop: the missing mutation flag, a
+# timeout outside 30-600 s and each ownership mismatch are refused before any
+# docker stop (both timeout bounds and the clean stop are the controls), and a
+# clean stop is told apart from a SIGKILLed, OOM-killed or faulted one by exit
+# code, OOMKilled, the RocksDB "Shutdown complete" count and the fault lines;
+# restart and upgrade stop through the same helper and grace.
 #
 # Run it from the tests (tests/control-plane-broker-tests.lisp) in the
 # project container; it prints one line per check and exits non-zero on any
@@ -157,6 +162,8 @@ case "$1" in
         format="$4"
         case "$format" in
             'container={{.Name}}'*) echo "container=/$name running=$(field "$name" running) stub-summary" ;;
+            '{{.State.Running}} {{.State.ExitCode}} {{.State.OOMKilled}}')
+                echo "$(field "$name" running) $(field "$name" exit) $(field "$name" oom)" ;;
             *'"agent"'*) field "$name" agent ;;
             *'io.ethereum-lisp.gate-revision'*) field "$name" gate ;;
             *'org.opencontainers.image.revision'*) field "$name" image-revision ;;
@@ -176,10 +183,25 @@ case "$1" in
         [ -d "$STUB_STATE/$2" ] || exit 1
         set_field "$2" running true ;;
     stop)
+        # STUB_STOP_OUTCOME: clean (the default: exit 0 and RocksDB's
+        # "Shutdown complete" in the datadir's LOG), killed (SIGKILL after the
+        # grace: 137, no line), oom (137 and OOMKilled), fault (clean, but
+        # SBCL's memory-fault lines in the log).
         name="$(last_arg "$@")"
         [ -d "$STUB_STATE/$name" ] || exit 1
+        [ "$(field "$name" running)" = true ] || exit 0
         set_field "$name" running false
-        set_field "$name" exit 0 ;;
+        log="$(field "$name" datadir)/chaindata/LOG"
+        case "${STUB_STOP_OUTCOME:-clean}" in
+            clean|fault)
+                set_field "$name" exit 0
+                [ ! -d "${log%/LOG}" ] || echo "[db/db_impl.cc:500] Shutdown complete" >> "$log" ;;
+            killed) set_field "$name" exit 137 ;;
+            oom) set_field "$name" exit 137; set_field "$name" oom true ;;
+        esac
+        if [ "${STUB_STOP_OUTCOME:-clean}" = fault ]; then
+            echo "CORRUPTION WARNING in SBCL pid 7 tid 8: Memory fault at 0x10 (pc=0x20)" >> "$STUB_STATE/$name/log"
+        fi ;;
     logs) name="$(last_arg "$@")"; cat "$STUB_STATE/$name/log" 2>/dev/null || true ;;
     port) echo "127.0.0.1:18545" ;;
     stats) echo "runtime=cpu=1.00% memory=1GiB / 7GiB blockIo=0B / 0B pids=10" ;;
@@ -292,6 +314,8 @@ checks=0
 failures=0
 out="$work/out"
 
+# record ok|fail DESCRIPTION [DETAIL-FILE]: a failure prints DETAIL-FILE
+# (default: the last run's output).
 record() {
     checks=$((checks + 1))
     if [ "$1" = ok ]; then
@@ -299,7 +323,7 @@ record() {
     else
         failures=$((failures + 1))
         echo "not ok $checks - $2"
-        sed 's/^/#   /' "$out"
+        sed 's/^/#   /' "${3:-$out}"
     fi
 }
 
@@ -463,7 +487,8 @@ reset_world() {
     mkdir -p "$STUB_STATE/hoodi-lighthouse-public"
     echo true > "$STUB_STATE/hoodi-lighthouse-public/running"
     unset STUB_UID STUB_KEY_OWNER STUB_DIR_OWNER HOODI_GATE_PREVIOUS_CONTAINER \
-        HOODI_GATE_PREVIOUS_REVISION HOODI_GATE_DATADIR
+        HOODI_GATE_PREVIOUS_REVISION HOODI_GATE_DATADIR STUB_STOP_OUTCOME \
+        HOODI_GATE_STOP_TIMEOUT
     : > "$STUB_LOG"
 }
 
@@ -484,9 +509,12 @@ plant_container() {
     echo 1000:1000 > "$dir/user"; echo 7516192768 > "$dir/memory"
     echo true > "$dir/running"; echo 0 > "$dir/exit"; echo false > "$dir/oom"
     touch "$3/CURRENT"
+    # A running node's RocksDB LOG: started at open, no "Shutdown complete".
+    mkdir -p "$3/chaindata"
+    echo "[db/db_impl_open.cc:2100] DB pointer 0x1" > "$3/chaindata/LOG"
 }
 
-# run_line_check LABEL: the last `docker run --detach` carries the node key
+# run_line_has_nodekey: the last `docker run --detach` carries the node key
 # mount and flag.  Returns non-zero, without recording, when it does not.
 run_line_has_nodekey() {
     local line
@@ -494,27 +522,26 @@ run_line_has_nodekey() {
     case "$line " in *" --mount type=bind,source=$nk,target=/nodekey "*) ;; *) return 1 ;; esac
     case "$line " in *" --nodekey /nodekey/nodekey.hex "*) ;; *) return 1 ;; esac
 }
+# These read the stub log and leave the last run's output for later checks.
 check_run_line() {
-    : > "$out"
     if run_line_has_nodekey; then
         record ok "$1: docker run mounts $nk at /nodekey and passes --nodekey"
     else
-        grep '^docker run --detach' "$STUB_LOG" > "$out" || echo "no docker run --detach" > "$out"
-        record fail "$1: docker run mounts $nk at /nodekey and passes --nodekey"
+        grep '^docker run --detach' "$STUB_LOG" > "$work/detail" ||
+            echo "no docker run --detach" > "$work/detail"
+        record fail "$1: docker run mounts $nk at /nodekey and passes --nodekey" "$work/detail"
     fi
 }
 no_detached_run() {
-    : > "$out"
     if grep -q '^docker run --detach' "$STUB_LOG"; then
-        cp "$STUB_LOG" "$out"; record fail "$1: no container was started"
+        record fail "$1: no container was started" "$STUB_LOG"
     else
         record ok "$1: no container was started"
     fi
 }
 no_lifecycle_call() {
-    : > "$out"
     if grep -qE '^docker (run --detach|start|stop)' "$STUB_LOG"; then
-        cp "$STUB_LOG" "$out"; record fail "$1: no container was started or stopped"
+        record fail "$1: no container was started or stopped" "$STUB_LOG"
     else
         record ok "$1: no container was started or stopped"
     fi
@@ -676,6 +703,151 @@ plant_container "$new_container" "$head_rev" "$root/datadir-aaaaaaaa" "" "--hood
 run 0 "status of a container without the node key" -- "$broker" status
 has "nodekey-mount=absent (identity is datadir-local and changes with the datadir)"
 has "node-id=$node_id"
+
+# --- stop: SIGTERM with a bounded grace, then a clean/unclean verdict ----------------
+# logged TEXT: the stub log of the last world holds a line with TEXT.
+logged() {
+    if grep -qF -- "$1" "$STUB_LOG"; then
+        record ok "calls: $1"
+    else
+        record fail "calls: $1" "$STUB_LOG"
+    fi
+}
+no_stop_call() {
+    if grep -q '^docker stop' "$STUB_LOG"; then
+        record fail "$1: no container was stopped" "$STUB_LOG"
+    else
+        record ok "$1: no container was stopped"
+    fi
+}
+datadir_a="$root/datadir-aaaaaaaa"
+plant_gate() {  # the running gate container stop acts on
+    plant_container "$new_container" "$head_rev" "$datadir_a" "$nk" "$with_key_args"
+}
+
+# Refusals that never reach the host.
+reset_world
+plant_key 0600
+plant_gate
+run 1 "stop without the mutation flag" -- env -u HOODI_GATE_ALLOW_MUTATION "$broker" stop
+has "FAIL: stop changes remote state; set HOODI_GATE_ALLOW_MUTATION=1 only after explicit authorization"
+for bad in 29 601 12s; do
+    run 1 "stop with HOODI_GATE_STOP_TIMEOUT='$bad'" -- env HOODI_GATE_STOP_TIMEOUT="$bad" "$broker" stop
+    case "$bad" in
+        29|601) has "FAIL: stop timeout must be between 30 and 600 seconds" ;;
+        *) has "FAIL: stop timeout must be an integer number of seconds" ;;
+    esac
+done
+: > "$out"
+if grep -q '^ssh ' "$STUB_LOG"; then
+    cp "$STUB_LOG" "$out"; record fail "refused stops made no remote contact"
+else
+    record ok "refused stops made no remote contact"
+fi
+# Positive controls for the timeout bounds: both ends are accepted and used.
+for good in 30 600; do
+    reset_world
+    plant_key 0600
+    plant_gate
+    run 0 "stop with HOODI_GATE_STOP_TIMEOUT=$good" -- env HOODI_GATE_STOP_TIMEOUT="$good" "$broker" stop
+    logged "docker stop --time $good $new_container"
+done
+
+# Ownership: each mismatch is refused before any stop; the clean case below is
+# the control.
+for mismatch in agent gate image datadir user; do
+    reset_world
+    plant_key 0600
+    plant_gate
+    case "$mismatch" in
+        agent) echo codex-ethereum-lisp-same-host-benchmark > "$STUB_STATE/$new_container/agent"
+               message="gate ownership mismatch: agent=codex-ethereum-lisp-same-host-benchmark" ;;
+        gate) echo "$prev_rev" > "$STUB_STATE/$new_container/gate"
+              message="gate ownership mismatch: $prev_rev" ;;
+        image) echo "$prev_rev" > "$STUB_STATE/$new_container/image-revision"
+               message="gate image revision mismatch: $prev_rev" ;;
+        datadir) echo "$prev_datadir" > "$STUB_STATE/$new_container/datadir"
+                 message="gate datadir mismatch: $prev_datadir" ;;
+        user) echo 0:0 > "$STUB_STATE/$new_container/user"
+              message="gate does not have an explicit non-root user: $new_container" ;;
+    esac
+    run 1 "stop with a $mismatch mismatch" -- "$broker" stop
+    has "$message"
+    no_stop_call "$mismatch mismatch"
+done
+
+reset_world
+plant_key 0600
+plant_gate
+echo false > "$STUB_STATE/$new_container/running"
+run 1 "stop of a container that is not running" -- "$broker" stop
+has "gate container is not running: $new_container"
+no_stop_call "not running"
+
+# The verdicts.
+reset_world
+plant_key 0600
+plant_gate
+run 0 "a clean stop" -- "$broker" stop
+logged "docker stop --time 120 $new_container"
+has "stop-exit=0 oom-killed=false running=false"
+has "stop-shutdown-complete=0->1"
+has "stop-runtime-faults=0"
+has "stop-clean=true"
+: > "$out"
+if [ -d "$STUB_STATE/$new_container" ] && [ -f "$datadir_a/CURRENT" ]; then
+    record ok "a clean stop keeps the container and the datadir"
+else
+    record fail "a clean stop keeps the container and the datadir"
+fi
+
+for outcome in killed oom fault; do
+    reset_world
+    plant_key 0600
+    plant_gate
+    export STUB_STOP_OUTCOME="$outcome"
+    run 1 "an unclean stop ($outcome)" -- "$broker" stop
+    case "$outcome" in
+        killed)
+            has "stop-exit=137 oom-killed=false running=false"
+            has "stop-shutdown-complete=0->0"
+            has "stop-clean=false reason=exit-137,shutdown-complete-0-to-0" ;;
+        oom)
+            has "stop-exit=137 oom-killed=true running=false"
+            has "stop-clean=false reason=exit-137,oom-killed,shutdown-complete-0-to-0" ;;
+        fault)
+            has "stop-shutdown-complete=0->1"
+            has "stop-runtime-faults=1"
+            has "stop-clean=false reason=runtime-faults-1" ;;
+    esac
+done
+
+# restart and upgrade stop through the same helper and grace.
+reset_world
+plant_key 0600
+plant_gate
+run 0 "restart with HOODI_GATE_STOP_TIMEOUT=200" -- env HOODI_GATE_STOP_TIMEOUT=200 "$broker" restart
+logged "docker stop --time 200 $new_container"
+has "stop-shutdown-complete=0->1"
+has "stop-clean=true"
+
+reset_world
+plant_key 0600
+plant_gate
+export STUB_STOP_OUTCOME=killed
+run 1 "restart after an unclean stop" -- "$broker" restart
+has "stop-clean=false reason=exit-137,shutdown-complete-0-to-0"
+has "restarted, but the stop before it was not clean (see stop-clean above)"
+logged "docker start $new_container"
+
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+export HOODI_GATE_PREVIOUS_CONTAINER="$prev_container" HOODI_GATE_PREVIOUS_REVISION="$prev_rev" \
+    HOODI_GATE_DATADIR=/data/hoodi-sec5-20260814/datadir-bbbbbbbb
+run 0 "upgrade stops the previous container through the helper" -- "$broker" upgrade
+logged "docker stop --time 120 $prev_container"
+has "previous-stop-clean=true"
 
 cat "$STUB_LOG" >> "$lifecycle_log"
 : > "$out"

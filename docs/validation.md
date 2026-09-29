@@ -1024,7 +1024,18 @@ scripts/hoodi-live-gate.sh logs
 # EL execution through the logged CL-authorized target are all evidenced.
 scripts/hoodi-live-gate.sh complete
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
+# Exits 0 only for a clean stop: exit 0, not OOM-killed, one new RocksDB
+# "Shutdown complete", no runtime fault. Never removes the container.
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh stop
 ```
+
+Every stop the broker performs (`stop`, `restart`, and the replaced container
+of `start` and `upgrade`) sends SIGTERM with `HOODI_GATE_STOP_TIMEOUT` seconds
+of grace (default 120, accepted 30--600) and reports the same verdict; `stop`
+first applies upgrade's and restart's ownership checks together. The
+self-test pairs each refusal (no mutation allowance, a timeout outside the
+range, each ownership mismatch, a stopped container) with an accepted case
+and tells a clean stop from a SIGKILLed, OOM-killed or faulted one.
 
 When `start` replaces a container previously created by this live gate, set
 `HOODI_GATE_OLD_CONTAINER` and its full `HOODI_GATE_OLD_REVISION`. The broker

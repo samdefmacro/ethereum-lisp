@@ -54,8 +54,9 @@ check count it printed after MARKER (NIL when it printed none)."
     (is (search ", 0 failed" stdout))
     (is (null (search "not ok" stdout)))
     ;; The logs summary alone checks more than twenty lines; the persistent
-    ;; node key (run line, refusals, restart, status) adds 63; 112 in all.
-    (is (and count (>= count 105)))))
+    ;; node key (run line, refusals, restart, status) adds 63 and the stop
+    ;; action (refusals, verdicts, restart/upgrade grace) 60; 172 in all.
+    (is (and count (>= count 165)))))
 
 (deftest hoodi-fleet-status-selftest-stays-read-only
   (:layer :integration :module :control-plane :launches-processes t)
