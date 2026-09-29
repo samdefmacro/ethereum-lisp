@@ -1564,7 +1564,30 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
                           (fixture-object-field send-response "result"))))
            ;; Preserve coverage of the production wiring before replacing the
            ;; guard with a test-visible mutex for deterministic contention.
-           (is (eq original-node-store-guard original-public-guard))
+           ;; The public service wraps the node's store guard to bind the
+           ;; node's telemetry sink (DEVNET-SINK-BOUND-GUARD), so the wiring is
+           ;; asserted by behaviour, not identity: inside the public guard the
+           ;; node's give-up-instead companion, tried from another thread,
+           ;; must find the store mutex held.
+           (is (eq :held
+                   (funcall
+                    original-public-guard
+                    (lambda ()
+                      (sb-thread:join-thread
+                       (sb-thread:make-thread
+                        (lambda ()
+                          ;; Unhandled, a condition here would kill the
+                          ;; whole sbcl --script run.
+                          (handler-case
+                              (multiple-value-bind (result ran-p)
+                                  (funcall
+                                   (ethereum-lisp.cli::devnet-node-store-guard-try-function
+                                    node)
+                                   (lambda () :free))
+                                (if ran-p result :held))
+                            (serious-condition (condition) condition)))
+                        :name "devnet-public-guard-shares-store-mutex")
+                       :timeout 10 :default :timeout)))))
            ;; The Engine service takes the SAME mutex through its priority
            ;; guard, which lets long holders see it waiting.  Inside it the
            ;; node's give-up-instead companion, tried from ANOTHER thread
