@@ -30,11 +30,22 @@ Not deployed.
 
 Revision
 
-  919e1655  tests: an optional, bounded gate over EEST ported_static state tests
-  eaec700b  tests: the EEST state-test harness models the block a state test
+Rebased onto 0140000b (the Amsterdam slice-2 merge) as:
+
+  4f682c58  tests: an optional, bounded gate over EEST ported_static state tests
+  99c57b43  tests: the EEST state-test harness models the block a state test
             runs in
-  3d8702d9  tests: the ported_static gate runs inside the cold image's 1 GiB heap
-  (the commit adding this record follows them)
+  692ffcc9  tests: the ported_static gate runs inside the cold image's 1 GiB heap
+  c6197bf7  docs (this record, first version)
+
+Before the rebase, on c677bdf0, the same commits were 919e1655, eaec700b,
+3d8702d9 and 07ac10ef; section 4 was measured there and section 5 at the
+rebased head.  0140000b had independently added the same PREVRANDAO argument
+and an Amsterdam-only block gas check to the state harness; the rebase
+resolution (99c57b43) keeps one check, EEST-STATE-TEST-CHECK-BLOCK-GAS, which
+signals the block path's own message per fork ("Block gas limit exceeded"
+before Amsterdam, "Amsterdam block gas dimension unavailable" at it) and
+replaces EEST-STATE-TEST-CHECK-AMSTERDAM-BLOCK-GAS.
 
 src/ changes: src/runtime/evm/memory.lisp only -- *MEMORY-ALLOCATION-CEILING*,
 *MEMORY-ALLOCATION-HEAP-BUDGET* (both NIL by default, no behaviour change when
@@ -112,7 +123,7 @@ stores GASPRICE, BASEFEE and PREVRANDAO; the stored 0 instead of
 0x15000...00 changed the SSTORE cost and hence the sender's balance
 (expected 0x0de0b6b3a20378a2, got 0x0de0b6b3a336285a).  The 17 random tests
 read 0x44 the same way (39 wrong-balance and 4 wrong-logs reports in the
-baseline log).  Fix eaec700b: pass currentRandom as :PREV-RANDAO and read the
+baseline log).  Fix 99c57b43: pass currentRandom as :PREV-RANDAO and read the
 difficulty (:RANDOM-P NIL) only for London, the harness's one pre-Merge fork.
 Only this change can alter a successful entry's balance or logs, and after it
 all 55 pass.
@@ -123,7 +134,7 @@ runner applies the message against core.NewGasPool(block.GasLimit())
 (tests/state_test_util.go:347), and buyGas's SubGas refuses it with
 ErrGasLimitReached; our EXECUTE-BLOCK message list already refuses the same
 transaction ("Block gas limit exceeded", src/runtime/execution/
-message-lists.lisp).  Fix eaec700b: EEST-STATE-TEST-CHECK-BLOCK-GAS applies
+message-lists.lisp).  Fix 99c57b43: EEST-STATE-TEST-CHECK-BLOCK-GAS applies
 the bound before execution (an Osaka limit above the EIP-7825 cap is left to
 the cap check, which geth's preCheck runs first), and GAS_ALLOWANCE_EXCEEDED
 maps to that refusal.  RED: the baseline entry "expected TransactionException.
@@ -134,20 +145,20 @@ TYPE_3_TX_CONTRACT_CREATION.  We refuse it while decoding its envelope ("Blob
 transaction recipient must be exactly 20 bytes"), as go-ethereum's BlobTx,
 whose To is a common.Address and not a pointer, cannot decode an empty one
 either.  The token mapping accepted only the later execution-time message.
-Fix eaec700b: the token also accepts the decode refusal, as
+Fix 99c57b43: the token also accepts the decode refusal, as
 TYPE_4_TX_CONTRACT_CREATION already did.
 
 D4.  FIXTURE-FILE-STRING built the text through a string output stream line
 by line; for random_statetest185 (a 16 MB log in one receipt) its buffers and
 the final copy at four bytes a character exhausted the 1 GiB heap
-(HEAP-EXHAUSTED-ERROR in FIXTURE-FILE-STRING, first run).  Fix 3d8702d9: one
+(HEAP-EXHAUSTED-ERROR in FIXTURE-FILE-STRING, first run).  Fix 692ffcc9: one
 READ-SEQUENCE into one string, and a full collection after any file above
 4 MiB.
 
 D5.  static_call1_mb1024_calldepth d1 has 882e9 gas and a contract that
 STATICCALLs itself with a 1,000,000-byte argument region until depth or gas
 runs out; every megabyte is paid for, so up to 1,024 of them are live at once,
-in geth too.  A 1 GiB heap cannot hold that.  Fix 3d8702d9:
+in geth too.  A 1 GiB heap cannot hold that.  Fix 692ffcc9:
 *MEMORY-ALLOCATION-HEAP-BUDGET*, bound by the runner to 3/8 of the dynamic
 space (3/4 was measured to leave the copying collector no room: the heap was
 exhausted inside a collection triggered by a snapshot hash-table grow); an
@@ -213,7 +224,7 @@ very first run, with c677bdf0's fixture reader too, died in stRandom (D4)
 after scoring 36 Cancun directories.
 
 ================================================================================
-4. Verification of record
+4. Verification before the rebase (on c677bdf0, at 3d8702d9)
 ================================================================================
 
 All through the cold broker (`cl-workbench validation run`), corpus
@@ -298,15 +309,45 @@ Hoodi, at 3d8702d9:
        witness gaps), EXIT=1 as at the base.
 
 ================================================================================
+5. After the rebase onto 0140000b, at c6197bf7
+================================================================================
+
+HEAD c6197bf7 (clean tree), same corpus and broker as section 4.
+
+  Unit: cold-unit --match EVM-MEMORY --match PORTED-STATIC --match
+    EEST-STATE-TEST --match EEST-LATE-FORK --match EEST-AMSTERDAM
+    -> 21 tests passed, EXIT=0 (the 20 of section 4 plus
+       EEST-AMSTERDAM-STATE-RUNNER-CLASSIFIES-BLOCK-LEVEL-REFUSALS).
+  ported_static gate: EXIT=0, "1 test passed."; Cancun 7,059/7,060, Prague
+    7,059/7,060 (the same D5 skip each), Osaka 6,581/6,581, 0 failed --
+    identical to section 3.
+  Eight EEST v20.0.2 gates (retained containers ethereum-lisp-cold-j1-
+    c6197bf7-<slug>, sequential, removed afterwards): each "1 test passed.",
+    zero "not ok", EXIT=0, container exit 0, OOMKilled=false; the six
+    manifest lines byte-identical to b5161312's (sorted `cmp`).
+  Amsterdam burn-down, the regression-gate command of
+    docs/gap-analysis/amsterdam-inventory.md (ETHEREUM_LISP_AMSTERDAM_EEST_
+    TREES=all, all fourteen EIP directories required), corpus
+    tests-glamsterdam-devnet v7.2.1 hard-linked from the main checkout:
+    "ok OPTIONAL-AMSTERDAM-EEST-FEATURE-BURN-DOWN", EXIT=0; summed over the
+    AMSTERDAM-EEST lines, state_tests 15,627/15,627, blockchain_tests_engine
+    21,067/21,067 (three files over 40 MB counted, as before),
+    BPO2ToAmsterdamAtTime15k 96/96, 0 failed.
+  Hoodi: HOODI-368 (integration) 2 tests passed, EXIT=0; replay "selected=322
+    replayed=320 match=320 diverges=0 comparator=0 prestate=0 unreplayable=2"
+    (3679328, 3685509), EXIT=1 as at the base.
+
+================================================================================
 Not verified
 ================================================================================
 
-- The gate was not re-run after the commit adding this record (documentation
-  only).  cold-all was not run (the coordinator runs it).
+- Nothing was re-run after the commit that updates this record for the rebase
+  (documentation only).  cold-all was not run (the coordinator runs it).
+- The mutation controls of section 4 were not repeated after the rebase.
 - Amsterdam: the v7.2.1 ported_static refill is not part of this gate; its
   count is in docs/gap-analysis/amsterdam-inventory.md.
 - The 17 D1 random vectors were not traced one by one; they are attributed to
-  D1 because it is the only change in eaec700b that can alter a successful
+  D1 because it is the only change in 99c57b43 that can alter a successful
   entry's balance or logs, and all of them pass after it.
 - static_call1_mb1024_calldepth d1 at Cancun and Prague is skipped, not
   executed to its end; the heap it would need was not measured.
