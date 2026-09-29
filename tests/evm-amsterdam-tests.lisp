@@ -993,3 +993,283 @@
                  :chain-rules (amsterdam-transfer-test-rules))))
           (is (= 0 (receipt-status receipt)))
           (is (= expected (receipt-cumulative-gas-used receipt))))))))
+
+(deftest eip8037-frame-leftovers-follow-geth-gas-budget
+  ;; go-ethereum v1.17.6 core/vm/gascosts.go: Forward pays the child's
+  ;; regular gas up front and hands it the whole reservoir; ExitRevert returns
+  ;; the regular gas left plus what state charges borrowed from it, ExitHalt
+  ;; only the frame's starting reservoir; Absorb takes state gas the child
+  ;; borrowed from regular gas out of the parent's regular usage.
+  (let* ((parent (make-evm-gas-budget :regular 1000 :state 100))
+         (child (ethereum-lisp.evm:evm-gas-budget-forward parent 600)))
+    (is (= 400 (evm-gas-budget-regular parent)))
+    (is (= 0 (evm-gas-budget-state parent)))
+    (is (= 600 (evm-gas-budget-used-regular parent)))
+    (is (= 600 (evm-gas-budget-regular child)))
+    (is (= 100 (evm-gas-budget-state child)))
+    ;; 150 of state gas: the 100 of reservoir, then 50 borrowed.
+    (is (ethereum-lisp.evm:evm-gas-budget-charge-state child 150))
+    (is (ethereum-lisp.evm:evm-gas-budget-charge child (ethereum-lisp.evm:make-evm-gas-costs :regular 30)))
+    (let ((revert (ethereum-lisp.evm:evm-gas-budget-exit-revert child))
+          (halt (ethereum-lisp.evm:evm-gas-budget-exit-halt child)))
+      (is (= 570 (evm-gas-budget-regular revert)))
+      (is (= 100 (evm-gas-budget-state revert)))
+      (is (= 0 (evm-gas-budget-used-state revert)))
+      (is (= 0 (evm-gas-budget-regular halt)))
+      (is (= 100 (evm-gas-budget-state halt)))
+      (is (= 600 (evm-gas-budget-used-regular halt))))
+    (ethereum-lisp.evm:evm-gas-budget-absorb parent child)
+    (is (= 920 (evm-gas-budget-regular parent)))
+    (is (= 0 (evm-gas-budget-state parent)))
+    (is (= 150 (evm-gas-budget-used-state parent)))
+    (is (= 30 (evm-gas-budget-used-regular parent)))
+    (is (= 50 (evm-gas-budget-spilled parent))))
+  ;; Refilling state gas an ancestor charged leaves the frame's net usage
+  ;; negative, and reverting the frame takes that refill back.
+  (let ((child (make-evm-gas-budget :regular 100)))
+    (ethereum-lisp.evm:evm-gas-budget-refill-state child 40)
+    (is (= -40 (evm-gas-budget-used-state child)))
+    (is (= 40 (evm-gas-budget-state child)))
+    (let ((revert (ethereum-lisp.evm:evm-gas-budget-exit-revert child)))
+      (is (= 0 (evm-gas-budget-state revert)))
+      (is (= 100 (evm-gas-budget-regular revert))))))
+
+(deftest eip8037-value-call-caps-child-gas-after-the-value-charge
+  ;; geth v1.17.6 makeCallVariantGasCallEIP8037 takes 63/64 of the regular
+  ;; gas left after CALL_VALUE (10,300).  A value call that asks for all gas
+  ;; into code that halts burns that cap and the stipend; capping 63/64 of a
+  ;; balance 8,000 gas larger charged 7,875 more (tests-glamsterdam-devnet
+  ;; v7.2.1 eip8246 selfdestructing_initcode_preserves_balance, oog cases).
+  (let ((state (make-state-db))
+        (contract
+          (address-from-hex "0x0000000000000000000000000000000000000044"))
+        (callee
+          (address-from-hex "0x0000000000000000000000000000000000000022")))
+    (state-db-set-account state contract (make-state-account :balance 10))
+    (state-db-set-code state callee #(#xfe))
+    (let* ((result
+             (execute-bytecode
+              (amsterdam-call-family-code #xf1 1)
+              :context (amsterdam-state-gas-test-context state contract)
+              :gas-limit 100000
+              :gas-budget (make-evm-gas-budget :regular 100000)))
+           ;; 20 for the pushes and GAS, 100 + 2,900 for the cold CALL,
+           ;; 10,300 for the value; POP is 2.
+           (left (- 100000 20 100 2900 10300))
+           (call-gas (- left (floor left 64))))
+      (is (eq :stopped (evm-result-status result)))
+      (is (= (+ 20 100 2900 10300 call-gas 2)
+             (evm-result-regular-gas-used result))))))
+
+(deftest eip8037-restoring-an-ancestor-created-slot-credits-the-frame
+  ;; geth v1.17.6 gasSStore8037And8038 refills a slot's creation charge when
+  ;; the slot returns to zero, even from a later frame than the one that
+  ;; created it (RefundState leaves that frame's net state usage negative).
+  ;; Here 0x44 creates slot 0 and a DELEGATECALL to 0x33 clears it: the
+  ;; reservoir is whole again and no state gas remains.  The refill used to
+  ;; drive the frame's gas-used below zero, a TYPE-ERROR
+  ;; (tests-glamsterdam-devnet v7.2.1 eip8037 sstore_restoration_*).
+  (let ((state (make-state-db))
+        (contract
+          (address-from-hex "0x0000000000000000000000000000000000000044"))
+        (library
+          (address-from-hex "0x0000000000000000000000000000000000000033"))
+        (budget (make-evm-gas-budget :regular 200000 :state 200000)))
+    (state-db-set-code state library #(#x5f #x5f #x55 0))
+    (let ((result
+            (execute-bytecode
+             ;; SSTORE(0, 1); DELEGATECALL(GAS, 0x33, 0, 0, 0, 0); POP.
+             #(#x60 1 #x5f #x55
+               #x5f #x5f #x5f #x5f #x60 #x33 #x5a #xf4 #x50 0)
+             :context (amsterdam-state-gas-test-context state contract)
+             :gas-limit 200000
+             :gas-budget budget)))
+      (is (eq :stopped (evm-result-status result)))
+      (is (= 0 (state-db-get-storage
+                state contract
+                (hash32-from-hex
+                 "0x0000000000000000000000000000000000000000000000000000000000000000"))))
+      (is (= 200000 (evm-gas-budget-state budget)))
+      (is (= 0 (evm-gas-budget-used-state budget))))))
+
+(deftest eip8037-reverted-creation-transaction-refills-its-account-charge
+  ;; geth v1.17.6 executeCreate charges the new account (183,600 of state
+  ;; gas) before the frame and refills it when the initcode fails, so a
+  ;; reverted creation keeps no state gas and bills its intrinsic gas and
+  ;; its initcode's own gas, or the calldata floor.  The top frame's revert
+  ;; used to refill a charge it had not made, a TYPE-ERROR
+  ;; (tests-glamsterdam-devnet v7.2.1 eip2780 value_contract_creation_tx).
+  (let* ((rules (evm-context-chain-rules
+                 (amsterdam-state-gas-test-context nil nil)))
+         (state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000011"))
+         ;; PUSH0 PUSH0 REVERT: 4 gas.
+         (tx (make-legacy-transaction :nonce 0 :gas-price 1 :gas-limit 500000
+                                      :to nil :data #(#x5f #x5f #xfd)))
+         (expected (max (+ (transaction-intrinsic-gas tx :chain-rules rules)
+                           4)
+                        (transaction-effective-floor-gas tx rules))))
+    (state-db-set-account state sender
+                          (make-state-account :balance 10000000))
+    (let ((receipt (apply-message state sender tx :chain-rules rules)))
+      (is (= 0 (receipt-status receipt)))
+      (is (= expected (receipt-cumulative-gas-used receipt)))
+      (is (= 0 (receipt-state-gas-used receipt)))
+      (is (= (- 10000000 expected)
+             (state-account-balance (state-db-get-account state sender)))))))
+
+(defmacro with-recorded-state-accesses ((accesses) &body body)
+  "Run BODY with the EIP-7928 recorder collecting (EVENT ADDRESS-HEX SLOT)
+entries into the list ACCESSES names, oldest first."
+  `(let ((,accesses '()))
+     (let ((ethereum-lisp.state:*state-access-recorder*
+             (lambda (event state address slot)
+               (declare (ignore state))
+               (push (list event (address-to-hex address) slot) ,accesses))))
+       ,@body)
+     (setf ,accesses (nreverse ,accesses))))
+
+(deftest eip7928-paid-selfdestruct-lists-its-empty-beneficiary
+  ;; geth v1.17.6 gasSelfdestruct8037And8038 asks whether the beneficiary is
+  ;; empty before it reads the balance, so a SELFDESTRUCT with nothing to
+  ;; send still reads its beneficiary into the block access list
+  ;; (tests-glamsterdam-devnet v7.2.1 eip8246 selfdestructing_initcode_*
+  ;; initial_balance_0, eip8038 selfdestruct_zero_balance_no_account_write).
+  (let ((state (make-state-db))
+        (contract
+          (address-from-hex "0x0000000000000000000000000000000000000044"))
+        (accesses '()))
+    (setf accesses
+          (with-recorded-state-accesses (recorded)
+            (execute-bytecode
+             #(#x60 #x22 #xff)
+             :context (amsterdam-state-gas-test-context state contract)
+             :gas-limit 100000
+             :gas-budget (make-evm-gas-budget :regular 100000))))
+    (is (find "0x0000000000000000000000000000000000000022" accesses
+              :key #'second :test #'string=))))
+
+(deftest eip8246-destructed-account-given-a-balance-stays-balance-only
+  ;; geth v1.17.6 StateDB.finaliseAmsterdam: an account destructed in its
+  ;; creating transaction that holds a balance at the end of it -- here one
+  ;; wei sent after its SELFDESTRUCT to another account -- is kept with that
+  ;; balance, nonce 0 and no code, not deleted (tests-glamsterdam-devnet
+  ;; v7.2.1 eip8246 selfdestructing_initcode_preserves_balance, success).
+  (let* ((state (make-state-db))
+         (contract
+           (address-from-hex "0x0000000000000000000000000000000000000044"))
+         (context (amsterdam-state-gas-test-context state contract)))
+    (state-db-set-account state contract (make-state-account :nonce 1))
+    (state-db-set-code state contract #(#x60 #x22 #xff))
+    (ethereum-lisp.evm:mark-created-account context contract)
+    (execute-bytecode #(#x60 #x22 #xff)
+                      :context context
+                      :gas-limit 100000
+                      :gas-budget (make-evm-gas-budget :regular 100000))
+    (state-db-add-balance state contract 1)
+    (ethereum-lisp.evm:finalize-evm-selfdestructs state context)
+    (let ((account (state-db-get-account state contract)))
+      (is account)
+      (is (= 1 (state-account-balance account)))
+      (is (= 0 (state-account-nonce account)))
+      (is (= 0 (length (state-db-get-code state contract)))))))
+
+(deftest eip7928-storage-access-that-cannot-be-paid-reads-no-slot
+  ;; geth v1.17.6 gasSLoad8038 and gasSStore8037And8038 charge the slot
+  ;; access before the slot is read, so an SLOAD or SSTORE that runs out of
+  ;; gas there lists no read (tests-glamsterdam-devnet v7.2.1 eip7928
+  ;; bal_sload_and_oog, bal_sstore_and_oog).  Positive control: with the gas
+  ;; to pay, the same SLOAD reads the slot.
+  (flet ((storage-reads (code gas)
+           (let ((state (make-state-db))
+                 (contract
+                   (address-from-hex
+                    "0x0000000000000000000000000000000000000044")))
+             (count :storage-read
+                    (with-recorded-state-accesses (recorded)
+                      (handler-case
+                          (execute-bytecode
+                           code
+                           :context (amsterdam-state-gas-test-context
+                                     state contract)
+                           :gas-limit gas
+                           :gas-budget (make-evm-gas-budget :regular gas))
+                        (evm-error () nil)))
+                    :key #'first))))
+    ;; PUSH0 SLOAD: 2 + 3,000 for the cold slot.
+    (is (= 1 (storage-reads #(#x5f #x54 0) 3002)))
+    (is (= 0 (storage-reads #(#x5f #x54 0) 3001)))
+    ;; PUSH1 1 PUSH0 SSTORE with 2,301 left: past the sentry, short of the
+    ;; 3,000 cold access.
+    (is (= 0 (storage-reads #(#x60 1 #x5f #x55 0) 2306)))))
+
+(deftest eip7928-zero-withdrawal-lists-its-account
+  ;; geth v1.17.6 ProcessWithdrawals credits a zero amount too, loading the
+  ;; account, so the block access list names it with no change and the
+  ;; state is untouched (tests-glamsterdam-devnet v7.2.1 eip7928
+  ;; bal_zero_withdrawal).
+  (let* ((state (make-state-db))
+         (address
+           (address-from-hex "0x0000000000000000000000000000000000000055"))
+         (accesses
+           (with-recorded-state-accesses (recorded)
+             (apply-withdrawal state
+                               (make-withdrawal :index 0 :validator-index 0
+                                                :address address
+                                                :amount 0)))))
+    (is (find "0x0000000000000000000000000000000000000055" accesses
+              :key #'second :test #'string=))
+    (is (null (state-db-get-account state address)))))
+
+(deftest eip8037-calldata-floor-bounds-the-regular-dimension
+  ;; geth v1.17.6 settleGas: tx_regular_gas = max(gas used less state gas,
+  ;; calldata floor), whether or not state gas lifts the whole transaction
+  ;; above the floor.  A call with 1,000 bytes of calldata that creates one
+  ;; slot uses less regular gas than its floor and more gas in all; the
+  ;; block's regular dimension must still count the floor
+  ;; (tests-glamsterdam-devnet v7.2.1 eip8037
+  ;; calldata_floor_not_discounted_by_state_gas).
+  (let* ((rules (evm-context-chain-rules
+                 (amsterdam-state-gas-test-context nil nil)))
+         (state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000011"))
+         (contract
+           (address-from-hex "0x0000000000000000000000000000000000000044"))
+         (tx (make-legacy-transaction
+              :nonce 0 :gas-price 1 :gas-limit 500000 :to contract
+              :data (make-array 1000 :element-type '(unsigned-byte 8)
+                                     :initial-element 1)))
+         (floor-gas (transaction-effective-floor-gas tx rules
+                                                     :sender sender)))
+    (state-db-set-account state sender (make-state-account :balance 10000000))
+    ;; PUSH1 1 PUSH0 SSTORE: one new slot, 97,920 of state gas.
+    (state-db-set-code state contract #(#x60 1 #x5f #x55 0))
+    (let ((receipt (apply-message state sender tx :chain-rules rules)))
+      (is (= 1 (receipt-status receipt)))
+      (is (= 97920 (receipt-state-gas-used receipt)))
+      (is (> (receipt-cumulative-gas-used receipt) floor-gas))
+      (is (= floor-gas (receipt-regular-gas-used receipt))))))
+
+(deftest amsterdam-intrinsic-gas-over-the-cap-is-intrinsic-gas-too-low
+  ;; A transaction whose intrinsic gas exceeds 2^24 cannot be included under
+  ;; Amsterdam; EEST names the exception INTRINSIC_GAS_TOO_LOW
+  ;; (tests-glamsterdam-devnet v7.2.1 eip8037
+  ;; intrinsic_regular_gas_exceeds_cap), and the state-test runner matches
+  ;; it on "gas limit" and "intrinsic gas".
+  (let* ((rules (evm-context-chain-rules
+                 (amsterdam-state-gas-test-context nil nil)))
+         (tx (make-legacy-transaction
+              :nonce 0 :gas-price 1 :gas-limit 30000000
+              :to (address-from-hex
+                   "0x0000000000000000000000000000000000000044")
+              :data (make-array 1100000 :element-type '(unsigned-byte 8)
+                                        :initial-element 1)))
+         (condition
+           (handler-case
+               (progn (ethereum-lisp.execution::validate-execution-transaction-gas-cap
+                       tx rules)
+                      nil)
+             (transaction-validation-error (c) c))))
+    (is condition)
+    (is (eest-state-test-condition-matches-exception-token-p
+         condition "TransactionException.INTRINSIC_GAS_TOO_LOW"))))

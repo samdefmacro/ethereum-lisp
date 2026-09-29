@@ -47,17 +47,21 @@
          (unless (and context (evm-context-state context))
            (fail "SLOAD requires an EVM context with state"))
          (let ((slot (evm-stack-pop machine)))
-           (let* ((slot-hash (word-to-hash32 slot))
-                  (value (state-db-get-storage
-                          (evm-context-state context)
-                          (evm-context-address context)
-                          slot-hash)))
+           ;; The access is paid before the slot is read: an SLOAD that
+           ;; cannot pay reads nothing, so EIP-7928 lists no read for it
+           ;; (geth v1.17.6 gasSLoad8038 runs before opSload).  Earlier forks
+           ;; only halt either way; the read has no other observer.
+           (let ((slot-hash (word-to-hash32 slot)))
              (charge-storage-read-access-gas
               context
               (evm-context-address context)
               slot-hash
               (lambda (amount) (evm-machine-charge-gas machine amount)))
-             (evm-stack-push machine value)))
+             (evm-stack-push machine
+                             (state-db-get-storage
+                              (evm-context-state context)
+                              (evm-context-address context)
+                              slot-hash))))
          (incf pc))
         ((= op #x55)
          (unless (and context (evm-context-state context))
@@ -71,6 +75,16 @@
            (fail "SSTORE requires more than the EIP-2200 sentry gas"))
          (let* ((slot (evm-stack-pop machine))
                 (value (evm-stack-pop machine)))
+           ;; geth v1.17.6 gasSStore8037And8038: a store that cannot pay its
+           ;; slot access fails before the slot is read, so EIP-7928 lists
+           ;; no read for it.
+           (when (and (amsterdam-context-p context)
+                      gas-limit
+                      (< (evm-gas-budget-regular gas-budget)
+                         (storage-access-cost
+                          context (evm-context-address context)
+                          (word-to-hash32 slot))))
+             (fail "SSTORE cannot pay its slot access at pc ~D" pc))
            (let* ((slot-hash (word-to-hash32 slot))
                   (refund-key
                     (storage-refund-key
@@ -94,6 +108,15 @@
                            context
                            (evm-context-address context)
                            slot-hash)))
+                    ;; geth v1.17.6 gasSStore8037And8038 refills a restored
+                    ;; slot's state gas (possibly charged by an ancestor
+                    ;; frame) before the regular charge is taken, so the
+                    ;; refill can repay regular gas that charge then uses.
+                    (when (and (zerop original-value)
+                               (not (zerop current-value))
+                               (zerop value))
+                      (evm-machine-refill-state-gas
+                       machine +storage-set-state-gas+))
                     (evm-machine-charge-gas
                      machine
                      (sstore-amsterdam-regular-gas
@@ -102,11 +125,6 @@
                                (zerop current-value)
                                (not (zerop value)))
                       (evm-machine-charge-state-gas
-                       machine +storage-set-state-gas+))
-                    (when (and (zerop original-value)
-                               (not (zerop current-value))
-                               (zerop value))
-                      (evm-machine-refill-state-gas
                        machine +storage-set-state-gas+))
                     (when (and (not (zerop original-value))
                                (not (zerop current-value))

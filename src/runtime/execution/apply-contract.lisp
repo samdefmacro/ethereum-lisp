@@ -1,5 +1,99 @@
 (in-package #:ethereum-lisp.execution)
 
+(defun run-amsterdam-creation-frame (state sender tx contract rules frame
+                                     make-context)
+  "Deploy TX's initcode at CONTRACT on FRAME, after geth v1.17.6 EVM.create
+and initNewContract under Amsterdam.  Returns (VALUES OUTCOME FRAME LOGS
+REFUND CONTEXT), OUTCOME one of :SUCCESS, :REVERTED and :HALTED and FRAME in
+its leftover form.  The caller reverts the state of a failed creation."
+  (when (execution-contract-address-collision-p state contract)
+    ;; EIP-8037: a collision burns the regular gas and keeps the reservoir.
+    (return-from run-amsterdam-creation-frame
+      (values :halted (evm-gas-budget-exit-halt frame) '() 0 nil)))
+  (handler-case
+      (let ((transfer-log
+              (transfer-value state sender contract (transaction-value tx)
+                              rules))
+            (contract-account (execution-account-or-empty state contract)))
+        (put-execution-account-values
+         state contract 1
+         (state-account-balance contract-account)
+         (state-account-code-hash contract-account))
+        (let* ((context (funcall make-context))
+               (result
+                 (progn
+                   ;; EIP-6780: the new contract counts as created in this
+                   ;; transaction, so an initcode SELFDESTRUCT deletes it.
+                   (mark-created-account context contract)
+                   (execute-bytecode (transaction-data tx)
+                                     :context context
+                                     :gas-limit (evm-gas-budget-regular frame)
+                                     :gas-budget frame))))
+          (if (eq (evm-result-status result) :reverted)
+              (values :reverted (evm-gas-budget-exit-revert frame) '() 0 nil)
+              (let ((code (evm-result-return-data result)))
+                (if (and (not (invalid-contract-runtime-code-p code rules))
+                         (evm-gas-budget-charge
+                          frame
+                          (make-evm-gas-costs
+                           :regular (* +keccak256-word-gas+
+                                       (ceiling (length code) 32))))
+                         (evm-gas-budget-charge-state
+                          frame (* +cost-per-state-byte+ (length code))))
+                    (progn
+                      (state-db-set-code state contract code)
+                      (values :success frame
+                              (if transfer-log
+                                  (cons transfer-log (evm-result-logs result))
+                                  (evm-result-logs result))
+                              (evm-result-refund-counter result)
+                              context))
+                    (values :halted (evm-gas-budget-exit-halt frame)
+                            '() 0 nil))))))
+    (evm-error ()
+      (values :halted (evm-gas-budget-exit-halt frame) '() 0 nil))))
+
+(defun apply-amsterdam-contract-creation
+    (state sender coinbase tx base-fee rules contract runtime-budget
+     make-context)
+  "Run an Amsterdam creation transaction's top frame and settle it, after
+geth v1.17.6 executeCreate and settleGas: an empty destination is charged its
+account creation as state gas first (an unaffordable charge halts the
+transaction), the frame gets all of the budget, a failed creation refills the
+account-creation charge, and a halted one burns the regular gas that refill
+repaid."
+  (let ((charged-p nil))
+    (when (execution-empty-account-p state contract)
+      (unless (evm-gas-budget-charge-state runtime-budget
+                                           +new-account-state-gas+)
+        (return-from apply-amsterdam-contract-creation
+          (settle-amsterdam-transaction
+           state sender coinbase tx base-fee
+           (evm-gas-budget-exit-halt runtime-budget)
+           :status 0)))
+      (setf charged-p t))
+    (let ((snapshot (state-db-snapshot state))
+          (frame (evm-gas-budget-forward
+                  runtime-budget (evm-gas-budget-regular runtime-budget))))
+      (multiple-value-bind (outcome exit logs refund-counter context)
+          (run-amsterdam-creation-frame
+           state sender tx contract rules frame make-context)
+        (evm-gas-budget-absorb runtime-budget exit)
+        (unless (eq outcome :success)
+          (state-db-revert-to-snapshot state snapshot)
+          (when charged-p
+            (evm-gas-budget-refill-state runtime-budget
+                                         +new-account-state-gas+))
+          (when (eq outcome :halted)
+            (evm-gas-budget-drain-regular runtime-budget)))
+        (prog1 (settle-amsterdam-transaction
+                state sender coinbase tx base-fee runtime-budget
+                :status (if (eq outcome :success) 1 0)
+                :logs logs
+                :refund-counter refund-counter)
+          (when context
+            (finalize-evm-selfdestructs state context)))))))
+
 (defun apply-contract-creation (state sender tx
                                 &key (base-fee 0)
                                      (blob-base-fee 0)
@@ -36,6 +130,29 @@
                            :base-fee base-fee
                            :blob-base-fee blob-base-fee
                            :chain-rules effective-chain-rules)
+    (when (execution-amsterdam-p effective-chain-rules)
+      (return-from apply-contract-creation
+        (apply-amsterdam-contract-creation
+         state sender coinbase tx base-fee effective-chain-rules contract
+         runtime-budget
+         (lambda ()
+           (make-message-evm-context
+            state sender tx contract (make-byte-vector 0)
+            gas-price
+            :base-fee base-fee
+            :blob-base-fee blob-base-fee
+            :chain-id chain-id
+            :chain-rules effective-chain-rules
+            :chain-config chain-config
+            :coinbase coinbase
+            :timestamp timestamp
+            :block-number block-number
+            :slot-number slot-number
+            :prev-randao prev-randao
+            :difficulty difficulty
+            :random-p random-p
+            :context-gas-limit context-gas-limit
+            :block-hashes block-hashes)))))
     (when (and new-account-state-p
                (not (evm-gas-budget-charge-state
                      runtime-budget +new-account-state-gas+)))

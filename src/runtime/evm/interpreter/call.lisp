@@ -28,6 +28,10 @@ merging are deliberately not configurable; those are shared EVM invariants."
 
 (defun execute-evm-message-call (machine call)
   "Execute one CALL-family operation described by CALL and update MACHINE."
+  (when (and (evm-machine-gas-limit machine)
+             (amsterdam-context-p (evm-machine-context machine)))
+    (return-from execute-evm-message-call
+      (execute-evm-message-call-amsterdam machine call)))
   (with-slots (requested-gas code-address args-offset args-size
                return-offset return-size child-address
                child-caller child-value read-only-p charge-value-gas-p
@@ -190,6 +194,123 @@ merging are deliberately not configurable; those are shared EVM invariants."
                        child-logs
                        (evm-machine-logs machine)))))))))))
 
+(defun execute-evm-message-call-amsterdam (machine call)
+  "Execute one CALL-family operation under Amsterdam's two-dimensional gas.
+
+go-ethereum v1.17.6 makeCallVariantGasCallEIP8037 (CALL) and
+makeCallVariantGasCallEIP7702 (the other three), then opCall: the cold
+access, the memory and value charges, the delegation charge, CALL's
+new-account state charge, and only then the 63/64 cap on the regular gas
+left.  The caller pays the forwarded gas up front and hands the child its
+state reservoir; the child's leftover (EVM-GAS-BUDGET-EXIT-REVERT, -HALT) is
+absorbed, and CALL's new-account charge is refilled when the child failed and
+its target is still empty."
+  (with-slots (requested-gas code-address args-offset args-size
+               return-offset return-size child-address
+               child-caller child-value read-only-p charge-value-gas-p
+               new-account-p value-transfer-from value-transfer-to
+               trace-value-transfer-from trace-value-transfer-to
+               balance-check-address balance-check-value
+               balance-check-message merge-logs-p)
+      call
+    (let* ((context (evm-machine-context machine))
+           (state (evm-context-state context))
+           (input-region (list args-offset args-size))
+           (output-region (list return-offset return-size))
+           (value-p (and charge-value-gas-p (plusp child-value)))
+           (snapshot (capture-execution-snapshot state context)))
+      (flet ((charge (amount)
+               (evm-machine-charge-gas machine amount)))
+        (charge-account-access-gas context code-address #'charge)
+        ;; Every charge that precedes a state read is paid before it, so an
+        ;; out-of-gas call records nothing in the block access list.
+        (charge (+ (memory-regions-expansion-gas
+                    (evm-machine-memory machine) input-region output-region)
+                   (if value-p +call-value-transfer-amsterdam+ 0)))
+        (setf (evm-machine-memory machine)
+              (ensure-memory-regions
+               (evm-machine-memory machine) input-region output-region))
+        (let ((args (memory-slice (evm-machine-memory machine)
+                                  args-offset args-size))
+              (precompile-contract
+                (resolved-precompile-contract
+                 code-address
+                 (evm-context-chain-rules context)
+                 (evm-context-precompile-contracts context))))
+          (state-db-touch-account state child-address)
+          (let ((delegation-target
+                  (set-code-delegation-target
+                   (state-db-get-code state code-address))))
+            (when delegation-target
+              (charge (if (gethash (account-access-key delegation-target)
+                                   (evm-context-accessed-addresses context))
+                          +warm-account-access-amsterdam+
+                          (context-cold-account-access-cost context)))
+              (mark-account-accessed context delegation-target)
+              ;; geth recordDelegationAccess: once its charge is paid, the
+              ;; target is in the block access list, whether or not the call
+              ;; then passes its depth and balance checks.
+              (state-db-get-code state delegation-target)))
+          ;; Warmth survives a failed child, so the rollback snapshot must
+          ;; include the addresses accessed above.
+          (refresh-execution-snapshot-accessed-addresses snapshot context)
+          (when (and value-p new-account-p
+                     (empty-account-p state code-address))
+            (evm-machine-charge-state-gas machine +new-account-state-gas+))
+          (let* ((call-gas
+                   (min requested-gas
+                        (all-but-one-64th
+                         (evm-machine-regular-gas-left machine))))
+                 (child-budget
+                   (progn
+                     (charge call-gas)
+                     (make-evm-gas-budget
+                      :regular (+ call-gas (if value-p +call-stipend+ 0))
+                      :state (evm-gas-budget-state
+                              (evm-machine-gas-budget machine))))))
+            (multiple-value-bind
+                  (success child-return-data child-gas-used
+                   child-logs child-refund-counter child-state-gas-used
+                   exit-budget)
+                (execute-message-call-child
+                 state context snapshot code-address args
+                 (evm-gas-budget-regular child-budget)
+                 :child-budget child-budget
+                 :child-address child-address
+                 :child-caller child-caller
+                 :child-call-value child-value
+                 :read-only-p read-only-p
+                 :precompile-contract precompile-contract
+                 :value-transfer-from value-transfer-from
+                 :value-transfer-to value-transfer-to
+                 :trace-value-transfer-from trace-value-transfer-from
+                 :trace-value-transfer-to trace-value-transfer-to
+                 :balance-check-address balance-check-address
+                 :balance-check-value balance-check-value
+                 :balance-check-message balance-check-message)
+              (declare (ignore child-gas-used child-state-gas-used))
+              (evm-machine-absorb-child-budget machine exit-budget)
+              (when (and value-p new-account-p (zerop success)
+                         (empty-account-p state code-address))
+                (evm-machine-refill-state-gas
+                 machine +new-account-state-gas+))
+              (incf (evm-machine-refund-counter machine)
+                    child-refund-counter)
+              (setf (evm-machine-return-data-buffer machine)
+                    child-return-data
+                    (evm-machine-memory machine)
+                    (copy-child-return-data-to-memory
+                     (evm-machine-memory machine)
+                     return-offset
+                     return-size
+                     child-return-data))
+              (evm-stack-push machine success)
+              (when merge-logs-p
+                (setf (evm-machine-logs machine)
+                      (prepend-child-logs
+                       child-logs
+                       (evm-machine-logs machine)))))))))))
+
 (defun execute-message-call-child (state
                                    context
                                    snapshot
@@ -203,6 +324,7 @@ merging are deliberately not configurable; those are shared EVM invariants."
                                    read-only-p
                                    precompile-contract
                                    (child-state-gas-reservoir 0)
+                                   child-budget
                                    value-transfer-from
                                    value-transfer-to
                                    trace-value-transfer-from
@@ -210,7 +332,14 @@ merging are deliberately not configurable; those are shared EVM invariants."
                                    balance-check-address
                                    (balance-check-value 0)
                                    balance-check-message)
+  "Run one CALL-family child frame and return (VALUES SUCCESS RETURN-DATA
+GAS-USED LOGS REFUND STATE-GAS-USED EXIT-BUDGET).
 
+With CHILD-BUDGET (Amsterdam), the frame runs on that budget and EXIT-BUDGET
+is its leftover for the caller to absorb, as geth's Call returns it: the
+budget unchanged when the frame never started (depth or balance), the revert
+or halt leftover when it failed, and the budget as the frame left it
+otherwise.  CHILD-GAS-LIMIT is then CHILD-BUDGET's regular gas."
   ;; Every frame of a call trace is one of these, so the tracer needs no hook
   ;; anywhere else. FLET with DYNAMIC-EXTENT rather than a fresh closure: this
   ;; is the hottest path in the EVM, and a heap-allocated closure per call
@@ -225,7 +354,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
         (child-started-p nil)
         (child-gas-used 0)
         (child-state-gas-used 0)
-        (child-refund-counter 0))
+        (child-refund-counter 0)
+        (exit-budget child-budget))
     (handler-case
         (progn
           (when (and trace-value-transfer-from
@@ -276,6 +406,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
                   child-gas-limit)))
             (if precompile-p
                 (progn
+                  (when child-budget
+                    (evm-gas-budget-charge-regular child-budget precompile-gas))
                   (setf success 1
                         child-gas-used precompile-gas
                         child-return-data precompile-output))
@@ -302,14 +434,20 @@ merging are deliberately not configurable; those are shared EVM invariants."
                                   :context child-context
                                  :gas-limit child-gas-limit
                                  :gas-budget
-                                 (make-evm-gas-budget
-                                  :regular child-gas-limit
-                                  :state child-state-gas-reservoir)))))
+                                 (or child-budget
+                                     (make-evm-gas-budget
+                                      :regular child-gas-limit
+                                      :state child-state-gas-reservoir))))))
                         (multiple-value-bind
                               (child-success result-gas result-return-data
                                result-logs result-refund result-state-gas)
                             (apply-child-execution-result
                              state context snapshot child-result)
+                          (when (and child-budget
+                                     (eq (evm-result-status child-result)
+                                         :reverted))
+                            (setf exit-budget
+                                  (evm-gas-budget-exit-revert child-budget)))
                           (setf success child-success
                                 child-gas-used result-gas
                                 child-return-data result-return-data
@@ -321,6 +459,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
                           (incf child-refund-counter result-refund))))))))
       (evm-precompile-error (condition)
         (restore-execution-snapshot state context snapshot)
+        (when child-budget
+          (setf exit-budget (evm-gas-budget-exit-halt child-budget)))
         (setf success 0
               child-return-data (make-byte-vector 0)
               child-logs '()
@@ -329,6 +469,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
                condition child-gas-limit)))
       (evm-error ()
         (restore-execution-snapshot state context snapshot)
+        (when (and child-budget child-started-p)
+          (setf exit-budget (evm-gas-budget-exit-halt child-budget)))
         (setf success 0
               child-return-data (make-byte-vector 0)
               child-logs '()
@@ -342,7 +484,8 @@ merging are deliberately not configurable; those are shared EVM invariants."
             child-gas-used
             child-logs
             child-refund-counter
-            child-state-gas-used))))
+            child-state-gas-used
+            exit-budget))))
     (declare (dynamic-extent #'traced-body))
     ;; STATICCALL is derivable here; DELEGATECALL and CALLCODE are not, because
     ;; what distinguishes them is the caller and address the CALLER chose to

@@ -421,3 +421,79 @@
       (assert-unsupported 4 amsterdam-config)
       (assert-unsupported 5 osaka-config)
       (assert-supported 5 amsterdam-config))))
+
+(deftest engine-new-payload-block-access-list-parameter-shape
+  ;; tests-glamsterdam-devnet v7.2.1: a newPayloadV5 blockAccessList that is
+  ;; not one whole RLP list is a malformed parameter (-32602,
+  ;; bal_invalid_engine_payload_encoding: 0x, 0x80, 0xc1), as Nethermind's
+  ;; ExecutionPayloadParams.ValidateParams has it; a newPayloadV4 must not
+  ;; carry one (bal_invalid_engine_payload_field_before_fork: 0xc0 is
+  ;; -32602), except that empty bytes are left to block reconstruction
+  ;; (invalid_pre_fork_block_with_bal_hash_field: INVALID).
+  (let* ((address (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (parent-beacon-root
+           (hash32-from-hex
+            "0x0100000000000000000000000000000000000000000000000000000000000000"))
+         (requests (list #(#x00 #xaa)))
+         (prague-config (make-chain-config :london-block 0 :shanghai-time 0
+                                           :cancun-time 0 :prague-time 0))
+         (amsterdam-config (make-chain-config :london-block 0 :shanghai-time 0
+                                              :cancun-time 0 :prague-time 0
+                                              :amsterdam-time 0))
+         (header-fields
+           (list :parent-hash (zero-hash32) :beneficiary address
+                 :state-root +empty-trie-hash+ :mix-hash (zero-hash32)
+                 :number 42 :gas-limit 50000 :gas-used 0 :timestamp 99
+                 :base-fee-per-gas 100
+                 :withdrawals-root (withdrawal-list-root '())
+                 :blob-gas-used 0 :excess-blob-gas 0
+                 :parent-beacon-root parent-beacon-root
+                 :requests-hash (execution-requests-hash requests))))
+    (flet ((payload-with (header block-access-list)
+             (let ((payload
+                     (execution-payload-envelope-execution-payload
+                      (block-to-executable-data
+                       (make-block :header header :withdrawals '()
+                                   :requests requests)))))
+               (setf (ethereum-lisp.engine-payloads:executable-data-block-access-list
+                      payload)
+                     block-access-list)
+               payload))
+           (validation-error (version payload config)
+             (payload-status-validation-error
+              (engine-new-payload-version-status
+               version payload config
+               :parent-beacon-root parent-beacon-root
+               :versioned-hashes '()
+               :requests requests))))
+      (let ((prague-header (apply #'make-block-header header-fields))
+            (amsterdam-header (apply #'make-block-header :slot-number 7
+                                     header-fields)))
+        (is (equal "blockAccessList not supported before Amsterdam"
+                   (validation-error 4 (payload-with prague-header #(#xc0))
+                                     prague-config)))
+        (is (not (equal "blockAccessList not supported before Amsterdam"
+                        (validation-error 4 (payload-with prague-header #())
+                                          prague-config))))
+        (dolist (malformed (list #() #(#x80) #(#xc1)))
+          (is (equal "blockAccessList must be one complete RLP list"
+                     (validation-error 5 (payload-with amsterdam-header
+                                                       malformed)
+                                       amsterdam-config))))
+        (is (not (equal "blockAccessList must be one complete RLP list"
+                        (validation-error 5 (payload-with amsterdam-header
+                                                          #(#xc0))
+                                          amsterdam-config)))))))
+  (let ((envelope-p
+          #'ethereum-lisp.engine-payloads::engine-block-access-list-envelope-p))
+    (is (not (funcall envelope-p #())))
+    (is (not (funcall envelope-p #(#x80))))
+    (is (not (funcall envelope-p #(#xc1))))
+    (is (not (funcall envelope-p #(#xc0 #x00))))
+    (is (not (funcall envelope-p #(#xf8 #x01 #x80))))
+    (is (funcall envelope-p #(#xc0)))
+    (is (funcall envelope-p #(#xc1 #x80)))
+    (is (funcall envelope-p
+                 (concatenate '(vector (unsigned-byte 8))
+                              #(#xf8 56)
+                              (make-array 56 :initial-element #x80))))))

@@ -1,10 +1,16 @@
 (in-package #:ethereum-lisp.execution)
 
 (defun apply-withdrawal (state withdrawal)
-  (state-db-add-balance
-   state
-   (withdrawal-address withdrawal)
-   (* (withdrawal-amount withdrawal) +wei-per-gwei+))
+  (if (zerop (withdrawal-amount withdrawal))
+      ;; geth v1.17.6 ProcessWithdrawals credits a zero amount too, which
+      ;; loads the account: EIP-7928 lists it with no change.  The state is
+      ;; unchanged, so before Amsterdam, where nothing records the access,
+      ;; this read is invisible.
+      (state-db-get-account state (withdrawal-address withdrawal))
+      (state-db-add-balance
+       state
+       (withdrawal-address withdrawal)
+       (* (withdrawal-amount withdrawal) +wei-per-gwei+)))
   state)
 
 (defun apply-withdrawals (state withdrawals)
