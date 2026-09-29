@@ -128,6 +128,15 @@ and callers do it outside the store guard."
   (entries (make-hash-table :test #'equalp))
   (order '()))
 
+(defun devnet-blob-cell-cache-contains-p (cache blob)
+  "Whether CACHE already holds BLOB's cells and cell proofs."
+  (let ((key (ensure-byte-vector blob)))
+    #+sbcl
+    (sb-thread:with-mutex ((devnet-blob-cell-cache-lock cache))
+      (nth-value 1 (gethash key (devnet-blob-cell-cache-entries cache))))
+    #-sbcl
+    (nth-value 1 (gethash key (devnet-blob-cell-cache-entries cache)))))
+
 (defun devnet-blob-cell-cache-derivation (cache blob function)
   "Return (VALUES CELLS PROOFS) for BLOB, computing them with FUNCTION once.
 

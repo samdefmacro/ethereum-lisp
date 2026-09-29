@@ -38,13 +38,16 @@
           (engine-rpc-get-blob-hashes-param
            params "engine_getBlobsV1")))
     (engine-rpc-validate-get-blobs-request-size hashes)
-    (mapcar (lambda (versioned-hash)
-              (let ((blob-and-proofs
-                      (engine-payload-store-blob-and-proofs-v1
-                       store versioned-hash)))
-                (when blob-and-proofs
-                  (engine-rpc-blob-and-proof-v1-object blob-and-proofs))))
-            hashes)))
+    (call-with-engine-payload-store-blob-read-batch
+     store
+     (lambda ()
+       (mapcar (lambda (versioned-hash)
+                 (let ((blob-and-proofs
+                         (engine-payload-store-blob-and-proofs-v1
+                          store versioned-hash)))
+                   (when blob-and-proofs
+                     (engine-rpc-blob-and-proof-v1-object blob-and-proofs))))
+               hashes)))))
 
 (defun engine-rpc-handle-get-blobs-v2 (params store config)
   (engine-rpc-validate-blob-param-count params "engine_getBlobsV2" 1)
@@ -56,10 +59,13 @@
          (blobs
            (progn
              (engine-rpc-validate-get-blobs-request-size hashes)
-             (mapcar (lambda (versioned-hash)
-                       (engine-payload-store-blob-and-proofs-v2
-                        store versioned-hash))
-                     hashes))))
+             (call-with-engine-payload-store-blob-read-batch
+              store
+              (lambda ()
+                (mapcar (lambda (versioned-hash)
+                          (engine-payload-store-blob-and-proofs-v2
+                           store versioned-hash))
+                        hashes))))))
     (if (some #'null blobs)
         nil
         (mapcar #'engine-rpc-blob-and-proof-v2-object blobs))))
@@ -82,11 +88,14 @@
 
 (defun engine-rpc-handle-get-blobs-v3 (params store config)
   (engine-rpc-validate-blob-param-count params "engine_getBlobsV3" 1)
-  (engine-rpc-handle-get-blobs-v3-with-reader
-   params
-   (engine-rpc-get-blobs-osaka-p store config)
-   (lambda (versioned-hash)
-     (engine-payload-store-blob-and-proofs-v2 store versioned-hash))))
+  (call-with-engine-payload-store-blob-read-batch
+   store
+   (lambda ()
+     (engine-rpc-handle-get-blobs-v3-with-reader
+      params
+      (engine-rpc-get-blobs-osaka-p store config)
+      (lambda (versioned-hash)
+        (engine-payload-store-blob-and-proofs-v2 store versioned-hash))))))
 
 (defun make-engine-rpc-get-blobs-v3-snapshot-function
     (store config guard-try-function)
@@ -118,11 +127,14 @@ deadline."
                    (setf osaka-p active-p))
                  #-sbcl
                  (setf osaka-p active-p)
-                 (engine-rpc-handle-get-blobs-v3-with-reader
-                  params active-p
-                  (lambda (versioned-hash)
-                    (engine-payload-store-blob-and-proofs-v2
-                     store versioned-hash))))))
+                 (call-with-engine-payload-store-blob-read-batch
+                  store
+                  (lambda ()
+                    (engine-rpc-handle-get-blobs-v3-with-reader
+                     params active-p
+                     (lambda (versioned-hash)
+                       (engine-payload-store-blob-and-proofs-v2
+                        store versioned-hash))))))))
       (lambda (params)
         (multiple-value-bind (result acquired-p)
             (funcall guard-try-function (lambda () (refresh params)))
@@ -180,12 +192,15 @@ deadline."
     (engine-rpc-validate-blob-param-count params method 1)
     (let ((hashes (engine-rpc-get-blob-hashes-param params method)))
       (engine-rpc-validate-get-blobs-request-size hashes)
-      (mapcar
-       (lambda (versioned-hash)
-         (if (engine-payload-store-blob-and-proofs-v1 store versioned-hash)
-             t
-             :false))
-       hashes))))
+      (call-with-engine-payload-store-blob-read-batch
+       store
+       (lambda ()
+         (mapcar
+          (lambda (versioned-hash)
+            (if (engine-payload-store-blob-available-p store versioned-hash)
+                t
+                :false))
+          hashes))))))
 
 (defun engine-rpc-handle-get-payload-bodies-by-hash
     (params store method body-object-function)

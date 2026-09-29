@@ -37,7 +37,8 @@
                :no-local-exemptions-p txpool-no-local-exemptions-p)))
         (hash32-to-hex
          ;; A blob transaction and its sidecar take the pool's one blob
-         ;; admission: policy checks, then KZG, then one mutation of both.
+         ;; admission: stateless basics, then KZG, then the pool's policy
+         ;; checks and one mutation of both.
          (if (typep transaction 'blob-transaction)
              (txpool-admit-blob-transaction
               transaction sidecar store config policy :admitted-at txpool-now)

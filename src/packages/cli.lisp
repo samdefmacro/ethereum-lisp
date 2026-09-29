@@ -6,7 +6,8 @@
                 #:hash32=)
   (:import-from #:ethereum-lisp.chain-store
                 #:engine-payload-store-ancestor-p
-                #:engine-payload-store-forget-invalid-block)
+                #:engine-payload-store-forget-invalid-block
+                #:call-with-engine-payload-store-blob-read-batch)
   (:import-from #:ethereum-lisp.node-store
                 #:node-store-publish-read-view
                 #:node-store-read-view-attempt)

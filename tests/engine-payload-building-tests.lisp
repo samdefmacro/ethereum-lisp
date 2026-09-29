@@ -471,3 +471,120 @@ an independent in-memory verifier node on the same genesis."
            (is (= 48 (payload-building-transaction-count
                       (payload-building-stored node open))))))))
    :senders 12 :per-sender 4 :improvement-thread-p nil))
+
+(defun payload-building-blob-transaction
+    (chain-id private-key key-index nonce &key (blobs 6))
+  "A signed BLOBS-blob transaction and its V0 sidecar. Every commitment is
+distinct (KEY-INDEX, NONCE and blob index are written into it); the blobs are
+zero and proof verification is stubbed by the caller."
+  (let* ((commitments
+           (loop for blob-index below blobs
+                 collect (let ((commitment
+                                 (make-byte-vector +kzg-commitment-size+
+                                                   :initial-element #xc0)))
+                           (setf (aref commitment 1) key-index
+                                 (aref commitment 2) nonce
+                                 (aref commitment 3) blob-index)
+                           commitment)))
+         (transaction
+           (fixture-sign-blob-transaction
+            (make-blob-transaction
+             :chain-id chain-id :nonce nonce
+             :max-priority-fee-per-gas 2 :max-fee-per-gas 2000000000
+             :gas-limit 21000
+             :to (address-from-hex
+                  "0x0000000000000000000000000000000000003001")
+             :max-fee-per-blob-gas 100
+             :blob-versioned-hashes
+             (mapcar #'kzg-commitment-to-versioned-hash commitments))
+            private-key)))
+    (values transaction
+            (make-blob-sidecar
+             :blobs (loop repeat blobs
+                          collect (make-byte-vector +blob-byte-size+))
+             :commitments commitments
+             :proofs (loop repeat blobs
+                           collect (make-byte-vector +kzg-proof-size+
+                                                     :initial-element #x22))))))
+
+(deftest engine-payload-build-enforces-the-blob-cache-bounds-once-per-pass
+  (:layer :integration :module :engine)
+  ;; Hive engine-cancun "Parallel Blob Transactions" at 7116af82: fifty
+  ;; 6-blob transactions pooled from ten senders, then fcU and getPayloadV3,
+  ;; which answered 0 blobs where 6 were expected. Before selection the
+  ;; builder asks whether each pooled blob is held, and every such read
+  ;; enforced the blob cache bounds, which walks and sorts the whole cache:
+  ;; 300 reads of a 300-entry cache, 1.2 s in the warm image, so the 1 s
+  ;; improvement pass and getPayload's 0.3 s rebuild both hit their deadline
+  ;; before the first candidate (the Hive client logged 1,080 ms and 1,052 ms
+  ;; guard holds). A read batch enforces once.
+  (let* ((keys (loop for index below 10 collect (+ 7101 index)))
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json
+                (devnet-cli-funded-txpool-genesis-json
+                 :private-keys keys
+                 :config-fields (list (cons "cancunTime" "0x0")))
+                :port 0 :public-port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (config (ethereum-lisp.cli:devnet-node-config node))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (accept (eth-serve-backend-accept-blob-transaction
+                  (ethereum-lisp.cli::devnet-peer-serve-backend node)))
+         (enforce (fdefinition
+                   'ethereum-lisp.chain-store::engine-payload-store-enforce-cache-bounds))
+         (enforcements 0))
+    (with-txpool-s6-blob-proofs ()
+      (loop for key in keys
+            for key-index from 1
+            do (dotimes (nonce 5)
+                 (multiple-value-bind (transaction sidecar)
+                     (payload-building-blob-transaction
+                      (chain-config-chain-id config) key key-index nonce)
+                   (is (funcall accept transaction sidecar))))))
+    (let ((candidates
+            (ethereum-lisp.engine-api:engine-rpc-pending-build-transactions
+             store config (block-header genesis))))
+      (is (= 50 (length candidates)))
+      (devnet-peer-sync-call-with-function-overrides
+       (list (cons 'ethereum-lisp.chain-store::engine-payload-store-enforce-cache-bounds
+                   (lambda (&rest arguments)
+                     (incf enforcements)
+                     (apply enforce arguments))))
+       (lambda ()
+         ;; Every candidate's blobs are held, so all fifty are buildable,
+         ;; after one enforcement (300 before the fix).
+         (is (= 50 (length
+                    (ethereum-lisp.engine-api::engine-rpc-buildable-transactions
+                     store candidates))))
+         (is (= 1 enforcements)))))
+    ;; The Hive schedule: fcU with attributes, one improvement pass under its
+    ;; 1 s deadline, getPayloadV3. One 6-blob transaction fills the Cancun
+    ;; block's six blobs.
+    (ethereum-lisp.cli::call-with-devnet-cli-kzg-verifier
+     (lambda ()
+       (let* ((response
+                (payload-building-call
+                 node
+                 (payload-building-request
+                  1 "engine_forkchoiceUpdatedV3"
+                  (list (payload-building-forkchoice-state
+                         (block-hash genesis))
+                        (payload-building-attributes 11)))))
+              (payload-id
+                (payload-building-field
+                 (payload-building-field response "result") "payloadId")))
+         (is (stringp payload-id))
+         (ethereum-lisp.cli::devnet-improve-open-payloads-once
+          node (ethereum-lisp.cli:make-devnet-shutdown-controller))
+         (let* ((result
+                  (payload-building-field
+                   (payload-building-call
+                    node
+                    (payload-building-request
+                     2 "engine_getPayloadV3" (list payload-id)))
+                   "result"))
+                (payload (payload-building-field result "executionPayload")))
+           (is (= 1 (length (payload-building-field payload "transactions"))))
+           (is (= 6 (length (payload-building-field
+                             (payload-building-field result "blobsBundle")
+                             "commitments"))))))))))

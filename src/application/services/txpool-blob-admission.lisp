@@ -5,25 +5,31 @@
 ;;;; A blob transaction and its sidecar enter the pool together or not at all.
 ;;;; TXPOOL-ADMIT-BLOB-TRANSACTION runs, in this order:
 ;;;;
-;;;;   1. the pool's policy and capacity checks, which read the store but do
-;;;;      not change it (sender, nonce, balance, fees, reservations, the blob
-;;;;      count limit, the pooled-blob cap);
+;;;;   1. whether the transaction is already known, and the checks that need
+;;;;      no sender state (TXPOOL-CHECK-BLOB-BASICS: encoded size, the fork's
+;;;;      blob count limit), which bound the work of steps 2 and 3;
 ;;;;   2. the sidecar's shape: counts, element sizes, and each commitment's
 ;;;;      versioned hash against the transaction -- no curve arithmetic;
 ;;;;   3. KZG verification of every proof (EIP-4844 blob proofs, or EIP-7594
 ;;;;      cell proofs), and for a cell-proof sidecar the blob proof getBlobsV1
 ;;;;      serves, which touches no store;
-;;;;   4. the checks of step 1 again, then ONE atomic commit that puts the
-;;;;      transaction in the blob subpool and its blobs in the chain store's
-;;;;      blob cache, marked pool-owned.
+;;;;   4. the pool's policy and capacity checks (sender, nonce, balance, fees,
+;;;;      reservations, replacement, the pooled-blob cap), then ONE atomic
+;;;;      commit that puts the transaction in the blob subpool and its blobs
+;;;;      in the chain store's blob cache, marked pool-owned.
 ;;;;
 ;;;; A caller that serializes store access with a lock passes CALL-WITH-STORE,
 ;;;; so steps 1 and 4 run under it and steps 2 and 3 do not: KZG verification
 ;;;; costs milliseconds per blob, and the node store guard also serializes
 ;;;; every Engine request. This is go-ethereum v1.17 core/txpool/blobpool's
 ;;;; order: BlobPool.Add runs ValidateTxBasics and ValidateCells before
-;;;; AddPooledTx takes the pool lock, and addLocked stores the transaction and
-;;;; its blobs as one record.
+;;;; AddPooledTx takes the pool lock and validateTx reads the sender's state,
+;;;; and addLocked stores the transaction and its blobs as one record. The
+;;;; order matters to peers: a sidecar is verified whatever the pool would
+;;;; answer, so a peer that sent invalid cells for a transaction the pool
+;;;; would refuse anyway (an underpriced replacement, a full pool) is still
+;;;; identified and dropped (Hive devp2p BlobTxWithInvalidCells at 7116af82:
+;;;; docs/evidence/sec5-hive-engine-7116af82.txt).
 ;;;;
 ;;;; A malformed sidecar or a failing proof signals TXPOOL-INVALID-BLOB-SIDECAR,
 ;;;; so a peer layer can tell the sender's fault from a pool policy refusal.
@@ -35,7 +41,7 @@
 (defconstant +txpool-max-pooled-blobs+ 1024
   "Most distinct blobs the pooled blob transactions may reference: 128 MiB of
 blob data (131,072 bytes each) plus their proofs. A blob transaction that would
-exceed it is refused before its proofs are verified.")
+exceed it is refused at the commit, after its proofs are verified.")
 
 (define-condition txpool-invalid-blob-sidecar (block-validation-error) ()
   (:documentation
@@ -112,6 +118,23 @@ admission state."
                  (engine-payload-store-owned-blob-count store)
                  +txpool-max-pooled-blobs+)))))
       (values sender admission-state))))
+
+(defun txpool-check-blob-basics (transaction store config)
+  "The checks that need no sender state, run before the proofs are verified:
+TRANSACTION is a blob transaction of bounded encoding whose blob count is
+within the head fork's per-transaction limit (go-ethereum v1.17
+BlobPool.Add's ValidateTxBasics). This bounds the KZG work that follows.
+Signals BLOCK-VALIDATION-ERROR; changes nothing."
+  (unless (typep transaction 'blob-transaction)
+    (block-validation-fail "Blob admission requires a blob transaction"))
+  (validate-txpool-encoded-size transaction)
+  (multiple-value-bind (head block-number timestamp)
+      (txpool-admission-head-context store)
+    (declare (ignore head))
+    (validate-blob-transaction-fields
+     transaction
+     :max-blobs (chain-rules-max-blobs-per-transaction
+                 (chain-config-rules config block-number timestamp)))))
 
 (defun txpool-check-blob-sidecar-shape (transaction sidecar)
   "The sidecar checks that need no curve arithmetic: SIDECAR carries one blob,
@@ -232,8 +255,7 @@ to the pool or the blob store."
                  (lambda ()
                    (or (txpool-transaction-known-p transaction store)
                        (progn
-                         (txpool-check-blob-admission
-                          transaction store config policy)
+                         (txpool-check-blob-basics transaction store config)
                          nil))))
     (return-from txpool-admit-blob-transaction
       (transaction-hash transaction)))

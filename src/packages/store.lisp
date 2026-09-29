@@ -242,6 +242,8 @@
    #:engine-payload-store-remove-blob-sidecar
    #:engine-payload-store-blob-and-proofs-v1
    #:engine-payload-store-blob-and-proofs-v2
+   #:engine-payload-store-blob-available-p
+   #:call-with-engine-payload-store-blob-read-batch
    #:engine-payload-store-durable-blob-and-proofs-v2
    #:engine-payload-store-prune-caches
    #:engine-payload-store-cache-statistics

@@ -111,13 +111,46 @@ bandwidth, and the protocol asks that it carry at least one transaction."
       (eth-peer-note-known-transactions peer sendable))
     (length sendable)))
 
+(defun eth-announcement-cell-proof-sidecar (sidecar)
+  "SIDECAR shaped as the eth/72 wrapper we serve, for sizing an announcement:
+its commitments with +CELL-PROOFS-PER-BLOB+ placeholder proofs per blob. Every
+KZG proof is 48 bytes, so the announced size is the served wrapper's size
+without deriving a single cell proof."
+  (let ((placeholder (make-byte-vector +kzg-proof-size+)))
+    (make-blob-sidecar
+     :blobs (blob-sidecar-blobs sidecar)
+     :commitments (blob-sidecar-commitments sidecar)
+     :proofs (loop repeat (* +cell-proofs-per-blob+
+                             (length (blob-sidecar-commitments sidecar)))
+                   collect placeholder))))
+
+(defun eth-announcement-blob-sidecar-reader (backend version)
+  "The sidecar reader an announcement to an eth VERSION peer sizes a pooled blob
+transaction with.
+
+An eth/72 announcement carries the size of the cell-proof wrapper we will
+serve. Deriving its 128 cell proofs per blob to learn that size cost 0.85 s of
+c-kzg per 5-blob transaction on the session's writer thread, which read nothing
+from its peer meanwhile (Hive 'Blob Transaction Ordering, Multiple Clients' at
+7116af82, docs/evidence/sec5-hive-engine-7116af82.txt). When cell proofs can be
+derived for serving, size the announcement from the stored sidecar with
+placeholder proofs instead."
+  (let ((stored (and backend
+                     (eth-serve-backend-pooled-transaction-sidecar backend))))
+    (if (and stored
+             (>= version +eth-protocol-version-72+)
+             (kzg-cell-computation-available-p))
+        (lambda (transaction)
+          (let ((sidecar (funcall stored transaction)))
+            (and sidecar (eth-announcement-cell-proof-sidecar sidecar))))
+        (and backend (eth-pooled-blob-sidecar-reader backend version)))))
+
 (defun eth-peer-announce-transactions (peer transactions)
   "Announce TRANSACTIONS to PEER by hash, and return how many were announced."
   (let* ((backend (eth-peer-serve-backend peer))
          (sidecar-reader
-           (and backend
-                (eth-pooled-blob-sidecar-reader
-                 backend (eth-peer-eth-version peer))))
+           (eth-announcement-blob-sidecar-reader
+            backend (eth-peer-eth-version peer)))
          (sendable
            (loop for transaction in transactions
                  for entry =

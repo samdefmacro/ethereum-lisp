@@ -46,10 +46,13 @@ proofs transiently without overwriting that legacy proof."
 (defun devnet-pooled-blob-entries (store transaction)
   "TRANSACTION's stored blob entries in order, or NIL when any is missing.
 A store read: call it under the store guard."
-  (loop for hash in (blob-transaction-blob-versioned-hashes transaction)
-        for entry = (engine-payload-store-blob-and-proofs-v1 store hash)
-        unless entry do (return nil)
-        collect entry))
+  (call-with-engine-payload-store-blob-read-batch
+   store
+   (lambda ()
+     (loop for hash in (blob-transaction-blob-versioned-hashes transaction)
+           for entry = (engine-payload-store-blob-and-proofs-v1 store hash)
+           unless entry do (return nil)
+           collect entry))))
 
 (defun devnet-pooled-blob-sidecar-from-entries
     (entries version cell-proof-function)
@@ -130,19 +133,79 @@ in the warm image, and the guard also serializes every Engine request."
    (devnet-node-blob-cell-cache node) blob
    (lambda (blob) (kzg-compute-cells-and-proofs blob))))
 
+(defconstant +devnet-blob-cell-derivation-threads+ 8
+  "Most blobs one serving call derives EIP-7594 cells and proofs for at once.
+Our policy: a derivation is about 0.12-0.19 s of c-kzg per blob, and it runs on
+a peer session's writer thread, which reads nothing from that peer meanwhile.")
+
+(defun devnet-node-derive-blob-cells (node blobs)
+  "Put the cells and cell proofs of every blob in BLOBS into NODE's cache,
+deriving the missing ones in parallel, at most
++DEVNET-BLOB-CELL-DERIVATION-THREADS+ at a time.
+
+A 5-blob transaction served to an eth/72 peer cost its session 0.85 s when its
+blobs were derived one after another, and the peer's own messages waited behind
+it: Hive 'Blob Transaction Ordering, Multiple Clients' at 7116af82
+(docs/evidence/sec5-hive-engine-7116af82.txt). A helper thread's failure is
+dropped; the caller's own derivation of that blob then signals it."
+  (let ((missing
+          (remove-if (lambda (blob)
+                       (devnet-blob-cell-cache-contains-p
+                        (devnet-node-blob-cell-cache node) blob))
+                     blobs)))
+    #-sbcl
+    (dolist (blob missing)
+      (devnet-node-blob-cells-and-proofs node blob))
+    #+sbcl
+    (loop while missing
+          do (let* ((batch (loop repeat +devnet-blob-cell-derivation-threads+
+                                 while missing
+                                 collect (pop missing)))
+                    (helpers
+                      (mapcar
+                       (lambda (blob)
+                         (sb-thread:make-thread
+                          (lambda ()
+                            ;; MANDATORY, not defensive: the node runs as
+                            ;; `sbcl --script`, where an unhandled condition in
+                            ;; any thread exits the process.
+                            (handler-case
+                                (progn
+                                  (devnet-node-blob-cells-and-proofs node blob)
+                                  t)
+                              (serious-condition () nil)))
+                          :name "ethereum-lisp-blob-cell-derivation"))
+                       (rest batch))))
+               (unwind-protect
+                    (devnet-node-blob-cells-and-proofs node (first batch))
+                 (dolist (helper helpers)
+                   (sb-thread:join-thread helper :default nil)))))
+    blobs))
+
 (defun devnet-node-pooled-blob-sidecar (node transaction version)
   "DEVNET-POOLED-BLOB-SIDECAR for serving: the store read under NODE's guard,
-any cell-proof derivation after it, from NODE's cache."
-  (devnet-pooled-blob-sidecar-from-entries
-   (call-with-devnet-node-store-guard-as
-    node "blob-sidecar-lookup"
-    (lambda ()
-      (devnet-pooled-blob-entries (devnet-node-store node) transaction)))
-   version
-   (and (= version 2)
-        (kzg-cell-computation-available-p)
-        (lambda (blob)
-          (nth-value 1 (devnet-node-blob-cells-and-proofs node blob))))))
+any cell-proof derivation after it, from NODE's cache, which a version 2
+wrapper fills for all of its blobs in parallel first."
+  (let ((entries
+          (call-with-devnet-node-store-guard-as
+           node "blob-sidecar-lookup"
+           (lambda ()
+             (devnet-pooled-blob-entries (devnet-node-store node)
+                                         transaction))))
+        (derive-p (and (= version 2) (kzg-cell-computation-available-p))))
+    (when derive-p
+      (devnet-node-derive-blob-cells
+       node
+       (loop for entry in entries
+             unless (= +cell-proofs-per-blob+
+                       (length (engine-blob-and-proofs-cell-proofs entry)))
+               collect (engine-blob-and-proofs-blob entry))))
+    (devnet-pooled-blob-sidecar-from-entries
+     entries
+     version
+     (and derive-p
+          (lambda (blob)
+            (nth-value 1 (devnet-node-blob-cells-and-proofs node blob)))))))
 
 (defun devnet-peer-blob-cells (node hashes mask)
   "Resolve pooled sidecars under NODE's guard, then serve eth/72 cell groups
