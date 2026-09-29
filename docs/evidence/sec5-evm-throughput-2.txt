@@ -1,0 +1,325 @@
+Section 5: EVM interpreter throughput, round 2 (real Hoodi traffic)
+
+Status
+
+Branch evm-throughput-2, from 3c0cfeabbf80f3b9e951572856e179f570986df4.
+DONE LOCALLY. Replaying the .hoodi-replay corpus (322 Hoodi blocks) as the
+Engine import executes them (the replay test's strict run) now costs 21.2 s
+of CPU against 48.7 s at the base (-56.5%); the whole replay test, which also
+parses the corpus JSON and runs every block a second time to localize
+differences, 60.8 s against 116.0 s (-47.5%). The median block's strict run
+went from 188 ms to 65 ms. Every block's verdict, receipts, state and header
+commitments are unchanged (320 match, 0 diverge, 2 unreplayable as before),
+the EEST v20.0.2 gates reproduce the six count-manifest lines byte for byte,
+ported_static, the Hoodi fixtures and the Amsterdam burn-down all pass.
+
+One regression was introduced and fixed on the branch before the gates:
+8ae6b113 crashed SBCL in the EEST state gate because 1,024 nested CALL levels
+no longer fit a default thread stack (section 3). No live run; no cold-all
+(the coordinator runs it once); amd64 not measured.
+
+Revisions (branch evm-throughput-2)
+
+  24277036  test: the Hoodi replay reports each block's CPU and consing
+  61c210bb  evm: run a frame's stack, jump and cheap word instructions in
+            registers
+  cbafc77f  evm: reduce a word modulo 2^256 with a mask, not a bignum
+            division
+  ccd0bf1a  evm: analyse a contract's JUMPDESTs once per code vector
+  5bd780b3  state: journal a storage write, an account change or a touch,
+            not a clone
+  295a758f  evm: keep the register loop's variables in registers
+  f574325b  bytes: read an integer seven bytes at a time past eight bytes
+  8ae6b113  evm: write a word's bytes 32 bits at a time
+  5068bbb1  evm: run a handler outside the register loop, so 1,024 CALL
+            levels fit
+  (this record is the next commit)
+
+================================================================================
+1. What the time was
+================================================================================
+
+The replay test now prints, per block, the thread CPU time and bytes consed
+of the strict run and of the whole block (HOODI-REPLAY-COST, numbers only)
+and their totals at the end (24277036; docs/validation.md, "Hoodi
+differential replay"). At the base, 141 of the 322 blocks cost more than
+200 ms of strict CPU (34.7 s of the 48.7 s): blocks carrying about 24 calls
+to the Hoodi gas burner (docs/evidence/sec5-evm-throughput.txt). 93 blocks
+of ERC-4337 bundles cost 60-200 ms (11.9 s), the rest 2.1 s.
+
+sb-sprof, :cpu, 20 corpus blocks (3685380-3685399), strict runs only, at the
+base: %EXECUTE-BYTECODE-FRAME (the inlined step) 28.0%, EXECUTE-OPCODE 10.7%,
+EXECUTE-STATE-MEMORY-OPCODE 9.6%, EXECUTE-STACK-LOG-OPCODE 8.7%,
+READ-PUSH-IMMEDIATE 7.3%, EXECUTE-ARITHMETIC-OPCODE 6.3%, KECCAK-ROUNDS 3.0%,
+%SXHASH-STRING 2.6%, WORD 2.2%, JUMP-DESTINATION-BITMAP 2.0%: about 75% in
+the per-instruction path. sb-sprof :alloc after 61c210bb: hash-table inserts
+(SB-IMPL::INSERT-AT) 33% of all allocation. Wrapping functions with a CPU
+accumulator (33 blocks sampled evenly over the corpus) put 12% of the strict
+CPU in CLONE-STATE-OBJECT alone, called by every SSTORE, balance change and
+EIP-161 touch, copying the account's whole loaded storage table.
+
+The disassembly of the first register loop showed its variables in the stack
+frame: 1,700 frame-slot references, every instruction loading and storing
+PC, SP, the stack and the gas. SBCL keeps a variable that an UNWIND-PROTECT
+cleanup reads in the frame, not a register.
+
+================================================================================
+2. Changes
+================================================================================
+
+61c210bb (interpreter/interpreter.lisp, base.lisp, opcodes.lisp,
+opcodes/arithmetic.lisp, execute.lisp): %RUN-EVM-MACHINE-IN-REGISTERS holds
+PC, SP, the stack vector and the regular gas left in locals and runs
+PUSH0-PUSH32, DUP, SWAP, POP, JUMPDEST, JUMP, JUMPI, PC, GAS, ADD, SUB, LT,
+GT, EQ, ISZERO, AND, OR and XOR inline, charging each instruction's base gas
+first and failing with the step loop's messages at the step loop's points
+(out of gas before any counter moves, underflow, overflow at 1,024, invalid
+jump). The word operations (WORD-ADD ...) are defined once in base.lisp and
+the family handlers use the same functions. Gasless frames, step-budgeted
+frames and a regular gas budget above the fixnum range keep STEP-EVM-MACHINE.
+
+cbafc77f: WORD reduces with LOGAND 2^256-1 instead of MOD (the same modulus
+for every integer, negatives included; 200,000 reductions of a 511-bit
+product 10.1 ms -> 1.9 ms; LDB was slower than MOD).
+
+ccd0bf1a: the JUMPDEST bitmap is computed once per code vector (a weak,
+synchronized EQ table; state objects share code vectors and nothing modifies
+them) instead of on every frame entry.
+
+5bd780b3 (state/db.lisp, state/types.lisp): a storage write journals its one
+slot (value, zero mark, the storage-trie root wrapper, the memoized storage
+root), an account change the account record, a touch nothing; the undo writes
+that back into the object the later undos have restored. Object creation,
+deletion and code changes keep the whole-object clone. A slot read after a
+journal entry now keeps its cached backing value through a revert, which is
+correct (it is the backing value) and is what go-ethereum's originStorage
+does; the 3684027 read-after-journal regressions still pass. The replay's
+per-block "slots" count (the slots our post-state knows, compared one by one
+with the reference) rose in 9 blocks for that reason, all still matching.
+
+295a758f: no UNWIND-PROTECT in the loop; every exit stores the registers
+itself. The per-frame instruction counter nothing read is gone. Burner frame
+3.1 -> 2.3 ms.
+
+f574325b (foundation/bytes.lisp): BYTES-TO-INTEGER takes seven bytes at a time
+past eight bytes (32 bytes: 0.93 us / 2,480 bytes consed -> 0.15 us / 384).
+
+8ae6b113 (evm/conversions.lisp): WORD-TO-HASH32 / WORD-TO-ADDRESS write a
+fixnum's low eight bytes and a wider word 32 bits at a time (256-bit word:
+0.70 us / 1,408 bytes -> 0.23 us / 448).
+
+5068bbb1: the register loop no longer calls handlers; see section 3.
+
+Tried and dropped, each measured without a gain on real blocks: a journal
+for the EVM access sets instead of copying them per call (0% CPU on 20
+blocks), a range tree instead of the opcode comparison chain, a derived
+instead of an accumulated charged-gas counter, hoisting the base-gas table
+into a local, MLOAD/MSTORE inline when memory need not grow (memory loop
+47.8 -> 40.9 ms, no change on 33 corpus blocks), reusing the Keccak digest
+object (12% of one 32-byte hash).
+
+================================================================================
+3. The regression fixed on the branch: 1,024 CALL levels and the stack
+================================================================================
+
+Symptom: at 8ae6b113 the EEST state gate
+(OPTIONAL-PHASE-A-EEST-STATE-TEST-ROOT-VECTORS-EXECUTE) died twice, both
+runs "fatal error encountered in SBCL ... maximum interrupt nesting depth (8)
+exceeded / Bad frame pointer", container exit 1, no test result. A third run
+with the JUMPDEST cache disabled died the same way.
+
+Mechanism: the register loop called every non-inline handler from inside its
+own frame, CALL included, so each nested CALL level carried the loop's frame
+on top of the step loop's. Measured with a self-CALL contract
+(0x5f5f5f5f5f305af100, all gas forwarded) and the stack pointer at each
+frame's creation: 1,840 control-stack bytes per level at 3c0cfeab, 2,016 at
+8ae6b113. 1,024 levels need 1.88 MB at the base and 2.06 MB at 8ae6b113; a
+default SBCL thread stack is 2 MB. In a fresh default thread the recursion
+returns :STOPPED at 3c0cfeab and exhausts the control stack at 8ae6b113.
+
+Fix (5068bbb1): the loop stores its registers and returns at any instruction
+that needs a handler; RUN-EVM-MACHINE, inlined into %EXECUTE-BYTECODE-FRAME,
+runs it (EXECUTE-OPCODE when the loop charged the base gas, STEP-EVM-MACHINE
+when the fork decides it) and enters the loop again, keeping only the
+machine live across the handler: 1,840 bytes per level again. (At the base
+a level is five frames of 136, 120, 200, 808 and 576 bytes: the frame
+function with the step loop, EXECUTE-SYSTEM-OPCODE, EXECUTE-EVM-MESSAGE-CALL,
+EXECUTE-MESSAGE-CALL-CHILD and its TRACED-BODY; 8ae6b113 added the loop's
+144-byte frame and RUN-EVM-MACHINE's 32, and the frame function grew from 136 to 192 bytes when the loop
+was first inlined into it with its locals live across the handler call.)
+
+Regression test: EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK
+(unit) runs the recursion in a fresh default-stack thread, its body handling
+every condition. RED: the same code at 8ae6b113 reports
+:CONTROL-STACK-EXHAUSTED (warm probe); GREEN at 3c0cfeab and 5068bbb1.
+
+Note: 1,840 bytes per level is 92% of a 2 MB stack at depth 1,024 at the base
+already; see "Out of scope".
+
+================================================================================
+4. Measurements
+================================================================================
+
+Corpus, cold replay (cl-workbench validation run cold-integration --match
+HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT, 322 blocks, arm64 dev image,
+other agents' containers running on the same machine; HOODI-REPLAY-COST
+summary lines):
+
+  tree                   strict CPU  strict consed  median strict  block CPU  block consed
+  3c0cfeab + 24277036    48,691 ms     13,688 MB      187,504 us  115,994 ms    42,327 MB
+  5bd780b3               27,017 ms     11,438 MB       88,037 us   74,787 ms    37,823 MB
+  8ae6b113               22,929 ms     10,844 MB       68,306 us   66,449 ms    36,589 MB
+  5068bbb1               21,160 ms     10,844 MB       65,460 us   60,847 ms    36,589 MB
+
+  (The first row is the base source with only the test's cost lines added.)
+  Examples, strict CPU per block base -> 5068bbb1: 3685381 (burner) 218 ->
+  76 ms; 3685386 (burner and 4337) 229 -> 84 ms; 3685389 (4337 bundle) 103
+  -> 67 ms, consing 81 -> 44 MB.
+
+Warm arm64 dev image, SBCL 2.2.9 (same probe at the base and at 5068bbb1):
+
+  measure                                         3c0cfeab           5068bbb1
+  burner frame, best of 15                        7.23 ms            2.25 ms
+  burner block, ENGINE-RPC-NEW-PAYLOAD-EXECUTES-
+    A-FULL-GAS-BURNER-BLOCK, 3 runs               187-196 ms         60-61 ms
+  memory loop (PUSH32 MSTORE MLOAD), best of 5    53.1 ms / 82 MB    46.8 ms / 82 MB
+  control stack per CALL level                    1,840 bytes        1,840 bytes
+
+  Intermediate burner frame: 61c210bb 3.2 ms, 295a758f 2.3 ms. Twenty corpus
+  blocks' strict runs, warm: 3.08 s at the base, 1.66 s at 61c210bb.
+
+After (sb-sprof :cpu, 33 blocks sampled evenly, at 8ae6b113): the register
+loop 48.8% (the burner), KECCAK-ROUNDS 7.9% (trie node checks and storage
+keys), SB-BIGNUM:BIGNUM-TRUNCATE 3.2% (all from the BN254 pairing and
+multiplication precompiles: the pure-Lisp modular inverse, 46 us a call),
+REPLACE 2.7%, equalp hashing of byte-vector keys 2.4%.
+
+================================================================================
+5. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: exit 0 before any application tooling.
+
+New tests
+  HOODI-REPLAY-COST-LINES-CARRY-ONLY-NUMBERS (unit): the cost lines' exact
+    text for two synthetic results.
+  EVM-REGISTER-LOOP-MATCHES-THE-STEP-LOOP (unit): about 2,000 programs (every
+    inline operation on twelve boundary values pairwise, every PUSH size
+    whole and truncated, DUP/SWAP at and one below their depth, underflow,
+    overflow at 1,024, pre-Shanghai PUSH0, handlers between inline
+    instructions, out of gas at every boundary of a mixed program, 400 random
+    programs) through the register loop and the step loop, comparing
+    failure message, PC, stack, gas counters, memory, status. Controls: a
+    PUSH8 range mutation and a GAS mutation of the loop each turn it red;
+    EVM-REGISTER-LOOP-DISAGREEMENT-CHECK-CAN-FAIL checks the comparator.
+  EVM-WORD-REDUCTION-IS-THE-MODULUS-FOR-EVERY-INTEGER (unit).
+  EVM-JUMPDEST-ANALYSIS-RUNS-ONCE-PER-CODE-VECTOR (unit).
+  STATE-JOURNAL-ENTRIES-REVERT-TO-THE-STATE-THAT-NEVER-SAW-THEM (unit): 1,500
+    random steps per seed (three seeds) of writes, balance changes, touches,
+    clears, code changes, reads and nested snapshots over trie-backed lazy
+    accounts; after every revert the state must read (slots, nonce, balance,
+    storage root, code) as a fresh state given only the kept operations. It
+    passes on the base's clone journal (the oracle is valid) and on the new
+    one; leaving the storage-trie restore out turns it red.
+  BYTES-TO-INTEGER-MATCHES-A-BYTE-BY-BYTE-READ (unit).
+  EVM-WORD-TO-BYTES-MATCHES-A-BYTE-BY-BYTE-REFERENCE (unit).
+  EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK (unit; section 3).
+
+Cold unit subsets, each EXIT=0:
+  61c210bb  --match EVM --match GAS --match OPCODE --match PRECOMPILE
+            240 passed
+  5bd780b3 tree  same plus --match STATE --match JOURNAL: 380 passed,
+            1 skipped (the v5.4.0 fixture test without a corpus)
+  295a758f  EVM GAS OPCODE PRECOMPILE STATE-JOURNAL: 248 passed
+  f574325b/8ae6b113 tree  --match BYTES --match RLP --match EVM --match TRIE:
+            308 passed, 2 skipped (fixture tests without a corpus)
+  5068bbb1  EVM GAS OPCODE PRECOMPILE STATE-JOURNAL: 250 passed
+  5068bbb1  --match HOODI-REPLAY- --match BYTES --match STATE --match
+            JOURNAL: 169 passed, 1 skipped
+  5068bbb1  cl-workbench validation run cold-docs: docs-check PASSED, EXIT=0
+
+EEST tests@v20.0.2, at 5068bbb114894a0304d71330513b68043a4a08ce on a clean
+tree (git status --porcelain empty before and after), 2026-09-29T17:53:24Z
+to 18:08:28Z. Corpus: hard-link copy of the main checkout's
+.eest-fixtures-stable-v20.0.2 as <worktree>/.eest-fixtures-w2;
+fixtures.tar.gz re-hashed on the control plane:
+1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788. Selectors
+and commands exactly as in docs/evidence/sec5-591f700e-eest-v20.0.2.txt, one
+retained container per gate (COLD_TEST_CONTAINER=
+ethereum-lisp-cold-eest-w2-5068bbb1-<slug>), sequential, output redirected:
+
+  slug                 test                                                    cmd  container  OOM
+  state-manifest       phase-a-eest-state-conformance-is-non-vacuous           0    0          false
+  blockchain-manifest  phase-a-eest-blockchain-conformance-is-non-vacuous      0    0          false
+  rlp-manifest         phase-a-eest-blockchain-rlp-conformance-is-non-vacuous  0    0          false
+  state                optional-phase-a-eest-state-test-root-vectors-execute   0    0          false
+  blockchain           optional-phase-a-eest-blockchain-replay-executes        0    0          false
+  engine-late          optional-phase-a-eest-engine-late-payload-replay-executes 0  0          false
+  engine-reject        optional-phase-a-eest-engine-payload-rejection-executes 0    0          false
+  rlp                  optional-phase-a-eest-blockchain-rlp-replay-executes    0    0          false
+
+  Each log: "ok <TEST>", "1 test passed.", no "not ok". The six count-manifest
+  lines are byte-identical to docs/evidence/sec5-b5161312-eest-v20.0.2.txt
+  (sorted diff empty; both sorted sets hash to
+  9c8f7010d2ec64d41c6564ffbed70f5d13e95f454f85f6f0d59547b96d2f4561). The
+  containers were removed after their state was recorded.
+  At 8ae6b113 the first three gates passed and the state gate crashed
+  (section 3); those containers were removed as well.
+
+ported_static (ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<worktree>/
+.eest-fixtures-w2/tests-v20.0.2, --match
+OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE), 5068bbb1, EXIT=0:
+  Cancun total: files=2078 cases=7060 passed=7059 failed=0 skipped=1
+    [paidMemoryAboveHarnessHeap:1]
+  Prague total: files=2078 cases=7060 passed=7059 failed=0 skipped=1
+    [paidMemoryAboveHarnessHeap:1]
+  Osaka total: files=1969 cases=6581 passed=6581 failed=0 skipped=0
+
+Hoodi fixtures (hard-linked .eest-fixtures-hoodi-3684027 and -3685491),
+cold-integration --match HOODI-3684027- --match HOODI-3685491-, EXIT=0:
+  HOODI-3684027-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE ok,
+  HOODI-3685491-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE ok.
+
+Hoodi differential replay (hard-linked .hoodi-replay, 5068bbb1):
+  selected=322 replayed=320 match=320 diverges=0 comparator=0 prestate=0
+  unreplayable=2 (3679328, 3685509: the known witness gaps); EXIT=1 by
+  design. Every per-block HOODI-REPLAY line equals the base run's except the
+  "slots" count in nine blocks (section 2, 5bd780b3).
+
+Amsterdam burn-down (hard-linked .eest-fixtures-amsterdam-v7.2.1,
+ETHEREUM_LISP_AMSTERDAM_EEST_TREES=all, all fourteen directories required, as
+docs/gap-analysis/amsterdam-inventory.md gives it), 5068bbb1, EXIT=0:
+  state 15,627/15,627, engine 21,067/21,067, transition 96/96, no line with a
+  failure.
+
+================================================================================
+Out of scope, seen on the way
+================================================================================
+
+- A CALL level costs 1,840 bytes of control stack at the base and here, so
+  1,024 levels use 1.88 MB of a default 2 MB thread stack. Any frame added on
+  the CALL path, or a thread started with a smaller stack, fails real
+  deep-recursion transactions; the new depth test guards the default case.
+- Lazy flat-loader storage (a STORAGE-LOADER without the account's entries
+  preloaded): a storage-root computation caches a trie of the loaded slots,
+  which later reads consult instead of the loader. The durable provider uses
+  storage tries and the memory/file oracle preloads every entry, so neither
+  is affected; the journal oracle test uses tries for that reason.
+- The BN254 pairing and multiplication precompiles are pure Lisp with a
+  recursive extended-Euclid inverse (46 us a call; one pairing 61 ms).
+- tests/hoodi-replay-tests.lisp compiles with a full WARNING "This is not a
+  REAL: NIL" at the base already.
+- The warm image logs the known style-warnings (PRECOMPILE-P unused in
+  call.lisp; &OPTIONAL with &KEY in execution/state.lisp and two txpool
+  functions).
+
+================================================================================
+Not verified
+================================================================================
+
+- Live: nothing deployed; amd64 not measured.
+- No cold-all (coordinator).
+- The legacy v5.4.0 corpus (pre-London forks) was not run; ported_static
+  covers Cancun, Prague and Osaka only, the unit tests the older forks.
+- Timings share the machine with other agents' builds and gates; the warm
+  figures are best-of-N, the corpus figures single runs.
