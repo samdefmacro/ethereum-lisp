@@ -121,8 +121,8 @@
     (validate-execution-transaction-list-fields transactions
                                                 effective-chain-rules
                                                 blob-base-fee)
-    (let ((senders (signed-transaction-senders-or-error transactions
-                                                        expected-chain-id)))
+    (let ((senders (signed-transaction-senders-or-error
+                    transactions expected-chain-id effective-chain-rules)))
       ;; Validate every authority before the first transaction mutates state.
       (validate-transaction-senders-code state senders)
       (loop for tx in transactions
@@ -252,7 +252,8 @@ the block access list under construction."
         (return))
       (let* ((sender
                (handler-case
-                   (signed-transaction-sender-or-error tx expected-chain-id)
+                   (signed-transaction-sender-or-error
+                    tx expected-chain-id effective-chain-rules)
                  (transaction-validation-error () nil)))
              (sender-key (and sender (address-to-hex sender))))
         (when (and sender-key (not (gethash sender-key blocked-senders)))

@@ -77,7 +77,9 @@ the end of the code read as zero.  The frame's register loop inlines this."
       (ceiling (integer-length exponent) 8)))
 
 (defun exp-byte-gas (rules)
-  (if (or (null rules) (chain-rules-eip158-p rules))
+  ;; EIP-160 arrived with Spurious Dragon; a later single-flag rule set
+  ;; implies it.
+  (if (chain-rules-eip158-active-p rules)
       +exp-byte-gas-eip160+
       +exp-byte-gas+))
 

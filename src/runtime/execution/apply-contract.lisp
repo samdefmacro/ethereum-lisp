@@ -194,8 +194,7 @@ repaid."
                   (put-execution-account-values
                    state
                    contract
-                   (if (or (null effective-chain-rules)
-                           (chain-rules-eip158-p effective-chain-rules))
+                   (if (chain-rules-eip158-active-p effective-chain-rules)
                        1
                        0)
                    (state-account-balance contract-account)

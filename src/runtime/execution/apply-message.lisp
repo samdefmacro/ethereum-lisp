@@ -419,8 +419,7 @@ not, and a transfer creates it by crediting it."
                                      :block-hashes block-hashes))
       (state-db-finalize-transaction
        state transaction-snapshot
-       (or (null effective-chain-rules)
-           (chain-rules-eip158-p effective-chain-rules))))))
+       (chain-rules-eip158-active-p effective-chain-rules)))))
 
 (defun apply-signed-message
     (state tx
@@ -439,7 +438,10 @@ not, and a transfer creates it by crediting it."
           (context-gas-limit 0)
           (block-hashes (make-hash-table)))
   "Recover the transaction sender from its signature and apply the message."
-  (let ((sender (signed-transaction-sender-or-error tx expected-chain-id))
+  (let ((sender (signed-transaction-sender-or-error
+                 tx expected-chain-id
+                 (execution-chain-rules chain-rules chain-config
+                                        block-number timestamp)))
         (chain-id (transaction-context-chain-id tx expected-chain-id)))
     (apply-message state sender tx
                    :base-fee base-fee

@@ -888,20 +888,35 @@ fall back to DEVNET-PEER-SYNC-STATUS and the guard."
                                           (getf view :head-number)
                                           (getf view :head-timestamp)
                                           (getf view :genesis-hash)
-                                          (getf view :best-hash))
+                                          (getf view :best-hash)
+                                          (getf view :head-total-difficulty))
             (devnet-peer-sync-status node))
       (declare (ignore head-number))
       (values status chain-context))))
 
+(defun devnet-peer-status-total-difficulty (config head-total-difficulty)
+  "The total difficulty our eth/68 Status advertises.
+
+The head's own, as go-ethereum v1.14.13 eth/handler.go runEthPeer sends it
+(h.chain.GetTd of the current header). A store that cannot know it (a chain
+entered at a snap or checkpoint pivot) advertises the configured TTD, a lower
+bound for any post-Merge head, or zero; geth v1.15.0 through v1.16.x send
+zero for every head, and eth/69 carries no total difficulty at all."
+  (or head-total-difficulty
+      (chain-config-terminal-total-difficulty config)
+      0))
+
 (defun devnet-peer-status-from-head
-    (node head-number head-timestamp genesis-hash best-hash)
+    (node head-number head-timestamp genesis-hash best-hash
+     &optional head-total-difficulty)
   "The DEVNET-PEER-SYNC-STATUS values for a head read from NODE's store."
   (let* ((config (devnet-node-config node))
          (genesis-block (devnet-node-genesis-block node))
          (genesis-timestamp (block-header-timestamp (block-header genesis-block))))
     (values (eth-build-status config genesis-hash head-number head-timestamp
                               best-hash
-                              (or (chain-config-terminal-total-difficulty config) 0)
+                              (devnet-peer-status-total-difficulty
+                               config head-total-difficulty)
                               ;; Advertise the operator's network id (which may
                               ;; differ from the chain id via --networkid).
                               :network-id (devnet-node-network-id node)
