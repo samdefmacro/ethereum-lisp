@@ -35,6 +35,10 @@
 # history (STUB_HISTORY, STUB_SIDE) drives the RUNTIME-REVISION marker: every
 # downgrade refusal is paired with an accepted case or the allowance, and an
 # ssh hook changes the marker between the control plane's read and the action.
+# Last, the shared log redaction filter (scripts/hoodi-log-redact.sh) is
+# checked line by line, each masked class against lines that must pass
+# unchanged, and through start's, upgrade's and restart's failure paths,
+# whose printed container logs must carry no node id, endpoint or address.
 #
 # Run it from the tests (tests/control-plane-broker-tests.lisp) in the
 # project container; it prints one line per check and exits non-zero on any
@@ -49,7 +53,7 @@ trap 'rm -rf "$work"' EXIT
 repo="$work/repo"
 bin="$work/bin"
 mkdir -p "$repo/scripts" "$bin"
-cp "$source_root/scripts/hoodi-live-gate.sh" "$repo/scripts/"
+cp "$source_root/scripts/hoodi-live-gate.sh" "$source_root/scripts/hoodi-log-redact.sh" "$repo/scripts/"
 broker="$repo/scripts/hoodi-live-gate.sh"
 real_date="$(command -v date)"
 
@@ -186,6 +190,8 @@ case "$1" in
         if [ -n "${STUB_RUN_DIES:-}" ]; then
             set_field "$name" running false; set_field "$name" exit 1
         fi
+        # STUB_RUN_LOG: what the new container logged before it failed.
+        [ -z "${STUB_RUN_LOG:-}" ] || cp "$STUB_RUN_LOG" "$STUB_STATE/$name/log"
         set_field "$name" memory "${STUB_MEMORY:-7516192768}" ;;
     container)
         name="$(last_arg "$@")"
@@ -552,7 +558,7 @@ reset_world() {
         HOODI_GATE_PREVIOUS_REVISION HOODI_GATE_DATADIR STUB_STOP_OUTCOME \
         HOODI_GATE_STOP_TIMEOUT STUB_RUN_DIES HOODI_GATE_OLD_CONTAINER \
         HOODI_GATE_OLD_REVISION HOODI_GATE_ALLOW_DOWNGRADE STUB_SSH_HOOK \
-        STUB_SSH_HOOK_CALL STUB_SIDE
+        STUB_SSH_HOOK_CALL STUB_SIDE STUB_RUN_LOG
     # prev_rev is older than head_rev unless a test says otherwise.
     export STUB_HISTORY="$prev_rev $head_rev"
     : > "$STUB_LOG"
@@ -1100,6 +1106,11 @@ plant_gate
 plant_exited "$new_container"
 run 1 "restart of a container that dies again on start" -- "$broker" restart
 has "public RPC did not return within 600s after restart"
+# Its log is printed through the redaction filter: the enode endpoint and the
+# addresses are masked, the 40-hex ids (shorter than a node id) are kept.
+has "node.start bootnode=enode://$hex40@<addr>"
+has "FATAL: txpool journal import refused a transaction from <ip> id 0x$hex40"
+lacks "192.0.2."
 
 reset_world
 plant_key 0600
@@ -1312,6 +1323,78 @@ run 1 "status of a stopped container" -- "$broker" status
 has "runtime-revision-marker=$head_rev container-revision=$head_rev"
 has "public RPC loopback port is unavailable"
 no_lifecycle_call "status"
+
+# --- log redaction ---------------------------------------------------------------
+# The one filter every broker pipes echoed container logs through
+# (scripts/hoodi-log-redact.sh).  Each masked class is paired with lines that
+# must come out byte-for-byte unchanged: loopback and unspecified addresses,
+# look-alikes (a time, a four-part version, PACKAGE::SYMBOL), and a 63-digit
+# hex run one short of the node-id threshold.
+# shellcheck source=scripts/hoodi-log-redact.sh
+. "$source_root/scripts/hoodi-log-redact.sh"
+pub128=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+id64=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+hex63=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde
+redacts() {  # INPUT WANT
+    local got
+    got="$(printf '%s\n' "$1" | hoodi_redact_peer_identities)"
+    if [ "$got" = "$2" ]; then
+        record ok "redacts to: $2"
+    else
+        printf 'input: %s\ngot:   %s\nwant:  %s\n' "$1" "$got" "$2" > "$work/detail"
+        record fail "redacts to: $2" "$work/detail"
+    fi
+}
+peer_line="peer.dial.failed enode://$pub128@203.0.113.7:30303?discport=30301 id=0x$id64 remote=198.51.100.23:40404"
+peer_masked="peer.dial.failed enode://01234567…cdef@<addr> id=0xfedcba98…3210 remote=<ip>:40404"
+redacts "$peer_line" "$peer_masked"
+redacts "node id $id64 key $pub128" "node id fedcba98…3210 key 01234567…cdef"
+redacts "dial [2001:db8::7]:30303 fe80::1%eth0 2001:db8:0:0:0:0:0:9 ::ffff:192.0.2.1" \
+    "dial [<ip>]:30303 <ip>%eth0 <ip> ::ffff:<ip>"
+redacts "seed enr:-Iu4QGuiaVXBEoi4kcLbsoPYX7GTK9ExOODTuqYBp9M from #(192 0 2 5)" \
+    "seed enr:<redacted> from #(<ip>)"
+redacts "adjacent 10.0.0.1,10.0.0.2 2001:db8::1 2001:db8::2" "adjacent <ip>,<ip> <ip> <ip>"
+redacts "octets 126.1.1.1 128.1.1.1 255.255.255.255" "octets <ip> <ip> <ip>"
+unchanged_lines=(
+    "listening on 127.0.0.1:8545 127.9.9.9 [::1]:8545 0.0.0.0:30303 :: #(127 0 0 1)"
+    "block 3685491 at 12:34:56 v1.2.3.4 1127.0.0.1 CL-USER::FOO SB-IMPL::%BAR"
+    "short 0xdeadbeef hash=0x$hex40 run=$hex63"
+    '(:KIND :LOG :NAME "engine.rpc.http.request" :VALUE :INFO :FIELDS (("endpoint" . "0.0.0.0:8551")))'
+)
+for line in "${unchanged_lines[@]}"; do
+    redacts "$line" "$line"
+done
+
+# A failure path: start's new EL dies and its last log lines are printed
+# masked; a line without a peer identity is printed unchanged.
+peer_log="$work/peer.log"
+printf '%s\n' "$peer_line" "node.start listening on 127.0.0.1:8545" > "$peer_log"
+reset_world
+plant_key 0600
+export STUB_RUN_DIES=1 STUB_RUN_LOG="$peer_log"
+run 1 "start whose new EL dies with peer identities in its log" -- "$broker" start
+has "$peer_masked"
+has "node.start listening on 127.0.0.1:8545"
+has "exact-revision EL exited during startup; old container put back as it was"
+lacks "$pub128"
+lacks "$id64"
+lacks "203.0.113.7"
+lacks "198.51.100.23"
+
+# The same through upgrade's replacement-readiness failure.
+reset_world
+plant_previous
+export STUB_RUN_DIES=1 STUB_RUN_LOG="$peer_log"
+run 1 "upgrade whose replacement dies with peer identities in its log" -- "$broker" upgrade
+has "$peer_masked"
+has "upgraded public RPC did not return within 600s; previous container put back as it was"
+lacks "203.0.113.7"
+lacks "$id64"
+
+# The usage text names the masking.
+run 2 "usage" -- "$broker" help
+says "prints that container's last 80 log lines with peer identities masked"
+says "The full log stays on the remote host in Docker's container log."
 
 cat "$STUB_LOG" >> "$lifecycle_log"
 : > "$out"

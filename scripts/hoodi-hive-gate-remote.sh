@@ -8,6 +8,15 @@
 # joins the command into one string and would drop an empty slot) and
 # whitespace-free (validated by the broker).
 
+# ssh_redacting ARG...: as `ssh HOST bash -s -- ARG...`, with the log
+# redaction filter (scripts/hoodi-log-redact.sh) sent ahead of the script on
+# stdin.  Every place that echoes a container or Hive log to the terminal
+# pipes it through hoodi_redact_peer_identities; the full logs stay in the
+# run's evidence root on the host.
+ssh_redacting() {
+    { cat "$log_redact_lib"; cat; } | ssh "$host" bash -s -- "$@"
+}
+
 # --- inspect (read-only) ------------------------------------------------------
 
 inspect_gate() {
@@ -165,7 +174,7 @@ remote_gate() {
     local mode="$1"
     # Word splitting is intended: every value is validated whitespace-free.
     # shellcheck disable=SC2046
-    ssh "$host" bash -s -- "$mode" $(remote_run_args) <<'REMOTE'
+    ssh_redacting "$mode" $(remote_run_args) <<'REMOTE'
 set -eu
 mode="$1"; revision="$2"; suite="$3"; hive_sim="$4"; expected_tests="$5"; suite_log="$6"
 run_root="$7"; nested_root="$8"; runner="$9"; prep="${10}"; runner_image="${11}"
@@ -341,7 +350,7 @@ if [ "$mode" = prepare ]; then
     docker run --rm "$@" "$runner_image" /evidence/runner.sh prepare || status=$?
     printf 'prepare-runner-exit=%s\n' "$status"
     [ ! -f "$run_root/prepare-status.txt" ] || cat "$run_root/prepare-status.txt"
-    tail -n 20 "$run_root/hive-prepare.log" 2>/dev/null || true
+    tail -n 20 "$run_root/hive-prepare.log" 2>/dev/null | hoodi_redact_peer_identities || true
     [ "$status" = 0 ] || { echo "prepare failed; evidence root retained: $run_root" >&2; exit 1; }
     date -u +prepared=%Y-%m-%dT%H:%M:%SZ > "$run_root/prepared.txt"
     printf 'prepared=%s\n' "$run_root"
@@ -405,19 +414,19 @@ REMOTE
 }
 
 remote_logs() {
-    note "logs: read-only tail of the runner and the Hive log for $run_id"
-    ssh "$host" bash -s -- "$run_root" "$runner_container" "$suite_log" <<'REMOTE'
+    note "logs: read-only tail of the runner and the Hive log for $run_id, peer identities masked"
+    ssh_redacting "$run_root" "$runner_container" "$suite_log" <<'REMOTE'
 set -eu
 run_root="$1"; runner="$2"; suite_log="$3"
 if docker container inspect "$runner" >/dev/null 2>&1; then
-    docker logs --tail 100 "$runner" 2>&1
+    docker logs --tail 100 "$runner" 2>&1 | tail -n 100 | hoodi_redact_peer_identities
 else
     printf 'runner=/%s absent\n' "$runner"
 fi
 for file in hive-prepare.log "$suite_log"; do
     if [ -f "$run_root/$file" ]; then
-        echo "--- $file (last 200 lines)"
-        tail -n 200 "$run_root/$file"
+        echo "--- $file (last 200 lines, full log in $run_root)"
+        tail -n 200 "$run_root/$file" | hoodi_redact_peer_identities
     fi
 done
 REMOTE
