@@ -5,7 +5,9 @@
 ;;;; unit-only: the Frontier and Homestead signers, EIP-170 before Spurious
 ;;;; Dragon, single-flag rule sets, the eth/68 Status total difficulty, and the
 ;;;; DAO drain and ommer rewards on a synthetic proof-of-work chain imported
-;;;; through IMPORT-BLOCK-CANDIDATE. Expected values are computed from geth's
+;;;; through IMPORT-BLOCK-CANDIDATE, the signer the public RPC recovers a
+;;;; stored or pooled sender with, and every fork predicate read over a
+;;;; single-flag rule set. Expected values are computed from geth's
 ;;;; formulas in each test, never read back from our own execution.
 
 (defparameter *premerge-test-private-key*
@@ -535,3 +537,232 @@ after B3 and the three ommer beneficiaries."
           (is (= (ommer-reward 1 2) (premerge-test-balance state u1)))
           (is (= (ommer-reward 2 3) (premerge-test-balance state u2)))
           (is (= (ommer-reward 1 3) (premerge-test-balance state u3))))))))
+
+;;; (7) Public RPC recovers a stored transaction's sender with its block's
+;;; signer, and a pooled one's with the head's
+
+(defun premerge-test-rpc (store config method &rest params)
+  "The response object of METHOD with PARAMS (Lisp JSON values) on STORE."
+  (engine-rpc-handle-request
+   (list (cons "jsonrpc" "2.0") (cons "id" 1)
+         (cons "method" method) (cons "params" params))
+   store
+   config))
+
+(defun premerge-test-field (object &rest path)
+  "The value at PATH in OBJECT: a string names an object member, an integer a
+sequence element."
+  (dolist (step path object)
+    (setf object (if (integerp step)
+                     (elt object step)
+                     (cdr (assoc step object :test #'string=))))))
+
+(deftest premerge-rpc-recovers-a-frontier-high-s-sender-with-the-block-signer
+  ;; go-ethereum v1.17.6 internal/ethapi/api.go newRPCTransaction recovers
+  ;; `from` with types.MakeSigner(config, blockNumber, blockTime); so do
+  ;; GetBlockReceipts, eth/tracers and eth/gasprice. RED at 05bbd4c5: every
+  ;; view asked the latest signer, which refuses a Frontier block's high-s
+  ;; signature, so each lookup below answered -32602 "sender recovery
+  ;; failed" and the raw lookup answered null.
+  (let* ((sender (premerge-test-sender))
+         (sender-hex (address-to-hex sender))
+         (transaction
+           (premerge-test-sign
+            (make-legacy-transaction :nonce 0 :gas-price 1 :gas-limit 21000
+                                     :to *premerge-test-recipient* :value 7)
+            :high-s-p t))
+         (hash-hex (hash32-to-hex (transaction-hash transaction)))
+         (frontier (premerge-test-config))
+         (homestead (premerge-test-config :homestead-block 0)))
+    (is (null (transaction-sender transaction)))
+    (multiple-value-bind (store genesis)
+        (premerge-test-genesis-store
+         (list (cons sender (make-state-account :balance (expt 10 18)))))
+      (let* ((block (premerge-test-import
+                     store frontier
+                     (premerge-test-child store frontier genesis
+                                          :transactions (list transaction))))
+             (block-hash-hex (hash32-to-hex (block-hash block))))
+        (ethereum-lisp.canonical-chain:chain-store-set-canonical-head
+         store (block-hash block) :expected-chain-id 1 :chain-config frontier)
+        (flet ((rpc (&rest call)
+                 (apply #'premerge-test-rpc store frontier call)))
+          (is (equal sender-hex
+                     (premerge-test-field
+                      (rpc "eth_getTransactionByHash" hash-hex)
+                      "result" "from")))
+          (is (equal sender-hex
+                     (premerge-test-field
+                      (rpc "eth_getTransactionByBlockHashAndIndex"
+                           block-hash-hex "0x0")
+                      "result" "from")))
+          (is (equal sender-hex
+                     (premerge-test-field
+                      (rpc "eth_getBlockByNumber" "0x1" t)
+                      "result" "transactions" 0 "from")))
+          (is (equal sender-hex
+                     (premerge-test-field
+                      (rpc "eth_getTransactionReceipt" hash-hex)
+                      "result" "from")))
+          (is (equal sender-hex
+                     (premerge-test-field
+                      (rpc "eth_getBlockReceipts" "0x1")
+                      "result" 0 "from")))
+          (is (equal (bytes-to-hex (transaction-encoding transaction))
+                     (premerge-test-field
+                      (rpc "eth_getRawTransactionByHash" hash-hex)
+                      "result")))
+          (is (equal sender-hex
+                     (premerge-test-field
+                      (rpc "debug_traceTransaction" hash-hex)
+                      "result" "from"))))
+        ;; Control: a configuration that puts the block after Homestead
+        ;; selects HomesteadSigner, which refuses the same signature.
+        (is (= -32602
+               (premerge-test-field
+                (premerge-test-rpc store homestead
+                                   "eth_getTransactionByHash" hash-hex)
+                "error" "code")))))))
+
+(deftest premerge-rpc-lists-a-pooled-transaction-under-the-pool-signer
+  ;; A pooled transaction keeps the signer the pool admitted it with, the
+  ;; latest (geth's txpool uses types.LatestSigner). geth v1.17.6
+  ;; NewRPCPendingTransaction renders it with the head's MakeSigner but still
+  ;; lists one that signer cannot recover (with a zero `from`); since our
+  ;; pool views list only recoverable senders, the head's signer would hide
+  ;; an EIP-155 protected transaction under a pre-EIP-155 head that geth
+  ;; lists. Pins the listing under such a head.
+  (let* ((sender (premerge-test-sender))
+         (pooled
+           (premerge-test-sign
+            (make-legacy-transaction :nonce 0 :gas-price 1 :gas-limit 21000
+                                     :to *premerge-test-recipient* :value 9)
+            :chain-id 1))
+         (frontier (premerge-test-config)))
+    (multiple-value-bind (store genesis)
+        (premerge-test-genesis-store
+         (list (cons sender (make-state-account :balance (expt 10 18)))))
+      (ethereum-lisp.canonical-chain:chain-store-set-canonical-head
+       store (block-hash genesis) :expected-chain-id 1 :chain-config frontier)
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+       store pooled)
+      (is (equal (address-to-hex sender)
+                 (premerge-test-field
+                  (premerge-test-rpc store frontier "eth_pendingTransactions")
+                  "result" 0 "from")))
+      (is (equal "0x1"
+                 (premerge-test-field
+                  (premerge-test-rpc store frontier "txpool_status")
+                  "result" "pending"))))))
+
+;;; (8) Single-flag rule sets read every fork predicate cumulatively
+
+(defparameter *premerge-test-mainnet-fork-flags*
+  '((:frontier)
+    (:homestead :homestead-p)
+    (:tangerine-whistle :eip150-p)
+    (:spurious-dragon :eip155-p :eip158-p)
+    (:byzantium :byzantium-p)
+    (:constantinople :constantinople-p)
+    (:petersburg :petersburg-p)
+    (:istanbul :istanbul-p)
+    (:berlin :berlin-p)
+    (:london :london-p)
+    (:shanghai :shanghai-p)
+    (:cancun :cancun-p)
+    (:prague :prague-p)
+    (:osaka :osaka-p)
+    (:bpo1 :bpo1-p)
+    (:bpo2 :bpo2-p)
+    (:amsterdam :amsterdam-p))
+  "Mainnet's fork order (Paris sets no rule flag) with the MAKE-CHAIN-RULES
+flags each fork sets, then Amsterdam.")
+
+(defun premerge-test-fork-rules (index &key cumulative-p)
+  "Rules for the fork at INDEX of *PREMERGE-TEST-MAINNET-FORK-FLAGS*: that
+fork's flags alone, or with CUMULATIVE-P every flag up to it."
+  (apply #'make-chain-rules
+         (loop for (nil . flags)
+                 in (if cumulative-p
+                        (subseq *premerge-test-mainnet-fork-flags* 0 (1+ index))
+                        (list (nth index *premerge-test-mainnet-fork-flags*)))
+               append (loop for flag in flags append (list flag t)))))
+
+(defun premerge-test-ordered-config ()
+  "A configuration activating the fork at index I of
+*PREMERGE-TEST-MAINNET-FORK-FLAGS* at block I and, from Shanghai, at time I."
+  (make-chain-config :chain-id 1
+                     :homestead-block 1 :eip150-block 2 :eip155-block 3
+                     :eip158-block 3 :byzantium-block 4 :constantinople-block 5
+                     :petersburg-block 6 :istanbul-block 7 :berlin-block 8
+                     :london-block 9 :shanghai-time 10 :cancun-time 11
+                     :prague-time 12 :osaka-time 13 :bpo1-time 14 :bpo2-time 15
+                     :amsterdam-time 16))
+
+(defun premerge-test-typed-transaction (type)
+  "A transaction of envelope TYPE; only its type is read."
+  (ecase type
+    (1 (make-access-list-transaction :chain-id 1))
+    (2 (make-dynamic-fee-transaction :chain-id 1))
+    (3 (make-blob-transaction :chain-id 1))
+    (4 (make-set-code-transaction :chain-id 1))))
+
+(deftest premerge-fork-predicates-are-cumulative-over-the-mainnet-order
+  ;; go-ethereum v1.17.6 params/config.go IsHomestead, IsEIP155, IsEIP158,
+  ;; IsLondon and IsShanghai are "activated at or after", and those forks are
+  ;; mandatory in CheckConfigForkOrder, so ChainConfig.Rules sets them for
+  ;; every later fork; MakeSigner (core/types/transaction_signing.go) picks the
+  ;; latest of the Prague, Cancun, London and Berlin signers, each accepting
+  ;; its own envelope type and every earlier one. A rule set naming only its
+  ;; latest fork (:CANCUN-P alone) must answer each predicate as the
+  ;; cumulative set and CHAIN-CONFIG-RULES do. RED at 05bbd4c5: initcode
+  ;; metering and the 0xEF prefix read only :SHANGHAI-P and :LONDON-P, an
+  ;; envelope type only its own fork's flag, and the expanded blob schedule
+  ;; missed Amsterdam.
+  (let ((config (premerge-test-ordered-config))
+        (checks
+          (list
+           (list :homestead
+                 #'ethereum-lisp.chain-config:chain-rules-homestead-active-p)
+           (list :spurious-dragon
+                 #'ethereum-lisp.chain-config:chain-rules-eip155-active-p)
+           (list :spurious-dragon
+                 #'ethereum-lisp.chain-config:chain-rules-eip158-active-p)
+           (list :spurious-dragon
+                 #'ethereum-lisp.chain-config:chain-rules-code-size-limited-p)
+           (list :london #'chain-rules-code-prefix-restricted-p)
+           (list :shanghai #'chain-rules-initcode-metering-p)
+           (list :prague #'chain-rules-expanded-blob-schedule-p)
+           (list :berlin (lambda (rules)
+                           (chain-rules-transaction-type-supported-p
+                            rules (premerge-test-typed-transaction 1))))
+           (list :london (lambda (rules)
+                           (chain-rules-transaction-type-supported-p
+                            rules (premerge-test-typed-transaction 2))))
+           (list :cancun (lambda (rules)
+                           (chain-rules-transaction-type-supported-p
+                            rules (premerge-test-typed-transaction 3))))
+           (list :prague (lambda (rules)
+                           (chain-rules-transaction-type-supported-p
+                            rules (premerge-test-typed-transaction 4)))))))
+    (loop for (fork) in *premerge-test-mainnet-fork-flags*
+          for index from 0
+          for single = (premerge-test-fork-rules index)
+          for cumulative = (premerge-test-fork-rules index :cumulative-p t)
+          for configured = (chain-config-rules config index index)
+          do (loop for (activation predicate) in checks
+                   for expected = (>= index
+                                      (position activation
+                                                *premerge-test-mainnet-fork-flags*
+                                                :key #'first))
+                   for answers = (mapcar (lambda (rules)
+                                           (not (null (funcall predicate rules))))
+                                         (list single cumulative configured))
+                   do (unless (every (lambda (answer) (eq expected answer))
+                                     answers)
+                        (error "~A predicate at ~A: expected ~A, single, ~
+                                cumulative and configured answered ~S"
+                               activation fork expected answers))))
+    ;; NIL rules are the latest fork for every predicate above.
+    (loop for (nil predicate) in checks
+          do (is (funcall predicate nil)))))
