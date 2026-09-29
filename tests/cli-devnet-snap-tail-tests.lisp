@@ -130,9 +130,10 @@ progress are what the real importer writes in its last batch."
       (kv-apply-batch database batch))
     progress))
 
-(defun call-with-snap-tail-fixture (name function)
+(defun call-with-snap-tail-fixture (name function &key telemetry-sink)
   "Call FUNCTION with a RocksDB node and a 24-block chain whose block 22 reads
-BLOCKHASH(12).  The snap pivot is block 20, the consensus target block 23."
+BLOCKHASH(12).  The snap pivot is block 20, the consensus target block 23.
+TELEMETRY-SINK, when given, is the node's sink."
   (let* ((genesis-json (snap-tail-genesis-json))
          (chain (snap-tail-produce-chain genesis-json 24 '(22)))
          (datadir (devnet-cli-temp-directory name))
@@ -147,7 +148,8 @@ BLOCKHASH(12).  The snap pivot is block 20, the consensus target block 23."
                          (ethereum-lisp.cli:make-devnet-node
                           :genesis-json genesis-json
                           :database-path database-path :db-engine :rocksdb
-                          :port 0 :public-port 0)))
+                          :port 0 :public-port 0
+                          :telemetry-sink telemetry-sink)))
                    (funcall function node chain))
               (devnet-peer-sync-test-drop-cached-rocksdb-handle
                database-path))))
@@ -471,3 +473,185 @@ whose CAR collects the observations."
                       node)))
           (is (= 1 (snap-tail-log-count logs "peer.snap.target_completed")))
           (is (chain-store-state-available-p store target-hash))))))))
+
+;;;; A defect in this client, not a bad block.
+;;;;
+;;;; Before d7a28c6c, a zero-length LOG/KECCAK256/CREATE region at an offset
+;;;; near 2^256 raised a host TYPE-ERROR while a block executed.  Such a
+;;;; condition is neither a consensus verdict nor a sync outcome: it must not
+;;;; cache INVALID for a canonical block, and it must not stop the node.  It is
+;;;; logged as engine.execution.internal_error, the sync pass ends, and the
+;;;; next pass executes the block again.
+
+(defun snap-tail-inject-execution-type-error (block-hash armed)
+  "An override of EXECUTE-AND-COMMIT-ENGINE-PAYLOAD that signals the host
+TYPE-ERROR for BLOCK-HASH while (CAR ARMED) is true, counting each one in
+(CDR ARMED), and otherwise executes."
+  (let ((original
+          (fdefinition
+           'ethereum-lisp.execution-service:execute-and-commit-engine-payload)))
+    (cons 'ethereum-lisp.execution-service:execute-and-commit-engine-payload
+          (lambda (store block config &rest arguments)
+            (if (and (car armed) (hash32= block-hash (block-hash block)))
+                (progn
+                  (incf (cdr armed))
+                  (error 'type-error :datum (expt 2 256)
+                                     :expected-type
+                                     '(mod 4611686018427387901)))
+                (apply original store block config arguments))))))
+
+(defun snap-tail-internal-error-events (sink)
+  (remove-if-not
+   (lambda (event)
+     (string= "engine.execution.internal_error"
+              (ethereum-lisp.telemetry:telemetry-event-name event)))
+   (ethereum-lisp.telemetry:telemetry-events sink)))
+
+(defun snap-tail-event-field (event name)
+  (cdr (assoc name (ethereum-lisp.telemetry:telemetry-event-fields event)
+              :test #'string=)))
+
+(deftest devnet-snap-tail-internal-execution-error-is-no-verdict-and-no-exit
+  (:layer :integration :module :p2p)
+  ;; RED control (a6d2b58b): the coordinator pass lets the TYPE-ERROR escape
+  ;; to the coordinator's outer boundary, which stops the node.
+  (let ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+        (armed (cons t 0)))
+    (call-with-snap-tail-fixture
+     "ethereum-lisp-snap-tail-internal-error"
+     (lambda (node chain)
+       (let* ((store (ethereum-lisp.cli::devnet-node-store node))
+              (database
+                (ethereum-lisp.node-store.persistence:database-engine-payload-store-database
+                 store))
+              (target-hash (block-hash (aref chain 23)))
+              (broken (aref chain 22))
+              (logs (list '())))
+         (devnet-peer-sync-call-with-function-overrides
+          (append
+           (list
+            (cons 'ethereum-lisp.cli::devnet-node-multi-sync-pass
+                  (lambda (seen-node)
+                    (ethereum-lisp.cli::devnet-node-snap-sync-target
+                     seen-node target-hash)))
+            (snap-tail-inject-execution-type-error (block-hash broken) armed))
+           (snap-tail-overrides node chain 20 23 :logs logs))
+          (lambda ()
+            (is (null
+                 (handler-case
+                     (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node)
+                   (serious-condition (condition)
+                     (error "The coordinator pass let an internal execution ~
+error escape: ~A" condition)))))
+            ;; Block 22 was attempted once; 21 executed and stays executed.
+            (is (= 1 (cdr armed)))
+            (is (chain-store-state-available-p
+                 store (block-hash (aref chain 21))))
+            (is (not (chain-store-state-available-p
+                      store (block-hash broken))))
+            ;; No verdict, in memory or on disk, and no invalid-ancestor walk.
+            (is (null (engine-payload-store-invalid-block
+                       store (block-hash broken))))
+            (is (null (kv-chain-record-entries database :invalid-tipset)))
+            (is (= 0 (snap-tail-log-count logs "peer.sync.invalid_ancestor")))
+            (is (= 0 (snap-tail-log-count logs "peer.snap.target_completed")))
+            ;; Loudly, once, naming the block and the host condition.
+            (let ((events (snap-tail-internal-error-events sink)))
+              (is (= 1 (length events)))
+              (let ((event (first events)))
+                (is (eq :error (ethereum-lisp.telemetry:telemetry-event-value
+                                event)))
+                (is (equal "p2p" (snap-tail-event-field event "source")))
+                (is (equal "22" (snap-tail-event-field event "block")))
+                (is (equal (hash32-to-hex (block-hash broken))
+                           (snap-tail-event-field event "hash")))
+                (is (search "4611686018427387901"
+                            (snap-tail-event-field event "error")))))
+            (is (= 1 (snap-tail-log-count
+                      logs "peer.sync.execution_internal_error")))
+            ;; The next pass executes block 22 again and completes the target.
+            (setf (car armed) nil)
+            (is (eql 3 (ethereum-lisp.cli::devnet-node-sync-coordinator-pass
+                        node)))
+            (is (= 1 (snap-tail-log-count logs "peer.snap.target_completed")))
+            (is (chain-store-state-available-p store target-hash))))))
+     :telemetry-sink sink)))
+
+(deftest devnet-engine-new-payload-internal-execution-error-is-an-rpc-error
+  (:layer :integration :module :engine)
+  ;; An internal execution failure answers the Engine request with a JSON-RPC
+  ;; error (-32603), as Nethermind's NewPayloadHandler does for a processing
+  ;; exception, never with an INVALID payload status, and no verdict is
+  ;; cached: the consensus client retries and the retry executes.
+  ;; RED control (a6d2b58b): the answer is already -32603 and nothing is
+  ;; cached, but nothing is logged -- the router drops the condition.
+  (let ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+        (armed (cons t 0))
+        (chain nil))
+    ;; The Engine service captures its executor when the node is built, so
+    ;; the injection is installed first.  The chain itself is produced
+    ;; unarmed: the override only fires for the hash it is given, which is
+    ;; filled in below.
+    (let ((target (list nil)))
+      (devnet-peer-sync-call-with-function-overrides
+       (list
+        (let ((original
+                (fdefinition
+                 'ethereum-lisp.execution-service:execute-and-commit-engine-payload)))
+          (cons 'ethereum-lisp.execution-service:execute-and-commit-engine-payload
+                (lambda (store block config &rest arguments)
+                  (if (and (car armed) (car target)
+                           (hash32= (car target) (block-hash block)))
+                      (progn
+                        (incf (cdr armed))
+                        (error 'type-error :datum (expt 2 256)
+                                           :expected-type
+                                           '(mod 4611686018427387901)))
+                      (apply original store block config arguments))))))
+       (lambda ()
+         (call-with-snap-tail-fixture
+          "ethereum-lisp-engine-internal-error"
+          (lambda (node produced)
+            (setf chain produced
+                  (car target) (block-hash (aref chain 1)))
+            (let* ((store (ethereum-lisp.cli::devnet-node-store node))
+                   (block (aref chain 1))
+                   (request
+                     (multiple-value-bind (version payload)
+                         (ethereum-lisp.cli::devnet-peer-block-executable-inputs
+                          block (ethereum-lisp.cli::devnet-node-config node))
+                       (list (cons "jsonrpc" "2.0")
+                             (cons "id" 9)
+                             (cons "method"
+                                   (format nil "engine_newPayloadV~D" version))
+                             (cons "params"
+                                   (list
+                                    (ethereum-lisp.engine-api:engine-rpc-executable-data-object
+                                     payload))))))
+                   (response
+                     (ethereum-lisp.rpc:rpc-handle-request
+                      request
+                      (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                       (ethereum-lisp.cli::devnet-node-service node))))
+                   (failure (cdr (assoc "error" response :test #'string=))))
+              (is (= 1 (cdr armed)))
+              ;; An RPC error, not a payload status.
+              (is (null (assoc "result" response :test #'string=)))
+              (is (eql -32603 (cdr (assoc "code" failure :test #'string=))))
+              (is (null (engine-payload-store-invalid-block
+                         store (block-hash block))))
+              ;; Logged once, naming the block.
+              (let ((events (snap-tail-internal-error-events sink)))
+                (is (= 1 (length events)))
+                (let ((event (first events)))
+                  (is (equal "engine" (snap-tail-event-field event "source")))
+                  (is (equal "1" (snap-tail-event-field event "block")))
+                  (is (equal (hash32-to-hex (block-hash block))
+                             (snap-tail-event-field event "hash")))
+                  (is (search "4611686018427387901"
+                              (snap-tail-event-field event "error")))))
+              ;; The consensus client's retry executes the block.
+              (setf (car armed) nil)
+              (is (string= +payload-status-valid+
+                           (restart-behind-new-payload node block)))))
+          :telemetry-sink sink))))))

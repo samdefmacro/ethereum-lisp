@@ -633,7 +633,10 @@ bodies were never admitted after the downloader stopped at the bad block."
               store block config
               (append
                (list :durability-function durability-function
-                     :invalid-head-hash invalid-head-hash)
+                     :invalid-head-hash invalid-head-hash
+                     :import-function
+                     (devnet-block-executor
+                      (devnet-node-telemetry-sink node) :p2p))
                (when progress (list :progress progress))))
            (when (and require-valid-p
                       (string= +payload-status-invalid+

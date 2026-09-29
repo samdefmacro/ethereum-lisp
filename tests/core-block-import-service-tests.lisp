@@ -1145,3 +1145,103 @@
         (is (= 0 invalid-durability-calls))
         ;; Positive control: the verdicts are held in this process.
         (is (engine-payload-store-invalid-block store (block-hash child)))))))
+
+;;;; A condition that is neither a verdict nor a sync outcome escaping block
+;;;; execution is a defect in this client (Hoodi block 3685491 before d7a28c6c:
+;;;; a zero-length region at offset 2^256 - 1 raised a host TYPE-ERROR).  It
+;;;; must never cache an INVALID verdict, and it must name the block, so the
+;;;; node can log it and retry instead of rejecting a canonical block.
+
+(defun block-import-test-type-error-executor (store block config)
+  (declare (ignore store block config))
+  ;; What sizing a Lisp vector for a 2^256-byte region signalled.
+  (error 'type-error :datum (expt 2 256)
+                     :expected-type '(mod 4611686018427387901)))
+
+(defun block-import-test-capture-error (thunk)
+  (handler-case (progn (funcall thunk) nil)
+    (error (condition) condition)))
+
+(deftest block-import-internal-execution-error-is-no-verdict-and-names-the-block
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    (let ((hash (block-hash child)))
+      (dolist (admit
+               (list
+                (lambda (executor)
+                  (import-p2p-block-candidate
+                   store child config :import-function executor))
+                (lambda (executor)
+                  (import-executable-payload
+                   store 2 (block-import-test-payload child) config
+                   :import-function executor))))
+        (let ((condition
+                (block-import-test-capture-error
+                 (lambda ()
+                   (funcall admit #'block-import-test-type-error-executor)))))
+          ;; An error escapes: neither a status nor a verdict.
+          (is condition)
+          (is (not (typep condition 'block-validation-error)))
+          ;; It names the block and keeps the host condition's text (the type
+          ;; name, which a pretty-printed report cannot break across lines).
+          (is (search (hash32-to-hex hash) (princ-to-string condition)))
+          (is (search "4611686018427387901" (princ-to-string condition)))
+          ;; No verdict, nothing admitted: a later attempt executes again.
+          (is (null (engine-payload-store-invalid-block store hash)))
+          (is (null (chain-store-known-block store hash)))
+          ;; The typed contract callers contain.
+          (is (typep condition 'block-execution-internal-error))
+          (is (= 1 (block-execution-internal-error-block-number condition)))
+          (is (hash32= hash (block-execution-internal-error-block-hash
+                             condition)))
+          (is (typep (block-execution-internal-error-cause condition)
+                     'type-error))))
+      ;; A storage failure inside execution is the same outcome and still a
+      ;; storage error to storage-aware callers.
+      (let ((condition
+              (block-import-test-capture-error
+               (lambda ()
+                 (import-p2p-block-candidate
+                  store child config
+                  :import-function
+                  (lambda (executor-store block executor-config)
+                    (declare (ignore executor-store block executor-config))
+                    (ethereum-lisp.validation:storage-fail
+                     "Injected trie node read failure")))))))
+        (is (typep condition 'ethereum-lisp.validation:storage-error))
+        (is (typep condition 'block-execution-internal-error))
+        (is (null (engine-payload-store-invalid-block store hash))))
+      ;; Positive control: the same block with a working executor is VALID.
+      (multiple-value-bind (status candidate)
+          (import-p2p-block-candidate store child config)
+        (is (string= +payload-status-valid+ (payload-status-status status)))
+        (is (hash32= hash (block-hash candidate)))))))
+
+(deftest block-import-verdicts-and-sync-outcomes-are-not-internal-errors
+  ;; Positive control for the classification above: a consensus verdict from
+  ;; execution is still INVALID and cached, and a missing state is SYNCING.
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    (multiple-value-bind (status candidate)
+        (import-p2p-block-candidate
+         store child config
+         :import-function
+         (lambda (executor-store block executor-config)
+           (declare (ignore executor-store block executor-config))
+           (ethereum-lisp.validation:state-unavailable-fail
+            "Injected missing ancestor state")))
+      (declare (ignore candidate))
+      (is (string= +payload-status-syncing+ (payload-status-status status))))
+    (multiple-value-bind (status candidate)
+        (import-p2p-block-candidate
+         store child config
+         :import-function
+         (lambda (executor-store block executor-config)
+           (declare (ignore executor-store block executor-config))
+           (ethereum-lisp.validation:block-validation-fail
+            "Injected gas used mismatch")))
+      (is (null candidate))
+      (is (string= +payload-status-invalid+ (payload-status-status status)))
+      (is (engine-payload-store-invalid-block store (block-hash child))))))
