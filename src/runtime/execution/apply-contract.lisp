@@ -248,6 +248,24 @@ repaid."
                                (amsterdam-p
                                  (execution-amsterdam-p
                                   effective-chain-rules))
+                               ;; Frontier: a deposit the remaining gas
+                               ;; cannot pay leaves the contract without
+                               ;; code and charges nothing for it (go-ethereum
+                               ;; v1.17.6 EVM.create, ErrCodeStoreOutOfGas
+                               ;; before Homestead).
+                               (frontier-deposit-out-of-gas-p
+                                 (and (not amsterdam-p)
+                                      (not (transaction-homestead-active-p
+                                            effective-chain-rules))
+                                      (> (+ (transaction-evm-gas-used
+                                             tx result effective-chain-rules)
+                                            (contract-code-deposit-gas
+                                             runtime-code))
+                                         gas-limit)))
+                               (runtime-code
+                                 (if frontier-deposit-out-of-gas-p
+                                     (make-byte-vector 0)
+                                     runtime-code))
                                (deposit-regular
                                  (if amsterdam-p
                                      (* +keccak256-word-gas+

@@ -49,9 +49,11 @@
 (defparameter *pre-merge-eest-failure-samples* 3
   "How many failure messages each directory reports verbatim.")
 
-(defparameter *pre-merge-eest-max-file-bytes* (* 40 1024 1024)
+(defparameter *pre-merge-eest-max-file-bytes* (* 48 1024 1024)
   "Fixture files above this size are counted, not parsed (see
-*AMSTERDAM-EEST-MAX-FILE-BYTES*).")
+*AMSTERDAM-EEST-MAX-FILE-BYTES*). The bound admits the corpus's
+frontier/opcodes/test_stack_overflow.json (44,912,806 bytes), so that
+directory is scored whole; the next files up are 46, 51 and 90 MB.")
 
 (defconstant +pre-merge-eest-max-int64+ (1- (ash 1 63))
   "go-ethereum's math.MaxInt64, the TTD BlockTest.Run gives a network whose

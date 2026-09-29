@@ -170,7 +170,9 @@ merging are deliberately not configurable; those are shared EVM invariants."
                  :trace-value-transfer-to trace-value-transfer-to
                  :balance-check-address balance-check-address
                  :balance-check-value balance-check-value
-                 :balance-check-message balance-check-message)
+                 :balance-check-message balance-check-message
+                 :create-callee-p (and new-account-p
+                                       (not (context-eip158-p context))))
               (evm-machine-charge-gas machine child-gas-used)
               (when (plusp child-state-gas-used)
                 (evm-machine-charge-state-gas machine child-state-gas-used))
@@ -331,9 +333,14 @@ its target is still empty."
                                    trace-value-transfer-to
                                    balance-check-address
                                    (balance-check-value 0)
-                                   balance-check-message)
+                                   balance-check-message
+                                   create-callee-p)
   "Run one CALL-family child frame and return (VALUES SUCCESS RETURN-DATA
 GAS-USED LOGS REFUND STATE-GAS-USED EXIT-BUDGET).
+
+CREATE-CALLEE-P (a CALL before EIP-158) creates CHILD-ADDRESS as an empty
+account when it does not exist, once the depth and balance checks pass, as
+go-ethereum v1.17.6 EVM.Call does; a failed frame reverts it with the rest.
 
 With CHILD-BUDGET (Amsterdam), the frame runs on that budget and EXIT-BUDGET
 is its leftover for the caller to absorb, as geth's Call returns it: the
@@ -375,6 +382,9 @@ otherwise.  CHILD-GAS-LIMIT is then CHILD-BUDGET's regular gas."
                      (< (account-balance state balance-check-address)
                         balance-check-value))
             (fail balance-check-message))
+          (when (and create-callee-p
+                     (null (state-db-get-account state child-address)))
+            (state-db-set-account state child-address (make-state-account)))
           (when (and value-transfer-from
                      value-transfer-to
                      (plusp child-call-value))

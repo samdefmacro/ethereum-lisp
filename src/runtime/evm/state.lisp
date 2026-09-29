@@ -14,23 +14,30 @@
 
 (defun call-value-extra-gas
     (state callee value &key new-account-p stipend-discount-p (eip158-p t))
+  "CALL's value and new-account charges, after go-ethereum v1.17.6
+gasCallIntrinsic: from EIP-158 a new account is charged only when value goes
+to an empty one; before it, for any CALL to an account that does not exist,
+whatever the value. The stipend discount applies to a value transfer only."
   (let ((gas 0))
+    (when (and new-account-p
+               (if eip158-p
+                   (and (plusp value) (empty-account-p state callee))
+                   (null (state-db-get-account state callee))))
+      (incf gas +call-new-account-gas+))
     (when (plusp value)
       (incf gas +call-value-transfer-gas+)
-      (when (and new-account-p
-                 (if eip158-p
-                     (empty-account-p state callee)
-                     (null (state-db-get-account state callee))))
-        (incf gas +call-new-account-gas+))
       (when stipend-discount-p
         (setf gas (max 0 (- gas +call-stipend+)))))
     gas))
 
 (defun selfdestruct-extra-gas (state contract beneficiary &key (eip158-p t))
-  (if (and (plusp (account-balance state contract))
-           (if eip158-p
-               (empty-account-p state beneficiary)
-               (null (state-db-get-account state beneficiary))))
+  "SELFDESTRUCT's new-account charge from EIP-150, after go-ethereum v1.17.6
+gasSelfdestruct: from EIP-158 when a balance goes to an empty beneficiary;
+before it, whenever the beneficiary does not exist."
+  (if (if eip158-p
+          (and (plusp (account-balance state contract))
+               (empty-account-p state beneficiary))
+          (null (state-db-get-account state beneficiary)))
       +call-new-account-gas+
       0))
 
@@ -96,13 +103,20 @@
 
 (defun selfdestruct-account
     (state address beneficiary rules
-     &key clear-self-balance-p)
+     &key clear-self-balance-p create-beneficiary-p)
+  "Move ADDRESS's balance to BENEFICIARY. CREATE-BENEFICIARY-P (before EIP-158)
+creates an absent beneficiary even when nothing moves: go-ethereum v1.17.6
+opSelfdestruct credits it with AddBalance, which makes the account, and only
+EIP-158's end-of-transaction sweep would remove it again."
   (let* ((account (account-or-empty state address))
          (balance (state-account-balance account))
          (transfer-p
            (and (plusp balance)
                 (not (bytes= (address-bytes address)
                              (address-bytes beneficiary))))))
+    (when (and create-beneficiary-p
+               (null (state-db-get-account state beneficiary)))
+      (state-db-set-account state beneficiary (make-state-account)))
     (when transfer-p
       (state-db-add-balance state beneficiary balance)
       (put-account-values

@@ -42,6 +42,27 @@ name only their latest active fork, so a later flag also implies EIP-2028."
       (chain-rules-amsterdam-p rules)
       (chain-rules-ubt-p rules)))
 
+(defun transaction-homestead-active-p (rules)
+  "Whether RULES are Homestead or later, a later flag implying it as in
+TRANSACTION-EIP2028-ACTIVE-P."
+  (or (transaction-eip2028-active-p rules)
+      (chain-rules-homestead-p rules)
+      (chain-rules-eip150-p rules)
+      (chain-rules-eip155-p rules)
+      (chain-rules-eip158-p rules)
+      (chain-rules-byzantium-p rules)
+      (chain-rules-constantinople-p rules)
+      (chain-rules-petersburg-p rules)))
+
+(defun transaction-eip158-active-p (rules)
+  "Whether RULES are Spurious Dragon (EIP-158/161) or later, a later flag
+implying it as in TRANSACTION-EIP2028-ACTIVE-P."
+  (or (transaction-eip2028-active-p rules)
+      (chain-rules-eip158-p rules)
+      (chain-rules-byzantium-p rules)
+      (chain-rules-constantinople-p rules)
+      (chain-rules-petersburg-p rules)))
+
 (defvar *transaction-sender* nil
   "The sender of the transaction being priced, for EIP-2780.
 
@@ -118,7 +139,10 @@ floor price, on top of the per-entry access charges."
   (when (and chain-rules (chain-rules-amsterdam-p chain-rules))
     (return-from transaction-intrinsic-gas
       (transaction-intrinsic-gas-amsterdam transaction sender eip3860-p)))
-  (let ((gas (if (transaction-to transaction)
+  ;; A creation pays TxGasContractCreation only from Homestead; a Frontier
+  ;; creation costs TxGas (go-ethereum v1.17.6 IntrinsicGas).
+  (let ((gas (if (or (transaction-to transaction)
+                     (not (transaction-homestead-active-p chain-rules)))
                  +transaction-gas+
                  +contract-creation-transaction-gas+))
         (access-list (transaction-access-list transaction))

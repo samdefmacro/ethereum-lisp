@@ -50,6 +50,13 @@
                 (transaction-priority-fee-per-gas tx :base-fee base-fee))))
     (cond ((plusp fee)
            (state-db-add-balance state coinbase fee))
+          ((not (transaction-eip158-active-p *transaction-chain-rules*))
+           ;; go-ethereum v1.17.6 credits even a zero fee with AddBalance,
+           ;; which makes an absent coinbase; before EIP-158 nothing sweeps
+           ;; it again, so the intermediate state root in the receipt holds
+           ;; it.
+           (unless (state-db-get-account state coinbase)
+             (state-db-set-account state coinbase (make-state-account))))
           ((and *transaction-chain-rules*
                 (chain-rules-amsterdam-p *transaction-chain-rules*))
            ;; geth credits the coinbase even a zero tip, and under EIP-7928

@@ -194,11 +194,13 @@ caller to charge."
                          :trace-p nil)))
                   (when transfer-log
                     (setf child-logs (list transfer-log))))
+                ;; EIP-161 (EIP-158 in go-ethereum's rules) starts a new
+                ;; contract at nonce 1; before it, at 0.
                 (let ((created-account (account-or-empty state new-address)))
                   (put-account-values
                    state
                    new-address
-                   1
+                   (if (context-eip158-p context) 1 0)
                    (state-account-balance created-account)
                    (state-account-code-hash created-account)))
                 (mark-created-account context new-address)
@@ -258,25 +260,35 @@ caller to charge."
                           ;; EIP-150 reserves one 64th in the parent.  Runtime
                           ;; code deposit is part of child creation and cannot
                           ;; spend that reserve.
-                          (when (and child-gas-limit
-                                     (> (+ child-gas-used deposit-gas)
-                                        child-gas-limit))
-                            (fail "~A code deposit out of gas"
-                                  operation-name))
-                          (incf child-gas-used deposit-gas)
-                          (when (plusp deposit-state-gas)
-                            (let ((budget
-                                    (copy-evm-gas-budget
-                                     (evm-result-gas-budget child-result))))
-                              (unless (evm-gas-budget-charge
-                                       budget
-                                       (make-evm-gas-costs
-                                        :regular deposit-gas
-                                        :state deposit-state-gas))
-                                (fail "~A code deposit out of gas"
-                                      operation-name))
-                              (incf child-state-gas-used
-                                    deposit-state-gas))))
+                          (if (and child-gas-limit
+                                   (> (+ child-gas-used deposit-gas)
+                                      child-gas-limit))
+                              (if (context-homestead-p context)
+                                  (fail "~A code deposit out of gas"
+                                        operation-name)
+                                  ;; Frontier: go-ethereum v1.17.6
+                                  ;; EVM.create keeps the state and the gas
+                                  ;; on ErrCodeStoreOutOfGas, and opCreate
+                                  ;; pushes the address of a contract that
+                                  ;; has no code.
+                                  (setf child-return-data
+                                        (make-byte-vector 0)))
+                              (progn
+                                (incf child-gas-used deposit-gas)
+                                (when (plusp deposit-state-gas)
+                                  (let ((budget
+                                          (copy-evm-gas-budget
+                                           (evm-result-gas-budget
+                                            child-result))))
+                                    (unless (evm-gas-budget-charge
+                                             budget
+                                             (make-evm-gas-costs
+                                              :regular deposit-gas
+                                              :state deposit-state-gas))
+                                      (fail "~A code deposit out of gas"
+                                            operation-name))
+                                    (incf child-state-gas-used
+                                          deposit-state-gas))))))
                         (state-db-set-code state
                                            new-address
                                            child-return-data)
