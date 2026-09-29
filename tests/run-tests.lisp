@@ -147,7 +147,16 @@
   (append
    (list "env"
          (format nil "ETHEREUM_LISP_TEST_WORKER_ROOT=~A" (namestring root))
-         "sbcl" "--script"
+         ;; A worker's threads get this runner's control stack: the EVM's
+         ;; 1,024 CALL levels are sized against it (docs/validation.md,
+         ;; "The EVM depth budget").
+         "sbcl" "--control-stack-size"
+         #+sbcl (write-to-string
+                 (ceiling (sb-alien:extern-alien "thread_control_stack_size"
+                                                 sb-alien:unsigned-long)
+                          (* 1024 1024)))
+         #-sbcl "2"
+         "--script"
          (namestring (merge-pathnames "tests/run-tests.lisp"
                                       *test-runner-root*)))
    (loop for layer in layers append (list "--layer" layer))

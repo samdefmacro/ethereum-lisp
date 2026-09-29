@@ -1508,6 +1508,47 @@ field, and skips without the variable. The budget tests exercise each
 `--rpc.*` flag with an in-budget or no-limit control. The record is
 `docs/evidence/sec5-rpc-section7-leftovers.txt`.
 
+### The EVM depth budget
+
+```sh
+cl-workbench validation run cold-unit --match EVM-CALL-LEVEL-CONTROL-STACK \
+  --match EVM-SELF-CALL-AND-SELF-CREATE --match EXECUTION-SBCL-LAUNCHES
+```
+
+A block may nest 1,024 CALL or CREATE levels, and each level that runs
+bytecode is a fixed run of Lisp frames on the executing thread's control
+stack. Running out of that stack is not an exceptional halt and not a test
+failure: SBCL 2.2.9 dies with "maximum interrupt nesting depth (8) exceeded"
+and takes the node, or the whole test run, with it. The merged `7cef5a67`
+tree did that in three EEST gates, at 1,968 bytes a CALL level against
+SBCL's 2 MiB default thread stack. Two layers keep it from happening again:
+
+- **A level is small.** `EXECUTE-MESSAGE-CALL-CHILD` tail-calls the frame
+  function unless a call tracer is bound, and the opcode's description is
+  passed as its one `EVM-MESSAGE-CALL` object, so a CALL level is 960 bytes
+  and a CREATE level 880 (arm64, SBCL 2.2.9): 1,024 levels in under 1 MiB.
+  `EVM-CALL-LEVEL-CONTROL-STACK-FITS-THE-DEPTH-BUDGET` measures both on the
+  production path, from the stack pointer at each level, and fails above
+  1,536 bytes a level (1,024 levels in 1.5 MiB).
+- **Every thread has room for twice that, and more.** SBCL 2.2.9 cannot size
+  one thread's stack (`make-thread` takes no size, and changing
+  `thread_control_stack_size` in a running image faulted), so the size is the
+  runtime option `--control-stack-size 8` (MiB), which applies to the main
+  thread and every thread created after it. The runtime executable is built
+  with it and keeps it through `:save-runtime-options`; the cold runner
+  (`scripts/docker-test.sh`), the Makefile layers, `scripts/run-test-layers.sh`,
+  the e2e worker processes and the warm dev image pass it.
+  The same test requires twice 1,024 levels to fit that 8 MiB, the configured
+  size and the running thread's actual stack;
+  `EVM-SELF-CALL-AND-SELF-CREATE-REACH-THE-DEPTH-LIMIT-ON-A-FRESH-THREAD` runs
+  both recursions to the limit; `EXECUTION-SBCL-LAUNCHES-CARRY-THE-EXECUTION-CONTROL-STACK`
+  reads each launch line (the runtime build, the runners, the dev image) and
+  fails on one without the option.
+
+Child SBCL processes that tests and gate scripts start by name (`sbcl
+--script scripts/...`) keep SBCL's 2 MiB default; 1,024 levels fit it, but
+without the margin. Record: `docs/evidence/sec5-call-depth-stack.txt`.
+
 ### EVM memory regions and internal execution failures
 
 ```sh

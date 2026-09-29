@@ -23,7 +23,7 @@ run_layer() {
   shift
   (
     cd "$root"
-    exec "$sbcl_command" --script tests/run-tests.lisp --layer "$layer" "$@"
+    exec "$sbcl_command" --control-stack-size 8 --script tests/run-tests.lisp --layer "$layer" "$@"
   ) >"$report_root/$layer.out" 2>"$report_root/$layer.err" &
   pid=$!
   pids="$pids $pid"

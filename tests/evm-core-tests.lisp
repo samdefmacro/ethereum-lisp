@@ -902,32 +902,196 @@
                     (address-bytes
                      (ethereum-lisp.evm.internal::word-to-address value))))))))
 
-(deftest evm-self-call-reaches-the-depth-limit-on-a-default-stack
-  ;; A contract that CALLs itself with all its gas until the 1,024 depth
-  ;; limit, run in a fresh thread with SBCL's default control stack: every
-  ;; level's frames must fit, as they did before the register loop (it once
-  ;; added a 144-byte frame per level and exhausted the stack short of the
-  ;; limit, which the EEST state gate showed as a runtime crash).  The thread
-  ;; body handles every condition; exhaustion is reported as a value.
+;;; The EVM's depth budget (docs/evidence/sec5-call-depth-stack.txt).  A CALL
+;;; or CREATE that runs bytecode nests the child's frames on the caller's, so
+;;; the 1,024-level depth limit is a control-stack requirement of whatever
+;;; thread executes the block.  Running out of it is not a test failure or a
+;;; block verdict: SBCL 2.2.9 dies ("maximum interrupt nesting depth (8)
+;;; exceeded"), taking the node or the whole test run with it, which is what
+;;; the EEST gates showed on the merged 7cef5a67 tree.  Two layers hold it:
+;;;
+;;; - a level's frames stay small: at most +EVM-CALL-LEVEL-STACK-CEILING+
+;;;   bytes, so 1,024 levels use well under SBCL's 2 MiB default stack;
+;;; - every thread gets *EXECUTION-CONTROL-STACK-MEGABYTES* of control stack,
+;;;   twice what 1,024 levels need, from the runtime option
+;;;   --control-stack-size that the runtime executable saves and the test
+;;;   runners pass (SBCL 2.2.9 has no per-thread stack size, and setting
+;;;   thread_control_stack_size in a running image faulted).
+
+(defconstant +evm-call-level-stack-ceiling+ 1536
+  "Control-stack bytes one CALL or CREATE level may take: 1,024 levels in
+1.5 MiB.  Measured 960 (CALL) and 880 (CREATE) at the fix on arm64; 1,968 for
+CALL on the 7cef5a67 merge, whose 1,024 levels overflowed a default 2 MiB
+thread.  The room above the measurement is for other architectures' frames
+(x86-64 has fewer registers to keep values out of the frame).")
+
+(defparameter *execution-control-stack-megabytes* 8
+  "The --control-stack-size every SBCL that executes blocks is started with.")
+
+(defparameter *evm-self-call-code* "0x5f5f5f5f5f305af100"
+  "PUSH0 x5, ADDRESS, GAS, CALL, STOP: call yourself with all the gas.")
+
+(defparameter *evm-self-create-code* "0x385f5f39385f5ff000"
+  "CODESIZE PUSH0 PUSH0 CODECOPY, CODESIZE PUSH0 PUSH0 CREATE, STOP: deploy
+your own code as initcode with all the gas, which does the same.")
+
+(defun %evm-thread-control-stack-bytes ()
+  "The calling thread's control stack, in bytes."
+  (- (sb-sys:sap-int (sb-vm::current-thread-offset-sap
+                      sb-vm::thread-control-stack-end-slot))
+     (sb-sys:sap-int (sb-vm::current-thread-offset-sap
+                      sb-vm::thread-control-stack-start-slot))))
+
+(defun %evm-configured-thread-control-stack-bytes ()
+  "The control stack SBCL gives every thread (--control-stack-size)."
+  (sb-alien:extern-alien "thread_control_stack_size" sb-alien:unsigned-long))
+
+(defun %evm-run-self-recursion (code &key (start-depth 0) level-hook)
+  "Run CODE, which recurses into itself until the depth limit, from
+START-DEPTH in a fresh thread.  Return its status (or a condition's text) and
+the thread's control-stack size.  LEVEL-HOOK, when given, is called with no
+arguments each time a child frame's context is made, one level down."
   (let* ((address (address-from-hex
                    "0x00000000000000000000000000000000000000c0"))
-         (code (hex-to-bytes "0x5f5f5f5f5f305af100"))
+         (bytes (hex-to-bytes code))
+         (original (fdefinition
+                    'ethereum-lisp.evm.internal::make-child-evm-context))
          (outcome nil)
-         (thread
-           (sb-thread:make-thread
-            (lambda ()
-              (setf outcome
-                    (handler-case
-                        (let ((state (make-state-db)))
-                          (state-db-set-code state address code)
-                          (evm-result-status
-                           (execute-bytecode
-                            code
-                            :context (make-evm-context :state state
-                                                       :address address)
-                            :gas-limit (expt 2 60))))
-                      (storage-condition () :control-stack-exhausted)
-                      (error (condition) (princ-to-string condition)))))
-            :name "evm-depth-limit")))
-    (sb-thread:join-thread thread :default nil)
-    (is (eq :stopped outcome))))
+         (stack nil))
+    (unwind-protect
+         (progn
+           (when level-hook
+             (setf (fdefinition
+                    'ethereum-lisp.evm.internal::make-child-evm-context)
+                   (lambda (&rest arguments)
+                     (funcall level-hook)
+                     (apply original arguments))))
+           (sb-thread:join-thread
+            (sb-thread:make-thread
+             (lambda ()
+               (setf stack (%evm-thread-control-stack-bytes)
+                     outcome
+                     (handler-case
+                         (let ((state (make-state-db)))
+                           (state-db-set-code state address bytes)
+                           (evm-result-status
+                            (execute-bytecode
+                             bytes
+                             :context (make-evm-context :state state
+                                                        :address address
+                                                        :depth start-depth)
+                             :gas-limit (expt 2 60))))
+                       (error (condition) (princ-to-string condition)))))
+             :name "evm-self-recursion")
+            :default nil))
+      (setf (fdefinition 'ethereum-lisp.evm.internal::make-child-evm-context)
+            original))
+    (values outcome stack)))
+
+(defun %evm-control-stack-bytes-per-level (code)
+  "Control-stack bytes between two consecutive levels of CODE's recursion,
+from the stack pointer where each level makes its child's context.  Runs the
+last 64 levels below the limit; returns the per-level bytes and the list of
+per-level differences."
+  (let ((pointers '()))
+    (multiple-value-bind (outcome)
+        (%evm-run-self-recursion
+         code
+         :start-depth (- 1024 64)
+         :level-hook (lambda ()
+                       (push (sb-sys:sap-int (sb-kernel::current-sp))
+                             pointers)))
+      (is (eq :stopped outcome))
+      ;; The frames at depths 960 through 1023 each make a child, and the
+      ;; one at 1024 is refused its call (a positive control that the hook
+      ;; ran at every level).
+      (is (= 64 (length pointers)))
+      (let ((differences (loop for (deeper shallower) on pointers
+                               while shallower
+                               collect (abs (- deeper shallower)))))
+        (values (first differences) differences)))))
+
+(deftest evm-call-level-control-stack-fits-the-depth-budget
+  ;; Measured on the production path: the hook is a leaf called from the
+  ;; frame that is about to run the child, so it adds nothing between levels.
+  (let ((configured (%evm-configured-thread-control-stack-bytes))
+        (budget (* *execution-control-stack-megabytes* 1024 1024)))
+    (dolist (code (list *evm-self-call-code* *evm-self-create-code*))
+      (multiple-value-bind (per-level differences)
+          (%evm-control-stack-bytes-per-level code)
+        (is (plusp per-level))
+        ;; Every level the same size: nothing accumulates per level.
+        (is (every (lambda (bytes) (= bytes per-level)) differences))
+        (is (<= per-level +evm-call-level-stack-ceiling+))
+        ;; The execution stack holds 1,024 levels twice over, and this
+        ;; process (the test runner) was started with it.
+        (is (<= (* 2 1024 per-level) budget))
+        (is (<= (* 2 1024 per-level) configured))
+        (is (<= (* 2 1024 per-level) (%evm-thread-control-stack-bytes)))))
+    (is (>= configured budget))
+    (is (>= (%evm-thread-control-stack-bytes) budget))))
+
+(deftest evm-self-call-and-self-create-reach-the-depth-limit-on-a-fresh-thread
+  ;; The whole recursion, 1,024 levels of CALL and then of CREATE, in a fresh
+  ;; thread of the size every thread gets.  A regression here does not fail
+  ;; this test: SBCL 2.2.9 dies on the exhausted stack and the run ends with
+  ;; no result (7cef5a67: "maximum interrupt nesting depth (8) exceeded").
+  (dolist (code (list *evm-self-call-code* *evm-self-create-code*))
+    (multiple-value-bind (outcome stack) (%evm-run-self-recursion code)
+      (is (eq :stopped outcome))
+      (is (= stack (%evm-configured-thread-control-stack-bytes))))))
+
+(defun %sbcl-launch-lines-without-the-execution-stack (text megabytes)
+  "The lines of TEXT that start SBCL on the test runner, the dev image or the
+runtime core build without --control-stack-size of at least MEGABYTES."
+  (loop for line in (uiop:split-string text :separator '(#\Newline))
+        for trimmed = (string-left-trim '(#\Space #\Tab) line)
+        when (and (not (eql 0 (search "#" trimmed)))
+                  (search "sbcl" line :test #'char-equal)
+                  (or (search "tests/run-tests.lisp" line)
+                      (search "scripts/dev-image.lisp" line)
+                      (search "build-core.lisp" line))
+                  (let* ((option (search "--control-stack-size " line))
+                         (value (and option
+                                     (parse-integer
+                                      line
+                                      :start (+ option
+                                                (length
+                                                 "--control-stack-size "))
+                                      :junk-allowed t))))
+                    (not (and value (>= value megabytes)))))
+          collect line))
+
+(deftest execution-sbcl-launches-carry-the-execution-control-stack
+  ;; Every place that starts an SBCL which executes blocks -- the runtime
+  ;; executable's build (:save-runtime-options keeps the option), the cold
+  ;; and CI test runners, and the warm dev image -- passes the stack size.
+  (let ((files '("Dockerfile.runtime" "Makefile" "scripts/docker-test.sh"
+                 "scripts/run-test-layers.sh" "scripts/dev.sh"))
+        (launches 0))
+    (dolist (file files)
+      (let ((text (uiop:read-file-string
+                   (merge-pathnames file *repository-root*))))
+        (incf launches
+              (count-if (lambda (line)
+                          (and (search "--control-stack-size " line)
+                               (search "sbcl" line :test #'char-equal)))
+                        (uiop:split-string text :separator '(#\Newline))))
+        (is (null (%sbcl-launch-lines-without-the-execution-stack
+                   text *execution-control-stack-megabytes*)))))
+    ;; Dockerfile.runtime 1, Makefile 3, docker-test.sh 4,
+    ;; run-test-layers.sh 1, dev.sh 1.
+    (is (= 10 launches))
+    ;; Positive controls: a launch without the option, or with a smaller one.
+    (let ((newline (string #\Newline)))
+      (is (equal '("    sbcl --script tests/run-tests.lisp --layer unit")
+                 (%sbcl-launch-lines-without-the-execution-stack
+                  (concatenate
+                   'string
+                   "# sbcl --script tests/run-tests.lisp" newline
+                   "    sbcl --script tests/run-tests.lisp --layer unit" newline
+                   "sbcl --control-stack-size 8 --script tests/run-tests.lisp")
+                  8))))
+    (is (= 1 (length (%sbcl-launch-lines-without-the-execution-stack
+                      "RUN sbcl --control-stack-size 2 --load /opt/build-core.lisp"
+                      8))))))

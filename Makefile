@@ -77,14 +77,17 @@ require-container-runtime:
 		exit 2; \
 	}
 
+# --control-stack-size 8: the runtime executable's per-thread control stack,
+# which the EVM's 1,024 CALL levels are sized against (docs/validation.md,
+# "The EVM depth budget").
 test-unit: require-container-runtime
-	$(SBCL) --script tests/run-tests.lisp --layer unit
+	$(SBCL) --control-stack-size 8 --script tests/run-tests.lisp --layer unit
 
 test-integration: require-container-runtime
-	$(SBCL) --script tests/run-tests.lisp --layer integration
+	$(SBCL) --control-stack-size 8 --script tests/run-tests.lisp --layer integration
 
 test-e2e: require-container-runtime
-	$(SBCL) --script tests/run-tests.lisp --layer e2e --jobs $(E2E_JOBS) --worker-timeout $(E2E_WORKER_TIMEOUT)
+	$(SBCL) --control-stack-size 8 --script tests/run-tests.lisp --layer e2e --jobs $(E2E_JOBS) --worker-timeout $(E2E_WORKER_TIMEOUT)
 
 test-all: require-container-runtime
 	SBCL="$(SBCL)" E2E_JOBS="$(E2E_JOBS)" scripts/run-test-layers.sh
