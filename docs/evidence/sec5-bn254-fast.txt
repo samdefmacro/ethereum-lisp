@@ -1,0 +1,334 @@
+Section 5: the BN254 precompiles over Montgomery limbs (EIP-196/197, gas EIP-1108)
+
+Status
+
+Branch bn254-fast, from 7cef5a67151754cc279c51e07cda3511796f9fba
+(sec5-public-bootstrap-sync). DONE
+LOCALLY, with one gate caveat that is the base's, not this change's.
+ECADD (0x06), ECMUL (0x07) and ECPAIRING (0x08) run over four 64-bit
+Montgomery limbs instead of integers. Same outputs, failures, failure
+messages and gas as the integer implementation on 10,000 seeded differential
+inputs and on every known-answer vector in the tree. Warm arm64 costs, the
+integer path against the new one in one image: ECMUL 13.5 ms -> 0.19 ms, a
+one-pair pairing 34.2 ms -> 2.5 ms, two pairs 47.2 ms -> 3.8 ms. Replaying
+the 322-block Hoodi corpus: strict CPU 22.2 s -> 18.3 s (means of two runs
+each), and 5.7 s -> 1.7 s on the 22 blocks that call these precompiles;
+every verdict line identical.
+
+Gate caveat: at the base 7cef5a67 the EEST state, engine-late-payload and
+RLP gates, the ported_static gate and the unit test
+EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK all kill SBCL with
+"Bad frame pointer" (1,024 CALL levels overrun a default 2 MB stack), with
+and without this change; 5068bbb1 passes all of them. So the gates of
+record for this change ran twice: on bn254-fast itself (5 of 8 EEST gates,
+Hoodi fixtures and replay green; the rest crash exactly as the base does)
+and on a21b6681, this commit cherry-picked onto 5068bbb1, where all eight
+EEST gates, ported_static, the Hoodi fixtures and the replay reproduce the
+recorded results. Section 5 and "Out of scope" have the details.
+
+No live run; no cold-all (the coordinator runs it); amd64 not measured.
+
+Revisions
+
+  4683a9e5  (bn254-fast, 4683a9e56b044f6eaf33a71286f5aefb706fb6cb)
+            evm: run the BN254 precompiles over Montgomery limbs; the
+            integer code stays as the oracle
+  a21b6681  (bn254-fast-on-5068bbb1, a21b668159efa4987168f9d8b41d28bcb6023f49;
+            a gate vehicle only, not for merging) the same commit
+            cherry-picked onto 5068bbb114894a0304d71330513b68043a4a08ce
+  (this record is the next commit on bn254-fast)
+
+================================================================================
+1. Design choice
+================================================================================
+
+The brief offered (A) routing 0x06-0x08 through "the existing Go helper on
+vendored gnark-crypto" or (B) Montgomery field arithmetic in Lisp. (A) has no
+base to extend: f930e9e5 ("Retire the Go-helper subprocess crypto backends",
+2026-07-24) deleted the Go helpers and their vendored gnark-crypto tree;
+EIP-2537 now runs in-process on blst through CFFI, and blst has no BN254.
+A new native dependency (a C BN254 library behind CFFI) would be a new pinned
+input in both Dockerfiles and tools/build-inputs/inputs.lock, which is a
+supply-chain change outside this brief. So (B), with the integer code kept
+as the oracle, which also keeps PROJECT.md's rule for hand-written crypto:
+small, covered by the official vectors and a differential oracle.
+
+================================================================================
+2. What the time was (RED)
+================================================================================
+
+Warm arm64 dev image, SBCL 2.2.9, at 7cef5a67 (the integer implementation):
+
+  ECADD                       5-8 us    (one recursive extended-Euclid inverse)
+  ECMUL, 256-bit scalar    13,400 us    18.3 MB consed (affine double-and-add,
+                                        one inverse per addition)
+  ECPAIRING, 1 pair        37,400 us    36.9 MB consed
+  ECPAIRING, 2 pairs       45,800 us    53.5 MB consed
+    of which: G2 decode    15,800 us    (subgroup test r*Q in affine
+                                        coordinates, ~380 inverses)
+              Miller loop   8,400 us
+              final exp    13,200 us
+
+The subgroup test and the scalar multiplication paid one modular inverse per
+point addition; everything else paid bignum multiplication and division per
+field operation.
+
+================================================================================
+3. Changes (4683a9e5)
+================================================================================
+
+bn254-montgomery.lisp: Fp over four little-endian 64-bit limbs in a word
+vector at an offset, Montgomery form, always fully reduced (equal values,
+equal limbs). CIOS multiplication with gnark-crypto's no-carry shortcut (p's
+top limb is below 2^63 - 1); add, sub, neg with one conditional correction;
+binary extended-Euclid inverse over plain limbs, then one Montgomery product
+by R^3; canonical 32-byte decoding that refuses values >= p (geth's gnark
+SetBytesCanonical). Nothing allocates a bignum.
+
+bn254-tower.lisp: Fp2, Fp6 and Fp12 in word vectors with the integer
+implementation's representations and formulas (Fp12 multiplication in
+Karatsuba form), Frobenius constants converted once from its constants.
+
+bn254-fast.lisp: Jacobian doubling and mixed addition for G1 and the twist
+(infinity, P + P and P + (-P) handled explicitly), ECMUL by double-and-add
+over the 32 scalar bytes, the G2 subgroup test as r*Q = infinity in Jacobian
+coordinates (the oracle's test, no inverse), the Miller loop and final
+exponentiation on the oracle's schedules, decoding and the three runners.
+The runners keep the oracle's framing, validation order, failure messages,
+dropping of pairs with a point at infinity and gas;
+*BN254-PAIRING-CHECKER* now receives the decoded word-vector pairs.
+
+bn254-base.lisp, bn254-pairing.lisp: the integer runners are renamed
+RUN-BN254-{ADD,MUL,PAIRING}-PRECOMPILE-REFERENCE and kept as the oracle.
+
+Three SBCL 2.2.9 arm64 findings shaped the code:
+
+- The four-argument SB-BIGNUM:%MULTIPLY-AND-ADD VOP writes its low result
+  before reading its addends. When the allocator gave that result the
+  register of a dying addend, the addend was lost: the first version's
+  Montgomery product of 2 and 3 was wrong, the disassembly showing
+  "ADDS NL3, NL3, NL3" (the product added to itself). The carry helpers use
+  only single-result operations: a modular product, SB-KERNEL:%MULTIPLY-HIGH,
+  modular sums.
+- With carries written as comparisons and the conditional corrections as
+  branches, one Fp2 product cost 370 ns on evolving data against 90 ns when
+  the same input was repeated, the signature of data-dependent branch
+  mispredictions. Carries now come from the operands' top bits and the
+  corrections select with masks: 175 ns on evolving data, the whole
+  one-pair pairing 5.0 -> 2.5 ms.
+- DYNAMIC-EXTENT on (make-array n :element-type '(unsigned-byte 64)) is
+  ignored ("could not stack allocate"), so heap temporaries cost a pairing
+  2.7 MB. Each runner binds one workspace (a special, so thread-local) and
+  every routine takes named scratch slots above its top, with a bounds check
+  that signals instead of overrunning: 15.5 KB consed per one-pair pairing.
+
+================================================================================
+4. Measurements (GREEN)
+================================================================================
+
+Warm arm64 dev image, same image and inputs for both paths (the reference
+runners at 4683a9e5 are the base code): G1 = (1, 2), the geth G2 generator,
+a fixed 256-bit scalar, one timed batch after a warm-up call (ECADD 5,000
+calls, ECMUL 500 and 20, pairings 50 and 5). The three integer component
+rows are the section 2 measurements at 7cef5a67.
+
+  operation               integer (oracle)          limbs            factor
+  ECADD                      8.2 us /  8.1 KB      6.6 us / 1.5 KB     1.2
+  ECMUL, 256-bit scalar   13,500 us / 18.3 MB      194 us / 1.3 KB      70
+  ECPAIRING, 1 pair       34,200 us / 36.9 MB    2,540 us / 15.5 KB     13
+  ECPAIRING, 2 pairs      47,200 us / 53.5 MB    3,800 us / 20.5 KB     12
+    G2 decode + r*Q test  15,800 us                460 us               34
+    Miller loop            8,400 us                780 us               11
+    final exponentiation  13,200 us              1,260 us               10
+  Fp product                   -                    ~25 ns
+  Fp2 product (evolving)       -                   175 ns
+  Fp12 product / square        -                   5.2 / 3.7 us
+
+ECADD stays inverse-bound (one binary-Euclid inverse, ~2.3 us). By the
+component rows, a four-pair verifier call (four G2 decodes, four Miller
+loops, one final exponentiation) goes from about 110 ms to about 6 ms. The
+sec5-evm-throughput-2 brief puts go-ethereum's gnark path at about 1 ms per
+pairing; the remaining gap is cyclotomic squaring, sparse line
+multiplication and an endomorphism subgroup test, none of which is done
+here (the oracle's schedules were kept so the tower is checkable routine by
+routine).
+
+Replay corpus (.hoodi-replay, 322 blocks), cold integration lane,
+HOODI-REPLAY-COST summary lines, runs alternated on one checkout
+(7cef5a67, 4683a9e5, 4683a9e5, 7cef5a67 in time order, with the
+coordinator's release chain running on the same machine):
+
+  tree       strict CPU      strict consed   median strict   block CPU
+  7cef5a67   22,641 ms       10,846 MB       68,442 us       64,936 ms
+  7cef5a67   21,743 ms       10,845 MB       66,853 us       62,218 ms
+  4683a9e5   18,824 ms        5,877 MB       66,912 us       58,702 ms
+  4683a9e5   17,682 ms        5,877 MB       63,291 us       55,176 ms
+
+  Mean strict CPU 22,192 -> 18,253 ms (-17.7%), consing -45.8%. Per block
+  (first base run against second branch run): the 22 blocks whose strict
+  consing fell by more than 10 MB (the blocks that call 0x06-0x08) went
+  from 5,747 ms to 1,713 ms (-70%), e.g. 3685584 337 -> 100 ms and 322 MB
+  less, 3685491 338 -> 88 ms; the other 300 blocks 16,893 -> 15,968 ms,
+  within run-to-run noise. The median block does not call them and did not
+  move. All 322 HOODI-REPLAY verdict lines are identical between the base
+  and the branch.
+
+================================================================================
+5. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: exit 0 before any application tooling.
+
+RED/GREEN, warm (development, not of record): the Fp routines against
+integer arithmetic on 50,000 random pairs, then the three precompiles
+against the oracle on the examples of section 4, then the tests below.
+Mutation controls, each run in the warm image against
+BN254-FAST-PRECOMPILES-MATCH-THE-INTEGER-ORACLE (green before and after):
+  1. BNF-G2-SUBGROUP-P answering true for every point: red.
+  2. ECMUL ignoring the scalar's top byte: red.
+  3. The Fp12 p^2 Frobenius replaced by a copy (the final exponentiation's
+     hard part broken): GREEN at first. The generator's true products were
+     e(P, Q) e(-P, Q), whose Miller values are conjugates, so the easy
+     part already gives one and the hard part is never exercised. The
+     generator now builds e(aG1, bG2) e(cG1, dG2) e(-(ab+cd) G1, G2), true
+     by bilinearity only, with near misses (ab + cd + k, k = 1..5) as false
+     cases; red after that change. BN254-PAIRING-REFERENCE-FIXTURE-VECTORS
+     (geth's vectors) is red under the same mutation.
+
+New tests (tests/evm-bn254-fast-tests.lisp, unit)
+  BN254-FAST-FIELD-MATCHES-INTEGER-ARITHMETIC: 5,000 pairs (0, 1, p-1, p-2,
+    small and near-p values, random), mul, add, sub, neg, aliased square,
+    inverse against BN254-MODULAR-INVERSE; canonical decoding refuses p,
+    p+1, 2^256-1; the inverse of zero signals.
+  BN254-FAST-TOWER-MATCHES-INTEGER-TOWER: 60 random Fp12 pairs through
+    every Fp2/Fp6/Fp12 routine against BN254-FP2-*/FP6-*/FP12-*.
+  BN254-FAST-WORKSPACE-IS-REQUIRED-AND-BOUNDED: no workspace, or one too
+    small, signals instead of writing.
+  BN254-ADD-AND-MUL-REFERENCE-FIXTURE-VECTORS: geth's bn256Add.json (16)
+    and bn256ScalarMul.json (19) at 38271784, on both paths, output and gas
+    (new fixture tests/fixtures/execution-spec-tests/
+    bn254-add-mul-vectors.json, generated from those files with jq).
+  BN254-PAIRING-REFERENCE-FIXTURE-VECTORS-HOLD-FOR-THE-ORACLE-TOO: the 14
+    pairing vectors on the oracle (the existing test runs the new path).
+  BN254-FAST-PRECOMPILES-MATCH-THE-INTEGER-ORACLE: 10,000 seeded inputs,
+    5,000 ECADD, 2,500 ECMUL (800 full-width scalars), 2,500 ECPAIRING
+    (1-4 pairs, bilinear true and near-miss products, infinity in either
+    position, 80 points outside the subgroup, invalid coordinates and
+    off-curve points, random lengths), a tenth under Byzantium gas; the
+    outcome, output, gas and failure message must be equal. Non-vacuity:
+    more than 20 of each of add ok/fail, mul ok/fail, pairing true/false/
+    fail. About 80 s warm.
+  BN254-DIFFERENTIAL-COMPARISON-CAN-FAIL: its positive control (a wrong
+    output byte, wrong gas, a spurious failure are each reported).
+
+Cold, bn254-fast at 4683a9e5:
+  cl-workbench validation run cold-unit --match BN254 --match PRECOMPILE
+    --match PRODUCTION-ASDF --match PROJECT-PACKAGE --match EVM-CALL
+    --match DOMAIN-PACKAGES --match EVM-PUBLIC: 68 tests passed, EXIT=0
+    (the eleven BN254 tests above and the existing EVM-CALL-BN254-* and
+    BN254-PAIRING-REFERENCE-FIXTURE-VECTORS among them).
+  A wider first attempt (--match EVM ...) died in
+    EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK; see "Out of
+    scope".
+
+EEST tests@v20.0.2. Corpus: hard-link copy of the main checkout's
+.eest-fixtures-stable-v20.0.2 as <worktree>/.eest-fixtures-x1; fixtures.tar.gz
+re-hashed on the control plane:
+1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788. Selectors
+and commands exactly as in docs/evidence/sec5-b5161312-eest-v20.0.2.txt: one
+retained cold container per gate (COLD_TEST_CONTAINER=
+ethereum-lisp-cold-eest-x1-<rev8>-<slug>), sequential, output redirected to a
+file; git rev-parse HEAD and an empty porcelain asserted after every gate.
+All sixteen containers were removed after their state was recorded.
+
+  At 4683a9e5 (2026-09-29T20:39:21Z to 20:53:35Z):
+  slug                 cmd  container  OOM    result
+  state-manifest       0    0          false  1 test passed
+  blockchain-manifest  0    0          false  1 test passed
+  rlp-manifest         0    0          false  1 test passed
+  state                1    1          false  SBCL "Bad frame pointer", no result
+  blockchain           0    0          false  1 test passed
+  engine-late          1    1          false  SBCL "Bad frame pointer", no result
+  engine-reject        0    0          false  1 test passed
+  rlp                  1    1          false  SBCL "Bad frame pointer", no result
+
+  The base 7cef5a67 state gate, same selectors, run alone at
+  2026-09-29T20:54:18Z: EXIT=1, the same "Bad frame pointer".
+
+  At a21b6681 = 5068bbb1 + this change (2026-09-29T20:56:38Z to 21:11:03Z):
+  all eight 0/0/false, each log "ok <TEST>", "1 test passed.", no "not ok".
+
+  The six count-manifest lines of both runs are byte-identical to
+  docs/evidence/sec5-b5161312-eest-v20.0.2.txt (sorted sets all hash to
+  9c8f7010d2ec64d41c6564ffbed70f5d13e95f454f85f6f0d59547b96d2f4561).
+
+ported_static (ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<worktree>/
+.eest-fixtures-x1/tests-v20.0.2, cold-integration --match
+OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE):
+  a21b6681, EXIT=0:
+    Cancun total: files=2078 cases=7060 passed=7059 failed=0 skipped=1
+      [paidMemoryAboveHarnessHeap:1]
+    Prague total: files=2078 cases=7060 passed=7059 failed=0 skipped=1
+      [paidMemoryAboveHarnessHeap:1]
+    Osaka total: files=1969 cases=6581 passed=6581 failed=0 skipped=0
+  4683a9e5: EXIT=1, SBCL "Bad frame pointer" (the base's defect).
+
+Hoodi fixtures (hard-linked .eest-fixtures-hoodi-3684027 and -3685491),
+cold-integration --match HOODI-3684027- --match HOODI-3685491-, EXIT=0 at
+both 4683a9e5 and a21b6681: 2 tests passed.
+
+Hoodi differential replay (hard-linked .hoodi-replay,
+ETHEREUM_LISP_HOODI_REPLAY_ROOT=.hoodi-replay, cold-integration --match
+HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT) at 4683a9e5 (twice),
+a21b6681 and 7cef5a67 (twice): selected=322 replayed=320 match=320
+diverges=0 comparator=0 prestate=0 unreplayable=2 (3679328, 3685509, the
+known witness gaps); EXIT=1 by design.
+
+Not run: cold-all (the coordinator's), the Amsterdam burn-down (nothing
+here is behind the Amsterdam fork checks), cold-docs (no documented
+behaviour changed).
+
+Run logs (session scratchpad x1/, digests of the bytes this record was
+written from):
+  eest-4683a9e5/gates.log
+    2c6e7d7ac557065711bb4fe83555992e3a1861da09321ea1898cbd67c0444edd
+  eest-a21b6681/gates.log
+    a9ba3b2128e1bface3f20e464f606f8a90aa9ec8dcb1d22aaeadfd6ea5d50719
+  replay logs: 7cef5a67 160b9d02..., 1eb04484...; 4683a9e5 cb786708...,
+    fdba9b1f...; a21b6681 780fb633...
+
+================================================================================
+Out of scope, seen on the way
+================================================================================
+
+- The base 7cef5a67 cannot pass the consensus gates: the EEST state,
+  engine-late-payload and RLP gates, ported_static and the unit test
+  EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK all end in
+  "fatal error encountered in SBCL ... Bad frame pointer" with no result
+  line, exit 1 (the self-call test reproduced alone). 5068bbb1 passes the
+  self-call test and, with this change on top, all of those gates.
+  7cef5a67 merges 5068bbb1 (whose register loop left 1,840 bytes per CALL
+  level, 92% of a 2 MB stack at depth 1,024) with branches that changed
+  src/runtime/evm/interpreter/call.lisp, create.lisp, machine.lisp and
+  evm/tracing.lisp; each side passed the eight EEST gates alone
+  (gates.md rows 5068bbb1 and 7ad834c7), the merge does not. Per-level
+  bytes were not measured here, nor whether the node's execution threads
+  (whose stack size may differ from the test runner's) are affected by a
+  transaction recursing to depth 1,024. Not touched here.
+
+================================================================================
+Not verified
+================================================================================
+
+- 8/8 EEST and ported_static at 4683a9e5 itself: three EEST gates and
+  ported_static cannot complete on any tree from 7cef5a67 until the stack
+  regression is fixed. The full set passed at a21b6681, whose code outside
+  this commit is 5068bbb1's; the gates must be re-run on the merge that
+  carries both this change and the stack fix.
+- amd64: the limb code uses SB-KERNEL:%MULTIPLY-HIGH and modular word
+  arithmetic, which SBCL compiles on both targets, but nothing was run on
+  amd64 here.
+- Live: nothing deployed.
+- No cold-all (coordinator).
+- Timings share the machine with other agents and the coordinator's release
+  chain; warm figures are single batches.
