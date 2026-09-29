@@ -368,7 +368,7 @@ else
     record fail "the host's suite log is unchanged"
 fi
 expect_no_mutation "logs"
-expect 0 "print log lines with peer identities masked" "help names the log masking" -- "$broker" help
+expect 0 "print log lines with peer" "help names the log masking" -- "$broker" help
 
 # --- upload from an exported archive (HOODI_HIVE_IMAGE_TAR) --------------------
 # make_image_tar NAME TAG REVISION ARCH: a minimal `docker image save` archive

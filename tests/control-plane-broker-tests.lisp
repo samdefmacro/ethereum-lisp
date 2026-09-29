@@ -41,8 +41,8 @@ check count it printed after MARKER (NIL when it printed none)."
     (is (search ", 0 failed" stdout))
     (is (null (search "not ok" stdout)))
     ;; A self-test that ran nothing must not pass: the refusal matrix alone
-    ;; is more than forty checks, and the archive upload path adds eighteen
-    ;; (70 in all).
+    ;; is more than forty checks, the archive upload path adds eighteen and
+    ;; the masked logs eleven (81 in all).
     (is (and count (>= count 60)))))
 
 (deftest hoodi-live-gate-selftest-summarises-engine-telemetry
@@ -57,8 +57,10 @@ check count it printed after MARKER (NIL when it printed none)."
     ;; node key (run line, refusals, restart, status) adds 63 and the stop
     ;; action (refusals, verdicts, restart/upgrade grace) 60; a stopped
     ;; previous or old container (upgrade, start, restart) 62, and the
-    ;; runtime revision marker (downgrade refusals, status) 70; 304 in all.
-    (is (and count (>= count 295)))))
+    ;; runtime revision marker (downgrade refusals, status) 70, and the log
+    ;; redaction filter (line by line and through the failure paths) 29;
+    ;; 333 in all.
+    (is (and count (>= count 325)))))
 
 (deftest hoodi-fleet-status-selftest-stays-read-only
   (:layer :integration :module :control-plane :launches-processes t)
@@ -80,7 +82,7 @@ check count it printed after MARKER (NIL when it printed none)."
     (is (= 0 status))
     (is (search ", 0 failed" stdout))
     (is (null (search "not ok" stdout)))
-    ;; The revision fence alone (usage, control-plane refusals, the source's
-    ;; revision labels, the RUNTIME-REVISION marker on restore) is more than
-    ;; eighty checks; the masked geth log adds eleven.
-    (is (and count (>= count 90)))))
+    ;; Usage, the control-plane refusals, the source's revision labels, the
+    ;; RUNTIME-REVISION marker on restore and status, and the masked geth
+    ;; log: 124 checks in all.
+    (is (and count (>= count 120)))))

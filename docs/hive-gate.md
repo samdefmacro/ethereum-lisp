@@ -219,11 +219,18 @@ status in `hive-status.txt` (r54).
 5. No run timeout: r39's 2 h bound would cut off r29's roughly 2 h 06 min
    Engine run.
 
+`logs`, and `prepare`'s tail of `hive-prepare.log`, print container and Hive
+log lines masked by `scripts/hoodi-log-redact.sh` on the host (node ids and
+keys cut to their first 8 and last 4 hex digits, enode endpoints, `enr:`
+records and non-loopback IPv4/IPv6 addresses replaced); the full logs stay in
+the evidence root, and `collect` copies them unmodified.
+
 `scripts/hoodi-hive-gate-selftest.sh` runs the broker against stubbed
 `ssh`/`scp`/`docker`/`git`/`free`/`df` (the ssh stub runs the remote half
 locally). It covers argument parsing and every refusal above except the
 staging-checksum and runner-script ones, each with a positive control, and
-the archive upload with the local daemon stubbed down (70 checks). It runs
+the archive upload with the local daemon stubbed down, and the masked `logs`
+output (81 checks). It runs
 as the integration test `HOODI-HIVE-GATE-SELFTEST-COVERS-REFUSALS`
 (`tests/control-plane-broker-tests.lisp`). `scripts/hoodi-fleet-status.sh`
 calls `status` for the newest run of each suite, identified from the

@@ -1045,7 +1045,7 @@ replaced; a running one is the control), every rollback outcome, and the
 runtime revision marker against a modelled Git history: each downgrade
 refusal (older, unknown, diverged, malformed, changed between the two reads)
 is paired with an accepted case or the allowance
-(`HOODI-LIVE-GATE-SELFTEST-SUMMARISES-ENGINE-TELEMETRY`, 304 checks).
+(`HOODI-LIVE-GATE-SELFTEST-SUMMARISES-ENGINE-TELEMETRY`, 333 checks).
 
 When `start` replaces a container previously created by this live gate, set
 `HOODI_GATE_OLD_CONTAINER` and its full `HOODI_GATE_OLD_REVISION`. The broker
@@ -1281,7 +1281,7 @@ stopping geth and rewrites it just before the source starts. `status` prints
 it (`source-runtime-revision-marker=`). A geth that does not come up has its
 last 80 log lines printed masked, as below. `scripts/hoodi-geth-benchmark-gate-selftest.sh`
 pairs every refusal with an accepted case or the allowance
-(`HOODI-GETH-BENCHMARK-GATE-SELFTEST-KEEPS-THE-REVISION-FENCE`).
+(`HOODI-GETH-BENCHMARK-GATE-SELFTEST-KEEPS-THE-REVISION-FENCE`, 124 checks).
 
 No Hoodi broker prints a raw container log line. When `start`, `upgrade` or
 `restart` of the live gate, `start` of the geth benchmark, or the Hive gate's
