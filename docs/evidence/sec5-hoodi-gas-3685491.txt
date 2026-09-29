@@ -1,0 +1,272 @@
+Section 5: the gas-used mismatch on Hoodi block 3685491 (3 gas short)
+
+Status
+
+Branch hoodi-gas-3685491, from 1a7b9059. Found, reproduced to the unit,
+fixed. Not deployed.
+
+  Live (R6 = 1a7b9059, 2026-09-24T06:53:37Z, Lighthouse on the Hoodi host),
+  after the node had reached head and returned 44 VALID newPayloads:
+    "Gas used mismatch at block 3685491: header=58730304 computed=58730301"
+    block 0x154fcffe66c2595543e1f7f07b5504815709a971c0619e3c5c8dfbcab404c2f7
+  Every later block answered "links to previously rejected block".
+
+It is NOT the interpreter throughput work (5fee5219), NOT the base-gas table
+(43be69c5) and NOT the lazy state (72d148aa). It is a memory-sizing rule that
+predates all three: LOG, KECCAK256, CREATE and CREATE2 charged nothing for an
+EMPTY memory region (correct) but still grew memory to the region's offset
+(wrong). The next real expansion in the frame was then priced from the larger
+size. go-ethereum never resizes memory for a zero-length region.
+
+Revision
+
+  d7a28c6c  evm: a zero-length LOG, KECCAK256, CREATE or CREATE2 grows no memory
+  3c58f4a5  test: Hoodi block 3685491's gas matches its header on a backed state
+  (the commit adding this record follows them)
+
+================================================================================
+1. Which transaction
+================================================================================
+
+Block 0x383c73 = 3,685,491, timestamp 0x6ab4c8f0 = 1790232816 (past Hoodi
+BPO2), 36 transactions (29 type-2, 7 type-3), header gasUsed 0x3802740 =
+58,730,304. Per-transaction gas from go-ethereum's receipts
+(ethereum-hoodi-rpc.publicnode.com, eth_getTransactionReceipt), all status 1:
+
+  idx       gas         to
+  0, 1      34,494      0xbd1cc6f3...
+  2-6       21,000      blob transactions
+  7         785,936     0x5ff137d4... (ERC-4337 EntryPoint v0.6, handleOps)
+  8, 9      21,000      blob transactions
+  10-32     2,491,039   0x6b3f1c2a... (the gas burner, 23 times)
+  33        299,388     0x89f88373...
+  34        107,285     0x6f8dbc55...
+  35        27,810      0x37de961d...
+
+Method as in sec5-hoodi-gas-mismatch.txt: go-ethereum's pre-state of each
+transaction (debug_traceTransaction, prestateTracer, rpc.hoodi.ethpandaops.io),
+merged in block order (first occurrence of each account and slot wins), served
+the way the node serves it (accounts from a loader, storage through each
+account's own storage trie, MAKE-LAZY-STATE-DB), each signed envelope from
+eth_getRawTransactionByHash, Hoodi rules at (3685491, 1790232816), and
+APPLY-SIGNED-MESSAGE-LIST with the header's base fee 0x3721b7ca, excess blob
+gas 0xc7c9894, coinbase 0x09a43fd8... and prevRandao 0x53769235...
+
+At 1a7b9059 every transaction matched its receipt except transaction 7
+(0xe47dfc85255ea1e871db4a8c7f3129838965b618683759b1e04247159d3d5cd6):
+785,933 instead of 785,936. Block total 58,730,301: the live number exactly.
+
+================================================================================
+2. Which instruction
+================================================================================
+
+go-ethereum's callTracer for transaction 7 against our own call tracer
+(*EVM-CALL-TRACER*, a synthetic root frame entered first so the top-level
+calls stay children): the first frame whose gasUsed differs by 3 is the
+DELEGATECALL from the CREATE2 initcode of the new account 0x39a8736a into its
+implementation 0x8abb1336 (input 0xc4d66de8 = initialize(address), gas
+597,895): geth 26,114, ours 26,111. Every frame before it matched.
+
+go-ethereum's struct log of that frame (default struct logger, storage and
+memory off, 213 steps at depth 5) against our own steps (a temporary hook in
+STEP-EVM-MACHINE recording pc, opcode and regular gas left; removed before any
+commit): pcs and gas agree for 196 steps; step 197 is
+
+  pc 3871  MSTORE  offset 0x80   gas before 572,839   geth cost 9   ours 6
+
+Memory in that frame, in go-ethereum:
+  pc 4     MSTORE 0x40 (free-memory pointer)   -> 3 words, cost 3 + 9
+  pc 5691  LOG3 offset 0x80 size 0             -> no resize, cost 1,500
+           (topic 0x47e55c76..., then the EntryPoint and owner addresses as
+           indexed topics; no data)
+  pc 3871  MSTORE 0x80                          -> 3 to 5 words, cost 3 + 6
+Ours: the LOG3 grew memory to 0x80 (4 words) without charging, so the MSTORE
+paid 4 to 5 words, 3 + 3. The 3 gas is one word of memory expansion
+(G_memory), not a VERYLOW instruction.
+
+================================================================================
+3. Mechanism and reference
+================================================================================
+
+The LOG handler (src/runtime/evm/opcodes/stack-log.lisp) charged
+MEMORY-EXPANSION-GAS, which is 0 for a zero size, then called
+(ENSURE-MEMORY-SIZE memory (+ offset size)) unconditionally. The same shape was
+in KECCAK256 (opcodes/arithmetic.lisp), CREATE and CREATE2
+(opcodes/system.lisp). git blame puts the LOG form in 94a0ade3 (the vector
+stack) only as a moved line: the list-stack code before it had the identical
+unconditional resize, so the defect predates the throughput work.
+
+go-ethereum v1.17.6 (the local reference tree):
+  core/vm/common.go calcMemSize64WithUint: "if length is zero, memsize is
+    always zero, regardless of offset"
+  core/vm/memory_table.go memoryLog / memoryKeccak256 / memoryCreate /
+    memoryCreate2 all go through calcMemSize64
+  core/vm/interpreter.go: "if memorySize > 0 { mem.Resize(memorySize) }"
+
+The other memory users already skipped empty regions: RETURN and REVERT
+(MEMORY-SLICE), the copy opcodes (COPY-INTO-MEMORY), MCOPY
+(COPY-MEMORY-REGION) and the CALL family (MEMORY-REGIONS-HIGH-WATER). The
+audit covered every ENSURE-MEMORY-SIZE, MEMORY-SLICE, COPY-INTO-MEMORY and
+COPY-MEMORY-REGION caller under src/.
+
+Consequences before the fix:
+  - an empty LOG/KECCAK256/CREATE/CREATE2 at an offset past the current memory
+    made MSIZE read too high and under-priced the next expansion in the frame
+    by the gap (here one word, 3 gas);
+  - with a huge offset (the unit test uses 2^256 - 1) and size 0, which geth
+    accepts at no memory cost, the resize signalled a Lisp TYPE-ERROR (the
+    aligned size 2^256 is not an array dimension) instead of executing.
+
+EEST v20.0.2 passed 8/8 both with the defect (591f700e, cbfe2c63, 70409b12)
+and without it (section 7), so no selected vector observes the difference;
+the corpus was not searched for the pattern. The 44 blocks accepted before
+3685491 evidently did not combine a data-less event past the end of memory
+with a later expansion in the same frame (inferred from their acceptance, not
+traced).
+
+================================================================================
+4. Fix
+================================================================================
+
+d7a28c6c. ENSURE-MEMORY-REGION (src/runtime/evm/memory.lisp) returns MEMORY
+unchanged for a zero SIZE and otherwise calls ENSURE-MEMORY-SIZE with
+OFFSET + SIZE; LOG0-LOG4, KECCAK256, CREATE and CREATE2 call it. Gas charging
+is unchanged (it was already zero for an empty region).
+
+================================================================================
+5. Tests
+================================================================================
+
+EVM-ZERO-LENGTH-REGIONS-TOUCH-NO-MEMORY-AT-ANY-OFFSET (unit,
+tests/evm-memory-control-tests.lisp), synthetic, no fixture:
+  - LOG0 and KECCAK256 of nothing at 0x200, then MSIZE (must be 0), then
+    MLOAD 0x200 (must pay 17 words: 439 and 94 gas);
+  - LOG0 and KECCAK256 of nothing at 2^256 - 1 (382 and 37 gas, MSIZE 0);
+  - CREATE and CREATE2 with empty initcode at 0x200 (MSIZE 0, address
+    nonzero).
+HOODI-3685491-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE (integration,
+tests/state-transaction-execution-tests.lisp): the live block on the backed
+pre-state; all 36 receipts equal, transaction 7 = 785,936, total 0x3802740.
+It skips when the fixture is absent. The 3684027 helpers now take the fixture
+directory (HOODI-FIXTURE-PATH, -TRANSACTIONS, -TRIE-BACKED-PRESTATE,
+-PER-TRANSACTION-GAS); HOODI-3684027-... still passes with its fixture.
+
+RED at 1a7b9059 (warm image, cl-workbench repl start + cl-workbench test):
+  EVM-ZERO-LENGTH-REGIONS-...        EXIT=1 "Assertion failed: (= 0 (SECOND
+                                     (EVM-RESULT-STACK LOG0)))" (MSIZE 512)
+    (a first draft that bound the 2^256 - 1 cases first died on "The value
+    1157...9936 is not of type ..." before any assertion; the cases were
+    reordered so the behavioural assertions run first)
+  HOODI-3685491-...                  EXIT=1 "Assertion failed: (= 785936 (NTH 7
+                                     ...))"
+GREEN on d7a28c6c: both EXIT=0; also HOODI-3684027-...,
+  EVM-MEMORY-GAS-FOR-RETURN-REVERT-AND-LOG, EVM-DYNAMIC-MEMORY-GAS-FOR-HASH-
+  AND-COPY, EVM-CREATE-CHARGES-INITCODE-MEMORY-EXPANSION EXIT=0.
+Mutation controls, one site restored to the unconditional resize at a time,
+image restarted each time:
+  LOG       unit EXIT=1 (LOG0 MSIZE), HOODI-3685491 EXIT=1 (= 785936 ...)
+  KECCAK256 unit EXIT=1 (= 0 (SECOND (EVM-RESULT-STACK KECCAK)))
+  CREATE    unit EXIT=1 (= 0 (FIRST (EVM-RESULT-STACK CREATE)))
+  CREATE2   unit EXIT=1 (= 0 (FIRST (EVM-RESULT-STACK CREATE2)))
+So the LOG site alone reproduces the live block, and each of the four sites
+has its own witness.
+
+================================================================================
+6. Rebuilding the fixture
+================================================================================
+
+The fixture (about 0.3 MB) is fetched, not committed; the directory matches
+/.eest-fixtures*/ in .gitignore. From the checkout root, with the block
+saved as block-3685491.json (eth_getBlockByNumber "0x383c73" true on
+ethereum-hoodi-rpc.publicnode.com), control plane only (curl, jq):
+
+  B=$PWD/block-3685491.json
+  mkdir -p .eest-fixtures-hoodi-3685491 && cd .eest-fixtures-hoodi-3685491
+  : > transactions.txt
+  for h in $(jq -r '.result.transactions[].hash' $B); do
+    curl -s -X POST -H 'content-type: application/json' --data \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"debug_traceTransaction\",\"params\":[\"$h\",{\"tracer\":\"prestateTracer\"}]}" \
+      https://rpc.hoodi.ethpandaops.io > pre-$h.json
+    curl -s -X POST -H 'content-type: application/json' --data \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getRawTransactionByHash\",\"params\":[\"$h\"]}" \
+      https://ethereum-hoodi-rpc.publicnode.com | jq -r .result >> transactions.txt
+  done
+  jq -s 'reduce (.[] | .result) as $p ({}; reduce ($p|to_entries[]) as $e (.;
+    if has($e.key) then .[$e.key].storage = (($e.value.storage // {}) + (.[$e.key].storage // {}))
+    else .[$e.key] = $e.value end))' \
+    $(for h in $(jq -r '.result.transactions[].hash' $B); do echo pre-$h.json; done) \
+    > prestate.json
+
+Expected: 36 lines in transactions.txt, 68 accounts in prestate.json. The
+test reads only prestate.json and transactions.txt.
+
+================================================================================
+7. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0 (before the first run).
+
+Cold, on the tree of 3c58f4a5 (fix and both tests committed):
+  cl-workbench validation run cold-unit --match EVM --match GAS --match OPCODE
+    --match PRECOMPILE --match STATE
+      356 tests passed, 1 skipped (PINNED-V5.4.0-LATE-FORK-STATE-TEST-FAMILIES-
+      EXECUTE: no corpus root in this lane), 0 not ok, EXIT=0; includes
+      EVM-ZERO-LENGTH-REGIONS-TOUCH-NO-MEMORY-AT-ANY-OFFSET
+  cl-workbench validation run cold-integration --match EVM --match FIXTURE
+    --match NEW-PAYLOAD --match HOODI
+      31 tests passed, 0 skipped, 0 not ok, EXIT=0; includes
+      HOODI-3685491-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE and
+      HOODI-3684027-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE, both "ok"
+      with their fixtures present (hard links of the fetched files)
+
+EEST tests@v20.0.2: fixtures.tar.gz re-hashed on the control plane,
+1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788 (= the pin);
+the tree hard-linked (cp -al) from <main checkout>/.eest-fixtures-stable-v20.0.2
+into <worktree>/.eest-fixtures-g1. Selectors, commands and container shape as
+in sec5-b5161312-eest-v20.0.2.txt: one retained cold container per gate
+(COLD_TEST_CONTAINER=ethereum-lisp-cold-eest-g1-3c58f4a5-<slug>), sequential,
+stdout+stderr redirected to a file, 2026-09-29T02:49:01Z to 03:04:47Z, HEAD
+3c58f4a5be7328302631ae37fe003f3d7c60c0b6 (the uncommitted tree differed only
+in this record and README.md):
+
+  slug                 cmd  container  OOM    wall  result
+  state-manifest       0    0          false   93s  1 test passed
+  blockchain-manifest  0    0          false  111s  1 test passed
+  rlp-manifest         0    0          false  111s  1 test passed
+  state                0    0          false  125s  1 test passed
+  blockchain           0    0          false  119s  1 test passed
+  engine-late          0    0          false  138s  1 test passed
+  engine-reject        0    0          false   88s  1 test passed
+  rlp                  0    0          false  160s  1 test passed
+
+8/8, zero "not ok"; the only lines matching "skip" are the manifest lines'
+"skipped=" fields. The six EEST-CONFORMANCE manifest lines are byte-identical
+(sorted, diff) to those in sec5-b5161312-eest-v20.0.2.txt: 15,393 state,
+11,382 Engine replay, 10,257 RLP replay, unexpectedSkipped=0 in each. The
+eight containers were removed after their exit codes were read.
+
+================================================================================
+8. Operational note
+================================================================================
+
+The R6 datadir needs no store operation: since 60fb6e91 INVALID verdicts are
+not restored at startup, so a runtime built with d7a28c6c re-executes block
+3685491 on its next newPayload (expected VALID, gasUsed 58,730,304). A
+runtime without d7a28c6c rejects it again. State written before the rejection
+is sound: each earlier block matched its header's state root, receipts root
+and gasUsed.
+
+================================================================================
+Not verified
+================================================================================
+
+- Nothing was deployed; no fixed node has re-imported 3685491 live.
+- What the node did with the huge-offset TYPE-ERROR before the fix (it escapes
+  the EVM's EVM-ERROR handlers; not traced through block import). No live
+  block is known to have hit it.
+- Whether an earlier accepted block hit the same pattern with no gas effect
+  (an MSIZE read or an expansion that the gap did not change): each was
+  accepted against its header, so none diverged in consensus output.
+- The Hoodi host was not inspected; the live line is quoted from the brief.
+- cold-all and the full cold layers were not run (fleet rule; the coordinator
+  runs cold-all once).
