@@ -29,7 +29,7 @@ Each response is encoded as soon as it exists, so the response budget is
 checked BEFORE the next item does any work, not after the whole array has been
 built (*RPC-BATCH-RESPONSE-MAX-SIZE*). The response that crosses the limit is
 still delivered, as geth delivers it."
-  (if (> (length items) *rpc-batch-request-limit*)
+  (if (rpc-batch-over-request-limit-p items)
       (json-encode (rpc-batch-too-large-response items))
       (let ((encoded '())
             (bytes 0)
@@ -45,7 +45,7 @@ still delivered, as geth delivers it."
                 (push text encoded)
                 (unless spent-p
                   (incf bytes (length text))
-                  (when (> bytes *rpc-batch-response-max-size*)
+                  (when (rpc-batch-over-response-size-p bytes)
                     (setf spent-p t)))))))
         (if encoded
             (with-output-to-string (out)
@@ -64,7 +64,9 @@ still delivered, as geth delivers it."
               (return-from rpc-handle-request-json
                 (json-encode (json-rpc-parse-error-response)))))))
     (if (and (listp request) request (not (json-object-p request)))
-        (rpc-handle-batch-json request context)
+        (call-with-rpc-context-budgets
+         context
+         (lambda () (rpc-handle-batch-json request context)))
         (let ((response (rpc-handle-request-value request context)))
           (if response (json-encode response) "")))))
 

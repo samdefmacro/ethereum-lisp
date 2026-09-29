@@ -130,6 +130,7 @@
    (devnet-cli-public-api-method-filter (getf options :ws-api-modules))
    :public-allowed-method-p
    (devnet-cli-public-api-method-filter (getf options :http-api-modules))
+   :rpc-budgets (devnet-cli-rpc-budgets options)
    :telemetry-sink telemetry-sink))
 
 (defun devnet-cli-export-node-database (node options)

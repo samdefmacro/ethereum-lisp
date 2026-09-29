@@ -1,19 +1,17 @@
 (in-package #:ethereum-lisp.test)
 
-(deftest devnet-cli-rejects-unimplemented-ipc-and-rpc-limit-options
+(deftest devnet-cli-rejects-unimplemented-ipc-options
+  ;; The --rpc.* limits used to be refused here too; they are wired now
+  ;; (RPC-BUDGET-FLAGS-ARE-PARSED-AND-REACH-EVERY-LISTENER).
   (dolist (args '(("--ipcpath" "/tmp/geth.ipc")
                   ("--ipcapi" "eth,net")
-                  ("--ipcdisable")
-                  ("--rpc.gascap" "25000000")
-                  ("--rpc.evmtimeout" "5s")
-                  ("--rpc.batch-request-limit" "100")))
+                  ("--ipcdisable")))
     (handler-case
         (progn
           (ethereum-lisp.cli::devnet-cli-options args)
           (error "Option unexpectedly accepted: ~A" (first args)))
       (error (condition)
-        (is (or (search "IPC is not implemented" (format nil "~A" condition))
-                (search "is not configurable" (format nil "~A" condition))))))))
+        (is (search "IPC is not implemented" (format nil "~A" condition)))))))
 
 (deftest devnet-smoke-gate-script-rejects-malformed-boolean-assignment
   #-sbcl

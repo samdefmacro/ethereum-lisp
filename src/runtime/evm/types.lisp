@@ -17,6 +17,13 @@
              (evm-step-limit-error-pc condition)
              (evm-step-limit-error-steps condition)))))
 
+(define-condition evm-execution-deadline-error (error)
+  ((seconds :initarg :seconds :reader evm-execution-deadline-error-seconds))
+  (:report
+   (lambda (condition stream)
+     (format stream "EVM execution stopped at its ~A s deadline"
+             (evm-execution-deadline-error-seconds condition)))))
+
 (define-condition evm-precompile-error (evm-error)
   ((gas-used :initarg :gas-used :reader evm-precompile-error-gas-used)))
 

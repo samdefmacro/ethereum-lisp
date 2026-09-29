@@ -73,7 +73,8 @@ or the durable state root. A reader treats anything but a root as a miss."
 (defstruct (node-store-read-view
             (:constructor %make-node-store-read-view
                 (source head-number head-hash safe-number finalized-number
-                 entries hashes state-reader state-depth)))
+                 entries hashes state-reader state-depth
+                 forkchoice-head-hash)))
   "What the public read path may answer without the store guard.
 
 ENTRIES is a simple vector, head first: entry I holds canonical block
@@ -90,6 +91,10 @@ STATE-READER is the source's guard-free state reader, or NIL; STATE-DEPTH is
 how many entries, from the head, may answer state (the window, capped by the
 provider's state retention).
 
+FORKCHOICE-HEAD-HASH is the head checkpoint's block hash (what
+CHAIN-STORE-HEAD-BLOCK names, and what WebSocket newHeads follows), or NIL
+before a consensus client has set one.
+
 SOURCE is the store the view was built from. A caller answering for another
 store object (a store that was swapped out, as test harnesses do) must not use
 it; NODE-STORE-READ-VIEW-ATTEMPT enforces that."
@@ -101,7 +106,8 @@ it; NODE-STORE-READ-VIEW-ATTEMPT enforces that."
   (entries #() :type simple-vector :read-only t)
   (hashes #() :type simple-vector :read-only t)
   (state-reader nil :read-only t)
-  (state-depth 0 :type (integer 0 *) :read-only t))
+  (state-depth 0 :type (integer 0 *) :read-only t)
+  (forkchoice-head-hash nil :read-only t))
 
 (defun node-store-read-view-miss ()
   "Leave the view: the request is answered under the guard instead."
@@ -255,15 +261,22 @@ looking again at any block whose state was still pending."
          (head-hash (and head-block (block-hash head-block)))
          (safe (%node-store-read-view-tag store "safe"))
          (finalized (%node-store-read-view-tag store "finalized"))
+         (forkchoice-head-hash
+           (let ((checkpoint (chain-store-head-checkpoint store)))
+             (and checkpoint (chain-store-checkpoint-block-hash checkpoint))))
          (same-source-previous
            (and previous (eq store (node-store-read-view-source previous))
                 previous)))
-    (if (and same-source-previous
-             (eql head-number (node-store-read-view-head-number previous))
-             (let ((old (node-store-read-view-head-hash previous)))
-               (if head-hash (and old (hash32= head-hash old)) (null old)))
-             (eql safe (node-store-read-view-safe-number previous))
-             (eql finalized (node-store-read-view-finalized-number previous)))
+    (flet ((same-hash-p (new old)
+             (if new (and old (hash32= new old)) (null old))))
+      (if (and same-source-previous
+               (eql head-number (node-store-read-view-head-number previous))
+               (same-hash-p head-hash (node-store-read-view-head-hash previous))
+               (eql safe (node-store-read-view-safe-number previous))
+               (eql finalized (node-store-read-view-finalized-number previous))
+               (same-hash-p forkchoice-head-hash
+                            (node-store-read-view-forkchoice-head-hash
+                             previous)))
         (%node-store-read-view-capture-state store previous)
         (let ((entries (if head-block
                            (%node-store-read-view-entries
@@ -281,7 +294,7 @@ looking again at any block whose state was still pending."
                    store head-number entries same-source-previous
                    (+ window +node-store-read-view-blockhash-depth+))
                   #())
-              reader depth)))))))
+              reader depth forkchoice-head-hash))))))))
 
 (defun %node-store-read-view-entry-at (view number)
   "The window entry for canonical NUMBER, or a miss."
@@ -368,6 +381,14 @@ no lock and no GC-triggered rehash."
   ;; side branch), so it is a miss rather than NIL.
   (%node-store-read-view-entry-copy
    (%node-store-read-view-entry-by-hash store hash)))
+
+(defmethod chain-store-head-block ((store node-store-read-view))
+  ;; The forkchoice head as published: NIL before one was set, as the live
+  ;; store answers; a head outside the window is a miss.
+  (let ((hash (node-store-read-view-forkchoice-head-hash store)))
+    (and hash
+         (%node-store-read-view-entry-copy
+          (%node-store-read-view-entry-by-hash store hash)))))
 
 (defmethod chain-store-canonical-block-p ((store node-store-read-view) block)
   (hash32= (block-hash block)

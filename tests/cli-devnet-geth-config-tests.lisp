@@ -460,7 +460,26 @@ HTTPPort = 1945
                  "--json=false"))))
     (is (eq :sexp (getf init-options :summary-format)))))
 
-(deftest devnet-cli-main-rejects-inert-geth-style-rpc-limit-flags
+(deftest devnet-cli-main-accepts-geth-style-rpc-limit-flags
+  ;; The --rpc.* budgets were refused as inert until they were wired
+  ;; (tests/rpc-work-budget-tests.lisp); now they start a node, and a
+  ;; malformed value is refused by name.
+  (let ((output (make-string-output-stream))
+        (errors (make-string-output-stream)))
+    (is (= 0
+           (ethereum-lisp.cli:main
+            (list "devnet"
+                  (format nil "--genesis=~A" +devnet-cli-genesis-fixture+)
+                  "--rpc.gascap=50000000"
+                  "--rpc.evmtimeout=5s"
+                  "--rpc.txfeecap=1"
+                  "--rpc.batch-request-limit=1000"
+                  "--rpc.batch-response-max-size=25000000"
+                  "--json"
+                  "--no-serve")
+            :output-stream output
+            :error-stream errors)))
+    (is (string= "" (get-output-stream-string errors))))
   (let ((output (make-string-output-stream))
         (errors (make-string-output-stream)))
     (is (not
@@ -468,11 +487,11 @@ HTTPPort = 1945
             (ethereum-lisp.cli:main
              (list "devnet"
                    (format nil "--genesis=~A" +devnet-cli-genesis-fixture+)
-                   "--rpc.gascap=50000000")
+                   "--rpc.txfeecap=lots"
+                   "--no-serve")
              :output-stream output
              :error-stream errors))))
-    (is (string= "" (get-output-stream-string output)))
-    (is (search "--rpc.gascap is not configurable"
+    (is (search "--rpc.txfeecap requires a non-negative decimal amount of ether"
                 (get-output-stream-string errors)))))
 
 (deftest devnet-cli-rejects-unimplemented-syncmode

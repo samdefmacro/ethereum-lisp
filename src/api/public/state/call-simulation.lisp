@@ -494,10 +494,12 @@ move first, remove the original precompile, then apply ordinary account fields."
                  store
                  "eth_call")))
     (multiple-value-bind (status return-data gas-used)
-        (eth-rpc-simulate-call-object
-         (first params) block store config "eth_call"
-         :state-overrides (third params)
-         :block-overrides (fourth params))
+        (call-with-eth-rpc-evm-timeout
+         (lambda ()
+           (eth-rpc-simulate-call-object
+            (first params) block store config "eth_call"
+            :state-overrides (third params)
+            :block-overrides (fourth params))))
       (declare (ignore gas-used))
       (when (eq status :reverted)
         (eth-rpc-fail-execution-reverted return-data))
@@ -1097,6 +1099,12 @@ and bloom before the hash is exposed."
      synthetic-header)))
 
 (defun engine-rpc-handle-eth-simulate-v1 (params store config)
+  "eth_simulateV1, stopped at the --rpc.evmtimeout deadline as geth's
+simulator is (internal/ethapi/simulate.go at 38271784)."
+  (call-with-eth-rpc-evm-timeout
+   (lambda () (%engine-rpc-handle-eth-simulate-v1 params store config))))
+
+(defun %engine-rpc-handle-eth-simulate-v1 (params store config)
   (unless (<= 1 (length params) 2)
     (block-validation-fail
      "eth_simulateV1 params must contain payload and optional block id"))
@@ -1138,7 +1146,8 @@ and bloom before the hash is exposed."
                with parent-header = (block-header block)
                with simulated-headers-by-number =
                  (make-hash-table :test 'eql)
-               with request-gas-budget = +eth-rpc-default-call-gas-limit+
+               with request-gas-budget = (or (eth-rpc-gas-cap)
+                                             (1- (expt 2 64)))
                collect
                (progn
                  (unless (json-object-p block-state-call)

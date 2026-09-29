@@ -172,6 +172,9 @@
    #:evm-step-limit-error-limit
    #:evm-step-limit-error-steps
    #:evm-step-limit-error-pc
+   #:call-with-evm-deadline
+   #:evm-execution-deadline-error
+   #:evm-execution-deadline-error-seconds
    #:amsterdam-execution-available-p
    #:precompile-address
    #:active-precompile-address-p
@@ -291,6 +294,9 @@
    #:evm-step-limit-error-limit
    #:evm-step-limit-error-steps
    #:evm-step-limit-error-pc
+   #:call-with-evm-deadline
+   #:evm-execution-deadline-error
+   #:evm-execution-deadline-error-seconds
    #:amsterdam-execution-available-p
    #:precompile-address
    #:active-precompile-address-p

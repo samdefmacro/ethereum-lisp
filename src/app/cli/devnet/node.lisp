@@ -98,7 +98,11 @@ default."
        ws-origins
        ws-rpc-prefix
        ;; --ws.api's method filter; NIL means the public HTTP filter.
-       ws-allowed-method-p)
+       ws-allowed-method-p
+       ;; The --rpc.* work budgets (an ethereum-lisp.rpc RPC-BUDGETS), for the
+       ;; Engine and the public listeners and every WebSocket connection; NIL
+       ;; keeps geth's defaults.
+       rpc-budgets)
   (unless (or (and genesis-path (stringp genesis-path))
               (and genesis-json (stringp genesis-json))
               genesis-preset)
@@ -321,6 +325,7 @@ default."
             (devnet-endpoint-config-cors-origins engine-endpoint-config)
             :allowed-hosts
             (devnet-endpoint-config-allowed-hosts engine-endpoint-config)
+            :rpc-budgets rpc-budgets
             :telemetry-sink telemetry-sink))
          (public-service
            (make-engine-rpc-http-service
@@ -375,6 +380,7 @@ default."
             :txpool-lifetime-seconds
             (devnet-txpool-policy-lifetime-seconds txpool-policy)
             :admin-backend admin-backend
+            :rpc-budgets rpc-budgets
             :telemetry-sink telemetry-sink)))
     (setf (first node-box)
           (%make-devnet-node

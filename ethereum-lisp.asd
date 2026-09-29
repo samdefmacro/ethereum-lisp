@@ -365,6 +365,7 @@
        (:file "public-rpc-fee-history" :pathname "public/metadata/fee-history")
        (:file "public-rpc-state-queries" :pathname "public/state/queries")
        (:file "public-rpc-state-proofs" :pathname "public/state/proofs")
+       (:file "public-rpc-budgets" :pathname "public/budgets")
        (:file "public-rpc-call-objects" :pathname "public/state/call-objects")
        (:file "public-rpc-call-simulation" :pathname "public/state/call-simulation")
        (:file "public-rpc-gas" :pathname "public/state/gas")

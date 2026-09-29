@@ -11,7 +11,7 @@
          (requested
            (eth-rpc-call-object-quantity-field
             object "gas" :default block-limit)))
-    (min requested block-limit +eth-rpc-default-call-gas-limit+)))
+    (eth-rpc-apply-gas-cap (min requested block-limit))))
 
 (defun eth-rpc-estimate-gas-success-p
     (object block store config gas-limit state-overrides block-overrides)
