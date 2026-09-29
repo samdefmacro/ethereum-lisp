@@ -1371,6 +1371,7 @@ empty SNAP pool, or one whose last dependency peer failed and left, charges
 no peer. Snap workers that all stop without a reported failure are a
 contained phase outcome. The record is
 `docs/evidence/sec5-peer-attribution.txt`.
+
 ### Hoodi differential replay
 
 EEST loads every slot into an in-memory state and holds none of Hoodi's
