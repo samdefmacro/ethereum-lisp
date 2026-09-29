@@ -560,10 +560,17 @@ are one recovery session and must agree."
   "Wrap ENTRY's writer queue as one production multi-peer source."
   (let ((peer (devnet-peer-entry-peer entry))
         (queue (devnet-peer-entry-request-queue entry))
-        (id (devnet-peer-entry-id-hex entry)))
+        (id (devnet-peer-entry-id-hex entry))
+        ;; One downloader worker drives this source, so at most one of its
+        ;; jobs is in flight; :ABANDON below needs that job.
+        (in-flight (list nil)))
     (when (and peer queue)
       (flet ((submit (function)
-               (devnet-peer-request-queue-submit queue function)))
+               (let ((job (make-devnet-peer-request-job function)))
+                 (setf (car in-flight) job)
+                 (unwind-protect
+                      (devnet-peer-request-queue-submit-job queue job)
+                   (setf (car in-flight) nil)))))
         (make-eth-sync-peer-source
          peer
          :id id
@@ -611,6 +618,13 @@ are one recovery session and must agree."
            ;; the peer. :PENALTY above has already scored it as malformed.
            (devnet-peer-end-session-for-invalid-delivery
             node entry condition :charged-p t))
+         :abandon
+         (lambda ()
+           ;; The download ended with this request in flight. Stop waiting
+           ;; for it and keep the session: the peer did nothing wrong.
+           (let ((job (car in-flight)))
+             (when job
+               (devnet-peer-request-queue-abandon queue job))))
          :cancel
          (lambda ()
            (ignore-errors

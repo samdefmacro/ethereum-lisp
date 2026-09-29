@@ -1144,3 +1144,55 @@ does not have: the wire-level fault geth answers errInvalidBody."
             (make-condition 'ethereum-lisp.cli::devnet-peer-invalid-delivery
                             :charged-p t
                             :format-control "x" :format-arguments nil)))))
+
+(deftest devnet-peer-session-outlives-a-download-aborted-with-its-request-in-flight
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; sec5-peer-attribution.txt D6: when the multi-peer downloader aborted (an
+  ;; INVALID verdict included) it closed the stream of every source with a
+  ;; request in flight, ending those sessions; geth v1.17.6 cancels the
+  ;; requests and keeps the peers. Here the import of block 1 refuses it
+  ;; while the same session is still serving the request for block 2. RED
+  ;; at c677bdf0: the session was gone.
+  #+sbcl
+  (let ((serving-2 nil))
+    (unwind-protect
+         (progn
+           (setf *peer-attribution-number-request-hook*
+                 (lambda (origin)
+                   (when (= origin 2)
+                     (setf serving-2 t)
+                     ;; Still in flight when the download aborts.
+                     (sleep 2))))
+           (call-with-peer-attribution-session
+            (lambda (genesis config)
+              (eth-sync-produce-empty-blocks genesis config 2))
+            (lambda (client entry logs)
+              (let ((outcome
+                      (handler-case
+                          (eth-sync-download-blocks-multi
+                           (ethereum-lisp.cli::devnet-node-sync-peer-sources
+                            client)
+                           (lambda (block)
+                             (when (= 1 (block-header-number
+                                         (block-header block)))
+                               (loop repeat 1000 until serving-2
+                                     do (sleep 0.005))
+                               (error 'ethereum-lisp.cli::devnet-peer-sync-invalid
+                                      :message "injected INVALID verdict")))
+                           :start-number 1 :target-number 2 :batch-size 1
+                           :fetch-receipts-p nil
+                           :request-timeout-seconds 10)
+                        (serious-condition (condition) condition))))
+                (is (typep outcome
+                           'ethereum-lisp.cli::devnet-peer-sync-invalid))
+                (is serving-2)
+                ;; Give a torn-down session time to show it.
+                (sleep 0.5)
+                (is (peer-attribution-session-intact-p client entry))
+                (is (null (find "peer.dial.failed" (funcall logs)
+                                :key #'first :test #'string=)))
+                (is (peer-attribution-end-with-protocol-violation
+                     client entry))))))
+      (setf *peer-attribution-number-request-hook* nil)))
+  #-sbcl
+  (is t))

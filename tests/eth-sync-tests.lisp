@@ -1496,3 +1496,71 @@ until the peer disconnects."
         (is (equal '(:imported 1) outcome))
         (is (null rejected))
         (is (null penalties))))))
+
+(deftest eth-sync-multi-peer-abandons-a-request-in-flight-when-it-aborts
+  (:layer :unit :module :p2p)
+  ;; When the download stops (here the import callback refuses block 1, as
+  ;; an INVALID verdict does), a source's request still in flight is
+  ;; abandoned, not cancelled: geth v1.17.6 cancels the requests of an
+  ;; aborted cycle and keeps the peers (eth/protocols/eth/dispatcher.go
+  ;; discards a response to a cancelled request). CANCEL, which production
+  ;; implements by closing the peer's stream, is kept for a source that
+  ;; cannot abandon. (docs/evidence/sec5-robustness-followups.txt)
+  (let ((headers (eth-sync-test-chain-headers 2))
+        (empty-body
+          (ethereum-lisp.eth-wire:make-eth-block-body
+           :transactions '() :ommers '())))
+    (flet ((abort-with-block-2-in-flight (abandon-p)
+             (let* ((fetching-2 nil)
+                    (released nil)
+                    (abandoned 0)
+                    (cancelled 0)
+                    (source
+                      (apply
+                       #'make-eth-sync-peer-source
+                       nil :id :only :head-number 2
+                       :fetch-headers
+                       (lambda (origin amount)
+                         (when (= origin 2)
+                           (setf fetching-2 t)
+                           (loop repeat 1000 until released
+                                 do (sleep 0.005))
+                           (error "request stopped"))
+                         (subseq headers (1- origin) (+ (1- origin) amount)))
+                       :fetch-bodies
+                       (lambda (seen-headers)
+                         (loop repeat (length seen-headers) collect empty-body))
+                       :cancel
+                       (lambda () (incf cancelled) (setf released t))
+                       (when abandon-p
+                         (list :abandon
+                               (lambda () (incf abandoned) (setf released t))))))
+                    (outcome
+                      (handler-case
+                          (eth-sync-download-blocks-multi
+                           (list source)
+                           (lambda (block)
+                             (when (= 1 (block-header-number
+                                         (block-header block)))
+                               (loop repeat 1000 until fetching-2
+                                     do (sleep 0.005))
+                               (error "injected INVALID verdict for block 1")))
+                           :start-number 1 :target-number 2 :batch-size 1
+                           :fetch-receipts-p nil
+                           :request-timeout-seconds 10)
+                        (simple-error (condition)
+                          (princ-to-string condition)))))
+               (values outcome fetching-2 abandoned cancelled))))
+      (multiple-value-bind (outcome fetching-2 abandoned cancelled)
+          (abort-with-block-2-in-flight t)
+        (is (search "injected INVALID" outcome))
+        (is fetching-2)
+        (is (= 1 abandoned))
+        (is (= 0 cancelled)))
+      ;; Control: a source that cannot abandon is still cancelled.
+      (multiple-value-bind (outcome fetching-2 abandoned cancelled)
+          (abort-with-block-2-in-flight nil)
+        (is (search "injected INVALID" outcome))
+        (is fetching-2)
+        (is (= 0 abandoned))
+        (is (= 1 cancelled))))))

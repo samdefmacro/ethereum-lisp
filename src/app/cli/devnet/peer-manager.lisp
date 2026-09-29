@@ -525,6 +525,29 @@ as reported while preserving this condition's type."))
   (devnet-peer-request-queue-submit-job
    queue (make-devnet-peer-request-job function)))
 
+(define-condition devnet-peer-request-abandoned (error) ()
+  (:report
+   (lambda (condition stream)
+     (declare (ignore condition))
+     (write-string "peer request abandoned by its submitter" stream)))
+  (:documentation
+   "Handed to a waiter whose request its submitter no longer wants. The peer
+session is not involved: a request not yet started never runs, and a reply
+to one in progress is read and discarded by the session as usual."))
+
+#+sbcl
+(defun devnet-peer-request-queue-abandon (queue job)
+  "Stop waiting for JOB, a request submitted to QUEUE, and leave the session
+alone. A job still queued is withdrawn; one the session is serving finishes
+there and its result is dropped. The waiter is woken with a
+DEVNET-PEER-REQUEST-ABANDONED."
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (setf (devnet-peer-request-queue-pending queue)
+          (delete job (devnet-peer-request-queue-pending queue)
+                  :test #'eq :count 1)))
+  (devnet-peer-request-job-finish
+   job nil (make-condition 'devnet-peer-request-abandoned)))
+
 (define-condition devnet-peer-invalid-delivery (eth-peer-protocol-error)
   ((charged-p :initarg :charged-p :initform nil
               :reader devnet-peer-invalid-delivery-charged-p))

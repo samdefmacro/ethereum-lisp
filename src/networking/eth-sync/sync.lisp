@@ -213,11 +213,12 @@ while integration tests can script latency and bad responses without sockets."
   fetch-receipts
   penalty
   cancel
-  reject)
+  reject
+  abandon)
 
 (defun make-eth-sync-peer-source
     (peer &key id head-number fetch-headers fetch-bodies fetch-receipts
-               penalty cancel reject)
+               penalty cancel reject abandon)
   "Wrap PEER for a multi-peer download.
 
 FETCH-HEADERS receives ORIGIN and AMOUNT. FETCH-BODIES and FETCH-RECEIPTS
@@ -226,10 +227,14 @@ CANCEL should interrupt a blocked request (normally by closing that peer's
 socket); it is invoked after a timeout. REJECT, when given, receives the
 ETH-SYNC-INVALID-DELIVERY of a body or receipt list that did not match its
 header, and should end the peer's session as geth does; without one the
-source is only disabled for this download."
+source is only disabled for this download. ABANDON, when given, is invoked
+instead of CANCEL when the download ends with this source's request still in
+flight: it should stop the waiting fetch and leave the peer's session alone,
+as geth cancels the requests of an aborted sync cycle and keeps its peers."
   (%make-eth-sync-peer-source
    :id (or id (and peer (eth-peer-remote-client-id peer)) peer)
    :reject reject
+   :abandon abandon
    :peer peer
    :head-number
    (or head-number
@@ -961,18 +966,26 @@ Returns the number of blocks imported."
               "downloaded target block ~D does not match the consensus target"
               target))
            imported)
-      (let ((cancel
+      ;; However the download ended (completed, a verdict or local failure
+      ;; from the import callback, no source left), a request still in
+      ;; flight is no longer wanted. geth v1.17.6 cancels such a request and
+      ;; keeps its peer (eth/protocols/eth/dispatcher.go: a response to a
+      ;; cancelled request is silently discarded), so a source that can
+      ;; abandon its fetch does that; only one that cannot is cancelled,
+      ;; which may end its session.
+      (let ((in-flight
               (sb-thread:with-mutex ((eth-sync-multi-state-lock state))
                 (setf (eth-sync-multi-state-stopped-p state) t)
                 (sb-thread:condition-broadcast
                  (eth-sync-multi-state-changed state))
                 (loop for source in peer-sources
-                      when (and
-                            (gethash
-                             source (eth-sync-multi-state-in-flight state))
-                            (eth-sync-peer-source-cancel source))
+                      when (gethash
+                            source (eth-sync-multi-state-in-flight state))
                         collect source))))
-        (dolist (source cancel)
-          (funcall (eth-sync-peer-source-cancel source))))
+        (dolist (source in-flight)
+          (let ((stop (or (eth-sync-peer-source-abandon source)
+                          (eth-sync-peer-source-cancel source))))
+            (when stop
+              (funcall stop)))))
       (dolist (thread threads)
         (sb-thread:join-thread thread :timeout 5 :default nil)))))
