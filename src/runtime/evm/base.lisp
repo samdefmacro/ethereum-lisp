@@ -1,13 +1,17 @@
 (in-package #:ethereum-lisp.evm.internal)
 
+(defconstant +word-mask+ (1- (expt 2 256)))
+
 (defun word (value)
   ;; Every stack push reduces its value; a non-negative fixnum is already a
-  ;; word, and skipping the bignum MOD for it keeps pushes allocation-free.
-  ;; A bignum already below 2^256 (a PUSH32 immediate, an MLOAD result) is
-  ;; returned as well: MOD would divide and allocate a copy of it.
+  ;; word, and skipping the bignum reduction for it keeps pushes
+  ;; allocation-free.  A bignum already below 2^256 (a PUSH32 immediate, an
+  ;; MLOAD result) is returned as well.  Anything else is reduced modulo 2^256
+  ;; with a mask, which is that modulus for every integer, negative ones too
+  ;; (two's complement), and costs a fifth of the bignum division MOD makes.
   (cond ((typep value '(and fixnum unsigned-byte)) value)
         ((and (typep value 'unsigned-byte) (< value +word-modulus+)) value)
-        (t (mod value +word-modulus+))))
+        (t (logand value +word-mask+))))
 
 ;;; The cheap word operations.  Both the opcode handlers and the frame's
 ;;; register loop (interpreter/interpreter.lisp) call these, so each opcode has

@@ -842,3 +842,17 @@
                  (decf (ethereum-lisp.evm.internal::evm-machine-gas-used
                         machine)
                        3))))))))
+
+(deftest evm-word-reduction-is-the-modulus-for-every-integer
+  ;; WORD reduces with a 256-bit mask instead of MOD; for negative integers
+  ;; and for products and shifts far above 2^256 the mask must still be the
+  ;; modulus.
+  (let ((values (list 0 1 (1- (expt 2 62)) (expt 2 62) (1- (expt 2 256))
+                      (expt 2 256) (1+ (expt 2 256)) (expt 2 300)
+                      (* (1- (expt 2 256)) (1- (expt 2 256)))
+                      (ash (1- (expt 2 256)) 255) -1 -2 (- (expt 2 62))
+                      (- (expt 2 255)) (- (expt 2 256)) (- 1 (expt 2 256))
+                      (- (expt 2 300)) (- (* (expt 2 256) 12345) 7))))
+    (dolist (value values)
+      (is (= (mod value (expt 2 256))
+             (ethereum-lisp.evm.internal::word value))))))
