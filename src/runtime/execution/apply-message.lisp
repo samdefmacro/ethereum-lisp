@@ -66,7 +66,11 @@ floor are then applied by FINALIZE-TRANSACTION-RECEIPT."
      state sender coinbase tx
      (make-receipt :status status
                    :cumulative-gas-used gas-used
-                   :regular-gas-used (- gas-used state-gas)
+                   ;; EIP-8037 tx_regular_gas: the calldata floor bounds the
+                   ;; regular dimension even when state gas lifts the total
+                   ;; above the floor.
+                   :regular-gas-used (max (- gas-used state-gas)
+                                          *transaction-floor-gas*)
                    :state-gas-used state-gas
                    :logs logs)
      base-fee

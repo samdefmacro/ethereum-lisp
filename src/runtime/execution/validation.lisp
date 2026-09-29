@@ -20,8 +20,11 @@
              (> (max (execution-transaction-intrinsic-gas tx rules)
                      (transaction-effective-floor-gas tx rules))
                 +transaction-gas-limit-cap-eip7825+))
+    ;; EEST names this INTRINSIC_GAS_TOO_LOW: the intrinsic (or floor) gas
+    ;; is more than any transaction gas limit may put in the regular
+    ;; dimension (geth v1.17.6 execute, "intrinsic cost ... floor ...").
     (error 'transaction-validation-error
-           :message "Amsterdam intrinsic gas exceeds the execution-gas cap"))
+           :message "Amsterdam intrinsic gas exceeds the 2^24 transaction gas limit cap"))
   (when (and rules
              (chain-rules-osaka-p rules)
              (not (chain-rules-amsterdam-p rules))

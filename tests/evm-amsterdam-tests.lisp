@@ -1220,3 +1220,56 @@ entries into the list ACCESSES names, oldest first."
     (is (find "0x0000000000000000000000000000000000000055" accesses
               :key #'second :test #'string=))
     (is (null (state-db-get-account state address)))))
+
+(deftest eip8037-calldata-floor-bounds-the-regular-dimension
+  ;; geth v1.17.6 settleGas: tx_regular_gas = max(gas used less state gas,
+  ;; calldata floor), whether or not state gas lifts the whole transaction
+  ;; above the floor.  A call with 1,000 bytes of calldata that creates one
+  ;; slot uses less regular gas than its floor and more gas in all; the
+  ;; block's regular dimension must still count the floor
+  ;; (tests-glamsterdam-devnet v7.2.1 eip8037
+  ;; calldata_floor_not_discounted_by_state_gas).
+  (let* ((rules (evm-context-chain-rules
+                 (amsterdam-state-gas-test-context nil nil)))
+         (state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000011"))
+         (contract
+           (address-from-hex "0x0000000000000000000000000000000000000044"))
+         (tx (make-legacy-transaction
+              :nonce 0 :gas-price 1 :gas-limit 500000 :to contract
+              :data (make-array 1000 :element-type '(unsigned-byte 8)
+                                     :initial-element 1)))
+         (floor-gas (transaction-effective-floor-gas tx rules
+                                                     :sender sender)))
+    (state-db-set-account state sender (make-state-account :balance 10000000))
+    ;; PUSH1 1 PUSH0 SSTORE: one new slot, 97,920 of state gas.
+    (state-db-set-code state contract #(#x60 1 #x5f #x55 0))
+    (let ((receipt (apply-message state sender tx :chain-rules rules)))
+      (is (= 1 (receipt-status receipt)))
+      (is (= 97920 (receipt-state-gas-used receipt)))
+      (is (> (receipt-cumulative-gas-used receipt) floor-gas))
+      (is (= floor-gas (receipt-regular-gas-used receipt))))))
+
+(deftest amsterdam-intrinsic-gas-over-the-cap-is-intrinsic-gas-too-low
+  ;; A transaction whose intrinsic gas exceeds 2^24 cannot be included under
+  ;; Amsterdam; EEST names the exception INTRINSIC_GAS_TOO_LOW
+  ;; (tests-glamsterdam-devnet v7.2.1 eip8037
+  ;; intrinsic_regular_gas_exceeds_cap), and the state-test runner matches
+  ;; it on "gas limit" and "intrinsic gas".
+  (let* ((rules (evm-context-chain-rules
+                 (amsterdam-state-gas-test-context nil nil)))
+         (tx (make-legacy-transaction
+              :nonce 0 :gas-price 1 :gas-limit 30000000
+              :to (address-from-hex
+                   "0x0000000000000000000000000000000000000044")
+              :data (make-array 1100000 :element-type '(unsigned-byte 8)
+                                        :initial-element 1)))
+         (condition
+           (handler-case
+               (progn (ethereum-lisp.execution::validate-execution-transaction-gas-cap
+                       tx rules)
+                      nil)
+             (transaction-validation-error (c) c))))
+    (is condition)
+    (is (eest-state-test-condition-matches-exception-token-p
+         condition "TransactionException.INTRINSIC_GAS_TOO_LOW"))))
