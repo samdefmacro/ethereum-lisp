@@ -106,7 +106,11 @@ geth itself is not interoperable across the two: v1.17.6 handleGetCells
 (eth/protocols/eth/handlers.go:691-696 at 38271784) returns the decode
 error, eth/protocols/eth/handler.go Handle returns it from the message loop,
 and p2p/peer.go run (lines 307-311) disconnects with discReasonForError,
-i.e. DiscSubprotocolError. Our session teardown on a decode error is
+i.e. DiscProtocolError (2): msg.Decode returns an unwrapped *peerError
+errInvalidMsg (p2p/message.go:57), which discReasonForError maps to
+DiscProtocolError (p2p/peer_error.go:112-116; corrected by
+sec5-peer-attribution.txt, which found 11 such Disconnects from 9 hosts in
+the 1a7b9059 log). Our session teardown on a decode error is
 therefore geth's behaviour; the defect was only which layouts we accept.
 
 ================================================================================

@@ -1350,6 +1350,28 @@ and the next pass to complete the target. The record, with the classification
 of every sync-reachable failure, is
 `docs/evidence/sec5-sync-outcomes-nonfatal.txt`.
 
+### Peer attribution: who is scored or disconnected
+
+```sh
+cl-workbench validation run cold-integration \
+  --match DEVNET-PEER-SESSION-OUTLIVES-AN-INVALID-VERDICT-FROM-ITS-GAP-FILL
+cl-workbench validation run cold-unit \
+  --match DEVNET-PEER-SESSION-END-CHARGES-ONLY-WHAT-THE-PEER-SENT \
+  --match DEVNET-SNAP-SOURCE-POOL-EXHAUSTION-SCORES-NO-SINGLE-PEER \
+  --match DEVNET-SYNC-COORDINATOR-CONTAINS-SNAP-WORKERS-STOPPED
+```
+
+A real dialed loopback session gap-fills a chain whose second block is
+well-formed and INVALID by execution: the verdict reaches the coordinator,
+while the session, its queue and its score survive and carry the next request
+(control: a protocol violation on the same queue ends the session and costs
+25). A session ended by a remote Disconnect, a broken pipe or a transport
+error is not scored; one ended by a peer message we could not accept is. An
+empty SNAP pool, or one whose last dependency peer failed and left, charges
+no peer. Snap workers that all stop without a reported failure are a
+contained phase outcome. The record is
+`docs/evidence/sec5-peer-attribution.txt`.
+
 ### Bounded snap/1 serving and peer-session holds
 
 ```sh

@@ -963,6 +963,15 @@ Non-obvious properties the implementation relies on:
   cache, but becomes a block candidate only when a later newPayload admission
   executes it. The private build step itself cannot alter candidate, canonical,
   state, txpool, or checkpoint views.
+- **A peer is charged only for what it sent.** A session ends on any failure,
+  but only a peer message we could not accept lowers the peer's score (four
+  charges ban it for the process). A remote Disconnect, a reset or broken pipe,
+  a timeout, a local storage fault, an INVALID verdict on a block the peer
+  delivered, and a SNAP pool with no live peer left charge nobody; an INVALID
+  verdict raised inside a session job does not end that session either. geth
+  v1.17.6 keeps no score and disconnects only for wire-level faults
+  (`importBlockResults` reports an execution failure as a bad block). The
+  record is `docs/evidence/sec5-peer-attribution.txt`.
 - **Peer progress names durable candidate state.** A persistent node records a
   peer's identity, persistence authority, chain ID, genesis hash, last completed
   number, and last hash in a strict versioned RLP record. The executed candidate,

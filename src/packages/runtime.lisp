@@ -451,6 +451,7 @@
    #:snap-sync-sources-exhausted
    #:snap-sync-sources-exhausted-phase
    #:snap-sync-sources-exhausted-failures
+   #:snap-sync-workers-stopped
    #:snap-sync-heal-yielded
    #:*snap-sync-stop-p*
    #:snap-sync-stopped
