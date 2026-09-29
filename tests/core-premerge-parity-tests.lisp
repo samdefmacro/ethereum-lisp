@@ -392,7 +392,15 @@ CONFIG; return the deployed code length (0 when refused)."
          (ethereum-lisp.cli:devnet-node-store node))))
       (is (= (expt 10 21)
              (status-total-difficulty
-              (ethereum-lisp.cli::devnet-peer-sync-status node)))))))
+              (ethereum-lisp.cli::devnet-peer-sync-status node)))))
+    ;; A configuration that fixes the Merge (TTD zero, as Hoodi's netsplit
+    ;; block 0 does) keeps advertising its TTD whatever the head's total.
+    (let ((fixed (ethereum-lisp.cli:make-devnet-node
+                  :genesis-json
+                  "{\"config\":{\"chainId\":1337,\"homesteadBlock\":0,\"terminalTotalDifficulty\":0},\"nonce\":\"0x0\",\"timestamp\":\"0x0\",\"extraData\":\"0x\",\"gasLimit\":\"0x1c9c380\",\"difficulty\":\"0x20000\",\"mixHash\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"coinbase\":\"0x0000000000000000000000000000000000000000\",\"alloc\":{}}"
+                  :port 0)))
+      (is (= 0 (ethereum-lisp.eth-wire:eth-status-total-difficulty
+                (ethereum-lisp.cli::devnet-peer-sync-status fixed)))))))
 
 ;;; (6) The DAO drain and ommer rewards on a synthetic chain
 
