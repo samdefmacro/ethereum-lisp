@@ -61,6 +61,7 @@
 (dolist (relative-path
          '("tests/evm-core-tests.lisp"
            "tests/evm-memory-control-tests.lisp"
+           "tests/evm-memory-region-audit-tests.lisp"
            "tests/evm-storage-access-tests.lisp"
            "tests/evm-context-environment-tests.lisp"
            "tests/evm-call-tests.lisp"
