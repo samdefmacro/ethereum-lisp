@@ -7,22 +7,31 @@
 
 (defstruct (transaction-computation-cache
             (:constructor make-transaction-computation-cache))
-  "Derived values for one transaction object.
+  "Derived values for one transaction object, each computed at most once.
 
-The owning transaction structs are intentionally mutable for builders and test
-vectors.  Callers therefore compare ENCODING with the transaction's current
-canonical encoding before trusting HASH or SENDER; a field or byte-vector
-mutation invalidates both without requiring custom SETF methods for every
-envelope slot.
+Transactions are immutable values.  Every slot of the five transaction
+structs, and of the access-list entries and authorizations they hold, is
+read-only, and nothing writes into the byte vectors and lists they hold once
+the object is built; a transaction that differs is a new object with an empty
+cache.  So nothing is re-derived to detect a change: ENCODING is the canonical
+encoding, computed on first use, and HASH its Keccak-256.
 
-SENDER is the address the signature recovers to with no chain-id gate, NIL
-when it recovers to none, or :UNRECOVERED before the first recovery.  The
-expected-chain-id gate of TRANSACTION-SENDER reads only fields the encoding
-already covers, so it is applied on every call and never keys the cache: a
-pooled transaction is recovered once whichever chain id its callers pass."
+SENDER is the address the signature recovers to under the EIP-2 low-s bound
+and with no chain-id gate, NIL when it recovers to none, or :UNRECOVERED
+before the first recovery.  FRONTIER-SENDER is the same recovery without the
+low-s bound (go-ethereum's FrontierSigner), which only pre-Homestead rules
+ask for.  The chain-id and fork gates of TRANSACTION-SENDER and
+TRANSACTION-SENDER-FOR-RULES read only fields the encoding covers, so they
+are applied on every call and never key the cache: every caller shares one
+recovery, whatever chain id or rules it passes.
+
+Each slot is written once from NIL or :UNRECOVERED to a value a concurrent
+reader would compute identically, so two threads that race recompute the
+same answer."
   encoding
   hash
-  (sender :unrecovered))
+  (sender :unrecovered)
+  (frontier-sender :unrecovered))
 
 (defstruct (legacy-transaction (:constructor make-legacy-transaction
                                   (&key (nonce 0)
@@ -34,16 +43,16 @@ pooled transaction is recovered once whichever chain id its callers pass."
                                         (v 0)
                                         (r 0)
                                         (s 0))))
-  (nonce 0 :type (integer 0 *))
-  (gas-price 0 :type (integer 0 *))
-  (gas-limit 0 :type (integer 0 *))
-  to
-  (value 0 :type (integer 0 *))
-  (data (make-byte-vector 0))
-  (v 0 :type (integer 0 *))
-  (r 0 :type (integer 0 *))
-  (s 0 :type (integer 0 *))
-  (computation-cache (make-transaction-computation-cache)))
+  (nonce 0 :type (integer 0 *) :read-only t)
+  (gas-price 0 :type (integer 0 *) :read-only t)
+  (gas-limit 0 :type (integer 0 *) :read-only t)
+  (to nil :read-only t)
+  (value 0 :type (integer 0 *) :read-only t)
+  (data (make-byte-vector 0) :read-only t)
+  (v 0 :type (integer 0 *) :read-only t)
+  (r 0 :type (integer 0 *) :read-only t)
+  (s 0 :type (integer 0 *) :read-only t)
+  (computation-cache (make-transaction-computation-cache) :read-only t))
 
 (defun transaction-recipient-bytes (to)
   (etypecase to

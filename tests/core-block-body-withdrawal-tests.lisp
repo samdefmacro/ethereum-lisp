@@ -21,7 +21,9 @@
       (validate-blob-transaction-fee-cap overwide-transaction 2))
     (signals block-validation-error
       (validate-block-body-roots block))
-    (setf (blob-transaction-max-fee-per-blob-gas transaction) 2)
+    (setf (block-transactions block)
+          (list (transaction-fixture-with transaction
+                                          :max-fee-per-blob-gas 2)))
     (setf (block-header-transactions-root header)
           (transaction-list-root (block-transactions block)))
     (is (validate-block-body-roots block)))

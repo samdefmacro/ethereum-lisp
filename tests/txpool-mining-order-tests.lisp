@@ -189,21 +189,21 @@ sender group for each transaction it emits: the oracle."
                                    base-fee))
                               transactions))
          (size (length transactions))
-         ;; Every TRANSACTION-SENDER and TRANSACTION-HASH call refreshes the
-         ;; derived-value cache once, so this counts key reads.
-         (key-read 'ethereum-lisp.transactions::transaction-refresh-computation-cache))
+         ;; A sort key is read through TRANSACTION-SENDER or TRANSACTION-HASH.
+         (key-reads '(ethereum-lisp.transactions:transaction-sender
+                      ethereum-lisp.transactions:transaction-hash)))
     (dolist (transaction transactions)
       (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
        store transaction))
     (is (= 33 (length eligible)))
     (multiple-value-bind (ordered counts)
         (mining-order-counted-calls
-         (list key-read)
+         key-reads
          (lambda ()
            (ethereum-lisp.txpool:engine-payload-store-pending-mining-transactions
             store 1)))
       ;; One sender and one hash per transaction.
-      (is (<= (first counts) (* 2 size)))
+      (is (<= (+ (first counts) (second counts)) (* 2 size)))
       (is (equal (sort (copy-list transactions) #'mining-order-pairwise-key<)
                  ordered)))
     (multiple-value-bind (ordered counts)
@@ -219,13 +219,13 @@ sender group for each transaction it emits: the oracle."
     ;; reads when the oracles do them.
     (multiple-value-bind (ordered counts)
         (mining-order-counted-calls
-         (list key-read 'ethereum-lisp.txpool:transaction-effective-tip)
+         (append key-reads '(ethereum-lisp.txpool:transaction-effective-tip))
          (lambda ()
            (list (sort (copy-list transactions) #'mining-order-pairwise-key<)
                  (mining-order-scanned-interleave eligible base-fee))))
       (declare (ignore ordered))
-      (is (> (first counts) (* 4 size)))
-      (is (> (second counts) (* 2 (length eligible)))))))
+      (is (> (+ (first counts) (second counts)) (* 4 size)))
+      (is (> (third counts) (* 2 (length eligible)))))))
 
 (deftest mining-order-filters-at-the-child-base-fee
   (:layer :unit :module :txpool)

@@ -2,8 +2,8 @@
 
 (defstruct (access-list-entry (:constructor make-access-list-entry
                                  (&key address (storage-keys '()))))
-  address
-  (storage-keys '() :type list))
+  (address nil :read-only t)
+  (storage-keys '() :type list :read-only t))
 
 (defun access-list-entry-rlp-object (entry)
   (make-rlp-list
@@ -62,18 +62,18 @@
                                             (y-parity 0)
                                             (r 0)
                                             (s 0))))
-  (chain-id 0 :type (integer 0 *))
-  (nonce 0 :type (integer 0 *))
-  (gas-price 0 :type (integer 0 *))
-  (gas-limit 0 :type (integer 0 *))
-  to
-  (value 0 :type (integer 0 *))
-  data
-  (access-list '() :type list)
-  (y-parity 0 :type (integer 0 *))
-  (r 0 :type (integer 0 *))
-  (s 0 :type (integer 0 *))
-  (computation-cache (make-transaction-computation-cache)))
+  (chain-id 0 :type (integer 0 *) :read-only t)
+  (nonce 0 :type (integer 0 *) :read-only t)
+  (gas-price 0 :type (integer 0 *) :read-only t)
+  (gas-limit 0 :type (integer 0 *) :read-only t)
+  (to nil :read-only t)
+  (value 0 :type (integer 0 *) :read-only t)
+  (data nil :read-only t)
+  (access-list '() :type list :read-only t)
+  (y-parity 0 :type (integer 0 *) :read-only t)
+  (r 0 :type (integer 0 *) :read-only t)
+  (s 0 :type (integer 0 *) :read-only t)
+  (computation-cache (make-transaction-computation-cache) :read-only t))
 
 (defun access-list-transaction-payload (transaction)
   (make-rlp-list

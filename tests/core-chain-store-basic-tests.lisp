@@ -313,8 +313,9 @@
          (expected-transaction-encoding (transaction-encoding transaction))
          (expected-receipt-rlp (receipt-rlp receipt)))
     (chain-store-put-block store block :state-available-p t)
+    ;; The transaction is an immutable value the store shares; the mutable
+    ;; parts of the block are copied.
     (setf (block-header-extra-data (block-header block)) #(#xff)
-          (legacy-transaction-gas-price transaction) 99
           (receipt-status receipt) 0
           (aref log-data 0) #xee)
     (is (not (eq block (chain-store-known-block store block-hash))))
@@ -382,10 +383,11 @@
              (first (receipt-logs location-receipt)))
            (location-log-data (log-entry-data location-log)))
       (is (not (eq block location-block)))
-      (is (not (eq transaction location-transaction)))
+      ;; An immutable transaction is shared, so every reader sees the hash
+      ;; and sender the import derived.
+      (is (eq transaction location-transaction))
       (is (not (eq receipt location-receipt)))
       (setf (block-header-extra-data (block-header location-block)) #(#xff)
-            (legacy-transaction-gas-price location-transaction) 99
             (receipt-status location-receipt) 0
             (aref location-log-data 0) #xee))
     (let* ((receipts (chain-store-block-receipts store block-hash))

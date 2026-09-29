@@ -2461,7 +2461,7 @@ the order of FUNCTIONS."
                                            key
                                            (chain-config-chain-id config)))))
          (pool-size (length pool))
-         (counted '(ethereum-lisp.transactions:transaction-encoding
+         (counted '(ethereum-lisp.transactions::transaction-canonical-encoding
                     ethereum-lisp.chain-store:chain-store-account-nonce)))
     (is (= pool-size
            (ethereum-lisp.cli::txpool-admit-transactions
@@ -2505,7 +2505,8 @@ the order of FUNCTIONS."
             (is (<= encodings (* 3 pool-size)))
             (is (<= nonce-reads (* 2 senders))))))
       ;; Positive control: the counter sees an encoding per pooled
-      ;; transaction when each one's hash is asked for.
+      ;; transaction when a new object for each one (as a peer re-sending it
+      ;; would be decoded) is asked for its hash.
       (destructuring-bind (encodings nonce-reads)
           (devnet-fcu-txpool-counted-calls
            counted
@@ -2513,7 +2514,9 @@ the order of FUNCTIONS."
              (dolist (transaction
                       (ethereum-lisp.txpool:engine-payload-store-pending-transactions
                        store))
-               (transaction-hash transaction))))
+               (transaction-hash
+                (transaction-from-encoding
+                 (transaction-encoding transaction))))))
         (is (>= encodings pool-size))
         (is (zerop nonce-reads))))))
 
@@ -2678,9 +2681,11 @@ signature S) and the built payload's transaction count."
     (is (= 1 (getf summary :max-per-pooled-transaction)))
     (is (zerop (getf summary :pooled-transactions-recovered-more-than-once)))
     (is (zerop (getf summary :building-recoveries)))
-    ;; The first forkchoiceUpdated may recover only the installed block's own
-    ;; transactions, which are other objects than the pool's.
-    (is (<= (getf summary :forkchoice-recoveries) 8))
+    ;; The first forkchoiceUpdated recovers nothing: the installed block's own
+    ;; transactions are the objects newPayload recovered, which the chain
+    ;; store keeps (it kept decoded copies, recovered once more, until
+    ;; transactions became immutable values).
+    (is (zerop (getf summary :forkchoice-recoveries)))
     ;; Positive control: a second object for the same transaction (as a peer
     ;; re-sending it would be decoded) is recovered again, and the summary
     ;; counts it against that pooled transaction.
@@ -2695,3 +2700,124 @@ signature S) and the built payload's transaction count."
         (is (= 2 (getf after :max-per-pooled-transaction)))
         (is (= 1 (getf after
                        :pooled-transactions-recovered-more-than-once)))))))
+
+;;;; A block's transaction identities through the Engine import and the RPC.
+
+(deftest devnet-engine-import-derives-each-block-transaction-identity-once
+  (:layer :integration)
+  ;; newPayload decodes a block's transactions, checks their root, recovers
+  ;; their senders and executes them.  The chain store then kept a decoded
+  ;; copy of every transaction (TRANSACTION-FROM-ENCODING of its encoding) at
+  ;; each store and cache copy, and each copy was encoded, hashed and
+  ;; recovered again by forkchoiceUpdated and by the RPC reads; every hash or
+  ;; sender call also re-encoded the transaction to check it had not changed.
+  ;; Transactions are immutable values now and the store keeps the imported
+  ;; objects, so newPayload, forkchoiceUpdated and an eth_getTransactionByHash
+  ;; and eth_getTransactionReceipt per transaction encode each transaction
+  ;; once and recover each sender once, and the RPC reports the sender the
+  ;; import recovered.
+  #-sbcl (skip-test "counting calls requires SBCL encapsulation")
+  #+sbcl
+  (let* ((block-keys (loop for key from 1 to 16 collect key))
+         (genesis-json (devnet-np-latency-genesis-json block-keys 64))
+         (block (first (devnet-np-latency-build-blocks
+                        genesis-json block-keys 64 1)))
+         (transactions (block-transactions block))
+         (size (length transactions))
+         (hashes (mapcar (lambda (transaction)
+                           (hash32-to-hex (transaction-hash transaction)))
+                         transactions))
+         (senders (mapcar (lambda (transaction)
+                            (address-to-hex (transaction-sender transaction)))
+                          transactions))
+         (payload-request
+           (engine-fixture-payload-request
+            1 (execution-payload-envelope-execution-payload
+               (block-to-executable-data block))))
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json genesis-json :port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (config (ethereum-lisp.cli:devnet-node-config node))
+         (context (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-service node))))
+    (flet ((lookup (method hash id)
+             (fixture-object-field
+              (parse-json
+               (engine-rpc-handle-request-json
+                (format nil "{\"jsonrpc\":\"2.0\",\"id\":~D,\"method\":\"~A\",\"params\":[\"~A\"]}"
+                        id method hash)
+                store config))
+              "result")))
+      (let* ((phases
+               (list
+                (cons "newPayload"
+                      (lambda ()
+                        (ethereum-lisp.rpc:rpc-handle-request
+                         payload-request context)))
+                (cons "forkchoiceUpdated"
+                      (lambda ()
+                        (ethereum-lisp.rpc:rpc-handle-request
+                         (engine-fixture-forkchoice-request
+                          2 (block-hash block))
+                         context)))
+                (cons "rpc"
+                      (lambda ()
+                        (loop for hash in hashes
+                              for id from 10 by 2
+                              collect (list (lookup "eth_getTransactionByHash"
+                                                    hash id)
+                                            (lookup "eth_getTransactionReceipt"
+                                                    hash (1+ id))))))))
+             (counts (list :encodings 0 :encoding-cpu-us 0
+                           :sender-recoveries 0 :recovery-cpu-us 0))
+             (answers nil))
+        (loop for (phase . thunk) in phases
+              do (multiple-value-bind (value phase-counts)
+                     (hoodi-replay-call-with-identity-counts thunk)
+                   (setf answers value)
+                   (format t "~&DEVNET-IMPORT-IDENTITY phase=~A txs=~D ~
+encodings=~D encodingCpuUs=~D senderRecoveries=~D recoveryCpuUs=~D ~
+hashCalls=~D senderCalls=~D forRulesCalls=~D~%"
+                           phase size
+                           (getf phase-counts :encodings)
+                           (getf phase-counts :encoding-cpu-us)
+                           (getf phase-counts :sender-recoveries)
+                           (getf phase-counts :recovery-cpu-us)
+                           (getf phase-counts :hash-calls)
+                           (getf phase-counts :sender-calls)
+                           (getf phase-counts :for-rules-calls))
+                   (loop for key in '(:encodings :encoding-cpu-us
+                                      :sender-recoveries :recovery-cpu-us)
+                         do (incf (getf counts key)
+                                  (getf phase-counts key)))))
+        (format t "~&DEVNET-IMPORT-IDENTITY phase=all txs=~D encodings=~D ~
+encodingCpuUs=~D senderRecoveries=~D recoveryCpuUs=~D~%"
+                size (getf counts :encodings) (getf counts :encoding-cpu-us)
+                (getf counts :sender-recoveries)
+                (getf counts :recovery-cpu-us))
+        (is (= 32 size))
+        (is (= size (length answers)))
+        (is (hash32= (block-hash block)
+                     (block-hash (chain-store-head-block store))))
+        (loop for (transaction receipt) in answers
+              for hash in hashes
+              for sender in senders
+              do (is (string= hash (fixture-object-field transaction "hash")))
+                 (is (string= sender (fixture-object-field transaction "from")))
+                 (is (string= sender (fixture-object-field receipt "from"))))
+        (is (<= (getf counts :encodings) size))
+        (is (<= (getf counts :sender-recoveries) size)))
+      ;; Positive control: a new object for each transaction is encoded and
+      ;; recovered again, and counted.
+      (multiple-value-bind (copies counts)
+          (hoodi-replay-call-with-identity-counts
+           (lambda ()
+             (loop for transaction in transactions
+                   for copy = (transaction-from-encoding
+                               (transaction-encoding transaction))
+                   do (transaction-hash copy)
+                      (transaction-sender copy)
+                   collect copy)))
+        (is (= size (length copies)))
+        (is (>= (getf counts :encodings) size))
+        (is (>= (getf counts :sender-recoveries) size))))))

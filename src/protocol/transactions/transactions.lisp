@@ -86,7 +86,7 @@
                                                  :base-fee base-fee)
                 base-fee))))
 
-(define-transaction-reader transaction-encoding
+(define-transaction-reader transaction-canonical-encoding
   (legacy-transaction (legacy-transaction-rlp transaction))
   (access-list-transaction (access-list-transaction-encoding transaction))
   (dynamic-fee-transaction (dynamic-fee-transaction-encoding transaction))
@@ -105,20 +105,20 @@
   (set-code-transaction
    (set-code-transaction-computation-cache transaction)))
 
-(defun transaction-refresh-computation-cache (transaction)
-  "Return current canonical encoding and a mutation-safe derived-value cache."
-  (let* ((encoding (transaction-encoding transaction))
-         (cache (transaction-computation-cache transaction))
-         (cached-encoding
-           (transaction-computation-cache-encoding cache)))
-    (unless (and cached-encoding (bytes= cached-encoding encoding))
-      ;; COPY-SEQ prevents a caller mutating a transaction DATA vector from
-      ;; changing both sides of the comparison through shared storage.
-      (setf (transaction-computation-cache-encoding cache)
-            (copy-seq encoding)
-            (transaction-computation-cache-hash cache) nil
-            (transaction-computation-cache-sender cache) :unrecovered))
-    (values encoding cache)))
+(defun transaction-cached-encoding (transaction)
+  "TRANSACTION's canonical encoding, computed once per object (see
+TRANSACTION-COMPUTATION-CACHE).  The vector belongs to the cache: callers in
+this module only read it."
+  (let ((cache (transaction-computation-cache transaction)))
+    (or (transaction-computation-cache-encoding cache)
+        (setf (transaction-computation-cache-encoding cache)
+              (transaction-canonical-encoding transaction)))))
+
+(defun transaction-encoding (transaction)
+  "TRANSACTION's canonical encoding: the typed envelope, or the RLP list of a
+legacy transaction.  A fresh vector the caller owns, copied from the one the
+object computes once."
+  (copy-seq (transaction-cached-encoding transaction)))
 
 (defun transaction-from-encoding (bytes)
   (let ((bytes (ensure-byte-vector bytes)))
@@ -150,11 +150,11 @@ canonical transaction encodings."
         (values (transaction-from-encoding bytes) nil))))
 
 (defun transaction-hash (transaction)
-  (multiple-value-bind (encoding cache)
-      (transaction-refresh-computation-cache transaction)
+  "Keccak-256 of TRANSACTION's canonical encoding, computed once per object."
+  (let ((cache (transaction-computation-cache transaction)))
     (or (transaction-computation-cache-hash cache)
         (setf (transaction-computation-cache-hash cache)
-              (keccak-256-hash encoding)))))
+              (keccak-256-hash (transaction-cached-encoding transaction))))))
 
 (defun typed-transaction-sender
     (chain-id y-parity r s signing-hash &key expected-chain-id)
@@ -208,23 +208,32 @@ canonical transaction encodings."
    "The address TRANSACTION's signature recovers to, or NIL when it recovers
 to none or EXPECTED-CHAIN-ID excludes it.
 
-The recovery is cached on the transaction object and invalidated with its
-hash (TRANSACTION-REFRESH-COMPUTATION-CACHE).  The chain-id gate is the one
-the per-type function applies (LEGACY-TRANSACTION-SENDER and friends), but it
-is evaluated before the cache on every call, so callers asking with and
-without a chain id share one recovery."))
+The recovery is cached on the transaction object, which cannot change
+(TRANSACTION-COMPUTATION-CACHE).  The chain-id gate is the one the per-type
+function applies (LEGACY-TRANSACTION-SENDER and friends), but it is evaluated
+before the cache on every call, so callers asking with and without a chain id
+share one recovery."))
 
 (defun transaction-recovered-sender (transaction recover)
-  "TRANSACTION's cached ungated sender, calling RECOVER on it at most once for
-each canonical encoding."
-  (multiple-value-bind (encoding cache)
-      (transaction-refresh-computation-cache transaction)
-    (declare (ignore encoding))
-    (let ((sender (transaction-computation-cache-sender cache)))
-      (if (eq sender :unrecovered)
-          (setf (transaction-computation-cache-sender cache)
-                (funcall recover transaction))
-          sender))))
+  "TRANSACTION's cached ungated sender, calling RECOVER on it at most once per
+object."
+  (let* ((cache (transaction-computation-cache transaction))
+         (sender (transaction-computation-cache-sender cache)))
+    (if (eq sender :unrecovered)
+        (setf (transaction-computation-cache-sender cache)
+              (funcall recover transaction))
+        sender)))
+
+(defun legacy-transaction-frontier-sender (transaction)
+  "The address a legacy TRANSACTION's signature recovers to without the EIP-2
+low-s bound (FrontierSigner), or NIL; recovered at most once per object.  No
+chain-id gate applies: only an unprotected signature is asked."
+  (let* ((cache (legacy-transaction-computation-cache transaction))
+         (sender (transaction-computation-cache-frontier-sender cache)))
+    (if (eq sender :unrecovered)
+        (setf (transaction-computation-cache-frontier-sender cache)
+              (legacy-transaction-sender transaction :homestead-p nil))
+        sender)))
 
 (defun legacy-transaction-sender-chain-id-admits-p
     (transaction expected-chain-id)
@@ -285,9 +294,8 @@ s above secp256k1n/2 recovers. NIL RULES are the latest fork."
     ((chain-rules-homestead-active-p rules)
      (transaction-sender transaction :expected-chain-id expected-chain-id))
     (t
-     ;; The cached recovery applies the low-s bound; only a signature it
-     ;; refuses is recovered again, uncached, without it.
+     ;; The shared recovery applies the low-s bound; only a signature it
+     ;; refuses is recovered without it, once, into its own slot.  The
+     ;; signature is unprotected here, so EXPECTED-CHAIN-ID gates nothing.
      (or (transaction-sender transaction :expected-chain-id expected-chain-id)
-         (legacy-transaction-sender transaction
-                                    :expected-chain-id expected-chain-id
-                                    :homestead-p nil)))))
+         (legacy-transaction-frontier-sender transaction)))))

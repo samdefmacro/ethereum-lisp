@@ -1047,6 +1047,16 @@ Non-obvious properties the implementation relies on:
   dropped; deleting an account drops the whole object, and a clone keeps the
   memo because its storage is `equal`. A stale memo would be a wrong state root,
   so differential tests compare the memoized root against a cold recomputation.
+- **Transactions are immutable values.** Every slot of the five transaction
+  structs, and of the access-list entries and authorizations inside them, is
+  read-only, and nothing writes into their byte vectors or lists after
+  construction; a variant is a new object. Each object therefore derives its
+  canonical encoding, hash and sender at most once
+  (`transaction-computation-cache`), without re-encoding to detect a change,
+  and the chain store keeps the imported objects rather than decoded copies,
+  so the txpool and the RPC read the sender the import recovered. The sender
+  cache holds the ungated recovery (and, for pre-Homestead rules, the one
+  without the low-s bound); chain-id and fork gates are applied per call.
 - **Storage providers.** The file backend is an append-only file of
   CRC-framed records replayed into an in-memory table on open, with
   fsync-per-write durability, torn-tail recovery, threshold-triggered compaction
