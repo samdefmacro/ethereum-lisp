@@ -130,6 +130,11 @@
    #:chain-rules-blob-schedule-update-fraction
    #:chain-rules-expanded-blob-schedule-p
    #:chain-rules-blob-schedule
+   #:chain-rules-fork-level
+   #:chain-rules-homestead-active-p
+   #:chain-rules-eip155-active-p
+   #:chain-rules-eip158-active-p
+   #:chain-rules-code-size-limited-p
    #:chain-rules-initcode-metering-p
    #:chain-rules-code-prefix-restricted-p
    #:chain-rules-contract-code-size-limit
@@ -286,6 +291,7 @@
    #:pooled-transaction-from-encoding
    #:transaction-hash
    #:transaction-sender
+   #:transaction-sender-for-rules
    #:transaction-nonce
    #:transaction-gas-limit
    #:transaction-to

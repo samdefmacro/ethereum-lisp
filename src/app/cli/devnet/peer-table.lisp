@@ -392,9 +392,11 @@ following the chain."
 
 (defun devnet-node-read-status-head (node)
   "Return HEAD-NUMBER, HEAD-TIMESTAMP, GENESIS-HASH and BEST-HASH (raw bytes)
-for NODE's eth Status. Guard held."
+and HEAD-TOTAL-DIFFICULTY (NIL when the store cannot know it) for NODE's eth
+Status. Guard held."
   (let* ((store (devnet-node-store node))
-         (head-number (chain-store-head-number store)))
+         (head-number (chain-store-head-number store))
+         (best-hash (chain-store-canonical-hash store head-number)))
     ;; chain-store-latest-block is the canonical block at the head number
     ;; (genesis before any sync); chain-store-head-block is the forkchoice
     ;; head, unset until a consensus client drives forkchoiceUpdated.
@@ -402,7 +404,8 @@ for NODE's eth Status. Guard held."
             (block-header-timestamp
              (block-header (chain-store-latest-block store)))
             (hash32-bytes (chain-store-canonical-hash store 0))
-            (hash32-bytes (chain-store-canonical-hash store head-number)))))
+            (hash32-bytes best-hash)
+            (chain-store-block-total-difficulty store best-hash))))
 
 (defun devnet-node-publish-status-view (node)
   "Publish what an inbound eth Status needs from NODE's guarded store. Guard
@@ -416,12 +419,14 @@ initiators time out before our ack. A failure clears the view, so readers fall
 back to the guard rather than advertise a head that stopped following."
   (let ((view (handler-case
                   (multiple-value-bind (head-number head-timestamp
-                                        genesis-hash best-hash)
+                                        genesis-hash best-hash
+                                        head-total-difficulty)
                       (devnet-node-read-status-head node)
                     (list :head-number head-number
                           :head-timestamp head-timestamp
                           :genesis-hash genesis-hash
-                          :best-hash best-hash))
+                          :best-hash best-hash
+                          :head-total-difficulty head-total-difficulty))
                 (serious-condition () nil))))
     #+sbcl (sb-thread:barrier (:write))
     (setf (devnet-node-status-view node) view)))

@@ -34,6 +34,7 @@
            ("tests/core-block-tests.lisp" :unit :block)
            ("tests/core-block-import-service-tests.lisp" :unit :block-import)
            ("tests/core-merge-transition-tests.lisp" :unit :block-import)
+           ("tests/core-premerge-parity-tests.lisp" :unit :block-import)
            ("tests/core-engine-payload-tests.lisp" :unit :engine)
            ("tests/core-chain-store-payload-candidate-export-tests.lisp"
             :unit :persistence)

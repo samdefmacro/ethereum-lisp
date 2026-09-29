@@ -196,6 +196,19 @@ verdict the fixture could have expected."
     (commit-state-db-to-chain-store store (block-hash genesis) pre-state)
     genesis))
 
+(defun pre-merge-eest-expects-exception-p (block-case)
+  "Whether BLOCK-CASE must be refused: EEST writes `expectException'; the
+legacy ethereum/tests fillers wrote `expectExceptionALL' or one key per
+network (`expectExceptionHomestead' and so on), and every fixture carries only
+the key for the network it was filled for."
+  (some (lambda (entry)
+          (let ((key (car entry)))
+            (and (stringp key)
+                 (>= (length key) 15)
+                 (string= "expectException" key :end2 15))))
+        (ethereum-lisp.json:json-object-entries block-case
+                                                "pre-Merge fixture block")))
+
 (defun pre-merge-eest-run-case (case)
   "Replay every block of CASE; signal on the first divergence."
   (let* ((name (fixture-required-field case "name"))
@@ -206,7 +219,7 @@ verdict the fixture could have expected."
     (pre-merge-eest-install-genesis store fixture name)
     (loop for block-case in (fixture-required-field fixture "blocks")
           for index from 0
-          for expected = (fixture-field-present-p block-case "expectException")
+          for expected = (pre-merge-eest-expects-exception-p block-case)
           do (multiple-value-bind (block decode-condition)
                  (pre-merge-eest-decode-block block-case)
                (let ((verdict

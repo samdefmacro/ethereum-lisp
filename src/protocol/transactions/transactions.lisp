@@ -263,3 +263,31 @@ TYPED-TRANSACTION-SENDER."
 (define-transaction-sender-method
   set-code-transaction set-code-transaction-sender
   :chain-id set-code-transaction-chain-id)
+
+(defun transaction-sender-for-rules (transaction rules &key expected-chain-id)
+  "The address TRANSACTION's signature recovers to under the signer RULES
+select, or NIL.
+
+go-ethereum v1.17.6 core/types/transaction_signing.go MakeSigner picks the
+signer by fork, EIP-155 first. From EIP-155 a legacy signature is recovered
+as TRANSACTION-SENDER does (EIP155Signer, HomesteadSigner for an unprotected
+V). Before it, HomesteadSigner.Sender and FrontierSigner.Sender hand the raw
+V to recoverPlain, which accepts only 27 and 28, so a chain-id-protected
+signature recovers to nothing. Before Homestead, FrontierSigner.Sender calls
+recoverPlain with homestead false: the EIP-2 bound on s does not apply, and an
+s above secp256k1n/2 recovers. NIL RULES are the latest fork."
+  (cond
+    ((or (null rules)
+         (not (typep transaction 'legacy-transaction))
+         (chain-rules-eip155-active-p rules))
+     (transaction-sender transaction :expected-chain-id expected-chain-id))
+    ((legacy-transaction-protected-p transaction) nil)
+    ((chain-rules-homestead-active-p rules)
+     (transaction-sender transaction :expected-chain-id expected-chain-id))
+    (t
+     ;; The cached recovery applies the low-s bound; only a signature it
+     ;; refuses is recovered again, uncached, without it.
+     (or (transaction-sender transaction :expected-chain-id expected-chain-id)
+         (legacy-transaction-sender transaction
+                                    :expected-chain-id expected-chain-id
+                                    :homestead-p nil)))))

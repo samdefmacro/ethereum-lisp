@@ -247,7 +247,8 @@ Amsterdam); 0 otherwise."
 
 (defun invalid-contract-runtime-code-p (code &optional rules)
   (let ((code (ensure-byte-vector code)))
-    (or (> (length code) (chain-rules-contract-code-size-limit rules))
+    (or (and (chain-rules-code-size-limited-p rules)
+             (> (length code) (chain-rules-contract-code-size-limit rules)))
         (and (chain-rules-code-prefix-restricted-p rules)
              (plusp (length code))
              (= (aref code 0) #xef)))))

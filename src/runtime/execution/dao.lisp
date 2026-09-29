@@ -122,20 +122,37 @@
     "0xbb9bc244d798123fde783fcc1c72d3bb8c189413"
     "0x807640a13483f8ac783c557fcdf27be11ea4ac7a"))
 
-(defun apply-dao-hard-fork (state)
-  (dolist (hex +dao-drain-address-hexes+ state)
-    (let* ((address (address-from-hex hex))
-           (balance
-             (state-account-balance
-              (state-db-account-or-empty state address))))
-      (when (plusp balance)
-        (state-db-transfer-value
-         state address +dao-refund-contract+ balance)))))
+(defun apply-dao-hard-fork (state &key (create-absent-accounts-p nil))
+  "Move every drain-list balance into the refund contract, as go-ethereum
+v1.17.6 consensus/misc/dao.go ApplyDAOHardFork does.
+
+geth creates the refund contract when it does not exist, and its
+AddBalance/SubBalance of each drain account (by zero included) create any
+that is absent (core/state/statedb.go getOrNewStateObject). Before EIP-158
+those empty accounts stay in the state; from EIP-158 the next Finalise
+deletes them again. CREATE-ABSENT-ACCOUNTS-P asks for the first behaviour."
+  (flet ((ensure-account (address)
+           (when (and create-absent-accounts-p
+                      (null (state-db-get-account state address)))
+             (state-db-set-account state address (make-state-account)))))
+    (ensure-account +dao-refund-contract+)
+    (dolist (hex +dao-drain-address-hexes+ state)
+      (let* ((address (address-from-hex hex))
+             (balance
+               (state-account-balance
+                (state-db-account-or-empty state address))))
+        (ensure-account address)
+        (when (plusp balance)
+          (state-db-transfer-value
+           state address +dao-refund-contract+ balance))))))
 
 (defun apply-dao-hard-fork-if-needed (state header chain-config)
   (when (and chain-config
              (chain-config-dao-fork-support chain-config)
              (eql (chain-config-dao-fork-block chain-config)
                   (block-header-number header)))
-    (apply-dao-hard-fork state))
+    (apply-dao-hard-fork
+     state
+     :create-absent-accounts-p
+     (not (chain-config-eip158-p chain-config (block-header-number header)))))
   state)

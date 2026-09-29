@@ -1,0 +1,86 @@
+7cef5a67: 1,024 CALL levels overran a default thread stack again
+
+Status
+  Fixed on branch premerge-parity, commit 820956d7 ("evm: a CALL level holds
+  1,376 bytes of control stack, so 1,024 levels fit again"), base 7cef5a67.
+  Found while gating the pre-Merge parity slice (d06f4002, 5168e4e2), whose
+  changes do not touch the CALL path: the defect is in the base.
+
+Mechanism
+  One nested CALL level keeps five frames live on the control stack: the
+  bytecode frame function, EXECUTE-SYSTEM-OPCODE, EXECUTE-EVM-MESSAGE-CALL,
+  EXECUTE-MESSAGE-CALL-CHILD and its TRACED-BODY closure
+  (sec5-evm-throughput-2.txt section 3). 5068bbb1 brought a level back to
+  1,840 bytes, 1.88 MB of a default 2 MB SBCL thread stack at the 1,024
+  depth limit. Two branches merged beside it each added keyword arguments to
+  EXECUTE-MESSAGE-CALL-CHILD, which already took eleven: 4b9f20b2 (call
+  frame labels: TRACE-TYPE, TRACE-FROM) and 6e405bf9 (pre-EIP-158 callee
+  creation: CREATE-CALLEE-P). Merged at 7cef5a67 a level held 1,968 bytes,
+  2.02 MB at depth 1,024 before the thread's own frames, and the recursion ran
+  into the guard page. SBCL cannot unwind from there: the process dies with
+
+    fatal error encountered in SBCL pid 11 tid ...:
+    maximum interrupt nesting depth (8) exceeded
+    Bad frame pointer ...
+
+  so the failure is a dead process, not a failed test or a caught
+  STORAGE-CONDITION. Every execution thread of the node runs on the default
+  stack (nothing in src/ or the images sets a control stack size), so a
+  transaction that recurses to the depth limit, which any sender can
+  submit, would stop a node running 7cef5a67 when it executes the block.
+  Why it was not seen: each branch was gated alone (5068bbb1 and 7ad834c7
+  rows of gates.md), and 7cef5a67, the merge, has no gate row.
+
+Reproduction (RED)
+  At 7cef5a67 (its src/ checked out in the worktree, tests of this branch):
+
+    cl-workbench validation run cold-unit --match EVM-SELF-CALL-REACHES
+      EXIT=1, the process dies with the message above, no test result
+    ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=.../tests-v20.0.2 (selectors as
+    in sec5-b5161312-eest-v20.0.2.txt) cl-workbench validation run
+    cold-integration --match optional-phase-a-eest-state-test-root-vectors-execute
+      EXIT=1, the same death
+
+  With the parity slice on top: the full cold-unit layer (EXIT=1 after 1,162
+  passing tests, the death at EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-
+  DEFAULT-STACK) and the depth test alone on the d06f4002 tree, and at 5168e4e2 the EEST state, engine-late and
+  RLP gates and the ported_static executor, die the same way (agent run
+  logs, scratchpad x2-gates/run-5168e4e2). The other four EEST gates, which
+  never recurse that deep, passed there.
+
+  Measurement: a temporary probe encapsulated MAKE-CHILD-EVM-CONTEXT to
+  record the stack pointer on entry at every level of the self-CALL
+  recursion (0x5f5f5f5f5f305af100, all gas forwarded) in a thread given a
+  64 MB control stack: 1,024 levels, 1,968 bytes per level at 7cef5a67 and
+  at 5168e4e2, a single value at every level.
+
+Fix (820956d7)
+  EXECUTE-MESSAGE-CALL-CHILD takes the EVM-MESSAGE-CALL record the CALL
+  opcode already built, plus the precompile, the state-gas reservoir and the
+  Amsterdam budget as positional arguments, instead of fourteen keywords, and
+  reads the record's fields where they are used (a SYMBOL-MACROLET over the
+  struct accessors, so the body is unchanged). The pre-EIP-158 callee
+  creation is derived there from NEW-ACCOUNT-P and the context, exactly as
+  the legacy CALL path computed the keyword; the Amsterdam path never passed
+  it and runs where EIP-158 is active, so both keep their behaviour. A level
+  now holds 1,376 bytes (1.41 MB at depth 1,024).
+
+Verification of record
+  The same probe at 820956d7: 1,376 bytes per level, 1,024 levels, :STOPPED.
+  EVM-CALL-LEVEL-CONTROL-STACK-STAYS-WITHIN-ITS-BUDGET (unit, new) runs the
+  recursion on a default thread stack and bounds a level at 1,600 bytes; the
+  probe's 1,968 at 7cef5a67 is its positive control (the base itself cannot
+  run it: the recursion kills the process first).
+  cold-unit, full layer at 820956d7: EXIT=0, 1,590 passed, 3 skipped,
+  including EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK.
+  COMMON5 gates at 820956d7: docs/evidence/gates.md, row 820956d7.
+
+Not verified
+  - The frames are measured on the cold image's SBCL 2.2.9 (linux-arm64);
+    the amd64 runtime image was not built or measured here.
+  - No transaction reaching depth 1,024 was sent to a live node; the crash is
+    shown in the EEST gates, whose fixtures include such recursion, and in
+    the unit test.
+  - A thread started with a smaller stack than the default, or a frame added
+    to the CALL path later, eats the 600-odd KB of headroom; the budget test
+    is the guard.

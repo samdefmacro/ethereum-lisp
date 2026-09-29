@@ -8,7 +8,12 @@ behaviour, checked against Frontier-through-Merge official fixtures and Hive
 transition tests. This document is the inventory for the first slice
 (`mainnet-merge-transition`, 2026-09-29): which pre-Merge rules the tree has,
 where, the go-ethereum v1.17.6 function each follows, the fixtures that cover
-it, and the measured pass counts before and after the slice.
+it, and the measured pass counts before and after the slice. The second slice
+(`premerge-parity`, 2026-09-30, base `7cef5a67`) closed the three signer and
+code-size gaps, read the Spurious Dragon rules cumulatively, put the head's
+total difficulty into eth/68 Status, created the DAO drain's absent accounts,
+and checked ommers and the DAO transition against legacy ethereum/tests
+fixtures.
 
 Mainnet stays explicitly experimental (PROJECT.md). Nothing here changes a
 configuration whose Merge is fixed (Hoodi's netsplit block 0, a TTD of zero or
@@ -22,8 +27,9 @@ current-fork gates are byte-identical (`docs/evidence/gates.md`).
 | Legacy corpus | EEST `v5.4.0`, `fixtures_stable.tar.gz`, SHA-256 `92cf1b47ad12fb27163261fc3c1cea5df72439cab507983d06b56c94f8741909` (`legacy-v5.4.0` in `scripts/fetch-eest-fixtures.sh`, re-hashed before extraction) |
 | Stable corpus | `tests@v20.0.2`, `fixtures.tar.gz`, SHA-256 `1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788` |
 | Reference client | go-ethereum 1.17.6-unstable `38271784c2b31926563806da9a2e023b88f5e7a8` (`references/go-ethereum`) |
-| Base revision | `3c0cfeab` |
-| Measured revisions | `b6c095a1` (total difficulty), `6e405bf9` (pre-Spurious-Dragon rules), `7ad834c7` (runner walks both corpora) |
+| Legacy ethereum/tests | tag `v6.0.0-beta.3`, commit `725dbc73a54649e22a00330bd0f4d6699a5060e5`: `BlockchainTests/bcUncleTest/{oneUncle,twoUncle}.json` and the four `BlockchainTests/TransitionTests/bcHomesteadToDao/*.json`, vendored verbatim under `tests/fixtures/ethereum-tests-v6.0.0-beta.3/` (each SHA-256 is checked by `tests/fixture-premerge-legacy-tests.lisp` before it is read) |
+| Base revision | `3c0cfeab`; second slice `7cef5a67` |
+| Measured revisions | `b6c095a1` (total difficulty), `6e405bf9` (pre-Spurious-Dragon rules), `7ad834c7` (runner walks both corpora), `d06f4002` and `5168e4e2` (signers, EIP-170, cumulative rules, Status, DAO accounts), `820956d7` (the CALL-level stack budget the base had overrun; gate row in `docs/evidence/gates.md`) |
 
 ## How to run the burn-down
 
@@ -112,6 +118,34 @@ The 454 failures at the base were all pre-Spurious-Dragon, in
 (4), `ported_static/stCallCodes` (3) and `frontier/examples` (1). The 454
 cleared with the legacy directories' fixes; none needed a rule of its own.
 
+### Legacy ethereum/tests v6.0.0-beta.3 (ommers and the DAO transition)
+
+Neither pinned corpus has a block with an ommer or a `HomesteadToDaoAt5`
+network, so six files of the last ethereum/tests release that filled those
+networks are vendored (see Pinned inputs) and replayed by
+`PREMERGE-LEGACY-OMMER-AND-DAO-FIXTURES-REPLAY` through the same
+`pre-merge-eest-run-case` as the burn-down, which now also reads the legacy
+`expectExceptionALL` key:
+
+```sh
+cl-workbench validation run cold-integration --match PREMERGE-LEGACY
+```
+
+| File | Networks | `7cef5a67` | `5168e4e2` and `820956d7` |
+| --- | --- | --- | --- |
+| bcUncleTest/oneUncle | Frontier, Homestead, EIP150, EIP158, Byzantium, Constantinople | 6 / 6 | 6 / 6 |
+| bcUncleTest/twoUncle | the same six | 6 / 6 | 6 / 6 |
+| bcHomesteadToDao/DaoTransactions (24 blocks, a fork across block 5) | HomesteadToDaoAt5 | 1 / 1 | 1 / 1 |
+| bcHomesteadToDao/DaoTransactions_EmptyTransactionAndForkBlocksAhead | HomesteadToDaoAt5 | 1 / 1 | 1 / 1 |
+| bcHomesteadToDao/DaoTransactions_UncleExtradata | HomesteadToDaoAt5 | 1 / 1 | 1 / 1 |
+| bcHomesteadToDao/DaoTransactions_XBlockm1 | HomesteadToDaoAt5 | 1 / 1 | 1 / 1 |
+
+Every file passed at the base as well: the rewards and the drain were already
+right for these inputs (all 116 drain accounts are funded there, so the absent
+account rule below is not exercised by them). Mutation controls: an ommer
+reward of `(U + 9 - N) R / 8` fails all six oneUncle cases, and a drain that
+moves nothing fails DaoTransactions at block 5 ("Gas used mismatch").
+
 ## Inventory of pre-Merge rules
 
 Status: **exact** means implemented and exercised by a passing fixture
@@ -124,10 +158,10 @@ fixture; **gap** means missing or looser than geth.
 | Terminal PoW block / first PoS child (EIP-3675) | exact (unit) | `src/protocol/chain-config/forks.lisp` `chain-config-merge-by-total-difficulty-p`; `src/protocol/consensus/block-validation/forks.lisp` `block-header-merge-rules-p`, `block-header-post-merge-block-p` | `consensus/beacon/consensus.go` `VerifyHeader` (difficulty sign and no revert only; the TD rule is EIP-3675's) | `MERGE-TRANSITION-*`, `PUBLIC-PRESET-POST-MERGE-HEADERS-VALIDATE-AS-PROOF-OF-STAKE`, `POST-MERGE-AUTHORITY-READS-THE-BLOCK-UNDER-A-TTD-CONFIGURATION`; no pinned corpus has a TTD transition network |
 | Ethash difficulty (Frontier, Homestead, Byzantium, the bomb delays through Gray Glacier) | exact below the bombs | `src/protocol/consensus/block-validation/pow.lisp` `expected-ethash-difficulty` | `consensus/ethash/consensus.go` `CalcDifficulty`, `makeDifficultyCalculator`; `difficulty.go` | every pre-Paris block of both corpora; the bomb terms at mainnet heights only by unit tests |
 | Ethash seal | implemented (light, slow) | `pow.lisp` `verify-ethash-seal-light` | geth v1.17.6 verifies no seal (`ethash.NewFaker` only) | `ETHASH-LIGHT-HASHIMOTO-MATCHES-OFFICIAL-VECTOR` (ethereum/tests `c67e485f`); the corpora are `NoProof` |
-| Ommers: count, depth, ancestry, duplicates, header validity | implemented | `src/protocol/consensus/block-validation/body.lisp` `validate-block-ommers-against-config` | `consensus/ethash/consensus.go` `VerifyUncles` | unit only (`PROOF-OF-WORK-OMMER-VALIDATION-REQUIRES-RECENT-ANCESTRY`): no block in either pinned corpus carries an ommer |
+| Ommers: count, depth, ancestry, duplicates, header validity | exact | `src/protocol/consensus/block-validation/body.lisp` `validate-block-ommers-against-config` | `consensus/ethash/consensus.go` `VerifyUncles` | legacy v6.0.0-beta.3 `bcUncleTest/oneUncle`, `twoUncle` (12 cases, six networks) and `DaoTransactions_UncleExtradata`; unit `PROOF-OF-WORK-OMMER-VALIDATION-REQUIRES-RECENT-ANCESTRY` and the synthetic chain of `PREMERGE-OMMER-REWARDS-FOLLOW-ACCUMULATE-REWARDS`; neither pinned corpus has an ommer |
 | Block rewards (5 / 3 / 2 ETH) | exact | `src/runtime/execution/rewards.lisp` `apply-block-rewards-for-header` | `consensus/ethash/consensus.go` `accumulateRewards` | every pre-Paris block of both corpora |
-| Ommer rewards | implemented | same | same | unit only (`ENGINE-PAYLOAD-EXECUTOR-FINALIZES-PROOF-OF-WORK-REWARDS` pays the block reward; the ommer share is not fixture-checked) |
-| DAO fork extra data and drain | implemented | `src/protocol/consensus/block-validation/forks.lisp` `validate-block-dao-extra-data`; `src/runtime/execution/dao.lisp` | `consensus/misc/dao.go` `VerifyDAOHeaderExtraData`, `ApplyDAOHardFork` | unit tests only; neither corpus has `HomesteadToDaoAt5` |
+| Ommer rewards | exact | same | same | the same legacy files; `PREMERGE-OMMER-REWARDS-FOLLOW-ACCUMULATE-REWARDS` imports a one-ommer and a two-ommer block (ommers at depth 1 and 2) under Frontier, Byzantium and Constantinople and checks every beneficiary against geth's formula |
+| DAO fork extra data and drain | exact since `d06f4002` | `src/protocol/consensus/block-validation/forks.lisp` `validate-block-dao-extra-data`; `src/runtime/execution/dao.lisp` `apply-dao-hard-fork` | `consensus/misc/dao.go` `VerifyDAOHeaderExtraData`, `ApplyDAOHardFork` (with `core/state/statedb.go` `getOrNewStateObject`) | legacy v6.0.0-beta.3 `bcHomesteadToDao` (four files, `HomesteadToDaoAt5`); `PREMERGE-DAO-FORK-BLOCK-DRAINS-INTO-THE-REFUND-CONTRACT`. Before `d06f4002` an absent refund contract or drain account was not created, where geth creates it and, before EIP-158, keeps it empty in the state root |
 | Pre-Byzantium receipts (intermediate state root) | exact | `src/protocol/receipts/receipts.lisp` (post-state); RPC `root` in `src/api/public/transactions/receipts.lisp` | `core/state_processor.go` `MakeReceipt` | every Frontier-through-SpuriousDragon case (`frontier/touch` pins a zero-fee coinbase in it) |
 | Contract creation intrinsic gas (53000 from Homestead) | exact since `6e405bf9` | `src/runtime/execution/gas.lisp` `transaction-intrinsic-gas`, `transaction-homestead-active-p` | `core/state_transition.go` `IntrinsicGas` | `frontier/examples`, `frontier/opcodes` `double_kill` |
 | Frontier code deposit out of gas keeps the contract | exact since `6e405bf9` | `src/runtime/evm/interpreter/create.lisp` `execute-contract-creation`; `src/runtime/execution/apply-contract.lisp` | `core/vm/evm.go` `create` (`ErrCodeStoreOutOfGas` before Homestead), `opCreate` | `frontier/create` `test_create_deposit_oog` |
@@ -138,10 +172,11 @@ fixture; **gap** means missing or looser than geth.
 | EIP-161 state clearing (touched empty accounts) | exact | `src/runtime/state/db.lisp` `state-db-touch-account` and the transaction finalization | `core/state/statedb.go` `Finalise(deleteEmptyObjects)` | SpuriousDragon onward, both corpora |
 | EIP-150 costs and 63/64 | exact | `src/runtime/evm/context.lisp` `context-eip150-p`; `call.lisp` `child-call-gas-limit` | `core/vm/gas_table.go`, `operations_acl.go`, `callGas` | v20 `eip150_operation_gas_costs` (842 TangerineWhistle cases) |
 | Byzantium through London opcodes, refunds, EIP-1559, EIP-2929/2930 | exact | per-opcode fork gates in `src/runtime/evm/` | `core/vm/jump_table.go` and friends | all legacy and v20 Byzantium-through-Paris cases |
-| Frontier signatures with a high s | **gap** | execution recovers senders with the EIP-2 low-s rule for every fork (`src/runtime/execution/signatures.lisp` via `legacy-transaction-sender`, `homestead-p` defaults T) | `core/types/transaction_signing.go` `FrontierSigner` accepts a high s | none |
-| EIP-155 protected signatures before activation | **gap** (looser) | execution accepts a chain-id signature at any height | `MakeSigner`: `HomesteadSigner` before EIP-155 refuses one | none; a refused-by-geth block cannot be canonical, so this only admits an invalid fork |
-| EIP-170 code size before EIP-158 | **gap** | `src/runtime/evm/create.lisp` `invalid-created-runtime-code-p` limits every fork | `core/vm/evm.go` `CheckMaxCodeSize` under `IsEIP158` only | none |
-| eth Status total difficulty | reported as the TTD | `src/app/cli/devnet/peer-sync.lisp` | eth/69 dropped the field | n/a |
+| Frontier signatures with a high s | implemented since `d06f4002` | `src/protocol/transactions/transactions.lisp` `transaction-sender-for-rules`, called by execution (`src/runtime/execution/signatures.lisp`) and candidate admission (`engine-new-payload-require-transaction-senders`) | `core/types/transaction_signing.go` `MakeSigner`, `FrontierSigner.Sender` (`recoverPlain` with homestead false) | unit `PREMERGE-FRONTIER-SIGNER-ACCEPTS-A-HIGH-S-SIGNATURE` (imported under Frontier, refused under Homestead); no fixture |
+| EIP-155 protected signatures before activation | implemented since `d06f4002` | same | `HomesteadSigner.Sender` / `FrontierSigner.Sender`: `recoverPlain` accepts V 27 and 28 only | unit `PREMERGE-PROTECTED-SIGNATURE-IS-REFUSED-BEFORE-EIP155` (the same block imports with EIP-155 and is refused without it); no fixture |
+| EIP-170 code size before EIP-158 | implemented since `d06f4002` | `src/protocol/chain-config/rules.lisp` `chain-rules-code-size-limited-p`, read by `src/runtime/evm/create.lisp` `invalid-created-runtime-code-p` and `src/runtime/execution/gas.lisp` `invalid-contract-runtime-code-p` | `core/vm/common.go` `CheckMaxCodeSize` (nothing before `IsEIP158`), `core/vm/evm.go` `initNewContract` | unit `PREMERGE-EIP170-CODE-SIZE-LIMIT-STARTS-AT-SPURIOUS-DRAGON` (24,577 bytes by a creation transaction and by CREATE); no fixture |
+| Spurious Dragon rules under a single-flag rule set | implemented since `d06f4002` | `chain-rules-fork-level` moved to `src/protocol/chain-config/rules.lisp`; `chain-rules-eip158-active-p` for the created-contract nonce (`apply-contract.lisp`), the EIP-161 finalization (`apply-message.lisp`, `call-simulation.lisp`) and EXP's EIP-160 price (`src/runtime/evm/opcodes.lisp`) | geth builds `params.Rules` cumulatively (`ChainConfig.Rules`) | unit `PREMERGE-SINGLE-FLAG-RULES-IMPLY-SPURIOUS-DRAGON`; production rules (`chain-config-rules`) were always cumulative, so no chain was affected |
+| eth/68 Status total difficulty | the head's total where total difficulty decides the Merge, since `5168e4e2` | `src/app/cli/devnet/peer-sync.lisp` `devnet-peer-status-total-difficulty`; the head's total read with the Status view (`peer-table.lisp` `devnet-node-read-status-head`) | go-ethereum v1.14.13 `eth/handler.go` `runEthPeer` (`GetTd` of the current header); v1.15.0 through v1.16.x send 0; v1.17.6 speaks no eth/68 | unit `PREMERGE-ETH-STATUS-ADVERTISES-THE-HEAD-TOTAL-DIFFICULTY`; a configuration that fixes the Merge (Hoodi), or a store without totals, still advertises the TTD |
 
 ## The Merge transition
 
@@ -186,16 +221,24 @@ and is correct against the official vector but costs an epoch cache per
 
 - No Hive run: neither the pinned Engine simulators' TTD transition cases nor
   any `ethereum/eels` consume run against the pre-Merge corpora.
-- No block in either pinned corpus carries an ommer, so ommer validation and
-  ommer rewards rest on unit tests.
-- No fixture exercises the TTD transition itself, the DAO fork, the
-  `...At5` fork transitions, or Ethash seals; geth's `tests/init.go` names the
+- No block in either pinned corpus carries an ommer; ommers and the DAO
+  transition are checked against six vendored legacy ethereum/tests files
+  (v6.0.0-beta.3, networks up to Constantinople), not against EEST.
+- No fixture exercises the TTD transition itself, the other `...At5` fork
+  transitions, or Ethash seals; geth's `tests/init.go` names the
   `ArrowGlacierToParisAtDiffC0000` network, and neither pinned corpus fills it.
+- The DAO rule that creates absent accounts rests on the synthetic test: every
+  vendored DAO fixture funds all 116 drain accounts. A DAO block at or after
+  EIP-158 (no public network has one) is not tested.
+- The Frontier high-s and pre-EIP-155 signer rules rest on synthetic tests.
+  Public RPC and tracing recover a stored transaction's sender with the latest
+  signer (`eth-rpc-transaction-sender`), so a canonical Frontier transaction
+  with a high s would still answer "sender recovery failed" there.
+- eth/68 Status sends the head's total only when the store has it; a node
+  entered at a pivot advertises the TTD, as geth v1.14 could not (it always
+  had totals) and geth v1.15 and later do not try (they send 0).
 - No historical-range comparison with a reference client and no mainnet live
   run. The mainnet preset's total-difficulty rule is pinned by unit tests on a
   synthetic chain and by header pairs at mainnet and Sepolia heights.
-- The three gaps in the table (Frontier high-s signatures, pre-EIP-155
-  protected signatures, EIP-170 before Spurious Dragon) are untouched; each is
-  pre-Spurious-Dragon and none is exercised by a pinned fixture.
 - Two legacy files over 48 MB are not parsed.
 - ethereum/tests `BlockchainTests` and `DifficultyTests` are not pinned here.

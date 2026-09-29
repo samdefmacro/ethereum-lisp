@@ -243,8 +243,7 @@ successful call's resulting state is installed."
                    (execution-empty-access-tables)
                  (state-db-finalize-transaction
                   call-state transaction-snapshot
-                  (or (null effective-chain-rules)
-                      (chain-rules-eip158-p effective-chain-rules)))
+                  (chain-rules-eip158-active-p effective-chain-rules))
                  (execution-call-values
                   state call-state commit-state-p
                   :successful
@@ -263,8 +262,7 @@ successful call's resulting state is installed."
              (execution-empty-access-tables)
            (state-db-finalize-transaction
             call-state transaction-snapshot
-            (or (null effective-chain-rules)
-                (chain-rules-eip158-p effective-chain-rules)))
+            (chain-rules-eip158-active-p effective-chain-rules))
            (execution-call-values
             state call-state commit-state-p
             :successful
@@ -304,8 +302,7 @@ successful call's resulting state is installed."
                    (let ((status (evm-result-status result)))
                      (state-db-finalize-transaction
                       call-state transaction-snapshot
-                      (or (null effective-chain-rules)
-                          (chain-rules-eip158-p effective-chain-rules)))
+                      (chain-rules-eip158-active-p effective-chain-rules))
                      (execution-call-values
                     state call-state commit-state-p
                     status

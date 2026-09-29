@@ -888,20 +888,40 @@ fall back to DEVNET-PEER-SYNC-STATUS and the guard."
                                           (getf view :head-number)
                                           (getf view :head-timestamp)
                                           (getf view :genesis-hash)
-                                          (getf view :best-hash))
+                                          (getf view :best-hash)
+                                          (getf view :head-total-difficulty))
             (devnet-peer-sync-status node))
       (declare (ignore head-number))
       (values status chain-context))))
 
+(defun devnet-peer-status-total-difficulty
+    (config head-number head-total-difficulty)
+  "The total difficulty our eth/68 Status advertises.
+
+Where CONFIG leaves the Merge to total difficulty (a proof-of-work history,
+mainnet), the head's own, as go-ethereum v1.14.13 eth/handler.go runEthPeer
+sends it (h.chain.GetTd of the current header). Otherwise, and when the store
+cannot know it (a chain entered at a snap or checkpoint pivot), the configured
+TTD, a lower bound for any post-Merge head, or zero: a configuration that fixes
+the Merge (Hoodi) keeps the value it always advertised. geth v1.15.0 through
+v1.16.x send zero for every head, and eth/69 carries no total difficulty."
+  (or (and head-total-difficulty
+           (chain-config-merge-by-total-difficulty-p config head-number)
+           head-total-difficulty)
+      (chain-config-terminal-total-difficulty config)
+      0))
+
 (defun devnet-peer-status-from-head
-    (node head-number head-timestamp genesis-hash best-hash)
+    (node head-number head-timestamp genesis-hash best-hash
+     &optional head-total-difficulty)
   "The DEVNET-PEER-SYNC-STATUS values for a head read from NODE's store."
   (let* ((config (devnet-node-config node))
          (genesis-block (devnet-node-genesis-block node))
          (genesis-timestamp (block-header-timestamp (block-header genesis-block))))
     (values (eth-build-status config genesis-hash head-number head-timestamp
                               best-hash
-                              (or (chain-config-terminal-total-difficulty config) 0)
+                              (devnet-peer-status-total-difficulty
+                               config head-number head-total-difficulty)
                               ;; Advertise the operator's network id (which may
                               ;; differ from the chain id via --networkid).
                               :network-id (devnet-node-network-id node)

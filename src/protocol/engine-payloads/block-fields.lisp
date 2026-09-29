@@ -27,11 +27,17 @@
                        'list)))
 
 (defun engine-new-payload-require-transaction-senders (block config)
-  (let ((chain-id (chain-config-chain-id config)))
+  "Refuse BLOCK unless every transaction recovers a sender under the signer
+BLOCK's own fork selects (TRANSACTION-SENDER-FOR-RULES)."
+  (let* ((chain-id (chain-config-chain-id config))
+         (header (block-header block))
+         (rules (chain-config-rules config
+                                    (block-header-number header)
+                                    (block-header-timestamp header))))
     (loop for transaction in (block-transactions block)
           for index from 0
-          unless (transaction-sender transaction
-                                     :expected-chain-id chain-id)
+          unless (transaction-sender-for-rules transaction rules
+                                               :expected-chain-id chain-id)
             do (block-validation-fail
                 "Invalid executable data transaction ~D sender"
                 index)))
