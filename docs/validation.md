@@ -1698,6 +1698,42 @@ measured counts and what still fails are in
 checked against a running reference client either; every parity claim rests on
 source comparison against the versions named in `docs/reference-map.md`.
 
+The state gate above never opens `state_tests/for_<fork>/ported_static` (the
+legacy GeneralStateTests ported into EEST; its manifest counts them as
+`featureTreeNotCovered`), and that discovery list is left alone so the eight
+gates keep their manifest lines. The ported trees run as a separate, optional
+gate:
+
+```sh
+ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$PWD/.eest-fixtures-sec5-REV/tests-v20.0.2 \
+  cl-workbench validation run cold-integration \
+  --match OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE > ported-static.log 2>&1
+ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$PWD/.eest-fixtures-sec5-REV/tests-v20.0.2 \
+  cl-workbench validation run cold-integration \
+  --match EEST-PORTED-STATIC-STATE-MANIFEST-IS-NON-VACUOUS > ported-static-manifest.log 2>&1
+cl-workbench validation run cold-unit --match PORTED-STATIC --match EVM-MEMORY-ALLOCATION
+```
+
+The executor scores every post entry of Cancun, Prague and Osaka, prints one
+`PORTED-STATIC-EEST` line per fork and directory, its first failures, every
+skipped entry by name, and a total per fork; it fails on any failed entry, any
+unreviewed skip, or a claimed fork that passed nothing (about four minutes).
+The manifest companion prints one `PORTED-STATIC-MANIFEST` line per fork and
+fails for a fork whose tree offers no valid or no invalid entry.
+`ETHEREUM_LISP_PORTED_STATIC_FORKS` and `ETHEREUM_LISP_PORTED_STATIC_DIRECTORIES`
+narrow the walk; `ETHEREUM_LISP_PORTED_STATIC_TRACE=1` prints each entry and
+the heap before it runs.
+
+Memory is bounded per entry, inside the cold image's 1 GiB heap. go-ethereum
+charges memory gas before it resizes, so an absurd region is out of gas, never
+an allocation. Each entry runs with the EVM's `*memory-allocation-ceiling*`
+bound to twice what the transaction's gas pays for (capped at 256 MiB) and
+`*memory-allocation-heap-budget*` at 3/8 of the heap. A refused allocation
+above what the gas pays for fails the entry as `allocationBeyondPaidGas`; a paid
+one refused by the cap or the budget is a named skip
+(`paidAllocationAboveHarnessCeiling`, `paidMemoryAboveHarnessHeap`). The
+record is `docs/evidence/sec5-ported-static.txt`.
+
 `DOCKER_TEST_IMAGE_PREBUILT=1` runs the layers against an existing image instead
 of rebuilding it. CI sets it because it builds the image with buildx against a
 shared layer cache that a plain `docker build` would not reuse.

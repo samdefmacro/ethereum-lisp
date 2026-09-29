@@ -231,13 +231,20 @@
           (error "~A has unknown field ~A" label name))))))
 
 (defun fixture-file-string (path)
+  "PATH's whole text, read in one READ-SEQUENCE.
+
+A fixture can be tens of megabytes (EEST ported_static/stRandom carries a
+16 MB log in one receipt), and a string output stream fed line by line holds
+its growing buffers and the final copy at once: at four bytes a character that
+exhausted the cold image's 1 GiB heap on a 33 MB file.  One string of at most
+FILE-LENGTH characters, trimmed to what the UTF-8 decoder produced, is the
+only copy."
   (with-open-file (stream path :direction :input)
-    (with-output-to-string (out)
-      (loop for line = (read-line stream nil nil)
-            while line
-            do (progn
-                 (write-string line out)
-                 (terpri out))))))
+    (let* ((text (make-string (file-length stream)))
+           (end (read-sequence text stream)))
+      (if (= end (length text))
+          text
+          (subseq text 0 end)))))
 
 (defun validate-fixture-format (fixture expected-format)
   (unless (string= expected-format

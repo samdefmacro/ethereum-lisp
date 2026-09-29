@@ -1,0 +1,356 @@
+Section 5: EEST ported_static state tests as an optional, bounded gate
+
+Status
+
+Branch ported-static-gate, from c677bdf0
+(c677bdf0507000654916c87e059989ff48950f78, the Amsterdam-inventory merge).  The eight stable
+tests@v20.0.2 gates exclude the legacy GeneralStateTests ported into EEST
+(state_tests/for_<fork>/ported_static): their discovery list,
++PHASE-A-EEST-STATE-TEST-DISCOVERY-FEATURE-DIRECTORIES+, names no such tree,
+and the manifest counts its files as featureTreeNotCovered.  The Amsterdam
+refill of those trees had already surfaced one all-fork defect (zero-size
+KECCAK256 resized memory, fixed in d7a28c6c) and a 1.9 GB allocation whose
+opcode was not traced.
+
+Result: a new optional gate runs every ported_static post entry for Cancun,
+Prague and Osaka, 20,701 entries in 62 directories, inside the cold image's
+1 GiB heap.  At c677bdf0 it found 61 failing entries and two heap
+exhaustions; none is a client divergence.  All 61 were the state-test HARNESS
+running a vector differently from the block execute-block would build around
+it (three defects, D1-D3), and both exhaustions were the RUNNER (D4, D5).  After
+the fixes every entry passes except one per pre-Osaka fork that its own gas
+legitimately pays past the harness heap, which is a named skip.  The 1.9 GB
+case (stRandom2/random_statetest524) is traced: KECCAK256 of size 0 at offset
+CALLVALUE = 0x754eb077, the d7a28c6c shape; it passes at c677bdf0, and a
+mutation restoring the pre-d7a28c6c resize makes the new allocation guard fail
+it by name instead of allocating.  No consensus code changed; the eight
+standard gates' manifest lines are byte-identical to b5161312's.
+
+Not deployed.
+
+Revision
+
+Rebased onto 0140000b (the Amsterdam slice-2 merge) as:
+
+  4f682c58  tests: an optional, bounded gate over EEST ported_static state tests
+  99c57b43  tests: the EEST state-test harness models the block a state test
+            runs in
+  692ffcc9  tests: the ported_static gate runs inside the cold image's 1 GiB heap
+  c6197bf7  docs (this record, first version)
+
+Before the rebase, on c677bdf0, the same commits were 919e1655, eaec700b,
+3d8702d9 and 07ac10ef; section 4 was measured there and section 5 at the
+rebased head.  0140000b had independently added the same PREVRANDAO argument
+and an Amsterdam-only block gas check to the state harness; the rebase
+resolution (99c57b43) keeps one check, EEST-STATE-TEST-CHECK-BLOCK-GAS, which
+signals the block path's own message per fork ("Block gas limit exceeded"
+before Amsterdam, "Amsterdam block gas dimension unavailable" at it) and
+replaces EEST-STATE-TEST-CHECK-AMSTERDAM-BLOCK-GAS.
+
+src/ changes: src/runtime/evm/memory.lisp only -- *MEMORY-ALLOCATION-CEILING*,
+*MEMORY-ALLOCATION-HEAP-BUDGET* (both NIL by default, no behaviour change when
+unbound), the typed EVM-MEMORY-ALLOCATION-REFUSED storage condition, and
+MEMORY-SIZE-PAYABLE-WITH-GAS.  Everything else is under tests/ and
+scripts/dev.sh (three forwarded selectors).
+
+================================================================================
+1. The gate
+================================================================================
+
+  OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE   (tests/fixture-runner-
+    ported-static.lisp, integration) walks state_tests/for_{cancun,prague,
+    osaka}/ported_static/<directory>/ one file at a time and runs every post
+    entry of the claimed fork through ASSERT-EEST-STATE-TEST-POST-ENTRY, the
+    same assertion the stable state gate uses.  It prints one PORTED-STATIC-
+    EEST line per fork and directory, the first ten failures, every skipped
+    entry by name, and a total per fork, and fails on any failed entry, any
+    skip outside the reviewed reasons, or a claimed fork that passed nothing.
+  EEST-PORTED-STATIC-STATE-MANIFEST-IS-NON-VACUOUS  counts what the mounted
+    corpus offers per fork without executing it, and fails for a fork without
+    both valid and invalid entries.
+  PORTED-STATIC-EEST-REFUSAL-AND-GATE-VERDICTS-CAN-FAIL (unit) is the
+    corpus-free positive control of the classification and both verdicts.
+
+The allocation guard.  go-ethereum prices memory before it allocates it:
+core/vm/interpreter.go Run (v1.17.6, lines 200-249) computes memorySize,
+charges operation.dynamicGas (memoryGasCost included, core/vm/gas_table.go)
+and calls mem.Resize only afterwards, "if memorySize > 0".  An absurd region
+is therefore ErrOutOfGas or ErrGasUintOverflow, never an allocation, and one
+frame's memory is bounded by the largest W words with 3W + floor(W^2/512) <=
+its gas (MEMORY-SIZE-PAYABLE-WITH-GAS; 100,000 gas pays for 6,428 words).  Each
+entry runs with *MEMORY-ALLOCATION-CEILING* bound to twice that bound for the
+transaction's gas limit (a backing vector never exceeds twice the memory it
+holds), capped at 256 MiB, checked where a memory backing vector, a padded
+data slice or a memory slice is allocated.  A refusal above what the gas pays
+for FAILS the entry as allocationBeyondPaidGas: we allocated what geth would
+have refused as out of gas.  A paid allocation refused by the cap is the skip
+paidAllocationAboveHarnessCeiling (none occurred).  The condition is a
+STORAGE-CONDITION, not an ERROR, so no EVM-ERROR handler can turn it into a
+halt and no transaction or block handler into a verdict.
+
+Measured: 62 directories per fork; Cancun and Prague 2,078 files and 7,060
+entries (135 invalid), Osaka 1,969 files and 6,581 entries (135 invalid); no
+file above the 40 MiB parse bound (the largest is 36.7 MB).
+
+================================================================================
+2. Defects (one row each)
+================================================================================
+
+  id  where                            class       entries at c677bdf0
+  --  -------------------------------  ----------  -------------------------------
+  D1  harness: PREVRANDAO read 0       harness     stExample/merge_test,
+      after the Merge                              vmTests/block_info, 10 stRandom
+                                                   and 7 stRandom2 entries per
+                                                   pre-Osaka fork (9 and 6 at
+                                                   Osaka): 55
+  D2  harness: no block gas pool       harness     stEIP1559/low_gas_limit g0,
+                                                   one per fork: 3
+  D3  harness: TYPE_3_TX_CONTRACT_     harness     stEIP4844_blobtransactions/
+      CREATION token mapping                       create_blobhash_tx, one per
+                                                   fork: 3
+  D4  runner: fixture reader held the  runner      stRandom/random_statetest185
+      file three times at 4 B/char                 (33 MB): process died
+  D5  runner: 1,024 paid 1 MB frames   runner      stStaticCall/static_call1_
+      exhaust a 1 GiB heap                         mb1024_calldepth d1: process
+                                                   died
+
+D1.  The harness called APPLY-MESSAGE with no :PREV-RANDAO, whose default is
+the zero hash, so opcode 0x44 returned 0 where the environment's currentRandom
+belongs.  EXECUTE-BLOCK passes the header's mix hash and post-Merge flag
+(src/runtime/execution/block-execution.lisp), so blocks were never affected;
+only the fixture harness was.  merge_test (code 3a600055 48600155 44600255)
+stores GASPRICE, BASEFEE and PREVRANDAO; the stored 0 instead of
+0x15000...00 changed the SSTORE cost and hence the sender's balance
+(expected 0x0de0b6b3a20378a2, got 0x0de0b6b3a336285a).  The 17 random tests
+read 0x44 the same way (39 wrong-balance and 4 wrong-logs reports in the
+baseline log).  Fix 99c57b43: pass currentRandom as :PREV-RANDAO and read the
+difficulty (:RANDOM-P NIL) only for London, the harness's one pre-Merge fork.
+Only this change can alter a successful entry's balance or logs, and after it
+all 55 pass.
+
+D2.  low_gas_limit g0 sends 90,000 gas in an 80,000-gas block and expects
+GAS_ALLOWANCE_EXCEEDED; the harness executed it.  go-ethereum's state-test
+runner applies the message against core.NewGasPool(block.GasLimit())
+(tests/state_test_util.go:347), and buyGas's SubGas refuses it with
+ErrGasLimitReached; our EXECUTE-BLOCK message list already refuses the same
+transaction ("Block gas limit exceeded", src/runtime/execution/
+message-lists.lisp).  Fix 99c57b43: EEST-STATE-TEST-CHECK-BLOCK-GAS applies
+the bound before execution (an Osaka limit above the EIP-7825 cap is left to
+the cap check, which geth's preCheck runs first), and GAS_ALLOWANCE_EXCEEDED
+maps to that refusal.  RED: the baseline entry "expected TransactionException.
+GAS_ALLOWANCE_EXCEEDED, but execution succeeded"; GREEN in the final run.
+
+D3.  create_blobhash_tx is a type-3 transaction with no recipient, expecting
+TYPE_3_TX_CONTRACT_CREATION.  We refuse it while decoding its envelope ("Blob
+transaction recipient must be exactly 20 bytes"), as go-ethereum's BlobTx,
+whose To is a common.Address and not a pointer, cannot decode an empty one
+either.  The token mapping accepted only the later execution-time message.
+Fix 99c57b43: the token also accepts the decode refusal, as
+TYPE_4_TX_CONTRACT_CREATION already did.
+
+D4.  FIXTURE-FILE-STRING built the text through a string output stream line
+by line; for random_statetest185 (a 16 MB log in one receipt) its buffers and
+the final copy at four bytes a character exhausted the 1 GiB heap
+(HEAP-EXHAUSTED-ERROR in FIXTURE-FILE-STRING, first run).  Fix 692ffcc9: one
+READ-SEQUENCE into one string, and a full collection after any file above
+4 MiB.
+
+D5.  static_call1_mb1024_calldepth d1 has 882e9 gas and a contract that
+STATICCALLs itself with a 1,000,000-byte argument region until depth or gas
+runs out; every megabyte is paid for, so up to 1,024 of them are live at once,
+in geth too.  A 1 GiB heap cannot hold that.  Fix 692ffcc9:
+*MEMORY-ALLOCATION-HEAP-BUDGET*, bound by the runner to 3/8 of the dynamic
+space (3/4 was measured to leave the copying collector no room: the heap was
+exhausted inside a collection triggered by a snapshot hash-table grow); an
+allocation of 64 KiB or more that would pass it after a full collection is
+refused with REASON :HEAP-BUDGET and reported as the named skip
+paidMemoryAboveHarnessHeap -- never for more than the gas pays for, which
+stays a failure.  At Osaka the same vector's 882e9 gas is above the EIP-7825
+cap, so it is refused as a transaction and passes.
+
+Fixture-format or runner gaps, listed apart from divergences: D1-D5 above,
+all fixed.  Genuine divergences found: none.
+
+================================================================================
+3. Per directory, after the fixes (passed/entries; C Cancun, P Prague, O Osaka)
+================================================================================
+
+  stArgsZeroOneBalance 96/96 96/96 96/96     stAttackTest 2/2 2/2 2/2
+  stBadOpcode 108/108 108/108 108/108        stBugs 8/8 8/8 8/8
+  stCallCodes 89/89 89/89 89/89              stCallCreateCallCodeTest 67/67 67/67 62/62
+  stCallDelegateCodesCallCodeHomestead 58/58 58/58 58/58
+  stCallDelegateCodesHomestead 58/58 58/58 58/58
+  stCodeCopyTest 2/2 2/2 2/2                 stCodeSizeLimit 9/9 9/9 9/9
+  stCreate2 189/189 189/189 184/184          stCreateTest 173/173 173/173 151/151
+  stDelegatecallTestHomestead 31/31 31/31 25/25
+  stEIP1153_transientStorage 48/48 48/48 48/48
+  stEIP150singleCodeGasPrices 450/450 450/450 450/450
+  stEIP150Specific 86/86 86/86 86/86         stEIP1559 104/104 104/104 102/102
+  stEIP158Specific 8/8 8/8 8/8               stEIP2930 140/140 140/140 140/140
+  stEIP3607 12/12 12/12 12/12                stEIP3651_warmcoinbase 12/12 12/12 12/12
+  stEIP3855_push0 9/9 9/9 9/9                stEIP3860_limitmeterinitcode 6/6 6/6 6/6
+  stEIP4844_blobtransactions 5/5 5/5 5/5     stEIP5656_MCOPY 74/74 74/74 74/74
+  stExample 36/36 36/36 36/36                stHomesteadSpecific 5/5 5/5 5/5
+  stInitCodeTest 22/22 22/22 22/22           stLogTests 46/46 46/46 46/46
+  stMemExpandingEIP150Calls 9/9 9/9 9/9      stMemoryStressTest 82/82 82/82 78/78
+  stMemoryTest 578/578 578/578 578/578       stNonZeroCallsTest 24/24 24/24 24/24
+  stPreCompiledContracts 742/742 742/742 463/463
+  stPreCompiledContracts2 140/140 140/140 140/140
+  stQuadraticComplexityTest 34/34 34/34 6/6  stRandom 310/310 310/310 293/293
+  stRandom2 221/221 221/221 208/208          stRecursiveCreate 2/2 2/2 1/1
+  stRefundTest 26/26 26/26 26/26             stReturnDataTest 273/273 273/273 273/273
+  stRevertTest 268/268 268/268 238/238       stSelfBalance 7/7 7/7 7/7
+  stShift 41/41 41/41 40/40                  stSolidityTest 20/20 20/20 17/17
+  stSpecialTest 21/21 21/21 19/19            stSStoreTest 467/467 467/467 467/467
+  stStackTests 377/377 377/377 377/377
+  stStaticCall 467/468 467/468 424/424       (1 skip each: D5)
+  stStaticFlagEnabled 6/6 6/6 6/6            stSystemOperationsTest 83/83 83/83 75/75
+  stTransactionTest 259/259 259/259 258/258  stTransitionTest 6/6 6/6 6/6
+  stWalletTest 46/46 46/46 46/46             stZeroCallsRevert 16/16 16/16 16/16
+  stZeroCallsTest 24/24 24/24 24/24          stZeroKnowledge 24/24 24/24 24/24
+  vmArithmeticTest 219/219 219/219 219/219   vmBitwiseLogicOperation 57/57 57/57 57/57
+  vmIOandFlowOperations 170/170 170/170 162/162
+  vmLogTest 46/46 46/46 46/46                vmTests 41/41 41/41 41/41
+
+  totals  Cancun 7,059 passed, 0 failed, 1 skipped of 7,060
+          Prague 7,059 passed, 0 failed, 1 skipped of 7,060
+          Osaka  6,581 passed, 0 failed, 0 skipped of 6,581
+
+At c677bdf0's harness (tests/evm-fixture-tests.lisp from c677bdf0 over this
+branch's runner and guard) the same walk reported Cancun 7,038/21 failed/1
+skipped, Prague 7,038/21/1, Osaka 6,562/19/0: the D1-D3 rows, in stEIP1559,
+stEIP4844_blobtransactions, stExample, stRandom, stRandom2 and vmTests.  The
+very first run, with c677bdf0's fixture reader too, died in stRandom (D4)
+after scoring 36 Cancun directories.
+
+================================================================================
+4. Verification before the rebase (on c677bdf0, at 3d8702d9)
+================================================================================
+
+All through the cold broker (`cl-workbench validation run`), corpus
+tests@v20.0.2, fixtures.tar.gz re-hashed on the control plane to
+1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788 (the pin),
+hard-linked into <worktree>/.eest-fixtures-j1-stable.
+
+Gate at 3d8702d9's tree (the run preceded the commit; nothing but a reverted
+mutation touched the tree between them):
+  ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<corpus>/tests-v20.0.2 \
+    cl-workbench validation run cold-integration \
+    --match OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE
+  -> "ok OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE", "1 test passed.",
+     EXIT=0, 2026-09-29T05:33:05Z-05:36:59Z; totals above.
+  Manifest companion at 3d8702d9: EXIT=0, container exit 0, OOMKilled=false:
+    PORTED-STATIC-MANIFEST state_tests Cancun: directories=62 files=2078 cases=7060 entries=7060 validity=[invalid:135 valid:6925] unopenedFiles=[fileTooLarge:0]
+    PORTED-STATIC-MANIFEST state_tests Prague: directories=62 files=2078 cases=7060 entries=7060 validity=[invalid:135 valid:6925] unopenedFiles=[fileTooLarge:0]
+    PORTED-STATIC-MANIFEST state_tests Osaka: directories=62 files=1969 cases=6581 entries=6581 validity=[invalid:135 valid:6446] unopenedFiles=[fileTooLarge:0]
+
+Unit, cold, at 3d8702d9:
+  cl-workbench validation run cold-unit --match EVM-MEMORY --match PORTED-STATIC \
+    --match EEST-STATE-TEST --match EEST-LATE-FORK
+  -> 20 tests passed, EXIT=0, among them the new
+     EVM-MEMORY-SIZE-PAYABLE-WITH-GAS-INVERTS-GETHS-MEMORY-PRICE,
+     EVM-MEMORY-ALLOCATION-CEILING-REFUSES-TYPED-AND-NEVER-HALTS,
+     EVM-MEMORY-ALLOCATION-CEILING-CATCHES-THE-RANDOM-STATETEST524-SHAPE,
+     EVM-MEMORY-ALLOCATION-HEAP-BUDGET-REFUSES-TYPED-PAST-THE-BUDGET,
+     PORTED-STATIC-EEST-REFUSAL-AND-GATE-VERDICTS-CAN-FAIL,
+     EEST-STATE-TEST-REFUSES-A-TRANSACTION-ABOVE-THE-BLOCK-GAS-LIMIT and the
+     extended EEST-STATE-TEST-EXPECTED-EXCEPTION-MAPPING.
+
+Mutation controls, installed in the tree, run cold, restored with
+`git checkout` (the restored run is the 20-test GREEN above):
+  M1 CHECK-MEMORY-ALLOCATION never checks
+  M2 MEMORY-SIZE-PAYABLE-WITH-GAS answers one word high
+  M3 EEST-STATE-TEST-CHECK-BLOCK-GAS returns instead of signalling
+  M4 the :HEAP-BUDGET arm of the refusal classification unreachable
+  Run A, M1-M4 together (same 20-test selection): EXIT=1, 14 passed, 6
+    failed -- EEST-STATE-TEST-REFUSES-A-TRANSACTION-ABOVE-THE-BLOCK-GAS-LIMIT
+    ("BLOCK-VALIDATION-ERROR was not signaled"), PORTED-STATIC-EEST-REFUSAL-
+    AND-GATE-VERDICTS-CAN-FAIL, EVM-MEMORY-SIZE-PAYABLE-WITH-GAS-INVERTS-
+    GETHS-MEMORY-PRICE, EVM-MEMORY-ALLOCATION-CEILING-REFUSES-TYPED-AND-
+    NEVER-HALTS, EVM-MEMORY-ALLOCATION-CEILING-CATCHES-THE-RANDOM-
+    STATETEST524-SHAPE, EVM-MEMORY-ALLOCATION-HEAP-BUDGET-REFUSES-TYPED-PAST-
+    THE-BUDGET.
+  Run B, M1 and M4 only (--match EVM-MEMORY-ALLOCATION --match
+    PORTED-STATIC): EXIT=1, 0 passed, 4 failed -- the three ceiling/budget
+    tests (a TYPEP assertion: nothing was refused) and the verdict test
+    (the heap-budget refusal classified as the ceiling skip).
+  M2 and M3 were not isolated; in run A only the payable test and the
+    block-gas test can see them.
+  M5 ENSURE-MEMORY-REGION resizes for a zero size (pre-d7a28c6c), gate on
+     Osaka stSpecialTest,stRandom2: EXIT=1, three named failures instead of
+     three allocations:
+       stRandom2/random_statetest524  allocationBeyondPaidGas: 1968091264 bytes
+         requested, gas limit 100000 pays for 411392
+       stRandom2/random_statetest572  allocationBeyondPaidGas: a 48-digit byte
+         count, gas limit 100000 (its code has one LOG1; not traced further)
+       stSpecialTest/sha3_deja        allocationBeyondPaidGas: 1099511627776
+         bytes requested, gas limit 1000000 pays for 1399808
+     Restored, the file is the one of the run of record, where both
+     directories pass.
+
+The eight standard gates at 3d8702d9, exactly as
+docs/evidence/sec5-591f700e-eest-v20.0.2.txt runs them (same selectors, one
+retained container ethereum-lisp-cold-j1-3d8702d9-<slug> per gate, sequential,
+output redirected, containers removed afterwards): every gate "1 test
+passed.", zero "not ok", command EXIT=0, container exit 0, OOMKilled=false.
+The six EEST-CONFORMANCE manifest lines are byte-identical to
+sec5-b5161312-eest-v20.0.2.txt (sorted `cmp`, sha256 of the sorted set
+9c8f7010d2ec64d41c6564ffbed70f5d13e95f454f85f6f0d59547b96d2f4561).
+
+Hoodi, at 3d8702d9:
+  cl-workbench validation run cold-integration --match HOODI-368
+    (hard-linked .eest-fixtures-hoodi-3684027 and -3685491)
+    -> HOODI-3684027-... and HOODI-3685491-GAS-USED-MATCHES-ITS-HEADER-ON-A-
+       BACKED-STATE ok, "2 tests passed.", EXIT=0
+  ETHEREUM_LISP_HOODI_REPLAY_ROOT=.hoodi-replay cl-workbench validation run \
+    cold-integration --match HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT
+    -> "HOODI-REPLAY summary: selected=322 replayed=320 match=320 diverges=0
+       comparator=0 prestate=0 unreplayable=2" (3679328, 3685509, the known
+       witness gaps), EXIT=1 as at the base.
+
+================================================================================
+5. After the rebase onto 0140000b, at c6197bf7
+================================================================================
+
+HEAD c6197bf7 (clean tree), same corpus and broker as section 4.
+
+  Unit: cold-unit --match EVM-MEMORY --match PORTED-STATIC --match
+    EEST-STATE-TEST --match EEST-LATE-FORK --match EEST-AMSTERDAM
+    -> 21 tests passed, EXIT=0 (the 20 of section 4 plus
+       EEST-AMSTERDAM-STATE-RUNNER-CLASSIFIES-BLOCK-LEVEL-REFUSALS).
+  ported_static gate: EXIT=0, "1 test passed."; Cancun 7,059/7,060, Prague
+    7,059/7,060 (the same D5 skip each), Osaka 6,581/6,581, 0 failed --
+    identical to section 3.
+  Eight EEST v20.0.2 gates (retained containers ethereum-lisp-cold-j1-
+    c6197bf7-<slug>, sequential, removed afterwards): each "1 test passed.",
+    zero "not ok", EXIT=0, container exit 0, OOMKilled=false; the six
+    manifest lines byte-identical to b5161312's (sorted `cmp`).
+  Amsterdam burn-down, the regression-gate command of
+    docs/gap-analysis/amsterdam-inventory.md (ETHEREUM_LISP_AMSTERDAM_EEST_
+    TREES=all, all fourteen EIP directories required), corpus
+    tests-glamsterdam-devnet v7.2.1 hard-linked from the main checkout:
+    "ok OPTIONAL-AMSTERDAM-EEST-FEATURE-BURN-DOWN", EXIT=0; summed over the
+    AMSTERDAM-EEST lines, state_tests 15,627/15,627, blockchain_tests_engine
+    21,067/21,067 (three files over 40 MB counted, as before),
+    BPO2ToAmsterdamAtTime15k 96/96, 0 failed.
+  Hoodi: HOODI-368 (integration) 2 tests passed, EXIT=0; replay "selected=322
+    replayed=320 match=320 diverges=0 comparator=0 prestate=0 unreplayable=2"
+    (3679328, 3685509), EXIT=1 as at the base.
+
+================================================================================
+Not verified
+================================================================================
+
+- Nothing was re-run after the commit that updates this record for the rebase
+  (documentation only).  cold-all was not run (the coordinator runs it).
+- The mutation controls of section 4 were not repeated after the rebase.
+- Amsterdam: the v7.2.1 ported_static refill is not part of this gate; its
+  count is in docs/gap-analysis/amsterdam-inventory.md.
+- The 17 D1 random vectors were not traced one by one; they are attributed to
+  D1 because it is the only change in 99c57b43 that can alter a successful
+  entry's balance or logs, and all of them pass after it.
+- static_call1_mb1024_calldepth d1 at Cancun and Prague is skipped, not
+  executed to its end; the heap it would need was not measured.
+- ported_static blockchain_tests (the same vectors as blocks) are not run.
+- No reference client was run; parity claims are source comparisons against
+  go-ethereum v1.17.6 (references/go-ethereum).
