@@ -305,8 +305,6 @@ gate_record_not_running() {
         "$(docker container inspect --format '{{.State.ExitCode}}' "$1")" \
         "$(docker container inspect --format '{{.State.FinishedAt}}' "$1")" \
         "$(gate_last_log_line "$1")"
-    printf '%s-oom-killed=%s\n' "$2" \
-        "$(docker container inspect --format '{{.State.OOMKilled}}' "$1")"
 }
 
 # SBCL prints "CORRUPTION WARNING" and continues, so a faulted process can
@@ -670,9 +668,17 @@ else
     install -d -m 0700 "$datadir"
 fi
 
+# The cutover never depends on the old container being alive.  One that is
+# not running is not started, stopped or otherwise touched; its state is
+# recorded from Docker and its last log line, and a failed launch leaves it
+# stopped.
 old_was_running=false
-if docker container inspect "$old" >/dev/null 2>&1 &&
-   [ "$(docker container inspect --format '{{.State.Running}}' "$old")" = true ]; then
+if ! docker container inspect "$old" >/dev/null 2>&1; then
+    printf 'old-state=absent container=%s\n' "$old"
+elif [ "$(docker container inspect --format '{{.State.Running}}' "$old")" != true ]; then
+    gate_record_not_running "$old" old
+    printf '%s\n' 'old-stop=skipped (not running)'
+else
     old_agent="$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$old")"
     old_image_revision="$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$old")"
     old_gate_revision="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$old")"
@@ -720,12 +726,19 @@ if docker container inspect "$old" >/dev/null 2>&1 &&
     old_was_running=true
 fi
 
+# rollback: stop the failed gate container and put the old one back the way
+# it was found.  A failed start of the old container is reported, never
+# fatal: the launch has already failed and the broker exits non-zero anyway.
 rollback() {
     if docker container inspect "$container" >/dev/null 2>&1; then
         docker stop --time "$stop_timeout" "$container" >/dev/null 2>&1 || true
     fi
-    if [ "$old_was_running" = true ]; then
-        docker start "$old" >/dev/null 2>&1 || true
+    if [ "$old_was_running" != true ]; then
+        printf '%s\n' 'rollback-old-start=skipped (no old container was running)'
+    elif docker start "$old" >/dev/null 2>&1; then
+        printf '%s\n' 'rollback-old-start=ok'
+    else
+        printf '%s\n' 'rollback-old-start=failed (reported; the launch had already failed)'
     fi
 }
 
@@ -772,14 +785,14 @@ fi
 
 if ! docker network connect "$egress_network" "$container"; then
     rollback
-    echo "failed to attach $container to $egress_network; old container restored" >&2
+    echo "failed to attach $container to $egress_network; old container put back as it was" >&2
     exit 1
 fi
 sleep 2
 if [ "$(docker container inspect --format '{{.State.Running}}' "$container")" != true ]; then
     docker logs "$container" 2>&1 | tail -80 >&2 || true
     rollback
-    echo "exact-revision EL exited during startup; old container restored" >&2
+    echo "exact-revision EL exited during startup; old container put back as it was" >&2
     exit 1
 fi
 docker container inspect --format \
@@ -945,6 +958,8 @@ else
     # starting it, and a container that stopped on a start-up defect would
     # only fail again (gate_record_not_running).
     gate_record_not_running "$previous" previous
+    printf 'previous-oom-killed='
+    docker container inspect --format '{{.State.OOMKilled}}' "$previous"
     printf '%s\n' 'before-block=unavailable (previous not running; its store is not opened)'
     printf '%s\n' 'before-syncing=unavailable (previous not running)'
     printf '%s\n' 'previous-stop=skipped (not running)'
@@ -1185,15 +1200,23 @@ printf 'before-finished='; docker container inspect --format '{{.State.FinishedA
 printf 'before-exit='; docker container inspect --format '{{.State.ExitCode}}' "$container"
 printf 'before-oom='; docker container inspect --format '{{.State.OOMKilled}}' "$container"
 printf 'before-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
-if before_block="$(rpc eth_blockNumber)"; then
-    printf 'before-block=%s\n' "$before_block"
+if [ "$before_running" != true ]; then
+    # A crash-stopped container: its store is not readable without starting
+    # it, which this restart is about to do anyway.
+    gate_record_not_running "$container" before
+    printf '%s\n' 'before-block=unavailable (not running)'
+    printf '%s\n' 'before-syncing=unavailable (not running)'
 else
-    printf '%s\n' 'before-block=unavailable'
-fi
-if before_syncing="$(rpc eth_syncing)"; then
-    printf 'before-syncing=%s\n' "$before_syncing"
-else
-    printf '%s\n' 'before-syncing=unavailable'
+    if before_block="$(rpc eth_blockNumber)"; then
+        printf 'before-block=%s\n' "$before_block"
+    else
+        printf '%s\n' 'before-block=unavailable'
+    fi
+    if before_syncing="$(rpc eth_syncing)"; then
+        printf 'before-syncing=%s\n' "$before_syncing"
+    else
+        printf '%s\n' 'before-syncing=unavailable'
+    fi
 fi
 
 stop_clean=true
@@ -1206,7 +1229,8 @@ if [ "$before_running" = true ]; then
         *) gate_fail "could not stop $container; it was not restarted" ;;
     esac
 fi
-docker start "$container" >/dev/null
+docker start "$container" >/dev/null ||
+    gate_fail "docker start failed for $container; it is not running"
 
 ready=false
 ready_deadline="$(( $(date +%s) + ready_timeout ))"

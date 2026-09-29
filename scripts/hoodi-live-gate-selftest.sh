@@ -952,6 +952,118 @@ run 1 "upgrade whose replacement dies and whose previous cannot start" -- "$brok
 has "rollback-previous-start=failed (reported; the upgrade had already failed)"
 has "upgraded public RPC did not return within 600s; previous container put back as it was"
 
+# --- start: the alias cutover does not depend on the old container ---------------
+old_name=hoodi-el-sec5-cccccccc
+old_datadir="$root/datadir-cccccccc"
+start_old_env() {
+    export HOODI_GATE_OLD_CONTAINER="$old_name" HOODI_GATE_OLD_REVISION="$prev_rev"
+}
+# No old container at all.
+reset_world
+plant_key 0600
+run 0 "start with no old container" -- "$broker" start
+has "old-state=absent container=hoodi-el-sec5-rehearsal-old3"
+check_run_line "start with no old container"
+
+# An old container that stopped on a start-up defect is recorded, never
+# started or stopped, and the new EL takes the alias.
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+plant_exited "$old_name"
+start_old_env
+run 0 "start over a stopped old container" -- "$broker" start
+has "old-state=exited exit=1 finished=2026-09-29T00:00:00Z last-log=FATAL: txpool journal import refused a transaction from <ip> id <hex>"
+has "old-stop=skipped (not running)"
+lacks "192.0.2."
+check_run_line "start over a stopped old container"
+not_logged "docker start $old_name"
+not_logged "docker stop --time 120 $old_name"
+
+# A running old container is stopped through the helper (the control for the
+# two checks above) ...
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+start_old_env
+run 0 "start over a running old container" -- "$broker" start
+logged "docker stop --time 120 $old_name"
+has "old-stop-clean=true"
+lacks "old-state="
+
+# ... and started again when the new EL dies ...
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+start_old_env
+export STUB_RUN_DIES=1
+run 1 "start whose new EL dies, over a running old container" -- "$broker" start
+has "rollback-old-start=ok"
+has "exact-revision EL exited during startup; old container put back as it was"
+logged "docker start $old_name"
+
+# ... where a failed start of it is reported, not fatal ...
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+touch "$STUB_STATE/$old_name/start-fails"
+start_old_env
+export STUB_RUN_DIES=1
+run 1 "start whose new EL dies and whose old container cannot start" -- "$broker" start
+has "rollback-old-start=failed (reported; the launch had already failed)"
+has "exact-revision EL exited during startup; old container put back as it was"
+
+# ... while a stopped old container stays stopped.
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+plant_exited "$old_name"
+start_old_env
+export STUB_RUN_DIES=1
+run 1 "start whose new EL dies, over a stopped old container" -- "$broker" start
+has "rollback-old-start=skipped (no old container was running)"
+not_logged "docker start $old_name"
+
+# --- restart: a crash-stopped container ------------------------------------------
+reset_world
+plant_key 0600
+plant_gate
+plant_exited "$new_container"
+rm -f "$STUB_STATE/$new_container/dies-on-start"
+run 0 "restart of a crash-stopped container" -- "$broker" restart
+has "before-state=exited exit=1 finished=2026-09-29T00:00:00Z last-log=FATAL: txpool journal import refused a transaction from <ip> id <hex>"
+has "before-block=unavailable (not running)"
+has "before-syncing=unavailable (not running)"
+lacks "192.0.2."
+not_logged "docker stop --time 120 $new_container"
+logged "docker start $new_container"
+has "after-block=$STUB_BLOCK"
+
+# Control: a running container is read over RPC and has no before-state line.
+reset_world
+plant_key 0600
+plant_gate
+run 0 "restart of a running container" -- "$broker" restart
+has "before-block=$STUB_BLOCK"
+lacks "before-state="
+
+# A crash-stopped container that dies again, or that the daemon will not
+# start, fails the restart with the reason.
+reset_world
+plant_key 0600
+plant_gate
+plant_exited "$new_container"
+run 1 "restart of a container that dies again on start" -- "$broker" restart
+has "public RPC did not return within 600s after restart"
+
+reset_world
+plant_key 0600
+plant_gate
+plant_exited "$new_container"
+touch "$STUB_STATE/$new_container/start-fails"
+run 1 "restart of a container the daemon will not start" -- "$broker" restart
+has "docker start failed for $new_container; it is not running"
+
 cat "$STUB_LOG" >> "$lifecycle_log"
 : > "$out"
 if grep -qE '^docker (rm|container rm|image rm|volume|system)' "$lifecycle_log"; then
