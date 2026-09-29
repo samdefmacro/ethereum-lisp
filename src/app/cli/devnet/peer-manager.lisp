@@ -790,7 +790,54 @@ routed back to their waiting worker by message type plus request id."
               (devnet-peer-request-job-finish job nil condition)
               ;; A mid-frame fault makes the stream unusable. Wake the
               ;; coordinator, then propagate so session teardown closes it.
-              (error condition))))))))
+              ;; An INVALID verdict is the exception: it judges a block the
+              ;; job executed after the exchange completed, the stream is
+              ;; intact, and the verdict may be our own bug (Hoodi 3685491).
+              (unless (devnet-peer-request-verdict-p condition)
+                (error condition)))))))))
+
+(defun devnet-peer-request-verdict-p (condition)
+  "Whether CONDITION, raised by a session job, is a verdict on block content
+rather than a fault of the peer's session.
+
+Only a deterministic INVALID from executing a block the peer delivered
+qualifies. geth v1.17.6 never disconnects for one: importBlockResults
+(eth/downloader/downloader.go) reports it through the badBlock callback and
+aborts the sync cycle with errInvalidChain, while fetchers_concurrent.go hands
+only errInvalidBody / errInvalidReceipt back to the peer's handler
+(validityErrorOfRequest), and the beacon backfiller only logs the failed cycle
+(beaconsync.go resume). A body that does not match its header is the peer's
+doing; it is refused before execution (ETH-SYNC-VALIDATE-BODY) and never
+reaches this predicate."
+  (typep condition 'devnet-peer-sync-invalid))
+
+(defun devnet-peer-session-end-charges-peer-p (condition)
+  "Whether CONDITION, which ended an admitted session, lowers the peer's score.
+
+The session ends either way; the score is what bans a peer (at
++DEVNET-PEER-BAN-SCORE+, four charges) for the rest of the process. A peer is
+not charged for leaving: a devp2p Disconnect it sent (any reason, including
+too-many-peers, or a protocol error WE caused), a reset, broken pipe, EOF or
+timeout on the connection, or a local storage fault. geth v1.17.6 keeps no
+score at all and handles each of these as an ordinary disconnect (p2p/peer.go
+run). On Hoodi (1a7b9059, 33 minutes) the unconditional charge banned nine
+SNAP-capable peers for broken pipes, remote Disconnects, our own INVALID
+verdict and our own eth/72 GetCells decoder. A peer message we
+could not accept (an ETH protocol violation, an undecodable or invalid
+payload) is still charged: the condition types do not separate a malformed
+peer message from a local program error, and both stay charged."
+  (let ((cause
+          (if (typep condition 'eth-sync-peer-transport-error)
+              (ethereum-lisp.eth-sync:eth-sync-peer-transport-error-cause
+               condition)
+              condition)))
+    (not (typep cause
+                '(or rlpx-disconnect
+                  stream-error
+                  #+sbcl sb-bsd-sockets:socket-error
+                  #+sbcl sb-ext:timeout
+                  storage-error
+                  devnet-peer-request-queue-closed)))))
 
 (defun devnet-peer-manager-log (node event &rest fields)
   (telemetry-log :info event
@@ -932,11 +979,12 @@ a dial knows who it is calling before it connects and so never reserves."
                          ;; the session loop sends -- never another thread.
                          :pending-broadcast pending-broadcast))
                     (serious-condition (condition)
-                      (call-with-devnet-peer-table
-                       node
-                       (lambda ()
-                         (devnet-peer-note-score
-                          table (devnet-peer-entry-id-hex entry) -25)))
+                      (when (devnet-peer-session-end-charges-peer-p condition)
+                        (call-with-devnet-peer-table
+                         node
+                         (lambda ()
+                           (devnet-peer-note-score
+                            table (devnet-peer-entry-id-hex entry) -25))))
                       (error condition))))
                  ((and peer refusal)
                   (eth-sync-reject-connection

@@ -1,0 +1,304 @@
+Section 5: peer scoring and session teardown charged the wrong party
+
+Status
+
+Branch peer-attribution, from a6d2b58b (a6d2b58b1e99ccdfa740c0a3b27af51b55a5ec17).
+Reproduced and fixed locally. Not deployed, no live run, no cold-all (the
+coordinator runs it once at the end). Live evidence is the 1a7b9059 Hoodi
+run (container hoodi-el-sec5-1a7b9059, exited; `docker logs -t`, read-only,
+10,412 lines, 2026-09-24T06:42:33Z to 07:15:46Z, 33 minutes).
+
+Revision
+
+  5e6240fc  p2p: a peer is charged only for what it sent
+            (5e6240fc1f0752e8eec4dcee62004132edce3f57)
+
+================================================================================
+1. Where a peer is scored or its session ends (a6d2b58b), against geth v1.17.6
+================================================================================
+
+Scores live in the peer table (DEVNET-PEER-NOTE-SCORE). They never decay; at
++DEVNET-PEER-BAN-SCORE+ (-100) DEVNET-PEER-TABLE-INBOUND-VERDICT answers
+:USELESS-PEER for that id, inbound and outbound, for the life of the process.
+geth v1.17.6 keeps no peer score at all.
+
+ site                                     trigger                  effect (a6d2b58b)
+ ---------------------------------------  -----------------------  -------------------------
+ S1 DEVNET-PEER-RUN-SESSION               ANY serious condition    -25, session ends;
+    (peer-manager.lisp)                   leaving the pump         Disconnect 16 only for
+                                                                   ETH-PEER-PROTOCOL-ERROR
+ S2 DEVNET-NODE-SYNC-PEER-SOURCES         multi-peer downloader    :timeout -10 (and :cancel
+    :penalty (dialer.lisp) via            events                   closes the stream),
+    ETH-SYNC-PENALIZE                                              :failed -25, :malformed -50
+ S3 DEVNET-NODE-RESOLVE-SNAP-TARGET       DEVNET-SNAP-TARGET-      -50; queue-closed and other
+                                          MALFORMED                failures unscored
+ S4 snap import :ON-SOURCE-ERROR          any source error not     -50 (peer.snap.import_failed);
+    (DEVNET-NODE-SNAP-IMPORT-WITH-        classified below         pooled state-unavailable,
+    FAILOVER)                                                      state-unavailable, queue
+                                                                   closed, storage unscored
+ T1 DEVNET-PEER-PENDING-REQUEST           any condition from a     job finished with it, then
+                                          queued session job       RE-SIGNALLED: session ends
+ T2 ETH-PEER-RUN-SESSION                  peer message violation,  session ends (via S1)
+                                          remote Disconnect,
+                                          stream error
+ T3 ETH-SYNC-DOWNLOAD-BLOCKS-MULTI        request expiry; and at   closes the owning fd-stream:
+    :cancel                               the end, every source    the session ends
+                                          with a request in flight
+ T4 inbound/outbound admission            self, already connected, Disconnect with that reason
+                                          banned, full; ETH-only   before admission
+                                          outbound while SNAP
+                                          quality is short
+ T5 DEVNET-SNAP-SOURCE-POOL-FAIL-AND-     dependency request       30 s pool cooldown, degraded
+    RELEASE                               failure                  capability; no score, no
+                                                                   teardown; state-unavailable
+                                                                   retires it for the pivot;
+                                                                   a timeout does nothing
+ T6 DEVNET-PEER-FILL-SYNC-GAPS            ETH-SYNC-BACKFILL-PEER-  logged peer.sync.gap_failed,
+                                          ERROR (bad header link,  session kept
+                                          body commitments,
+                                          missing answer)
+
+geth v1.17.6, cited by function:
+
+- eth/downloader/downloader.go importBlockResults (lines 893-913): when
+  InsertChain fails, it calls the badBlock callback (the Engine API's
+  invalid-tipset cache) and returns errInvalidChain, which aborts the sync
+  cycle. No peer is dropped. On delivery, fetchers_concurrent.go line 342
+  hands the delivering peer's handler only validityErrorOfRequest(err)
+  (lines 364-369), non-nil only for errInvalidBody / errInvalidReceipt: a
+  body or receipt list that does not match its header (queue.go
+  DeliverBodies / DeliverReceipts, lines 561-633). That error returned to the
+  eth handler disconnects the peer.
+- eth/downloader/beaconsync.go beaconBackfiller.resume (lines 107-110): a
+  failed backfill cycle is logged, nothing else.
+- The downloader drops (handler.go removePeer, lines 425-431:
+  Disconnect(DiscUselessPeer)) only a peer that stalls a request past the
+  grace period (fetchers_concurrent.go line 151) or times out while it has not
+  yet failed three times (line 301). The skeleton drops a peer whose header
+  request times out (skeleton.go line 862) or whose headers do not link to
+  the subchain (line 1063).
+- eth/protocols/snap/sync.go: a timed-out request records a zero delivery and
+  is reverted (lines 1088, 1199, 1347, 1484), the peer stays; an empty answer
+  marks the peer stateless for this sync (2574, 2684, 2812, 2931, 3038); only
+  a proof that fails verification is returned as an error (2593-2597), which
+  the snap handler returns and the peer is disconnected. With no idle peer the
+  assignment loop simply assigns nothing; no one is charged.
+- p2p/peer_error.go discReasonForError (lines 105-122): an unwrapped
+  *peerError errInvalidMsg (what msg.Decode returns, p2p/message.go:57) is
+  DiscProtocolError (2); any other protocol error is DiscSubprotocolError (16).
+
+Divergences from geth, and what this branch does with them:
+
+ D1 T1: an INVALID verdict from the gap fill job ended the peer's session and
+    (S1) cost it 25. geth never disconnects for an execution failure.  FIXED.
+ D2 S1: a session ending on a remote Disconnect, a reset or broken pipe, a
+    timeout or a local fault cost the peer 25, four of them a ban. geth keeps
+    no score.                                                          FIXED.
+ D3 S4: "no live SNAP peer can serve ~A" (a SIMPLE-ERROR from
+    DEVNET-SNAP-SOURCE-POOL-CALL) was charged -50 to the account-page peer,
+    and so was the last failing dependency transport's own condition when it
+    was re-signalled after that transport left the pool.               FIXED.
+ D4 "Snap workers stopped without source-failure evidence" was a plain
+    ERROR; had it happened, the coordinator's outer boundary would have
+    stopped the node.                                                  FIXED.
+ D5 T6 and T5 are more lenient than geth: a body whose commitments do not
+    match its header, or a dependency proof that fails, keeps the session
+    (geth disconnects). Not changed; reported.
+ D6 T3: when the multi-peer downloader aborts (an INVALID verdict included)
+    it closes the stream of every source with a request in flight, ending
+    those sessions; geth cancels the requests and keeps the peers. Not
+    changed: not observed in the 1a7b9059 log (one peer.sync.multi_completed,
+    no peer.sync.source_penalty); reported.
+ D7 S2 :failed charges -25 for any failed fetch, transport losses included.
+    Same shape as D2 but on the downloader's own penalty; not observed in the
+    1a7b9059 log. Not changed; reported.
+
+================================================================================
+2. Live evidence (1a7b9059, 06:42:33Z-07:15:46Z)
+================================================================================
+
+1,820 peer.dial.failed lines (the dialer's thread boundary; "after admission"
+means the id had logged peer.dial.connected since its previous failure):
+
+ count  class                                          phase    ids  verdict
+ -----  ---------------------------------------------  -------  ---  ---------------
+ 1,505  peer sent devp2p Disconnect (reason 4)         before   192  expected: peer
+                                                                     full
+   120  RLPx stream ended after 0 of 2 bytes           before    23  expected, see
+        (remote closed after our auth, before its ack)                below
+    77  TCP connect: getpeername ENOTCONN              before    13  expected:
+                                                                     unreachable
+    30  TCP connect: timed out after 15 seconds        before    12  expected
+     8  Disconnect (reason 0, requested)               before     1  expected
+     5  couldn't read: Connection reset by peer        before     5  expected
+    23  Couldn't write: Broken pipe                    after     11  peer closed; see
+                                                                     below
+    17  eth/72 GetCells must contain exactly 3 items   after     11  OURS, fixed by
+                                                                     635a9667 (not in
+                                                                     1a7b9059)
+    11  Disconnect (reason 2, DiscProtocolError)       after      8  OURS (probable):
+                                                                     see below
+    10  Peer range block 0x154fcffe... was invalid     after      5  OURS: D1, fixed
+     6  Disconnect (reason 3, DiscUselessPeer)         after      3  peer's policy
+     5  Disconnect (reason 4) after admission          after      4  expected
+     1  RLPx stream ended after 0 of 32 bytes          after      1  peer closed
+     1  KZG cell proof verification failed            after      1  peer's data;
+                                                                     geth also drops
+     1  Disconnect (reason 16, DiscSubprotocolError)   after      1  unknown
+
+- EOF before the auth ack (120): 23 ids, 106 of the 120 are repeats, only 5
+  within 30 s of that id's previous attempt (geth's inboundThrottleTime), and
+  the same ids complete handshakes at other times (398c59cc at
+  35.171.168.251 alternates between this, Disconnect 4 after the handshake,
+  and inbound sessions). A malformed auth of ours would fail at a rate
+  independent of the peer; this is concentrated on 23 of the 224 ids that appear in dial events.
+  It reads as those peers refusing before the handshake when full.
+  Expected.
+- Broken pipe (23): 15 are 0.18-0.49 s after admission on two hosts,
+  146.190.132.182 (11; four node ids on ports 40410/40412) and 54.87.135.143
+  (4, eth/68). The remote closes right after the Status exchange, before our
+  first write; any Disconnect it sent is never read because the write fails
+  first. The other 8 are 4.8-371 s into sessions. Not attributable from this
+  log; nothing in it points at our side. Not changed.
+- Disconnect reason 2 (11 from 8 hosts, 17-444 s into sessions): for a geth
+  peer this is msg.Decode failing on an eth message WE sent (section 1). The
+  eth/72 layout split (geth v1.17.5 nests GetCells/Cells, v1.17.6 is flat;
+  sec5-eth72-interop.txt) makes our flat GetCells undecodable by a v1.17.5
+  peer, and 635a9667 (after 1a7b9059, in this base) now sends the layout the
+  peer uses. That is the probable cause; our other eth encoders were not
+  audited here.
+- Verdict-ended sessions (10, 5 peers, 07:09:24-07:09:49Z and
+  07:14:25-07:14:34Z): each gap fill walked into 3685491, which our own gas
+  bug had rejected (d7a28c6c), and the session ended; 5 of them 1.8-3.6 s
+  after connecting, so every new peer the coordinator reached was lost the
+  same way.
+- Bans: 12 ids were refused USELESS-PEER (44 peer.dial.refused, 1
+  p2p.peer.refused). Nine of them are SNAP-capable, which the SNAP-quality
+  refusal never applies to, so their score had reached -100. Their dialed
+  sessions had ended in: broken pipe (122048a2, b2767f76 x4 each; fa106671
+  x3 plus one EOF), remote Disconnect 2 (60203fcb x3 plus a broken pipe),
+  Disconnect 3 (8ae4a481 x3), our GetCells decoder (9178697c x4, c9b15c27
+  x2 plus 2 broken pipes), our INVALID verdict (2112dd38 x2 plus Disconnect 3
+  x2); c9b64a09's inbound sessions are logged by host only. Every ban was
+  earned by the peer leaving, or by our own bug. D2.
+- R6 shows no peer.snap.import_failed, so D3 was not observed in this run; it
+  follows from the code (DEVNET-SNAP-SOURCE-POOL-CALL signalled a
+  SIMPLE-ERROR, which S4's generic branch charges -50).
+
+================================================================================
+3. Fix (5e6240fc)
+================================================================================
+
+src/app/cli/devnet/peer-manager.lisp
+  DEVNET-PEER-PENDING-REQUEST: a job's condition is still handed to its
+  submitter, and still ends the session, unless DEVNET-PEER-REQUEST-VERDICT-P:
+  a DEVNET-PEER-SYNC-INVALID (a deterministic INVALID from executing a block
+  the peer delivered). D1.
+  DEVNET-PEER-RUN-SESSION charges -25 only when
+  DEVNET-PEER-SESSION-END-CHARGES-PEER-P: not for RLPX-DISCONNECT,
+  STREAM-ERROR, SOCKET-ERROR, TIMEOUT, STORAGE-ERROR or a closed request
+  queue, including those wrapped in ETH-SYNC-PEER-TRANSPORT-ERROR. A peer
+  message we could not accept is still charged: decoder failures are plain
+  ERRORs and cannot be told apart from a local program error, so both stay
+  charged. D2.
+src/app/cli/devnet/dialer.lisp
+  DEVNET-SNAP-SOURCE-POOL-EXHAUSTED (label, last failure) replaces the
+  SIMPLE-ERROR and the re-signalled last transport condition; a request
+  timeout is still re-signalled, so the range worker retries without retiring
+  its source. S4 logs it as peer.snap.dependencies_exhausted and scores
+  nobody. D3.
+  The coordinator pass contains SNAP-SYNC-WORKERS-STOPPED as
+  peer.snap.workers_stopped. D4.
+src/networking/snap-sync/client.lisp, src/packages/runtime.lisp
+  SNAP-SYNC-WORKERS-STOPPED, a SNAP-SYNC-SOURCES-EXHAUSTED with no failures,
+  exported; SNAP-SYNC-SIGNAL-SOURCES-EXHAUSTED signals it for an empty list.
+scripts/hoodi-live-gate.sh counts the two new events.
+docs/evidence/sec5-eth72-interop.txt: geth's reason for a decode failure is
+DiscProtocolError (2), not DiscSubprotocolError.
+
+================================================================================
+4. Reproduction and verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0.
+
+New tests, tests/cli-devnet-peer-attribution-tests.lisp:
+  DEVNET-PEER-SESSION-OUTLIVES-AN-INVALID-VERDICT-FROM-ITS-GAP-FILL
+    (integration, loopback). A real node dials (DEVNET-START-DIAL-SCHEDULER-
+    THREAD) a loopback RLPx peer serving genesis+1 (valid) and block 2 with a
+    state root no execution produces (its body still matches its header).
+    DEVNET-NODE-FILL-SYNC-GAPS-WITH-LIVE-PEER runs the shipped gap fill on the
+    session's writer. Asserts: the typed DEVNET-PEER-SYNC-INVALID reaches the
+    caller, block 1 is executed, and after 0.5 s the entry, its open queue and
+    a zero score remain, no peer.dial.failed, and the same queue serves a
+    GetBlockHeaders. Positive control on the same session: a job raising
+    ETH-PEER-PROTOCOL-ERROR ends it, closes the queue and costs 25.
+  DEVNET-PEER-SESSION-END-CHARGES-ONLY-WHAT-THE-PEER-SENT (unit): remote
+    Disconnect 2 and 4, a broken pipe, and a transport error wrapping it
+    score 0; controls: a protocol violation, an undecodable message and a
+    transport error wrapping a protocol violation score -25.
+  DEVNET-SNAP-SOURCE-POOL-EXHAUSTION-SCORES-NO-SINGLE-PEER (unit): through
+    DEVNET-NODE-SNAP-IMPORT-WITH-FAILOVER and its real :ON-SOURCE-ERROR, an
+    empty pool and a pool whose one dependency peer fails and leaves leave the
+    account-page peer at 0 with one peer.snap.dependencies_exhausted (the
+    failing transport still logs peer.snap.dependency_failed); control: an
+    ordinary page error is still import_failed and -50.
+  DEVNET-SYNC-COORDINATOR-CONTAINS-SNAP-WORKERS-STOPPED-WITHOUT-EVIDENCE
+    (unit): the pass returns NIL and logs peer.snap.workers_stopped with the
+    phase; a non-empty failure list still signals plain source exhaustion.
+
+RED (warm image, tests added to the unchanged a6d2b58b source, `cl-workbench
+test NAME`, each EXIT=1):
+  ...-OUTLIVES-AN-INVALID-VERDICT...: "Assertion failed: (EQ ENTRY
+    (PEER-ATTRIBUTION-ENTRY CLIENT))" -- the verdict assertions before it
+    held; the session was gone.
+  ...-POOL-EXHAUSTION-...: "Assertion failed: (= 0 ACCOUNT-SCORE)" (-50).
+  ...-CONTAINS-SNAP-WORKERS-STOPPED...: "Assertion failed: (EQUAL
+    '(:RETURNED NIL) OUTCOME)" -- the ERROR escaped the pass.
+  ...-END-CHARGES-ONLY-WHAT-THE-PEER-SENT: written after the other fixes; RED
+    with the predicate forced to T (the a6d2b58b rule, temporary, removed):
+    "Assertion failed: (= 0 (PEER-ATTRIBUTION-SESSION-SCORE (MAKE-CONDITION
+    'RLPX-DISCONNECT :REASON 2)))".
+GREEN (warm image, 5e6240fc source): all four EXIT=0, and the neighbours
+  DEVNET-PEER-SESSION-SENDS-COMPRESSED-DISCONNECT-ON-PROTOCOL-ERROR,
+  DEVNET-COORDINATOR-PASS-SURVIVES-A-PEER-RESET-DURING-GAP-FILL,
+  DEVNET-PEER-REQUEST-QUEUE-PRESERVES-THE-SOLE-WRITER-AND-ERRORS,
+  DEVNET-SNAP-QUEUE-CLOSE-LIFECYCLE-DRIVES-THE-IMPORT-CALLBACK,
+  DEVNET-SNAP-SOURCE-POOL-RETRIES-A-DEPENDENCY-ON-ANOTHER-PEER,
+  DEVNET-SNAP-SOURCE-POOL-REUSES-A-LIVE-PEER-AFTER-REQUEST-TIMEOUT,
+  DEVNET-SNAP-SOURCE-POOL-DOES-NOT-READMIT-STATE-UNAVAILABLE-PEER,
+  DEVNET-GAP-FILL-RETRIES-AFTER-A-LIVE-PEER-QUEUE-CLOSES: each EXIT=0.
+
+Cold, on the committed tree 5e6240fc (logs redirected to files, each test
+name once, no WARNING from /workspace/src):
+  cl-workbench validation run cold-unit --match PEER --match SNAP
+    --match DIAL --match SCORE --match RLPX
+      231 tests passed, 0 not ok, EXIT=0 (the three new unit tests by name).
+  cl-workbench validation run cold-integration --match DEVNET-PEER
+    --match DEVNET-DIAL --match DEVNET-SNAP --match ETH-SYNC
+    --match DEVNET-SYNC-COORDINATOR
+      45 tests passed, 0 not ok, EXIT=0 (the loopback test by name).
+  cl-workbench validation run cold-integration
+    --match HOODI-LIVE-GATE-SELFTEST
+      1 test passed, EXIT=0 ("hoodi-live-gate selftest: 172 checks, 0
+      failed"), for the two event names the gate now counts.
+
+================================================================================
+5. Not verified
+================================================================================
+
+- Live: nothing deployed. The next Hoodi run should show no peer.dial.failed
+  carrying "was invalid", and USELESS-PEER refusals only for ETH-only
+  outbound peers while SNAP quality is short.
+- Reason 2: that the 11 DiscProtocolError disconnects were our flat GetCells
+  to geth v1.17.5 peers is inferred from geth's code and the layout split;
+  the log names neither the client nor the message. Our other eth encoders
+  were not audited against geth here.
+- The early broken pipes on 146.190.132.182 and 54.87.135.143: the remote's
+  reason is unknown because a Disconnect it may have sent is not read once
+  our write fails. Reading a pending Disconnect on a failed write would
+  name it; not implemented.
+- D5-D7 are reported, not changed.
+- A local program error that escapes a session is still scored like a peer
+  fault (see section 3).
+- EEST was not run: no execution, gas, root or receipt code changed.

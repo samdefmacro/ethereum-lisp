@@ -150,6 +150,7 @@ record names no fix.
 - Cumulative account byte targets → [sec5-306e5f4f-snap-account-byte-targets.txt](sec5-306e5f4f-snap-account-byte-targets.txt) → 306e5f4f (test)
 - Inbound RLPx session failures on Hoodi: whose they are; admission defects fixed → [sec5-rlpx-inbound-auth.txt](sec5-rlpx-inbound-auth.txt) → 6fa17eb7, 479c1e5b
 - 17 of 57 Hoodi eth/72 sessions died on "GetCells must contain exactly 3 items": geth v1.17.5 nests GetCells/Cells, v1.17.6 does not; both layouts read, replies in the requester's → [sec5-eth72-interop.txt](sec5-eth72-interop.txt) → 635a9667
+- Peers were scored and disconnected for our own INVALID verdicts, for leaving, and for an empty SNAP pool (nine SNAP-capable peers banned in 33 minutes at 1a7b9059); the 1,820 dial failures classified → [sec5-peer-attribution.txt](sec5-peer-attribution.txt) → 5e6240fc
 
 ### Section 5: public RPC and eth_simulateV1
 

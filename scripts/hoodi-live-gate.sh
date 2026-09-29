@@ -1242,6 +1242,8 @@ for event in \
     peer.snap.sources_refreshed \
     peer.snap.dependency_failed \
     peer.snap.dependencies_unavailable \
+    peer.snap.dependencies_exhausted \
+    peer.snap.workers_stopped \
     peer.snap.pivot_unavailable \
     peer.snap.storage_failed \
     peer.snap.import_failed \

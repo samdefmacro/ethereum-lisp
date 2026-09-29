@@ -986,6 +986,25 @@ target."
   (:documentation
    "All pooled dependency candidates are unavailable for the active pivot."))
 
+(define-condition devnet-snap-source-pool-exhausted (error)
+  ((label :initarg :label :reader devnet-snap-source-pool-exhausted-label)
+   (last-failure :initarg :last-failure :initform nil
+                 :reader devnet-snap-source-pool-exhausted-last-failure))
+  (:report
+   (lambda (condition stream)
+     (format stream "no live SNAP peer can serve ~A~@[ (last failure: ~A)~]"
+             (devnet-snap-source-pool-exhausted-label condition)
+             (devnet-snap-source-pool-exhausted-last-failure condition))))
+  (:documentation
+   "The pool ran out of live SNAP peers for one dependency request.
+
+A fact about the pool, not about any one peer: the account-page source whose
+page needed the dependency did not serve it, and a transport that failed the
+request was already charged where it failed (cooldown and degraded
+capability). geth v1.17.6 eth/protocols/snap/sync.go waits for an idle peer
+and charges nobody for an empty pool. LAST-FAILURE is that transport's
+condition, kept for the log."))
+
 #+sbcl
 (defun devnet-snap-source-pool-reservation-table (pool entry)
   "Return ENTRY's per-response reservation table while POOL is locked."
@@ -1207,8 +1226,17 @@ the transport which supplied it."
               :request-kind
               (ethereum-lisp.snap-sync:snap-sync-state-unavailable-request-kind
                last-condition)))
-            (last-condition (error last-condition))
-            (t (error "no live SNAP peer can serve ~A" label))))
+            ((typep last-condition
+                    'ethereum-lisp.snap-sync:snap-sync-request-timeout)
+             ;; A timeout keeps its scheduling meaning: the range worker
+             ;; retries the same immutable work without retiring its source.
+             (error last-condition))
+            (t
+             ;; Whether or not a transport failed first, running out of
+             ;; peers is the pool's state. Re-signalling the last transport's
+             ;; own condition charged the account-page peer for it.
+             (error 'devnet-snap-source-pool-exhausted
+                    :label label :last-failure last-condition))))
         (let ((result-values nil)
               (request-values nil)
               (succeeded-p nil)
@@ -2255,6 +2283,13 @@ root identity, so the live-gate broker may expose its numeric fields."
                node "peer.snap.dependencies_unavailable"
                "peer" (devnet-peer-entry-id-hex entry)
                "pivot" pivot-number "error" condition))
+             ((typep condition 'devnet-snap-source-pool-exhausted)
+              ;; The pool had no live peer left for a dependency. SOURCE only
+              ;; owned the page that needed it; nobody is scored.
+              (devnet-peer-manager-log
+               node "peer.snap.dependencies_exhausted"
+               "peer" (devnet-peer-entry-id-hex entry)
+               "pivot" pivot-number "error" condition))
              ((typep condition
                      'ethereum-lisp.snap-sync:snap-sync-state-unavailable)
               (devnet-node-note-snap-pivot-unavailable
@@ -3072,6 +3107,15 @@ coordinator's outer serious-condition boundary, which stops the node."
     (eth-sync-multi-peer-error (condition)
       (devnet-peer-manager-log
        node "peer.sync.multi_retry" "error" condition)
+      nil)
+    (ethereum-lisp.snap-sync:snap-sync-workers-stopped (condition)
+      ;; Before this it was a plain ERROR that stopped the node. It names a
+      ;; scheduler gap, not a peer, so it gets its own event.
+      (devnet-peer-manager-log
+       node "peer.snap.workers_stopped"
+       "phase"
+       (ethereum-lisp.snap-sync:snap-sync-sources-exhausted-phase condition)
+       "error" condition)
       nil)
     (ethereum-lisp.snap-sync:snap-sync-sources-exhausted (condition)
       (devnet-peer-manager-log

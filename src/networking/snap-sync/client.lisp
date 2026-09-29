@@ -448,9 +448,22 @@ neither. Only the coordinator that bound *SNAP-SYNC-STOP-P* handles it.")
     (error 'snap-sync-stopped))
   nil)
 
+(define-condition snap-sync-workers-stopped (snap-sync-sources-exhausted) ()
+  (:documentation
+   "Every worker of one finite source snapshot left without reporting a
+failure. The claim and failure bookkeeping is meant to make this unreachable (a
+worker leaves only by stop, completion, or a reported failure), so it names a
+scheduler gap rather than a peer. It is still a source-set outcome: durable
+progress is intact and the next pass takes a new snapshot, so it must not stop
+the node. FAILURES is always empty.")
+  (:report
+   (lambda (condition stream)
+     (format stream "Snap ~A workers stopped without source-failure evidence"
+             (snap-sync-sources-exhausted-phase condition)))))
+
 (defun snap-sync-signal-sources-exhausted (phase failures)
   (unless failures
-    (error "Snap workers stopped without source-failure evidence"))
+    (error 'snap-sync-workers-stopped :phase phase :failures '()))
   (error 'snap-sync-sources-exhausted
          :phase phase :failures (copy-list failures)))
 
