@@ -6,6 +6,64 @@
 (defun aligned-memory-size (size)
   (* 32 (memory-word-count size)))
 
+;;; Allocation ceiling.  In go-ethereum memory is gas-priced before it exists:
+;;; the interpreter charges dynamicGas, memoryGasCost included, and resizes
+;;; only after the charge succeeds (v1.17.6 core/vm/interpreter.go Run), so a
+;;; region no gas can pay for is ErrOutOfGas / ErrGasUintOverflow, never an
+;;; allocation.  Every handler here charges before it resizes too, which bounds
+;;; a frame's memory by its gas (MEMORY-SIZE-PAYABLE-WITH-GAS).  A defect that
+;;; allocates before charging (a zero-length KECCAK256 at a 2 GB offset, the
+;;; pre-d7a28c6c shape) does not halt; it asks the host for the bytes.  A
+;;; fixture harness binds *MEMORY-ALLOCATION-CEILING* to the gas-derived bound
+;;; so such a defect is a typed refusal instead of a heap exhaustion.  It is
+;;; NIL, and costs one NIL check on the growth path, everywhere else.
+
+(defvar *memory-allocation-ceiling* nil
+  "NIL, or the most bytes one EVM memory backing vector or copied data buffer
+may allocate.  Checked only where a buffer is allocated.")
+
+(define-condition evm-memory-allocation-refused (storage-condition)
+  ((requested :initarg :requested
+              :reader evm-memory-allocation-refused-requested)
+   (ceiling :initarg :ceiling
+            :reader evm-memory-allocation-refused-ceiling))
+  (:report
+   (lambda (condition stream)
+     (format stream
+             "EVM allocation of ~D bytes refused: the ceiling is ~D bytes"
+             (evm-memory-allocation-refused-requested condition)
+             (evm-memory-allocation-refused-ceiling condition))))
+  (:documentation
+   "An EVM buffer larger than *MEMORY-ALLOCATION-CEILING* was requested.
+
+A STORAGE-CONDITION, not an ERROR: no EVM-ERROR or ERROR handler may turn it
+into an exceptional halt, a transaction failure, or an internal-error outcome
+that reads like a result."))
+
+(declaim (inline check-memory-allocation))
+(defun check-memory-allocation (bytes)
+  (let ((ceiling *memory-allocation-ceiling*))
+    (when (and ceiling (> bytes ceiling))
+      (error 'evm-memory-allocation-refused
+             :requested bytes :ceiling ceiling))))
+
+(defun memory-size-payable-with-gas (gas)
+  "The most memory, in bytes (a whole number of words), one frame can pay for
+with GAS: the largest W with 3W + floor(W^2 / 512) <= GAS, times 32.
+
+go-ethereum v1.17.6 core/vm/gas_table.go memoryGasCost prices W words at
+W * 3 + W^2 / 512, which is MEMORY-TOTAL-GAS."
+  (if (< gas (memory-total-gas 1))
+      0
+      ;; W^2/512 + 3W = GAS  =>  W = sqrt(768^2 + 512 GAS) - 768, then step to
+      ;; the exact integer boundary the floor makes.
+      (let ((words (max 0 (- (isqrt (+ (* 768 768) (* 512 gas))) 768))))
+        (loop while (> (memory-total-gas words) gas)
+              do (decf words))
+        (loop while (<= (memory-total-gas (1+ words)) gas)
+              do (incf words))
+        (* 32 words))))
+
 (defun ensure-memory-size (memory size)
   (if (<= size (length memory))
       memory
@@ -22,9 +80,11 @@
                           32
                           (* 2 (max capacity 32))))
                    (new-backing
-                     (make-array new-capacity
-                                 :element-type '(unsigned-byte 8)
-                                 :initial-element 0)))
+                     (progn
+                       (check-memory-allocation new-capacity)
+                       (make-array new-capacity
+                                   :element-type '(unsigned-byte 8)
+                                   :initial-element 0))))
               (replace new-backing memory)
               (make-array logical-size
                           :element-type '(unsigned-byte 8)
@@ -93,6 +153,7 @@ and its offset may be any word."
         memory)))
 
 (defun padded-data-slice (data offset size)
+  (check-memory-allocation size)
   (let* ((data (ensure-byte-vector data))
          (result (make-byte-vector size)))
     (when (< offset (length data))

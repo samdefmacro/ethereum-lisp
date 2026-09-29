@@ -296,3 +296,99 @@ at most 32 bytes written right-aligned, taking its last LENGTH bytes."
   (let ((result (memory-audit-run (memory-audit-code 32736 :mload :msize :stop))))
     (is (= (+ 3 3 5120 2) (evm-result-gas-used result)))
     (is (= 32768 (first (evm-result-stack result))))))
+
+;;; The allocation ceiling a fixture harness binds (src/runtime/evm/memory.lisp,
+;;; *MEMORY-ALLOCATION-CEILING*).  go-ethereum charges memoryGasCost before it
+;;; resizes, so one frame's memory is bounded by what its gas pays for; an
+;;; allocation above that bound can only come from a handler that allocates
+;;; before it charges.
+
+(deftest evm-memory-size-payable-with-gas-inverts-geths-memory-price
+  ;; The largest W with 3W + floor(W^2 / 512) <= GAS, in bytes.
+  (flet ((payable (gas)
+           (ethereum-lisp.evm.internal::memory-size-payable-with-gas gas))
+         (total (words)
+           (ethereum-lisp.evm.internal::memory-total-gas words)))
+    (is (= 0 (payable 0)))
+    (is (= 0 (payable 2)))
+    (is (= 32 (payable 3)))
+    (is (= 32 (payable 5)))
+    (is (= 64 (payable 6)))
+    ;; 100,000 gas: 6,428 words cost 19,284 + 80,701 = 99,985; 6,429 words
+    ;; cost 19,287 + 80,726 = 100,013.
+    (is (= 99985 (total 6428)))
+    (is (= 100013 (total 6429)))
+    (is (= (* 32 6428) (payable 100000)))
+    ;; The boundary holds exactly across the floor, up to 2^64 gas.
+    (dolist (gas (list 511 512 1535 1536 16777216 30000000
+                       (1- (expt 2 32)) (1- (expt 2 64))))
+      (let ((words (/ (payable gas) 32)))
+        (is (<= (total words) gas))
+        (is (> (total (1+ words)) gas))))))
+
+(deftest evm-memory-allocation-ceiling-refuses-typed-and-never-halts
+  ;; Bound, a buffer above the ceiling is refused with a STORAGE-CONDITION:
+  ;; not an EVM-ERROR, so no frame turns it into an exceptional halt, and not
+  ;; an ERROR, so no transaction or block handler turns it into a verdict.
+  (let ((code (memory-audit-code 1 4096 :mstore :msize :stop)))
+    (let ((refused
+            (handler-case
+                (let ((ethereum-lisp.evm.internal::*memory-allocation-ceiling*
+                        1024))
+                  (memory-audit-run code)
+                  nil)
+              (evm-error () :halted)
+              (error () :error)
+              (storage-condition (condition) condition))))
+      (is (typep refused
+                 'ethereum-lisp.evm.internal::evm-memory-allocation-refused))
+      (is (not (typep refused 'error)))
+      (is (= 4128 (ethereum-lisp.evm.internal::evm-memory-allocation-refused-requested
+                   refused)))
+      (is (= 1024 (ethereum-lisp.evm.internal::evm-memory-allocation-refused-ceiling
+                   refused))))
+    ;; Positive controls: the same code under no ceiling, and a store the
+    ;; ceiling admits.
+    (is (equal '(4128) (evm-result-stack (memory-audit-run code))))
+    (let ((ethereum-lisp.evm.internal::*memory-allocation-ceiling* 1024))
+      (is (equal '(544) (evm-result-stack
+                         (memory-audit-run
+                          (memory-audit-code 1 512 :mstore :msize :stop))))))
+    ;; Copied data buffers are checked too (CALLDATACOPY's padded slice).
+    (let ((ethereum-lisp.evm.internal::*memory-allocation-ceiling* 1024))
+      (is (typep (handler-case
+                     (ethereum-lisp.evm.internal::padded-data-slice
+                      (make-byte-vector 0) 0 2048)
+                   (storage-condition (condition) condition))
+                 'ethereum-lisp.evm.internal::evm-memory-allocation-refused)))))
+
+(deftest evm-memory-allocation-ceiling-catches-the-random-statetest524-shape
+  ;; EEST ported_static/stRandom2/random_statetest524 runs KECCAK256 with size
+  ;; 0 at offset CALLVALUE = 0x754eb077 (1,968,156,791) and 100,000 gas.  Since
+  ;; d7a28c6c that is free and allocates nothing; before it, the handler grew
+  ;; memory to the offset: a 1.9 GB allocation no gas had paid for.  Under the
+  ;; gas-derived ceiling the fixed opcode stops normally with MSIZE 0, and the
+  ;; pre-fix allocation (ENSURE-MEMORY-SIZE to offset + size, which is what an
+  ;; unconditional ENSURE-MEMORY-REGION does) is refused with a typed
+  ;; condition instead of exhausting the heap.
+  (let* ((offset #x754eb077)
+         (ceiling (* 2 (ethereum-lisp.evm.internal::memory-size-payable-with-gas
+                        100000))))
+    (is (= 411392 ceiling))
+    (let ((ethereum-lisp.evm.internal::*memory-allocation-ceiling* ceiling))
+      (let ((result (memory-audit-run
+                     (memory-audit-code 0 offset :keccak256 :msize :stop)
+                     :gas 100000)))
+        (is (eq :stopped (evm-result-status result)))
+        (is (= 0 (first (evm-result-stack result)))))
+      (let ((refused
+              (handler-case
+                  (progn
+                    (ethereum-lisp.evm.internal::ensure-memory-size
+                     (make-byte-vector 0) offset)
+                    nil)
+                (storage-condition (condition) condition))))
+        (is (typep refused
+                   'ethereum-lisp.evm.internal::evm-memory-allocation-refused))
+        (is (<= offset (ethereum-lisp.evm.internal::evm-memory-allocation-refused-requested
+                        refused)))))))
