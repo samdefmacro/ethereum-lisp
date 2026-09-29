@@ -13,7 +13,8 @@ replay gates. No cold-all (the coordinator runs it once at the end).
 
 Revision
 
-  (filled in by the commit that adds this record; see the branch log)
+  d6ae24ba  snap: a retired pool peer wakes every waiting lane, and a
+            stopping range generation says what it waits for
 
 ================================================================================
 1. What the live run showed
