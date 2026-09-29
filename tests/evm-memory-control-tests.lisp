@@ -89,6 +89,57 @@
   (signals evm-error
     (execute-bytecode #(96 32 96 32 243) :gas-limit 11)))
 
+;;; A zero-length region touches no memory, whatever its offset: go-ethereum
+;;; v1.17.6 sizes it at zero (core/vm/common.go calcMemSize64WithUint) and
+;;; resizes only for a positive size (core/vm/interpreter.go).  An empty LOG
+;;; that grew memory to its offset let the next expansion be charged from the
+;;; larger size: Hoodi block 3685491 (LOG3 at 0x80, then MSTORE to 0x80) came
+;;; out 3 gas short.  Each case reads MSIZE right after the empty region, and
+;;; the LOG0 and KECCAK256 cases then pay for the MLOAD at 0x200 that makes
+;;; memory seventeen words: 48 gas more than a run that has already grown it
+;;; to sixteen.
+
+(deftest evm-zero-length-regions-touch-no-memory-at-any-offset
+  (let ((log0 (execute-bytecode #(95 97 2 0 #xa0 89 97 2 0 81 0)
+                                :context (make-evm-context)))
+        (keccak (execute-bytecode #(95 97 2 0 #x20 89 97 2 0 81 0))))
+    ;; LOG0: PUSH0 2, PUSH2 3, LOG0 375, MSIZE 2, PUSH2 3, MLOAD 3 + 51.
+    (is (eq :stopped (evm-result-status log0)))
+    (is (= 0 (second (evm-result-stack log0))))
+    (is (= 439 (evm-result-gas-used log0)))
+    (is (= 1 (length (evm-result-logs log0))))
+    ;; KECCAK256 of nothing: 30 instead of LOG0's 375.
+    (is (= 0 (second (evm-result-stack keccak))))
+    (is (= #xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
+           (third (evm-result-stack keccak))))
+    (is (= 94 (evm-result-gas-used keccak))))
+  ;; An offset of 2^256 - 1 is legal with a zero size and costs nothing.
+  (let* ((max-word (make-array 32 :element-type '(unsigned-byte 8)
+                                  :initial-element #xff))
+         (log0-at-max-offset
+           (execute-bytecode (concat-bytes #(95 127) max-word #(#xa0 89 0))
+                             :context (make-evm-context)))
+         (keccak-at-max-offset
+           (execute-bytecode (concat-bytes #(95 127) max-word #(#x20 89 0)))))
+    (is (eq :stopped (evm-result-status log0-at-max-offset)))
+    (is (= 0 (first (evm-result-stack log0-at-max-offset))))
+    (is (= 382 (evm-result-gas-used log0-at-max-offset)))
+    (is (eq :stopped (evm-result-status keccak-at-max-offset)))
+    (is (= 0 (first (evm-result-stack keccak-at-max-offset))))
+    (is (= 37 (evm-result-gas-used keccak-at-max-offset))))
+  ;; CREATE and CREATE2 with empty initcode at 0x200.
+  (let* ((state (make-state-db))
+         (creator (address-from-hex "0x00000000000000000000000000000000000000aa"))
+         (context (make-evm-context :state state :address creator)))
+    (state-db-set-account state creator (make-state-account :balance 10))
+    (let ((create (execute-bytecode #(95 97 2 0 95 #xf0 89 0) :context context))
+          (create2 (execute-bytecode #(95 95 97 2 0 95 #xf5 89 0)
+                                     :context context)))
+      (is (= 0 (first (evm-result-stack create))))
+      (is (plusp (second (evm-result-stack create))))
+      (is (= 0 (first (evm-result-stack create2))))
+      (is (plusp (second (evm-result-stack create2)))))))
+
 (deftest evm-mcopy-overlapping-memory
   (let* ((setup #(96 1 95 83 96 2 96 1 83 96 3 96 2 83
                   96 4 96 3 83 96 5 96 4 83 96 6 96 5 83

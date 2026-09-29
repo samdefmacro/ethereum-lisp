@@ -139,7 +139,7 @@
             (+ (memory-expansion-gas memory offset size)
                (* +keccak256-word-gas+
                   (memory-word-count size))))
-           (setf memory (ensure-memory-size memory (+ offset size)))
+           (setf memory (ensure-memory-region memory offset size))
            (evm-stack-push
             machine
             (bytes-to-integer

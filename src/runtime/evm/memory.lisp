@@ -30,6 +30,18 @@
                           :element-type '(unsigned-byte 8)
                           :displaced-to new-backing))))))
 
+(defun ensure-memory-region (memory offset size)
+  "MEMORY grown to hold the SIZE bytes at OFFSET.
+
+An empty region touches no memory at any offset.  go-ethereum sizes it at zero
+(v1.17.6 core/vm/common.go calcMemSize64WithUint) and resizes only for a
+positive size (core/vm/interpreter.go), so a zero-length LOG, KECCAK256,
+CREATE or CREATE2 changes neither MSIZE nor the price of the next expansion,
+and its offset may be any word."
+  (if (zerop size)
+      memory
+      (ensure-memory-size memory (+ offset size))))
+
 (defun memory-total-gas (word-count)
   (+ (* word-count +memory-gas+)
      (floor (* word-count word-count) +memory-quad-divisor+)))
