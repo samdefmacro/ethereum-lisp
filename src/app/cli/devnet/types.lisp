@@ -297,6 +297,10 @@ entry."
   ;; Whether a peer session is currently catching up. Guarded by the peer-table
   ;; mutex, and the reason it exists is in DEVNET-NODE-CLAIM-SYNC.
   (syncing-p nil)
+  ;; Blocks whose execution failed internally, by hash, and when the sync
+  ;; coordinator may execute them again. Owned by the coordinator thread; see
+  ;; execution-retry.lisp.
+  (execution-retries (make-hash-table :test #'equal))
   ;; One process-local chance to resume a matching durable Snap session before
   ;; the ordinary stale-pivot policy may rebase it.  The session's exact healer
   ;; checkpoint is optional: range cursors and completed-subtree proofs are

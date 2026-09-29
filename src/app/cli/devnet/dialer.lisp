@@ -3063,7 +3063,37 @@ property of how the node is configured, not an assumption about the test corpus.
        (lambda ()
          (call-with-devnet-mutex sessions-lock (lambda () (copy-list sessions))))))))
 
-(defun devnet-node-sync-coordinator-pass (node)
+(defun devnet-node-execution-retry-target (node)
+  "The CL-authorized hash a sync pass works toward, or NIL: the first unknown
+forkchoice head, else the newest buffered Engine block above the head. A
+failed block's retry wait applies only while this stays the same."
+  (or (first (devnet-node-forkchoice-sync-targets node))
+      (nth-value 3 (devnet-node-consensus-forward-target node))))
+
+(defun devnet-node-note-executed-retries (node)
+  "Drop the retry entries of blocks that have since been executed, logging
+peer.sync.execution_recovered for each."
+  (let ((retries (devnet-node-execution-retries node)))
+    (when (plusp (hash-table-count retries))
+      (dolist (entry
+               (call-with-devnet-node-store-guard
+                node
+                (lambda ()
+                  (devnet-execution-retry-remove-executed
+                   retries
+                   (lambda (hash)
+                     (chain-store-state-available-p
+                      (devnet-node-store node) hash))))))
+        (devnet-peer-manager-log
+         node "peer.sync.execution_recovered"
+         "block" (devnet-execution-retry-number entry)
+         "hash" (hash32-to-hex (devnet-execution-retry-hash entry))
+         "failures" (devnet-execution-retry-failures entry)
+         "firstAt" (devnet-execution-retry-first-at entry)
+         "lastAt" (devnet-execution-retry-last-at entry)
+         "deferredPasses" (devnet-execution-retry-deferred-passes entry))))))
+
+(defun devnet-node-sync-coordinator-pass (node &key now)
   "Run one sync pass, containing only its typed phase outcomes.
 
 A phase outcome is a result of the sync itself: a verdict (an INVALID peer
@@ -3074,10 +3104,25 @@ takes a new live-peer snapshot inside DEVNET-NODE-MULTI-SYNC-PASS.  A block
 whose execution failed internally (BLOCK-EXECUTION-INTERNAL-ERROR: a defect in
 this node, already logged as engine.execution.internal_error, no verdict
 cached, a storage read inside execution included) is contained the same way,
-and the next pass executes it again.  Local storage failures outside block
-execution (durable exporters, batches), merge, and other unexpected program
-failures deliberately escape to the coordinator's outer serious-condition
-boundary, which stops the node."
+and a later pass executes it again: not the next one, but after the block's
+retry wait (execution-retry.lisp), which doubles with every failure and ends
+early only when the sync target changes.  While it waits, the pass returns NIL
+before any sync work, without logging.  NOW, when given, is the Unix time
+every wait is measured against (a test clock); otherwise the wall clock is
+read when the wait is checked and again when a failure is recorded, since a
+pass can run for minutes.  Local storage failures outside block execution
+(durable exporters, batches), merge, and other unexpected program failures
+deliberately escape to the coordinator's outer serious-condition boundary,
+which stops the node."
+  (let ((retries (devnet-node-execution-retries node)))
+    (devnet-node-note-executed-retries node)
+    (when (plusp (hash-table-count retries))
+      (let ((waiting (devnet-execution-retry-waiting
+                      retries (devnet-node-execution-retry-target node)
+                      (or now (unix-time)))))
+        (when waiting
+          (incf (devnet-execution-retry-deferred-passes waiting))
+          (return-from devnet-node-sync-coordinator-pass nil)))))
   (handler-case
       (call-with-devnet-sync-claim
        node (lambda () (devnet-node-multi-sync-pass node)))
@@ -3092,14 +3137,28 @@ boundary, which stops the node."
       nil)
     (block-execution-internal-error (condition)
       ;; Our defect, not the block's: the import rolled back and cached no
-      ;; verdict, so the next pass executes the block again. Stopping the node
-      ;; here would take the Engine API down with it.
-      (devnet-peer-manager-log
-       node "peer.sync.execution_internal_error"
-       "block" (block-execution-internal-error-block-number condition)
-       "hash" (hash32-to-hex
-               (block-execution-internal-error-block-hash condition))
-       "error" (block-execution-internal-error-cause condition))
+      ;; verdict, so a later pass executes the block again. Stopping the node
+      ;; here would take the Engine API down with it. The retry wait bounds how
+      ;; often a deterministic defect re-runs (and re-logs) the same block.
+      (let* ((failed-at (or now (unix-time)))
+             (entry
+               (devnet-execution-retry-note-failure
+                (devnet-node-execution-retries node)
+                (block-execution-internal-error-block-hash condition)
+                (block-execution-internal-error-block-number condition)
+                (devnet-node-execution-retry-target node)
+                failed-at)))
+        (devnet-peer-manager-log
+         node "peer.sync.execution_internal_error"
+         "block" (block-execution-internal-error-block-number condition)
+         "hash" (hash32-to-hex
+                 (block-execution-internal-error-block-hash condition))
+         "error" (block-execution-internal-error-cause condition)
+         "failures" (devnet-execution-retry-failures entry)
+         "firstAt" (devnet-execution-retry-first-at entry)
+         "lastAt" (devnet-execution-retry-last-at entry)
+         "retryInSeconds" (- (devnet-execution-retry-next-at entry) failed-at)
+         "deferredPasses" (devnet-execution-retry-deferred-passes entry)))
       nil)
     (devnet-snap-state-incomplete (condition)
       ;; A phase outcome: the import resumes from its durable cursors on the

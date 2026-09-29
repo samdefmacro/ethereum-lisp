@@ -425,6 +425,7 @@
        (:file "cli-devnet-peer-table" :pathname "cli/devnet/peer-table")
        (:file "cli-devnet-observability" :pathname "cli/devnet/observability")
        (:file "cli-devnet-dial-schedule" :pathname "cli/devnet/dial-schedule")
+       (:file "cli-devnet-execution-retry" :pathname "cli/devnet/execution-retry")
        (:file "cli-files" :pathname "cli/devnet/files")
        (:file "cli-devnet-persistence" :pathname "cli/devnet/persistence")
        (:file "cli-devnet-node" :pathname "cli/devnet/node")
