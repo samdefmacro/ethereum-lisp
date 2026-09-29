@@ -153,8 +153,8 @@ Nethermind's column is `Nethermind.Merge.Plugin/EngineRpcModule*.cs`.
 | `engine_getBlobsV1` | yes | yes | gated | 128 cap and `-38004` match; no fork gating (RPC-09). |
 | `engine_getBlobsV2` | yes | UNVERIFIED | gated | Returns `null` on any miss, per spec; no fork gating. |
 | `engine_getBlobsV3` | yes | UNVERIFIED | gated | Partial responses, per spec; no fork gating. |
-| `engine_getBlobsV4` | yes (`api.go:722`) | UNVERIFIED | missing | Takes a custody bitmap and returns cells; RPC-10. |
-| `engine_hasBlobs` | yes (`api.go:778`) | UNVERIFIED | missing | RPC-10. |
+| `engine_getBlobsV4` | yes (`api.go:722`) | yes (`blobs.lisp` engine-rpc-handle-get-blobs-v4) | present | Custody bitmap in, cells and stored cell proofs out; RPC-10 resolved (27c42c1c, 5fbbd9a2). |
+| `engine_hasBlobs` | yes (`api.go:778`) | yes (`dispatch.lisp` engine-rpc-handle-has-blobs) | present | RPC-10 resolved (27c42c1c). |
 | `engine_exchangeCapabilities` | yes | yes | full | Excluded from its own advertised set, which matches geth. |
 | `engine_getClientVersionV1` | yes | yes | full | — |
 | `engine_exchangeTransitionConfigurationV1` | yes | yes | full | Deprecated on both sides. |
@@ -381,7 +381,7 @@ relevant fork we answer a method the spec says to refuse. Request-size limits an
 `-38004` do match on both `getBlobs` (128) and the payload-bodies methods (1024),
 which are the parts a consensus client actually exercises.
 
-**RPC-10 — `engine_getBlobsV4` and `engine_hasBlobs` are absent.**
+**RPC-10 — `engine_getBlobsV4` and `engine_hasBlobs` are absent.** RESOLVED: both landed in 27c42c1c (2026-07-29) and are advertised in `+engine-rpc-method-registry+`; 5fbbd9a2 made V4 read each blob once and serve the stored cell proofs (docs/evidence/sec5-get-blobs-v4-cells.txt). The original finding follows for the record.
 Verdict MISSING. Severity completeness.
 Ours: neither name appears in `+engine-rpc-method-registry+`
 (`src/api/engine/methods.lisp:3-28`). Reference: geth

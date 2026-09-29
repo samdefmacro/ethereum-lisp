@@ -281,7 +281,7 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [RPC-29](rpc-and-engine.md) | rpc | MISSING | completeness | The Parity-style `trace_*` module is absent. geth does not serve it either, so declining is defensible. |
 | [RPC-05](rpc-and-engine.md) | rpc | DIVERGENT | completeness | `getPayload` version mismatch uses `-32602` where the spec and geth use `-38005`. |
 | [RPC-09](rpc-and-engine.md) | rpc | MISSING | completeness | `engine_getBlobs*` is not fork-gated, so we answer a method the spec says to refuse. |
-| [RPC-10](rpc-and-engine.md) | rpc | MISSING | completeness | `engine_getBlobsV4` and `engine_hasBlobs` are absent, though we advertise `getBlobsV3`. |
+| [RPC-10](rpc-and-engine.md) | rpc | RESOLVED (27c42c1c, 5fbbd9a2) | completeness | `engine_getBlobsV4` and `engine_hasBlobs` are implemented and advertised. |
 | [EVM-13](evm-and-gas.md) | evm | MISSING | completeness | No interpreter-side tracing hooks beyond call boundaries; `CREATE`/`CREATE2` frames are untraced and `DELEGATECALL`/`CALLCODE` are mislabelled. |
 | [POOL-11](txpool-building-and-ops.md) | pool | DIVERGENT | completeness | Promotion on a new head ignores the slot limits, so configured limits hold on submission and are exceeded on block arrival. |
 | [OPS-05](txpool-building-and-ops.md) | ops | MISSING | operability | No log levels, no structured format, no rotation; the log stream is Lisp plists via `write`. |
