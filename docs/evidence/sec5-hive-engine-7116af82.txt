@@ -1,0 +1,265 @@
+Section 5: the Hive engine and devp2p failures at 7116af82
+
+Status
+
+Branch hive-engine-r9, from 3c0cfeab (7116af82 plus two docs commits); fix
+68c2f376, this record in the commit that follows it. Of the
+seven failing Hive cases, two are the documented harness race and one is an
+aggregate; the other four are three client defects, each reproduced by a
+test that fails at 3c0cfeab and passes with the fix (sections 3 to 5). Not
+rerun in Hive (remote; the coordinator reruns both suites after the merge).
+No consensus, execution or encoding code changed.
+
+Hive runs (hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c, runtime image
+ethereum-lisp-runtime:sec5-7116af82-amd64, Hoodi host):
+  engine  2026-09-29 09:10Z, 399/403: engine-api 128/129, engine-auth 8/8,
+          engine-exchange-capabilities 5/5, engine-withdrawals 35/35,
+          engine-cancun 223/226.
+          /private/tmp/sec5-hive-evidence/7116af82-engine-full-r1-20260929T091027Z
+  devp2p  2026-09-29 14:57Z, 45/48: discv4 16/16, discv5 0/1, eth 23/25,
+          snap 6/6.
+          /private/tmp/sec5-hive-evidence/7116af82-devp2p-full-r1-20260929T145749Z
+
+  failing case                                                   verdict
+  engine-api  Invalid Missing Ancestor Syncing ReOrg, Transaction
+              Nonce, EmptyTxs=False, CanonicalReOrg=False, Invalid
+              P9 (Paris)                                        hive#1351
+  engine-cancun Invalid Missing Ancestor Syncing ReOrg, Transaction
+              Signature, EmptyTxs=False, CanonicalReOrg=True,
+              Invalid P9 (Cancun)                               hive#1351
+  engine-cancun Parallel Blob Transactions (Cancun)             client, s3
+  engine-cancun Blob Transaction Ordering, Multiple Clients
+              (Cancun)                                          client, s4
+  devp2p eth  BlobTxWithInvalidCells                            client, s5
+  devp2p eth  client launch                                     aggregate of
+                                                                the above
+  devp2p discv5 (one case)                                      expected:
+                                                                no discv5
+
+================================================================================
+1. The two Missing Ancestor failures: ethereum/hive#1351, the harness race
+================================================================================
+
+Transcripts: engine details 1790673296-...-0.log (Paris) and
+1790676276-...-4.log offsets 21272682..21437863 (Cancun); simulator log
+1790673296-simulator-...log lines 23424..23497 and 116529..116752.
+
+In both, our client (e6f62b3c, 6afcd7dc) answered VALID with latestValidHash
+equal to the block for every newPayload and forkchoiceUpdated of blocks 1..13,
+alternating producers with the Modified Geth Module, and was never sent the
+invalid P9 block, a side-chain block or a syncing request. Block 14's producer
+was the Modified Geth Module, and the simulator logs "txsHash:
+0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421" (the empty
+trie root) for it, then "FAIL ...: Unable to customize payload: no
+transactions available for modification". That is hive#1351 exactly as
+recorded in sec5-engine-regressions-aee866f7.txt section 1: the in-process
+producer built block 14 without the transaction the harness had just sent.
+CanonicalReOrg=True and Cancun change nothing: the next variant in the same
+family, run right after it (Transaction Nonce, CanonicalReOrg=False, Cancun),
+got transactions into block 14 and passed. No client defect.
+
+================================================================================
+2. devp2p "client launch": the eth suite's exit status
+================================================================================
+
+details 1790694261-...-2.log ends "-- client launch ... exit status 1". Hive's
+devp2p simulator runs the eth suite inside the client-launch test and fails
+that test with the suite's exit status; the only failing eth case is
+BlobTxWithInvalidCells (section 5). The client log
+client-bff99672...log shows the client up and answering throughout (every
+other eth case passed, 23/25). No separate defect.
+
+================================================================================
+3. engine-cancun "Parallel Blob Transactions": the builder spent its whole
+   deadline asking whether blobs were held
+================================================================================
+
+What Hive sent and got: ten accounts sent 50 blob transactions of 6 blobs each
+in parallel; all 50 answered with their hash. fcU V3 with attributes answered
+VALID with a payload id; getPayloadV3 returned no transaction and an empty
+blobs bundle. Hive: "Error verifying blob bundle (payload 1/1): expected 6
+blob, got 0". Client log client-3bf4d47c...log: node.store_guard.long_hold
+holder ethereum-lisp-devnet-payload-improvement holdMs 1080, then holder
+engine_getPayloadV3 holdMs 1052 (handlerMs 1136).
+
+Mechanism: before selecting, the builder keeps only the blob transactions
+whose blobs this node holds (ENGINE-RPC-BUILDABLE-TRANSACTIONS, added by
+f35bc82c). It asked ENGINE-PAYLOAD-STORE-BLOB-AND-PROOFS-V1 once per blob, and
+every call enforced the blob cache bounds, which walks the whole cache, reads
+each entry's pin, and sorts the keys twice (7eaba543 added the pin walk and
+the second sort). 300 reads over a 300-entry cache: 1.2 s, before the stop
+predicate is polled for the first candidate. The improvement pass (1 s bound)
+and getPayload's own rebuild (0.3 s bound) both stopped before any candidate,
+and the empty fcU payload was the one returned.
+
+Reproduction, warm image, a Cancun devnet node with the same pool (50 x
+6-blob transactions from 10 senders, admitted through the production blob
+admission with stubbed proofs), fcU V3, one improvement pass, getPayloadV3:
+  at 3c0cfeab: buildable filter 1,232 ms and 552 enforcements; pass 1,201 ms;
+               getPayload 1,230 ms; 0 transactions, 0 blobs (Hive's answer).
+  fixed:       buildable filter 4 ms; pass 10 ms; getPayload 9 ms;
+               1 transaction, 6 blobs (Hive's expectation).
+
+Fix: a blob read batch (CALL-WITH-ENGINE-PAYLOAD-STORE-BLOB-READ-BATCH,
+src/storage/chain-store/service/cache.lisp) enforces the bounds once; reads
+inside it on the same thread do not enforce again. The builder's filter uses a
+non-copying presence read (ENGINE-PAYLOAD-STORE-BLOB-AVAILABLE-P) inside one
+batch; the blobs bundle, getBlobsV1/V2/V3 (the snapshot reader too),
+engine_hasBlobs and the eth pooled-sidecar read use one batch each. A read
+outside a batch behaves as before.
+
+Test: ENGINE-PAYLOAD-BUILD-ENFORCES-THE-BLOB-CACHE-BOUNDS-ONCE-PER-PASS
+(tests/engine-payload-building-tests.lisp, integration). The Hive pool; the
+filter keeps all 50 candidates with exactly one enforcement; then fcU V3, one
+improvement pass and getPayloadV3 return one transaction and six blobs.
+
+================================================================================
+4. engine-cancun "Blob Transaction Ordering, Multiple Clients": the producer's
+   session spent seconds deriving cell proofs and read nothing from its peer
+================================================================================
+
+What Hive sent and got: client A (fe1892f5, payload producer) and client B
+(179b7551, dialled A over eth/72, not in the CL mock, left at genesis). Step 3
+sent A five 5-blob transactions (blob fee cap 120), step 4 sent B five 1-blob
+transactions (cap 100), step 5 asked A for a payload: getPayloadV3 returned
+ONE transaction with 5 blobs (blobGasUsed 0xa0000). Hive expected 6, the
+5-blob transaction plus one of B's, which reach A only through B. A's
+getPayloadV3 took 36 ms and its selection is sound (the single-client
+"Multiple Accounts" ordering case passed), so B's transactions were not in A's
+pool. Neither session failed until the test ended (B logs peer.dial.failed,
+Connection reset by peer, when A was torn down).
+
+Mechanism, from a reproduction with two real devnet nodes over loopback RLPx
+(eth/72), c-kzg cell and blob-proof computation real, cell and blob proof
+verification timed on a real zero-blob verification and then answered true,
+since the probe's blobs are distinct but their commitments are made up:
+- Announcing a pooled blob transaction to an eth/72 peer built the full
+  cell-proof wrapper to learn its size (ETH-PEER-ANNOUNCE-TRANSACTIONS through
+  the eth/72 sidecar reader): 128 cell proofs per blob, 167 ms per blob here.
+  A's session announced its own 5-blob transactions in calls of 942, 1,741 and
+  1,585 ms, one after another on its writer thread.
+- The same writer is the only reader of B's messages, so B's announcements of
+  its own transactions, and B's GetCells for A's transactions, waited behind
+  that work (B's GetCells for A's first transaction took 1,730 ms).
+- Serving the wrapper then derived each blob in turn as well.
+Schedule of the Hive step order (A admits a 5-blob transaction every 0.3 s,
+then B a 1-blob transaction every 0.1 s), time from B's last admission until A
+holds all five of B's transactions:
+  at the base of this fix (sections 3 and 5 applied): 2.3 s, first arrival
+    1.8 s; with A's five admissions back to back: 4.6 s, nothing for 3.5 s.
+  fixed: 1.0 s; A's announcements take 0-1 ms and each 5-blob wrapper it
+    serves 170-200 ms.
+Hive asks for the payload about two seconds after step 4 (GetPayloadDelay 2),
+so the unfixed schedule has no margin on a loaded host, and the failure is the
+one Hive recorded.
+
+Fix:
+- src/networking/eth-sync/gossip.lisp: an eth/72 announcement is sized from
+  the stored sidecar with 128 placeholder proofs per blob
+  (ETH-ANNOUNCEMENT-CELL-PROOF-SIDECAR): every KZG proof is 48 bytes, so the
+  size is the served wrapper's without deriving a proof. Used when cell proofs
+  can be derived for serving; otherwise the previous reader decides.
+- src/app/cli/devnet/peer-sync.lisp: a served wrapper derives its blobs'
+  missing cells and proofs in parallel into the node's cell cache
+  (DEVNET-NODE-DERIVE-BLOB-CELLS, at most 8 at once, helpers wrapped in
+  HANDLER-CASE); c-kzg reads only its settings. GetCells then reads the cache.
+
+Tests (tests/eth-gossip-tests.lisp, integration):
+  ETH-72-BLOB-ANNOUNCEMENT-DERIVES-NO-CELL-PROOF: a pooled 2-blob transaction
+    announced to an eth/72 peer through the production backend performs no
+    derivation, and its announced size equals the served wrapper's
+    announcement size; positive control: serving that wrapper derives both.
+  ETH-72-BLOB-WRAPPER-DERIVES-ITS-BLOBS-IN-PARALLEL: serving a 5-blob wrapper
+    derives each blob once, more than one at a time.
+Existing ETH-72-NEW-POOLED-BLOB-ANNOUNCEMENT-USES-OMITTED-BLOB-SIZE and
+ETH-72-BLOB-SERVING-DERIVES-CELLS-ONCE-AND-OUTSIDE-THE-STORE-GUARD still pass.
+
+Not claimed: that this case passed at b5161312 for a reason this record
+isolates. The announcement cost existed there too; the reproduction shows the
+mechanism and its removal, the Hive rerun decides.
+
+================================================================================
+5. devp2p eth "BlobTxWithInvalidCells": the pool refused the transaction before
+   the cells were checked
+================================================================================
+
+Pinned test (go-ethereum 101035a1 cmd/devp2p/internal/ethtest/suite.go
+TestBlobTxWithInvalidCells): two peers announce one blob transaction; the peer
+the client asks for its cells answers with zero cells; that peer must be
+disconnected within readUntilDisconnect's 100 ms, the other must not. Hive
+result: "expected peer to be disconnected after invalid cells". Client log
+client-bff99672...log: both final sessions ended "RLPx stream ended" when the
+suite hung up; no protocol error was raised.
+
+Mechanism: makeBlobTxs takes sender 5 at its chain nonce, so the transaction
+has the same sender and nonce as the one TestGetCells pooled just before it,
+with the same fees. Since 7eaba543 (bd7906c3) our blob admission ran the
+pool's policy checks first, refused the equal-fee replacement ("Blob
+transaction replacement underpriced") as an ordinary pool refusal, and never
+verified the cells; an ordinary refusal is skipped without charging the peer.
+Before it, gossip verified the sidecar before offering the transaction to the
+pool, which is why the case passed at d203fee6. go-ethereum v1.17.6
+core/txpool/blobpool BlobPool.Add runs ValidateTxBasics and ValidateCells
+before AddPooledTx and validateTx read any pool or sender state.
+
+Fix: TXPOOL-ADMIT-BLOB-TRANSACTION
+(src/application/services/txpool-blob-admission.lisp) runs, in order, the
+known-transaction check and the stateless basics (TXPOOL-CHECK-BLOB-BASICS:
+encoded size, the head fork's blob count limit, which bound the KZG work),
+the sidecar shape and KZG verification outside the store guard, then the full
+pool checks and the one atomic commit as before. A bad sidecar is now the
+sender's fault whatever the pool would have answered.
+
+Test: TXPOOL-BLOB-GOSSIP-DROPS-A-BAD-SIDECAR-THE-POOL-WOULD-REFUSE-ANYWAY
+(tests/txpool-blob-admission-tests.lisp, integration): through a devnet
+node's production backend, pool a blob transaction, then offer another with
+the same sender, nonce and fees. Control: with a verifying proof it is an
+ordinary refusal, 0 accepted and no error. With a proof that does not verify,
+ETH-PEER-PROTOCOL-ERROR is signalled; the first transaction stays pooled and
+the second leaves no blob behind.
+
+================================================================================
+6. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed.
+
+RED at 3c0cfeab (src restored from 3c0cfeab, the new tests present, every
+restored file touched), one cold run:
+  cl-workbench validation run cold-integration
+    --match ETH-72-BLOB-ANNOUNCEMENT-DERIVES-NO-CELL-PROOF
+    --match ETH-72-BLOB-WRAPPER-DERIVES-ITS-BLOBS-IN-PARALLEL
+    --match ENGINE-PAYLOAD-BUILD-ENFORCES-THE-BLOB-CACHE
+    --match TXPOOL-BLOB-GOSSIP-DROPS-A-BAD-SIDECAR
+  0 passed, 4 failed, EXIT=1:
+    ETH-72-BLOB-ANNOUNCEMENT-DERIVES-NO-CELL-PROOF   (ZEROP DERIVATIONS)
+    ETH-72-BLOB-WRAPPER-DERIVES-ITS-BLOBS-IN-PARALLEL (> MOST-ACTIVE 1)
+    TXPOOL-BLOB-GOSSIP-DROPS-...                     protocol error not signalled
+    ENGINE-PAYLOAD-BUILD-ENFORCES-...                (= 1 ENFORCEMENTS)
+
+GREEN on 68c2f376 (the fix; the send-raw comment edit was made before the
+second pair of runs), each redirected to a file, no duplicated ok lines:
+  cold-unit --match BLOB --match GOSSIP --match ETH-72 --match TXPOOL
+    --match PEER --match CACHE --match GET-BLOBS --match PACKAGE
+    --match ARCHITECTURE                              241 passed, EXIT=0
+  cold-integration --match ETH-GOSSIP --match ETH-72 --match DEVNET-PEER
+    --match TXPOOL --match BLOB --match DEVNET-ENGINE --match ENGINE-PAYLOAD
+    --match PAYLOAD-BUILD --match GET-BLOBS --match CACHE
+                          105 passed, 1 skipped (optional EEST root), EXIT=0
+    (all four new tests appear as ok)
+  cold-unit --match ENGINE --match FORKCHOICE --match PAYLOAD --match KZG
+    --match CELL --match SEND-RAW --match PROJECT-PACKAGE  233 passed, EXIT=0
+  cold-integration --match ENGINE --match KZG --match CELL --match SEND-RAW
+    --match DEVNET-TRANSACTION --match PAYLOAD
+                         80 passed, 2 skipped (optional EEST root), EXIT=0
+  cold-unit --match DOMAIN-PACKAGES --match RUNTIME-DOMAIN-PACKAGES
+    --match EVM-PUBLIC-PACKAGE --match PROJECT-PACKAGE    5 passed, EXIT=0
+The warm-image build of the changed files reported no style-warning in them.
+
+Not verified: the Hive reruns (remote, the coordinator's); cold-all
+(the coordinator's); a live Hoodi run. The two-node timings in section 4 come
+from a warm-image probe that is not part of the suite (wall-clock bounds on
+shared runners drift), and its proof verification was timed on a zero blob
+rather than on the probe's blobs. EEST, ported_static, the Hoodi fixtures and
+the differential replay were not run: nothing that executes blocks or
+computes consensus data changed.
