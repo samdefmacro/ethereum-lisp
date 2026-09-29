@@ -6,10 +6,7 @@
          (machine (make-evm-machine
                    code context gas-limit step-budget gas-budget)))
     (declare (type evm-machine machine))
-    (let ((code-length (length (evm-machine-code machine))))
-      (loop until (or (evm-machine-halted-p machine)
-                      (>= (evm-machine-pc machine) code-length))
-            do (step-evm-machine machine)))
+    (run-evm-machine machine)
     (evm-machine-result machine)))
 
 (defun execute-bytecode

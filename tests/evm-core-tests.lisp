@@ -638,7 +638,8 @@
   ;; and took 250 ms of CPU on arm64 (a 24-transaction block: about 6 s);
   ;; after, 9 MB and 40 ms.  With the vector stack and the fixnum fast paths
   ;; (docs/evidence/sec5-evm-throughput.txt) it conses under 0.1 MB and takes
-  ;; 7-9 ms.  Consing is the deterministic assertion (the list stack alone
+  ;; 7-9 ms; with the register loop (docs/evidence/sec5-evm-throughput-2.txt)
+  ;; about 3 ms.  Consing is the deterministic assertion (the list stack alone
   ;; consed 9 MB); the CPU bound is loose, best of three on this thread's own
   ;; clock.
   (let* ((code (hex-to-bytes
@@ -670,3 +671,174 @@
                        (min cpu (or best-cpu-microseconds cpu))))))
     (is (< best-bytes (* 1 1000 1000)))
     (is (< best-cpu-microseconds 40000))))
+;;; The frame's register loop (RUN-EVM-MACHINE) against the per-instruction
+;;; loop it replaces (STEP-EVM-MACHINE), which stays the reference: the same
+;;; code from the same machine must end in the same outcome (normal end, or the
+;;; same failure message) with the same PC, stack, gas counters, memory and
+;;; status, including after a failure, since a caller reads the failed frame's
+;;; gas budget.
+
+(defun evm-loop-outcome (code gas-limit rules runner)
+  (let* ((context (make-evm-context
+                   :state (make-state-db)
+                   :chain-rules rules
+                   :address (address-from-hex
+                             "0x00000000000000000000000000000000000000c0")))
+         (machine (ethereum-lisp.evm.internal::make-evm-machine
+                   code context gas-limit nil))
+         (failure
+           (handler-case (progn (funcall runner machine) nil)
+             (evm-error (condition) (princ-to-string condition))))
+         (budget (ethereum-lisp.evm.internal::evm-machine-gas-budget machine)))
+    (list :failure failure
+          :pc (ethereum-lisp.evm.internal::evm-machine-pc machine)
+          :stack (ethereum-lisp.evm.internal::evm-stack-list machine)
+          :gas-used (ethereum-lisp.evm.internal::evm-machine-gas-used machine)
+          :regular (ethereum-lisp.evm.internal::evm-gas-budget-regular budget)
+          :used-regular (ethereum-lisp.evm.internal::evm-gas-budget-used-regular
+                         budget)
+          :status (ethereum-lisp.evm.internal::evm-machine-status machine)
+          :halted (ethereum-lisp.evm.internal::evm-machine-halted-p machine)
+          :memory (copy-seq (ethereum-lisp.evm.internal::evm-machine-memory
+                             machine)))))
+
+(defun evm-step-loop (machine)
+  (let ((code-length (length (ethereum-lisp.evm.internal::evm-machine-code
+                              machine))))
+    (loop until (or (ethereum-lisp.evm.internal::evm-machine-halted-p machine)
+                    (>= (ethereum-lisp.evm.internal::evm-machine-pc machine)
+                        code-length))
+          do (ethereum-lisp.evm.internal::step-evm-machine machine))))
+
+(defun evm-loops-disagreement (code gas-limit &optional rules)
+  "NIL when both loops agree on CODE, else both outcomes."
+  (let ((step (evm-loop-outcome code gas-limit rules #'evm-step-loop))
+        (registers (evm-loop-outcome
+                    code gas-limit rules
+                    #'ethereum-lisp.evm.internal::run-evm-machine)))
+    (unless (equalp step registers)
+      (list :code (bytes-to-hex code) :gas-limit gas-limit
+            :step step :registers registers))))
+
+(defun evm-loop-push (value)
+  "PUSH32 VALUE."
+  (let ((code (make-byte-vector 33)))
+    (setf (aref code 0) #x7f)
+    (dotimes (i 32 code)
+      (setf (aref code (- 32 i)) (ldb (byte 8 (* 8 i)) value)))))
+
+(defun evm-loop-code (&rest parts)
+  (apply #'concat-bytes
+         (mapcar (lambda (part)
+                   (if (integerp part) (make-byte-vector 1 :initial-element part) part))
+                 parts)))
+
+(deftest evm-register-loop-matches-the-step-loop
+  (let* ((values (list 0 1 2 255 (1- (expt 2 62)) (expt 2 62) (expt 2 63)
+                       (1- (expt 2 64)) (expt 2 64) (expt 2 255)
+                       (1- (expt 2 256)) (- (expt 2 256) 2)))
+         (shanghai (make-chain-rules :chain-id 1 :shanghai-p t))
+         (london (make-chain-rules :chain-id 1))
+         (disagreements '())
+         (programs 0))
+    (flet ((check (code &optional (gas-limit 1000000) (rules shanghai))
+             (incf programs)
+             (let ((disagreement (evm-loops-disagreement code gas-limit rules)))
+               (when disagreement
+                 (push disagreement disagreements)))))
+      ;; Every inline word operation on every pair of boundary values.
+      (dolist (op '(#x01 #x03 #x10 #x11 #x14 #x16 #x17 #x18))
+        (dolist (a values)
+          (dolist (b values)
+            (check (evm-loop-code (evm-loop-push b) (evm-loop-push a) op #x00)))))
+      (dolist (a values)
+        (check (evm-loop-code (evm-loop-push a) #x15 #x00))
+        ;; JUMPI on every condition; JUMP to every value as a destination.
+        (check (evm-loop-code (evm-loop-push a) #x60 69 #x57 #x5b #x00))
+        (check (evm-loop-code (evm-loop-push a) #x56 #x5b #x00)))
+      ;; Jumps: to a JUMPDEST, into PUSH data that reads 0x5b, past the code.
+      (check (evm-loop-code #x60 4 #x56 #x00 #x5b #x58 #x00))
+      (check (evm-loop-code #x60 3 #x56 #x60 #x5b #x00))
+      (check (evm-loop-code #x61 #x01 #x00 #x56 #x5b))
+      (check (evm-loop-code #x60 1 #x60 6 #x57 #x00 #x5b #x58 #x00))
+      ;; Every PUSH size, whole and running past the end of the code.
+      (loop for size from 1 to 32
+            do (check (evm-loop-code (+ #x5f size)
+                                     (make-byte-vector
+                                      size :initial-element #xa5)
+                                     #x00))
+               (check (evm-loop-code (+ #x5f size)
+                                     (make-byte-vector
+                                      (floor size 2) :initial-element #x5a))))
+      ;; DUPn and SWAPn with exactly enough items and one too few.
+      (loop for depth from 1 to 16
+            do (check (apply #'evm-loop-code
+                             (append (loop for i below depth collect #x60
+                                           collect (1+ i))
+                                     (list (+ #x7f depth) (+ #x8f (min depth 15))
+                                           #x00))))
+               (check (apply #'evm-loop-code
+                             (append (loop for i below (1- depth) collect #x5f)
+                                     (list (+ #x7f depth)))))
+               (check (apply #'evm-loop-code
+                             (append (loop for i below depth collect #x5f)
+                                     (list (+ #x8f depth))))))
+      ;; Underflow on POP and on each word operation; overflow at 1024.
+      (check (evm-loop-code #x50))
+      (check (evm-loop-code #x60 1 #x01))
+      (check (apply #'evm-loop-code (loop repeat 1025 collect #x5f)))
+      (check (apply #'evm-loop-code
+                    (append (loop repeat 1024 collect #x5f) (list #x80))))
+      ;; PUSH0 before Shanghai fails in its handler, after its base gas.
+      (check (evm-loop-code #x5f #x00) 1000000 london)
+      ;; GAS and PC, and out-of-line handlers between inline ones: memory,
+      ;; a wide multiplication, RETURN halting the frame, an undefined opcode.
+      (check (evm-loop-code #x5a #x58 #x60 7 #x60 0 #x52 #x60 0 #x51 #x5a
+                            #x02 #x5a #x60 32 #x60 0 #xf3))
+      (check (evm-loop-code #x60 1 #x60 2 #x0c))
+      (check (apply #'evm-loop-code
+                    (append (loop for i below 40 collect #x60 collect i)
+                            (list #x52 #x59 #x5a #x00))))
+      ;; Out of gas at every instruction boundary of a mixed program.
+      (let ((code (evm-loop-code #x60 3 #x60 5 #x01 #x80 #x60 0 #x52 #x5a
+                                 #x60 0 #x51 #x10 #x60 22 #x57 #x00 #x5b
+                                 #x60 1 #x50 #x00 #x5b #x58 #x00)))
+        (loop for gas-limit from 0 to 80
+              do (check code gas-limit)))
+      ;; Random programs over the inline opcodes and a few handlers.
+      (let ((random-state (sb-ext:seed-random-state 20260929))
+            (alphabet (coerce '(#x01 #x03 #x10 #x11 #x14 #x15 #x16 #x17 #x18
+                                #x50 #x56 #x57 #x58 #x5a #x5b #x5f #x60 #x61
+                                #x62 #x67 #x6f #x7f #x80 #x81 #x83 #x90 #x91
+                                #x93 #x02 #x04 #x19 #x1b #x1c #x51 #x52 #x59
+                                #x00 #xf3 #xfd)
+                              'vector)))
+        (loop repeat 400
+              do (let ((code (make-byte-vector 48)))
+                   (dotimes (i 48)
+                     (setf (aref code i)
+                           (if (< (random 10 random-state) 7)
+                               (aref alphabet (random (length alphabet)
+                                                      random-state))
+                               (random 256 random-state))))
+                   (check code (+ 20 (random 400 random-state)))))))
+    (when disagreements
+      (format t "~&~D disagreements; the first: ~S~%"
+              (length disagreements) (car (last disagreements))))
+    (is (> programs 1500))
+    (is (null disagreements))))
+
+(deftest evm-register-loop-disagreement-check-can-fail
+  ;; Positive control for the comparison above: a loop that skips the base
+  ;; charge of one opcode must be reported.
+  (let ((code (evm-loop-code #x60 1 #x60 2 #x01 #x00)))
+    (is (null (evm-loops-disagreement code 100)))
+    (is (not (equalp
+              (evm-loop-outcome code 100 nil #'evm-step-loop)
+              (evm-loop-outcome
+               code 100 nil
+               (lambda (machine)
+                 (evm-step-loop machine)
+                 (decf (ethereum-lisp.evm.internal::evm-machine-gas-used
+                        machine)
+                       3))))))))
