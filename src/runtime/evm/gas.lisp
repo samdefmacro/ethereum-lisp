@@ -66,6 +66,64 @@ calls it once per instruction."
       (evm-gas-budget-refill-state budget amount)))
   budget)
 
+;;; Amsterdam frame hand-off (EIP-8037), after go-ethereum v1.17.6
+;;; core/vm/gascosts.go.  A parent pays the regular gas it forwards up front and
+;;; hands the child its whole state reservoir; the child ends in one of three
+;;; leftover forms, which the parent absorbs.
+
+(defun evm-gas-budget-forward (budget regular)
+  "Deduct REGULAR from BUDGET and return the child budget it funds: that
+regular gas and BUDGET's whole state reservoir, which BUDGET gives up.
+geth GasBudget.Forward."
+  (decf (evm-gas-budget-regular budget) regular)
+  (incf (evm-gas-budget-used-regular budget) regular)
+  (prog1 (make-evm-gas-budget :regular regular
+                              :state (evm-gas-budget-state budget))
+    (setf (evm-gas-budget-state budget) 0)))
+
+(defun evm-gas-budget-frame-reservoir (budget)
+  "The state reservoir BUDGET's frame started with: every state charge the
+frame made is refilled, the part it borrowed from regular gas excluded."
+  (max 0 (- (+ (evm-gas-budget-state budget)
+               (evm-gas-budget-used-state budget))
+            (evm-gas-budget-spilled budget))))
+
+(defun evm-gas-budget-exit-revert (budget)
+  "The leftover a reverted frame hands back: its regular gas plus the regular
+gas it lent to state charges, and its starting reservoir.  geth ExitRevert."
+  (make-evm-gas-budget
+   :regular (+ (evm-gas-budget-regular budget)
+               (evm-gas-budget-spilled budget))
+   :state (evm-gas-budget-frame-reservoir budget)
+   :used-regular (evm-gas-budget-used-regular budget)))
+
+(defun evm-gas-budget-exit-halt (budget)
+  "The leftover an exceptionally halted frame hands back: no regular gas, and
+its starting reservoir.  geth ExitHalt."
+  (make-evm-gas-budget
+   :regular 0
+   :state (evm-gas-budget-frame-reservoir budget)
+   :used-regular (+ (evm-gas-budget-used-regular budget)
+                    (evm-gas-budget-regular budget)
+                    (evm-gas-budget-spilled budget))))
+
+(defun evm-gas-budget-absorb (budget child)
+  "Merge CHILD's leftover into BUDGET.  State gas the child borrowed from its
+regular gas is state gas, so it leaves BUDGET's regular usage.  geth Absorb."
+  (decf (evm-gas-budget-used-regular budget)
+        (+ (evm-gas-budget-regular child) (evm-gas-budget-spilled child)))
+  (incf (evm-gas-budget-regular budget) (evm-gas-budget-regular child))
+  (setf (evm-gas-budget-state budget) (evm-gas-budget-state child))
+  (incf (evm-gas-budget-used-state budget) (evm-gas-budget-used-state child))
+  (incf (evm-gas-budget-spilled budget) (evm-gas-budget-spilled child))
+  budget)
+
+(defun evm-gas-budget-drain-regular (budget)
+  "Burn BUDGET's remaining regular gas.  geth DrainRegular."
+  (incf (evm-gas-budget-used-regular budget) (evm-gas-budget-regular budget))
+  (setf (evm-gas-budget-regular budget) 0)
+  budget)
+
 (defun remaining-gas (gas-limit gas-used)
   (if gas-limit
       (max 0 (- gas-limit gas-used))

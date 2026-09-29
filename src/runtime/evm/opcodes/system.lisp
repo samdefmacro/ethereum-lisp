@@ -291,6 +291,9 @@
                 (size (evm-stack-pop machine)))
            (evm-machine-charge-memory-gas machine offset size)
            (restore-frame-snapshot context frame-snapshot)
+           ;; The caller still applies EVM-GAS-BUDGET-EXIT-REVERT, which is
+           ;; unchanged by this refill and also takes back a refill this
+           ;; frame made for an ancestor's charge (a negative net usage).
            (let ((state-used (max 0 (evm-gas-budget-used-state gas-budget))))
              (when (plusp state-used)
                (evm-machine-refill-state-gas machine state-used)))

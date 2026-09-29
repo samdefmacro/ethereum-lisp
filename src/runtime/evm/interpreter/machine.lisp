@@ -189,9 +189,24 @@ AMOUNT fails exactly as the general path does."
   amount)
 
 (defun evm-machine-refill-state-gas (machine amount)
+  "Refill AMOUNT of state gas into MACHINE's budget.
+
+A refill may credit state gas an ancestor frame charged (an SSTORE that
+restores a slot a caller created), so the frame's net usage can fall below
+zero; GAS-USED, a diagnostic scalar, stops at zero."
   (evm-gas-budget-refill-state (evm-machine-gas-budget machine) amount)
-  (decf (evm-machine-gas-used machine) amount)
+  (setf (evm-machine-gas-used machine)
+        (max 0 (- (evm-machine-gas-used machine) amount)))
   amount)
+
+(defun evm-machine-absorb-child-budget (machine child)
+  "Absorb CHILD's leftover budget into MACHINE's (Amsterdam frames)."
+  (let ((budget (evm-machine-gas-budget machine)))
+    (evm-gas-budget-absorb budget child)
+    (setf (evm-machine-gas-used machine)
+          (max 0 (+ (evm-gas-budget-used-regular budget)
+                    (evm-gas-budget-used-state budget)))))
+  machine)
 
 (defun evm-machine-regular-gas-left (machine)
   (if (evm-machine-gas-limit machine)

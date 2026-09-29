@@ -45,6 +45,99 @@ is returned, and the caller halts the transaction with its gas spent."
           (state-db-revert-to-snapshot state snapshot)
           nil))))
 
+(defun settle-amsterdam-transaction
+    (state sender coinbase tx base-fee budget
+     &key (status 1) logs (refund-counter 0))
+  "Finalize an Amsterdam transaction from its runtime BUDGET after the top
+frame's leftover was absorbed: geth v1.17.6 settleGas.  The state gas is the
+budget's net state usage, and everything the sender does not get back (the
+regular gas left and the reservoir left) is used; the refund and the calldata
+floor are then applied by FINALIZE-TRANSACTION-RECEIPT."
+  (let ((state-gas (evm-gas-budget-used-state budget))
+        (gas-used (- (transaction-gas-limit tx)
+                     (evm-gas-budget-regular budget)
+                     (evm-gas-budget-state budget))))
+    (when (or (minusp state-gas) (< gas-used state-gas))
+      (error 'transaction-validation-error
+             :message (format nil "Amsterdam transaction settles ~D gas ~
+                                   with ~D of it state gas"
+                              gas-used state-gas)))
+    (finalize-transaction-receipt
+     state sender coinbase tx
+     (make-receipt :status status
+                   :cumulative-gas-used gas-used
+                   :regular-gas-used (- gas-used state-gas)
+                   :state-gas-used state-gas
+                   :logs logs)
+     base-fee
+     :refund-counter refund-counter)))
+
+(defun apply-amsterdam-message-call
+    (state sender tx coinbase base-fee rules runtime-budget make-context)
+  "Run an Amsterdam message call's top frame and settle it, after geth
+v1.17.6 executeCall and settleGas.
+
+The frame gets all of RUNTIME-BUDGET (ForwardAll); its leftover, in the
+success, revert or halt form, is absorbed back.  A failed frame refills the
+recipient's new-account charge when the recipient is still empty, and a
+halted one burns the regular gas that refill repaid.  MAKE-CONTEXT builds the
+frame's EVM context."
+  (let* ((recipient (transaction-to tx))
+         (value (transaction-value tx))
+         (snapshot (state-db-snapshot state))
+         (frame (evm-gas-budget-forward
+                 runtime-budget (evm-gas-budget-regular runtime-budget)))
+         (outcome :success)
+         (logs '())
+         (refund-counter 0)
+         (context nil))
+    (handler-case
+        (let ((transfer-log
+                (transfer-value state sender recipient value rules))
+              (code (execution-resolved-code state recipient rules)))
+          (cond
+            ((active-precompile-address-p recipient rules)
+             (let ((gas-used
+                     (nth-value 1 (execute-precompile
+                                   recipient (transaction-data tx) rules
+                                   (evm-gas-budget-regular frame)))))
+               (evm-gas-budget-charge
+                frame (make-evm-gas-costs :regular gas-used))))
+            ((plusp (length code))
+             (setf context (funcall make-context))
+             (let ((result (execute-bytecode
+                            code
+                            :context context
+                            :gas-limit (evm-gas-budget-regular frame)
+                            :gas-budget frame)))
+               (if (eq (evm-result-status result) :reverted)
+                   (setf outcome :reverted
+                         frame (evm-gas-budget-exit-revert frame))
+                   (setf logs (evm-result-logs result)
+                         refund-counter (evm-result-refund-counter result))))))
+          (when (and transfer-log (eq outcome :success))
+            (push transfer-log logs)))
+      (evm-error ()
+        (setf outcome :halted
+              logs '()
+              refund-counter 0
+              frame (evm-gas-budget-exit-halt frame))))
+    (evm-gas-budget-absorb runtime-budget frame)
+    (unless (eq outcome :success)
+      (state-db-revert-to-snapshot state snapshot)
+      (when (and (plusp value)
+                 (execution-empty-account-p state recipient))
+        (evm-gas-budget-refill-state runtime-budget +new-account-state-gas+))
+      (when (eq outcome :halted)
+        (evm-gas-budget-drain-regular runtime-budget)))
+    (prog1 (settle-amsterdam-transaction
+            state sender coinbase tx base-fee runtime-budget
+            :status (if (eq outcome :success) 1 0)
+            :logs logs
+            :refund-counter refund-counter)
+      (when (and context (eq outcome :success))
+        (finalize-evm-selfdestructs state context)))))
+
 (defun apply-message
     (state sender tx
      &key (base-fee 0)
@@ -88,20 +181,36 @@ is returned, and the caller halts the transaction with its gas spent."
                                  :base-fee base-fee
                                  :blob-base-fee blob-base-fee
                                  :chain-rules effective-chain-rules)
-          (when (and amsterdam-p
-                     (not (apply-amsterdam-call-runtime-charges
-                           state tx sender coinbase chain-id
-                           effective-chain-rules runtime-budget)))
-            (let ((used
-                    (transaction-exceptional-regular-gas-used
-                     tx effective-chain-rules)))
-              (return-from apply-message
-                (finalize-transaction-receipt
-                 state sender coinbase tx
-                 (make-receipt :status 0
-                               :cumulative-gas-used used
-                               :regular-gas-used used)
-                 base-fee))))
+          (when amsterdam-p
+            (return-from apply-message
+              (if (apply-amsterdam-call-runtime-charges
+                   state tx sender coinbase chain-id
+                   effective-chain-rules runtime-budget)
+                  (apply-amsterdam-message-call
+                   state sender tx coinbase base-fee effective-chain-rules
+                   runtime-budget
+                   (lambda ()
+                     (make-message-evm-context
+                      state sender tx recipient (transaction-data tx)
+                      gas-price
+                      :base-fee base-fee
+                      :blob-base-fee blob-base-fee
+                      :chain-id chain-id
+                      :chain-rules effective-chain-rules
+                      :chain-config chain-config
+                      :coinbase coinbase
+                      :timestamp timestamp
+                      :block-number block-number
+                      :slot-number slot-number
+                      :prev-randao prev-randao
+                      :difficulty difficulty
+                      :random-p random-p
+                      :context-gas-limit context-gas-limit
+                      :block-hashes block-hashes)))
+                  (settle-amsterdam-transaction
+                   state sender coinbase tx base-fee
+                   (evm-gas-budget-exit-halt runtime-budget)
+                   :status 0))))
           (let* ((refund-counter
                    (if amsterdam-p
                        0

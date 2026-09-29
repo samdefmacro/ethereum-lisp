@@ -94,6 +94,15 @@
                            context
                            (evm-context-address context)
                            slot-hash)))
+                    ;; geth v1.17.6 gasSStore8037And8038 refills a restored
+                    ;; slot's state gas (possibly charged by an ancestor
+                    ;; frame) before the regular charge is taken, so the
+                    ;; refill can repay regular gas that charge then uses.
+                    (when (and (zerop original-value)
+                               (not (zerop current-value))
+                               (zerop value))
+                      (evm-machine-refill-state-gas
+                       machine +storage-set-state-gas+))
                     (evm-machine-charge-gas
                      machine
                      (sstore-amsterdam-regular-gas
@@ -102,11 +111,6 @@
                                (zerop current-value)
                                (not (zerop value)))
                       (evm-machine-charge-state-gas
-                       machine +storage-set-state-gas+))
-                    (when (and (zerop original-value)
-                               (not (zerop current-value))
-                               (zerop value))
-                      (evm-machine-refill-state-gas
                        machine +storage-set-state-gas+))
                     (when (and (not (zerop original-value))
                                (not (zerop current-value))

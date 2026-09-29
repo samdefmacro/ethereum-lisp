@@ -228,6 +228,12 @@
    #:evm-gas-budget-spilled
    #:evm-gas-budget-charge-state
    #:evm-gas-budget-charge
+   #:evm-gas-budget-refill-state
+   #:evm-gas-budget-forward
+   #:evm-gas-budget-exit-revert
+   #:evm-gas-budget-exit-halt
+   #:evm-gas-budget-absorb
+   #:evm-gas-budget-drain-regular
    #:+new-account-state-gas+
    #:+cost-per-state-byte+
    #:+keccak256-word-gas+
@@ -337,6 +343,12 @@
    #:evm-gas-budget-spilled
    #:evm-gas-budget-charge-state
    #:evm-gas-budget-charge
+   #:evm-gas-budget-refill-state
+   #:evm-gas-budget-forward
+   #:evm-gas-budget-exit-revert
+   #:evm-gas-budget-exit-halt
+   #:evm-gas-budget-absorb
+   #:evm-gas-budget-drain-regular
    #:+new-account-state-gas+
    #:+cost-per-state-byte+
    #:+keccak256-word-gas+
