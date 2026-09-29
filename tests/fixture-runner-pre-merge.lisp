@@ -23,18 +23,21 @@
 ;;;;   accepted;
 ;;;; - the head must be `lastblockhash', and its state must be `postState'.
 ;;;;
-;;;; It walks `blockchain_tests/<fork>/<directory>/', scores every case of a
-;;;; pre-Merge network, and prints one line per directory with the pass count
-;;;; per network and the first failure messages. Cases of later networks are
-;;;; not counted.
+;;;; It walks the legacy layout, `blockchain_tests/<fork>/<directory>/', and
+;;;; the stable tests@v20.0.2 layout,
+;;;; `blockchain_tests/for_<network>/<tree>/<directory>/' for each network up
+;;;; to Paris (its ported_static trees are the legacy GeneralStateTests filled
+;;;; as blockchain tests). It scores every case of a pre-Merge network, and
+;;;; prints one line per directory with the pass count per network and the
+;;;; first failure messages. Cases of later networks are not counted.
 ;;;;
 ;;;; Selection, all optional and comma-separated:
-;;;;   ETHEREUM_LISP_PRE_MERGE_EEST_DIRECTORIES  run only these (`fork/dir')
+;;;;   ETHEREUM_LISP_PRE_MERGE_EEST_DIRECTORIES  run only these (`fork/dir',
+;;;;                                             `for_network/tree/dir')
 ;;;;   ETHEREUM_LISP_PRE_MERGE_EEST_NETWORKS     score only these networks
 ;;;;   ETHEREUM_LISP_PRE_MERGE_EEST_REQUIRED     these directories must have
 ;;;;                                             cases and no failure
-;;;; Without the fixture root, or with a root that has no
-;;;; `blockchain_tests/frontier' tree (the stable v20.0.2 corpus has none), the
+;;;; Without the fixture root, or with a root that has neither layout, the
 ;;;; test is a counted skip.
 
 (defconstant +pre-merge-eest-directories-env+
@@ -85,6 +88,9 @@ DAOForkBlock 0 for Byzantium through Istanbul and for no later network."
       ("Homestead" ,@homestead)
       ("EIP150" ,@eip150)
       ("EIP158" ,@eip158)
+      ;; tests/init.go aliases the two names EEST fills them under.
+      ("TangerineWhistle" ,@eip150)
+      ("SpuriousDragon" ,@eip158)
       ("Byzantium" ,@byzantium)
       ("Constantinople" ,@byzantium
        :constantinople-block 0 :petersburg-block 10000000)
@@ -305,34 +311,53 @@ verdict the fixture could have expected."
                 collect (format nil "~A:~D/~D" network passed
                                 (+ passed failed)))))
 
+(defparameter +pre-merge-eest-network-directories+
+  '("for_frontier" "for_homestead" "for_tangerinewhistle" "for_spuriousdragon"
+    "for_byzantium" "for_constantinoplefix" "for_istanbul" "for_berlin"
+    "for_london" "for_paris")
+  "The tests@v20.0.2 network directories whose network is pre-Merge or Paris.")
+
 (defun pre-merge-eest-blockchain-root (root)
-  "ROOT's blockchain_tests directory when it holds the legacy fork layout."
+  "ROOT's blockchain_tests directory when it holds either pre-Merge layout:
+the legacy v5.4.0 `frontier/' feature tree, or tests@v20.0.2's
+`for_frontier/' network tree."
   (loop for prefix in '("" "fixtures/")
-        for candidate = (probe-file
-                         (merge-pathnames
-                          (format nil "~Ablockchain_tests/frontier/" prefix)
-                          (pathname root)))
-        when candidate
-          return (merge-pathnames "../" candidate)))
+        for base = (merge-pathnames (format nil "~Ablockchain_tests/" prefix)
+                                    (pathname root))
+        when (or (probe-file (merge-pathnames "frontier/" base))
+                 (probe-file (merge-pathnames "for_frontier/" base)))
+          return (probe-file base)))
+
+(defun pre-merge-eest-subdirectory-names (path)
+  (mapcar (lambda (child) (car (last (pathname-directory child))))
+          (directory (merge-pathnames
+                      (make-pathname :directory '(:relative :wild))
+                      path))))
 
 (defun pre-merge-eest-directories (blockchain-root)
-  "Every `fork/dir' directory under BLOCKCHAIN-ROOT, sorted, except the
-static tree (the ported legacy state tests, filled from Cancun on only)."
-  (sort
-   (loop for fork-path in (directory
-                           (merge-pathnames
-                            (make-pathname :directory '(:relative :wild))
-                            blockchain-root))
-         for fork = (car (last (pathname-directory fork-path)))
-         unless (string= fork "static")
-           append (mapcar (lambda (path)
-                            (format nil "~A/~A"
-                                    fork (car (last (pathname-directory path)))))
-                          (directory
-                           (merge-pathnames
-                            (make-pathname :directory '(:relative :wild))
-                            fork-path))))
-   #'string<))
+  "Every scored directory under BLOCKCHAIN-ROOT, sorted: `fork/dir' in the
+legacy layout, except its static tree (ported state tests filled from Cancun
+on only), and `for_network/tree/dir' under each pre-Merge network directory
+of the tests@v20.0.2 layout."
+  (let ((directories '()))
+    (dolist (top (pre-merge-eest-subdirectory-names blockchain-root))
+      (let ((top-path (merge-pathnames (format nil "~A/" top)
+                                       blockchain-root)))
+        (cond
+          ((member top +pre-merge-eest-network-directories+
+                   :test #'string=)
+           (dolist (tree (pre-merge-eest-subdirectory-names top-path))
+             (dolist (directory (pre-merge-eest-subdirectory-names
+                                 (merge-pathnames (format nil "~A/" tree)
+                                                  top-path)))
+               (push (format nil "~A/~A/~A" top tree directory)
+                     directories))))
+          ((or (string= top "static")
+               (and (> (length top) 4) (string= "for_" top :end2 4))))
+          (t
+           (dolist (directory (pre-merge-eest-subdirectory-names top-path))
+             (push (format nil "~A/~A" top directory) directories))))))
+    (sort directories #'string<)))
 
 (defun pre-merge-eest-burn-down (root &key directories networks)
   "Score every selected pre-Merge directory under ROOT; return the tallies
@@ -378,7 +403,7 @@ and print one report line per directory that has pre-Merge cases."
   (with-execution-spec-tests-fixture-root (root)
     (unless (pre-merge-eest-blockchain-root root)
       (skip-test
-       "The EEST fixture root has no blockchain_tests/frontier tree (legacy v5.4.0)"))
+       "The EEST fixture root has neither blockchain_tests/frontier (v5.4.0) nor blockchain_tests/for_frontier (tests@v20.0.2)"))
     (call-with-eest-cryptographic-backends
      (lambda ()
        (let* ((tallies (pre-merge-eest-burn-down
