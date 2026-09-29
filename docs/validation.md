@@ -1439,8 +1439,39 @@ square term down. A condition that escapes a block's executor and is neither
 a verdict nor missing state is a BLOCK-EXECUTION-INTERNAL-ERROR: no INVALID
 verdict is cached, the node logs engine.execution.internal_error, newPayload
 answers a JSON-RPC internal error, and the sync coordinator ends the pass and
-executes the block again on the next one instead of stopping the node. The
-record is `docs/evidence/sec5-evm-edge-audit.txt`.
+executes the block again later instead of stopping the node. The record is
+`docs/evidence/sec5-evm-edge-audit.txt`; how much later, and the logging of
+every ingress, are in the next section.
+
+### Internal failures: retry wait, logging and peer attribution
+
+```sh
+cl-workbench validation run cold-unit \
+  --match DEVNET-EXECUTION-RETRY \
+  --match DEVNET-SYNC-COORDINATOR-WAITS-BEFORE-EXECUTING-A-FAILED-BLOCK-AGAIN \
+  --match BLOCK-IMPORT-INTERNAL-EXECUTION-ERROR-IS-LOGGED-FOR-EVERY-SOURCE \
+  --match DEVNET-ENGINE-PREPARED-PAYLOAD-INTERNAL-ERROR-IS-LOGGED \
+  --match DEVNET-GOSSIPED-BLOCK-INTERNAL-EXECUTION-ERROR \
+  --match ETH-SYNC-MULTI-PEER-REJECTS --match ETH-SYNC-MULTI-PEER-ABANDONS \
+  --match SNAP-DEPENDENCY-RESPONSE-THAT-FAILS-VERIFICATION \
+  --match DEVNET-SNAP-SOURCE-POOL-ENDS-THE-SESSION \
+  --match DEVNET-PEER-INVALID-DELIVERY --match DEVNET-PEER-SESSION-END
+cl-workbench validation run cold-integration \
+  --match DEVNET-PEER-SESSION-OUTLIVES --match DEVNET-PEER-SESSION-ENDS-ON \
+  --match DEVNET-SNAP-TAIL-INTERNAL-EXECUTION-ERROR
+```
+
+A block that fails internally is tried again only after a wait that doubles
+with each failure, 2 s to 300 s; a new CL target ends the wait but not the
+doubling, and executing the block clears it (peer.sync.execution_recovered).
+Engine (the prepared-payload shortcut included), P2P and staged imports each
+log the failure once, naming the ingress. On a peer session, such a failure
+neither ends the session nor scores the peer; a body or receipt list that
+contradicts its header, or a snap dependency that fails verification, ends
+it with Disconnect 16 as geth's errInvalidBody and snap handler errors do,
+while a well-formed block that executes INVALID still ends nothing; an aborted
+download abandons its requests in flight and keeps the peers. The record is
+`docs/evidence/sec5-robustness-followups.txt`.
 
 ### Bounded snap/1 serving and peer-session holds
 

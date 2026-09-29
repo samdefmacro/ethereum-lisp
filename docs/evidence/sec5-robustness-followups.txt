@@ -1,0 +1,338 @@
+Section 5: robustness follow-ups to the EVM edge audit and peer attribution
+
+Status
+
+Branch robustness-followups, from c677bdf0
+(c677bdf0507000654916c87e059989ff48950f78). Five gaps the "Not verified" and
+"Divergences" sections of sec5-evm-edge-audit.txt and sec5-peer-attribution.txt
+left open, each fixed in its own commit with a test that fails on c677bdf0.
+Reproduced and fixed locally. Not deployed, no live run, no cold-all (the
+coordinator runs it once at the end). No execution, gas, state, root or receipt
+code changed, so EEST was not rerun.
+
+Revision
+
+  fc2f0923  sync: a block that fails internally waits before it is executed
+            again
+  e0279c5a  p2p: our execution defect neither ends a peer's session nor scores
+            it
+  8cc97326  block-import: every ingress logs an internal execution failure,
+            once
+  7106f9e5  p2p: a peer that answers with contradicting data is disconnected,
+            as geth does
+  1d38044e  eth-sync: an aborted download abandons its requests in flight and
+            keeps the peers
+            (1d38044e3a0879e29be182f52b82074754e31815)
+  (the commit adding this record follows them)
+
+Reference: go-ethereum v1.17.6 (references/go-ethereum, version/version.go).
+
+================================================================================
+1. A persistent internal execution failure spun the coordinator
+================================================================================
+
+Before. af15da12 made a BLOCK-EXECUTION-INTERNAL-ERROR (a defect in this node,
+never a verdict) a contained outcome of DEVNET-NODE-SYNC-COORDINATOR-PASS: the
+pass logged it and returned NIL, and the next pass executed the block again.
+The next pass is at most a second away (the coordinator's fallback poll) and
+every validated peer announcement wakes it sooner, so a deterministic defect
+re-downloaded and re-executed the same block, with an :error line
+(engine.execution.internal_error) and peer.sync.execution_internal_error, on
+every pass.
+
+Fix (fc2f0923). src/app/cli/devnet/execution-retry.lisp keeps one entry per
+failing block hash (DEVNET-EXECUTION-RETRY): failures, first and last failure
+time, the wait's end, the target it was seen under, and passes deferred. The
+wait after the n-th failure is min(300, 2 * 2^(n-1)) seconds (2, 4, ..., 256,
+300). While an entry recorded under the current sync target is waiting, the
+pass returns NIL before any sync work and logs nothing. The target is the
+first unknown forkchoice head, else the newest buffered Engine block above the
+head (DEVNET-NODE-EXECUTION-RETRY-TARGET).
+
+"Reset on success or a new target", as implemented: success (the block's state
+is available, whoever executed it) removes the entry and logs
+peer.sync.execution_recovered with the history; a new target ends the current
+wait at once (the block is tried under it) but does not restart the doubling.
+Assumption stated here because it departs from a literal reset: on a live
+network the CL moves the target every slot, so a reset of the doubling on
+every new target would cap the wait at about one slot and let a deterministic
+defect run several times a slot; a block that fails under each target is the
+same defect. The table is bounded at 64 entries (the one failed longest ago
+leaves first). Each failure's peer.sync.execution_internal_error now carries
+failures, firstAt, lastAt (Unix seconds), retryInSeconds and deferredPasses.
+The pass takes an optional NOW for tests; by default the wall clock is read
+when the wait is checked and again when a failure is recorded.
+
+Tests.
+  DEVNET-EXECUTION-RETRY-WAIT-DOUBLES-TO-ITS-CAP-AND-ENDS-FOR-A-NEW-TARGET
+    (unit): the delays 2..300, the wait holds only for its own target, a
+    failure under a new target keeps doubling, only execution clears the
+    entry, and the 64-entry bound evicts the oldest.
+  DEVNET-SYNC-COORDINATOR-WAITS-BEFORE-EXECUTING-A-FAILED-BLOCK-AGAIN (unit):
+    the shipped pass with the sync work stubbed to raise the typed error for a
+    real block: two back-to-back passes on the wall clock run the work once;
+    on a controlled clock the second failure waits 4 s, a new target is tried
+    at once and the doubling continues (failures 1..4, retryInSeconds 2 4 8
+    16); after the block imports, the next pass logs execution_recovered
+    (failures 4, deferredPasses 3) and runs.
+  DEVNET-SNAP-TAIL-INTERNAL-EXECUTION-ERROR-IS-NO-VERDICT-AND-NO-EXIT
+    (integration, changed): the pass inside the 2 s wait does no sync work;
+    the first pass after it completes the target.
+
+================================================================================
+2. Our execution defect ended the delivering peer's session
+================================================================================
+
+Before. A gap-fill job (DEVNET-PEER-FILL-SYNC-GAPS on a peer's session thread)
+that met a BLOCK-EXECUTION-INTERNAL-ERROR re-signalled it in
+DEVNET-PEER-PENDING-REQUEST, so the session ended (peer.dial.failed) and
+DEVNET-PEER-RUN-SESSION charged the peer 25. A propagated block's admission
+(the eth-serve backend's ACCEPT-BLOCK, inside the session's message handler)
+did the same. geth v1.17.6 disconnects for neither an execution failure nor an
+INVALID: eth/downloader/downloader.go importBlockResults reports any
+InsertChain error through the badBlock callback, and fetchers_concurrent.go
+validityErrorOfRequest hands only errInvalidBody / errInvalidReceipt back to
+the peer's handler.
+
+Fix (e0279c5a). DEVNET-PEER-REQUEST-BLOCK-OUTCOME-P (was
+DEVNET-PEER-REQUEST-VERDICT-P) keeps the session for a DEVNET-PEER-SYNC-INVALID
+and for a BLOCK-EXECUTION-INTERNAL-ERROR; the job's condition still reaches
+its submitter, and the coordinator contains it (section 1).
+DEVNET-PEER-SESSION-END-CHARGES-PEER-P does not charge one either. The
+propagated-block admission contains the defect and logs
+peer.sync.execution_internal_error with source gossip (post-Merge geth sends
+no NewBlock, so this path is rare).
+
+Tests (tests/cli-devnet-peer-attribution-tests.lisp; the loopback session
+fixture is CALL-WITH-PEER-ATTRIBUTION-SESSION).
+  DEVNET-PEER-SESSION-OUTLIVES-AN-INTERNAL-EXECUTION-ERROR-FROM-ITS-GAP-FILL
+    (integration): a real dialed session gap-fills blocks 1-2 toward a
+    buffered block 3; executing block 2 raises the host TYPE-ERROR of Hoodi
+    3685491. The coordinator gets the typed error naming block 2, block 1 is
+    kept, the session's entry, open queue and zero score survive and carry a
+    GetBlockHeaders, no peer.dial.failed; the retry executes blocks 2 and 3
+    over the same session; control: a protocol violation on the same queue
+    still ends it and costs 25.
+  DEVNET-GOSSIPED-BLOCK-INTERNAL-EXECUTION-ERROR-STAYS-ON-THE-SESSION (unit)
+    and DEVNET-PEER-SESSION-END-DOES-NOT-CHARGE-OUR-EXECUTION-DEFECT (unit,
+    control: a protocol violation is -25).
+
+================================================================================
+3. Two execution paths logged nothing
+================================================================================
+
+Before. engine.execution.internal_error was written by the node's executor
+(DEVNET-BLOCK-EXECUTOR), wrapped around EXECUTE-AND-COMMIT-ENGINE-PAYLOAD. Two
+paths execute without it: Engine newPayload's prepared-payload shortcut
+(ENGINE-RPC-IMPORT-WITH-PREPARED-EXECUTION publishes this node's own build
+through EXECUTE-AND-COMMIT-BLOCK and calls the executor only as a fallback),
+and staged import (NODE-STORE-STAGED-IMPORT-PUT-EXECUTION calls
+IMPORT-BLOCK-CANDIDATE :SOURCE :STAGED with the default executor). Both were
+typed (the classification wraps every execution) but silent.
+
+Fix (8cc97326). The line is written at the one place every ingress executes a
+block: CALL-WITH-BLOCK-EXECUTION-INTERNAL-ERRORS, via
+BLOCK-EXECUTION-LOG-INTERNAL-ERROR, naming the ingress (the import's :SOURCE:
+engine, p2p, staged, ...), to *TELEMETRY-SINK*. The node binds its own sink on
+the importing thread: around every guarded request of its Engine and public
+services (DEVNET-SINK-BOUND-GUARD; newPayload is guarded) and around a P2P
+import. DEVNET-BLOCK-EXECUTOR no longer logs, so a failure is logged once. A
+public-endpoint newPayload now logs source engine (the import's own source),
+where it logged public before.
+
+Tests.
+  BLOCK-IMPORT-INTERNAL-EXECUTION-ERROR-IS-LOGGED-FOR-EVERY-SOURCE (unit): the
+    P2P, Engine and staged entry points (IMPORT-BLOCK-CANDIDATE :STAGED, the
+    staged stage's call) each log one :error event naming its source, the
+    block, its hash, TYPE-ERROR and the bound; control: a verdict logs
+    nothing.
+  DEVNET-ENGINE-PREPARED-PAYLOAD-INTERNAL-ERROR-IS-LOGGED (unit): a devnet
+    node builds a one-transaction payload (forkchoiceUpdatedV1 with
+    attributes, getPayloadV1); its newPayloadV1 fails inside the shortcut
+    (EXECUTE-AND-COMMIT-BLOCK raises the TYPE-ERROR): -32603, zero executions,
+    one event (engine, block 1) in the node's sink; the retry is VALID.
+  DEVNET-ENGINE-NEW-PAYLOAD-INTERNAL-EXECUTION-ERROR-IS-AN-RPC-ERROR and the
+    snap-tail test (both unchanged) still see exactly one line.
+
+================================================================================
+4. A peer that answered with contradicting data kept its session
+================================================================================
+
+Before (sec5-peer-attribution.txt D5). A backfilled body whose commitments did
+not match its header was logged peer.sync.gap_failed and the session kept; a
+pooled snap dependency (StorageRanges, ByteCodes) that failed verification put
+the peer in a 30 s cooldown and kept the session. The multi-peer downloader
+disabled a source whose body or receipt list contradicted its header for that
+download (-50, malformed) and kept the session too.
+
+geth v1.17.6 drops the peer in each case: eth/downloader/queue.go
+DeliverBodies and DeliverReceipts return errInvalidBody / errInvalidReceipt,
+fetchers_concurrent.go validityErrorOfRequest hands exactly those back to the
+peer's message handler (eth/protocols/eth/dispatcher.go dispatchResponse
+returns them), and a returned handler error disconnects; eth/protocols/snap/
+sync.go OnStorage returns the error of a failed range proof and OnByteCodes
+"unexpected bytecode", and snap/handler.go HandleMessage tears the connection
+down on any returned error. An execution verdict never disconnects (section
+2).
+
+Fix (7106f9e5).
+  - Gap fill: ETH-SYNC-BACKFILL-INVALID-BODY (a backfill refusal and an
+    ETH-PEER-PROTOCOL-ERROR). DEVNET-PEER-FILL-SYNC-GAPS logs
+    peer.sync.gap_invalid_body and re-signals it: the job's error ends the
+    session with a compressed Disconnect 16 and the usual -25; the coordinator
+    moves to another peer.
+  - Downloader: ETH-SYNC-INVALID-DELIVERY (a malformed delivery) for a body
+    commitment, receipt root or receipt type mismatch, handed to the source's
+    new REJECT. The node's source calls DEVNET-PEER-END-SESSION-FOR-INVALID-
+    DELIVERY, which logs peer.session.invalid_delivery and posts a job to the
+    session's own writer (DEVNET-PEER-REQUEST-QUEUE-POST) that signals
+    DEVNET-PEER-INVALID-DELIVERY: Disconnect 16 and teardown on the session
+    thread, the only writer. The downloader already scored it -50, so the end
+    is not charged again (CHARGED-P). A short or non-contiguous header answer
+    is still only malformed.
+  - Snap: the StorageRanges and ByteCodes verifiers type a failure
+    SNAP-SYNC-INVALID-RESPONSE (an empty answer stays STATE-UNAVAILABLE, a
+    local storage error keeps its type); DEVNET-SNAP-SOURCE-POOL-CALL ends
+    that peer's session, charged -25 at its end.
+
+Tests.
+  DEVNET-PEER-SESSION-ENDS-ON-A-GAP-FILL-BODY-THAT-CONTRADICTS-ITS-HEADER
+    (integration): one session, two branches from block 1. Control first: a
+    well-formed block 2 that executes INVALID keeps the session (H2's rule).
+    Then a block 2' whose header commits to a transactions root its empty body
+    lacks: the gap fill moves on (no other peer: ETH-SYNC-MULTI-PEER-ERROR),
+    the session ends, queue closed, score -25, one gap_invalid_body, and the
+    serving peer read Disconnect 16.
+  DEVNET-PEER-SESSION-ENDS-ON-A-DOWNLOADED-BODY-THAT-CONTRADICTS-ITS-HEADER
+    (integration): the forward downloader over the node's real source: the
+    session ends, score -50 (not -75), Disconnect 16.
+  ETH-SYNC-MULTI-PEER-REJECTS-THE-SOURCE-OF-A-BODY-THAT-CONTRADICTS-ITS-HEADER
+    (unit, controls: an answer with no header is malformed, not rejected; a
+    committed body imports), SNAP-DEPENDENCY-RESPONSE-THAT-FAILS-VERIFICATION-
+    IS-AN-INVALID-RESPONSE (unit), DEVNET-SNAP-SOURCE-POOL-ENDS-THE-SESSION-OF-
+    AN-INVALID-DEPENDENCY-RESPONSE (unit, controls: state unavailable, request
+    timeout, transport failure end nothing), DEVNET-PEER-INVALID-DELIVERY-IS-
+    CHARGED-ONCE (unit).
+
+================================================================================
+5. An aborted download closed the streams of healthy peers
+================================================================================
+
+Before (sec5-peer-attribution.txt D6). ETH-SYNC-DOWNLOAD-BLOCKS-MULTI's
+cleanup called every in-flight source's CANCEL, which the node implements by
+closing the peer's stream: however the download ended (an INVALID verdict or
+any failure of the import callback included), every session with a request in
+flight ended. geth v1.17.6 cancels such requests and keeps the peers
+(eth/protocols/eth/dispatcher.go dispatchResponse discards a response to a
+cancelled request).
+
+Fix (1d38044e). A source may ABANDON its fetch; the cleanup prefers it to
+CANCEL. CANCEL remains the per-request timeout's remedy (geth also drops a
+peer that stalls a request) and the fallback for a source that cannot
+abandon. The node's source remembers the one job its worker has in flight and
+abandons it with DEVNET-PEER-REQUEST-QUEUE-ABANDON: a queued job is withdrawn,
+one the session is serving finishes there and its reply is dropped, and the
+waiting worker wakes with DEVNET-PEER-REQUEST-ABANDONED.
+
+Tests.
+  DEVNET-PEER-SESSION-OUTLIVES-A-DOWNLOAD-ABORTED-WITH-ITS-REQUEST-IN-FLIGHT
+    (integration): batch size 1 over a live session; the import of block 1
+    raises DEVNET-PEER-SYNC-INVALID once the peer is serving the request for
+    block 2 (held for 2 s). The download signals the verdict; the session,
+    its queue and a zero score survive, no peer.dial.failed, and a protocol
+    violation still ends it (control).
+  ETH-SYNC-MULTI-PEER-ABANDONS-A-REQUEST-IN-FLIGHT-WHEN-IT-ABORTS (unit):
+    ABANDON called once, CANCEL never; control: a source without ABANDON is
+    cancelled.
+
+================================================================================
+6. Reproduction and verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0 (before the first run).
+
+RED at c677bdf0: the branch's source files restored to c677bdf0 (git checkout)
+with the new tests in place, fresh warm image, `cl-workbench test NAME`, each
+EXIT=1:
+  DEVNET-SYNC-COORDINATOR-WAITS-...        "Assertion failed: (= 1 CALLS)"
+  DEVNET-PEER-SESSION-OUTLIVES-AN-INTERNAL-EXECUTION-ERROR-...
+                                           "(PEER-ATTRIBUTION-SESSION-INTACT-P
+                                           CLIENT ENTRY)" failed
+  DEVNET-GOSSIPED-BLOCK-...                the typed error escaped the
+                                           admission
+  DEVNET-PEER-SESSION-END-DOES-NOT-...     "(= 0 (PEER-ATTRIBUTION-SESSION-
+                                           SCORE ..." (-25)
+  BLOCK-IMPORT-INTERNAL-EXECUTION-ERROR-IS-LOGGED-FOR-EVERY-SOURCE and
+  DEVNET-ENGINE-PREPARED-PAYLOAD-INTERNAL-ERROR-IS-LOGGED
+                                           "(= 1 (LENGTH EVENTS))"
+  DEVNET-PEER-SESSION-ENDS-ON-A-GAP-FILL-BODY-...
+                                           the INVALID control held; the
+                                           contradicting body did not end the
+                                           session ("(TYPEP (SECOND OUTCOME)
+                                           'ETH-SYNC-MULTI-PEER-ERROR)")
+  DEVNET-PEER-SESSION-ENDS-ON-A-DOWNLOADED-BODY-...
+                                           "Timed out after 5.022s waiting for
+                                           session teardown"
+  DEVNET-PEER-SESSION-OUTLIVES-A-DOWNLOAD-ABORTED-...
+                                           "(PEER-ATTRIBUTION-SESSION-INTACT-P
+                                           CLIENT ENTRY)" failed
+  Structural (new API; RED by an undefined function, keyword or type):
+  DEVNET-EXECUTION-RETRY-WAIT-..., DEVNET-SNAP-TAIL-INTERNAL-... (the new
+  :NOW argument), ETH-SYNC-MULTI-PEER-REJECTS-... (:REJECT), SNAP-DEPENDENCY-
+  RESPONSE-... (SNAP-SYNC-INVALID-RESPONSE), DEVNET-SNAP-SOURCE-POOL-ENDS-...,
+  DEVNET-PEER-INVALID-DELIVERY-IS-CHARGED-ONCE, ETH-SYNC-MULTI-PEER-ABANDONS-
+  ... (:ABANDON).
+GREEN at 1d38044e (fresh warm image): the 16 above, DEVNET-ENGINE-NEW-
+PAYLOAD-INTERNAL-EXECUTION-ERROR-IS-AN-RPC-ERROR and DEVNET-PEER-SESSION-
+OUTLIVES-AN-INVALID-VERDICT-FROM-ITS-GAP-FILL: each EXIT=0.
+
+Cold, on the committed tree 1d38044e (clean; logs redirected to files, no
+duplicated ok lines, no WARNING from /workspace/src):
+  cl-workbench validation run cold-unit --match PEER --match DIAL
+    --match SNAP --match BLOCK-IMPORT --match ENGINE
+    --match DEVNET-SYNC-COORDINATOR --match EXECUTION-RETRY
+    --match INTERNAL-EXECUTION --match ETH-SYNC --match ARCHITECTURE
+    --match PACKAGE
+      431 tests passed, 0 not ok, EXIT=0; every new unit test by name, and
+      PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC.
+  cl-workbench validation run cold-integration --match DEVNET-PEER
+    --match DEVNET-DIAL --match DEVNET-SNAP --match DEVNET-SYNC-COORDINATOR
+    --match DEVNET-ENGINE --match BLOCK-IMPORT --match ETH-SYNC
+      57 tests passed, 0 not ok, EXIT=0; the five new integration tests by
+      name.
+  cl-workbench validation run cold-integration --match SNAP- --match
+    NEW-PAYLOAD --match PREPARED-PAYLOAD --match FORWARD --match
+    RESTART-BEHIND --match INVALID
+      163 tests passed, 0 not ok, EXIT=0 (the snap verifiers and the Engine
+      wiring changed).
+  cl-workbench validation run cold-e2e --match DEVNET-SMOKE-GATE
+    --match ENGINE --match RESTART
+      5 + 11 tests passed, 0 not ok, EXIT=0.
+  cl-workbench validation run cold-integration
+    --match HOODI-LIVE-GATE-SELFTEST (after adding the five event names to
+    scripts/hoodi-live-gate.sh, in the commit adding this record)
+      1 test passed, EXIT=0 ("hoodi-live-gate selftest: 172 checks, 0
+      failed").
+
+================================================================================
+7. Not verified
+================================================================================
+
+- Live: nothing deployed. The next Hoodi run should show, for a block that
+  fails internally, engine.execution.internal_error at most once per wait
+  and peer.sync.execution_internal_error with a growing failures count, and
+  peer.dial.failed lines naming a contradicting body only with Disconnect
+  16. scripts/hoodi-live-gate.sh logs now counts the five events above.
+- The wait's live cadence: with the CL target moving every slot, a
+  deterministic defect is still tried about once a slot (once the doubling
+  passes 12 s); the unit test pins the table, not a live run.
+- The account-range source's own proof failure (the page's peer, not a
+  pooled dependency), and a TrieNodes response that fails verification, keep
+  the old handling (-50 via peer.snap.import_failed, or the healer's source
+  retirement) without ending the session; geth disconnects for those too.
+  Not changed (outside this brief).
+- The downloader's :failed charge for transport losses (D7) is unchanged.
+- A propagated block (NewBlock) reaches the contained path only from a
+  pre-Merge peer; tested by a unit test only.
+- EEST was not run: no execution, gas, state, root or receipt code changed.
+- cold-all was not run (fleet rule; the coordinator runs it once).
