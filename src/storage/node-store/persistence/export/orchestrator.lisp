@@ -789,8 +789,8 @@ cursors and pivot publication have distinct durability obligations."
         ;; Consume every changed-key tombstone in this same candidate batch so
         ;; a crash cannot resurrect an already-evicted verdict or sync target.
         (multiple-value-bind (invalid-changed-p evicted)
-            (chain-store-populate-invalid-tipset-export-batch
-             chain-store database batch :write-current-p nil)
+            (chain-store-populate-invalid-tipset-deletion-batch
+             chain-store database batch)
           (setf invalid-evicted evicted)
           (when invalid-changed-p
             (setf changed-p t)))
@@ -833,80 +833,6 @@ cursors and pivot publication have distinct durability obligations."
                    (chain-store-durable-state-provider-p chain-store))
           (setf (memory-chain-store-buffered-engine-payload-hash chain-store)
                 (make-hash32 (hash32-bytes candidate-hash))))
-        database))))
-
-(defun node-store-export-invalid-candidate-to-kv
-    (store candidate database)
-  "Persist an INVALID verdict and remove stale buffered records atomically."
-  (let ((chain-store (chain-store-require-memory-store store)))
-    (engine-payload-store-enable-durable-cache-change-tracking chain-store)
-    (unless (typep candidate 'ethereum-block)
-      (block-validation-fail
-       "Invalid candidate export requires an Ethereum block"))
-    (unless (typep database 'key-value-database)
-      (block-validation-fail
-       "Invalid candidate export target must be a key-value database"))
-    ;; The import transaction already admitted/pruned this verdict with its
-    ;; chosen cache clock.  A durability sink must not call the public getter,
-    ;; whose default NOW would advance a deterministic/test clock and could
-    ;; evict the very verdict being committed.  Read the transaction-local
-    ;; table directly; values are immutable copied blocks.
-    (let ((invalid-block
-            (gethash
-             (engine-payload-store-key (block-hash candidate))
-             (memory-chain-store-invalid-tipsets chain-store))))
-      (unless invalid-block
-        (block-validation-fail
-         "Invalid candidate export requires an invalid cache verdict"))
-      (when (chain-store-known-block chain-store (block-hash candidate))
-        (block-validation-fail
-         "Invalid candidate export refuses a known executed block"))
-      (when (chain-store-known-block chain-store (block-hash invalid-block))
-        (block-validation-fail
-         "Invalid candidate export refuses a known invalid ancestor"))
-      (let ((batch (make-kv-write-batch))
-            (changed-p nil)
-            (invalid-evicted nil)
-            (remote-evicted nil))
-      ;; A descendant verdict maps to its invalid ancestor in memory. Persist
-      ;; only the retained direct owner, never a descendant key paired with a
-      ;; different block body.
-      (let* ((invalid-key
-               (engine-payload-store-key (block-hash invalid-block)))
-             (direct-owner
-               (gethash invalid-key
-                        (memory-chain-store-invalid-tipsets chain-store))))
-        (when (and direct-owner
-                   (chain-store-invalid-tipset-exportable-p
-                    chain-store invalid-key direct-owner)
-                   (chain-store-export-invalid-tipset-to-kv
-                    database batch invalid-key direct-owner))
-          (setf changed-p t)))
-      (multiple-value-bind (invalid-changed-p evicted)
-          (chain-store-populate-invalid-tipset-export-batch
-           chain-store database batch :write-current-p nil)
-        (setf invalid-evicted evicted)
-        (when invalid-changed-p
-          (setf changed-p t)))
-      (multiple-value-bind (remote-changed-p evicted)
-          (chain-store-populate-remote-block-export-batch
-           chain-store database batch :write-current-p nil)
-        (setf remote-evicted evicted)
-        (when (node-store-populate-evicted-remote-bal-cleanup-batch
-               chain-store database batch (append invalid-evicted evicted)
-               :deleted-remote-identifiers evicted
-               :deleted-invalid-identifiers invalid-evicted)
-          (setf changed-p t))
-        (when remote-changed-p
-          (setf changed-p t)))
-      (when changed-p
-        (kv-apply-batch database batch))
-      (node-store-clear-durable-cache-deletions
-       (memory-chain-store-invalid-tipset-durable-deletions chain-store)
-       invalid-evicted)
-      (node-store-clear-durable-cache-deletions
-       (memory-chain-store-remote-block-durable-deletions chain-store)
-       remote-evicted)
         database))))
 
 (defun node-store-export-buffered-candidate-to-kv
@@ -952,8 +878,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                  database batch candidate-key buffered)
             (setf changed-p t))
           (multiple-value-bind (invalid-changed-p evicted)
-              (chain-store-populate-invalid-tipset-export-batch
-               chain-store database batch :write-current-p nil)
+              (chain-store-populate-invalid-tipset-deletion-batch
+               chain-store database batch)
             (setf invalid-evicted evicted)
             (when invalid-changed-p
               (setf changed-p t)))
@@ -1140,8 +1066,8 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
         (let ((invalid-evicted nil)
               (remote-evicted nil))
           (multiple-value-bind (invalid-changed-p evicted)
-            (chain-store-populate-invalid-tipset-export-batch
-             chain-store database batch :write-current-p nil)
+            (chain-store-populate-invalid-tipset-deletion-batch
+             chain-store database batch)
             (setf invalid-evicted evicted)
           (when invalid-changed-p
             (setf changed-p t
@@ -1205,10 +1131,10 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
 (defun node-store-block-access-list-live-identifiers (store database)
   "Return the block identifiers that may reference shared BAL side data.
 
-The full export batch makes the in-memory known, remote, and invalid block
-tables authoritative.  Persisted block records are append-only, while staged
-block records have an independent lifecycle, so their existing identifiers
-also remain live."
+The full export batch makes the in-memory known and remote block tables
+authoritative (an INVALID verdict owns no durable record).  Persisted block
+records are append-only, while staged block records have an independent
+lifecycle, so their existing identifiers also remain live."
   (let ((live-identifiers (make-hash-table :test 'equalp)))
     (labels ((mark-identifier (identifier)
                (setf (gethash (bytes-to-hex identifier) live-identifiers) t))
@@ -1223,7 +1149,6 @@ also remain live."
                  (mark-identifier (car entry)))))
       (mark-memory-blocks (memory-chain-store-blocks store))
       (mark-memory-blocks (memory-chain-store-remote-blocks store))
-      (mark-memory-blocks (memory-chain-store-invalid-tipsets store))
       (mark-persisted-records :block)
       (mark-persisted-records :staged-block))
     live-identifiers))
@@ -1272,7 +1197,7 @@ also remain live."
               persisted-state-hashes state-hashes))
       (chain-store-populate-txpool-record-export-batch store database batch)
       (multiple-value-bind (ignored deleted)
-          (chain-store-populate-invalid-tipset-export-batch
+          (chain-store-populate-invalid-tipset-deletion-batch
            chain-store database batch :authoritative-p t)
         (declare (ignore ignored))
         (setf invalid-evicted deleted))

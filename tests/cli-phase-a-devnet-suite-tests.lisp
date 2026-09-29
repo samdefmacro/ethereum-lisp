@@ -409,13 +409,13 @@
           (is (string= (fixture-object-field case "invalidTipsetBlockHash")
                        (fixture-object-field
                         case "databaseInvalidTipsetBlockHash")))
-          (is (string= +payload-status-invalid+
+          (is (string= +payload-status-syncing+
                        (fixture-object-field
                         case "databaseRpcInvalidTipsetStatus")))
-          (is (string= "links to previously rejected block"
-                       (fixture-object-field
-                        case
-                        "databaseRpcInvalidTipsetValidationError")))
+          (is (null
+               (fixture-object-field
+                case
+                "databaseRpcInvalidTipsetValidationError")))
           (devnet-cli-assert-txpool-subpool-persistence case)
           (devnet-cli-assert-side-reorg-persistence case)))))))
 

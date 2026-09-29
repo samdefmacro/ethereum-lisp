@@ -141,12 +141,15 @@ old durable view, reproducing Hive's `Transaction Re-Org, Re-Org Out` failure.
 
 The cache tests apply count, exact encoded-byte, process-local age, and finality
 pressure to all five caches and assert deterministic eviction. Public direct
-startup re-admits the durable invalid and remote namespaces with a new
-process-local timestamp; it does not claim to retain their pre-restart
-wall-clock age. The invalid/remote tests additionally stream legacy over-limit
-namespaces into the direct provider and assert startup count/byte/finality
-bounds, replay rejection without re-execution, paged durable eviction, and
-unowned BAL cleanup. Sidecars use bounded, lazy immutable content-addressed
+startup re-admits the durable remote namespace with a new process-local
+timestamp; it does not claim to retain its pre-restart wall-clock age. INVALID
+verdicts are process-local, as go-ethereum's Engine verdicts are: nothing
+writes one, no durability callback runs for one, and startup deletes the
+`:invalid-tipset` records older revisions wrote, in bounded pages with the BAL
+side data they alone owned. The invalid/remote tests additionally stream
+legacy over-limit namespaces into the direct provider and assert startup
+count/byte/finality bounds, re-execution of a block an earlier process
+rejected, paged durable eviction, and unowned BAL cleanup. Sidecars use bounded, lazy immutable content-addressed
 point reads without eager hydration or retaining point-read results in memory;
 prepared payloads and forkchoice targets are process-private and are not
 claimed as restart state.
@@ -1307,6 +1310,22 @@ the coordinator pass: the block is imported three times, the pass logs
 `peer.snap.tail_failed` and returns, and the next pass finishes the tail. The
 bounded-pivot case asserts the retry bound and that INVALID ends the phase
 after one import. The record is `docs/evidence/sec5-snap-tail-syncing.txt`.
+
+```sh
+cl-workbench validation run cold-integration \
+  --match DEVNET-SNAP-TAIL-COMPLETES-OVER-AN-ANCESTRY-THIS-PROCESS-REJECTED \
+  --match DEVNET-SNAP-STATE-IMPORT-THAT-RETURNS-INCOMPLETE-IS-A-PHASE-OUTCOME
+```
+
+A sync outcome never stops the node. The first case rejects a block below the
+pivot in process, lets the BLOCKHASH backfill make it known, and requires the
+tail to complete with `peer.snap.ancestry_contains_rejected_block` logged and
+no `:invalid-tipset` record written; it reproduces the Hoodi exit "Invalid
+candidate export refuses a known executed block". The second requires a state
+import that returns incomplete to end the pass with `peer.snap.state_incomplete`
+and the next pass to complete the target. The record, with the classification
+of every sync-reachable failure, is
+`docs/evidence/sec5-sync-outcomes-nonfatal.txt`.
 
 ### Bounded snap/1 serving and peer-session holds
 

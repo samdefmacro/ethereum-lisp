@@ -22,6 +22,16 @@
      :requests '())
     (when bal-p (list :block-access-list '())))))
 
+(defun chain-store-seed-legacy-invalid-tipset (database block)
+  "Write BLOCK as the :INVALID-TIPSET record, with its BAL side data, that
+revisions before 60fb6e91 and this change persisted for an INVALID verdict.
+Nothing writes one now; these records exist only in old datadirs."
+  (let ((batch (make-kv-write-batch)))
+    (ethereum-lisp.node-store.persistence::node-store-put-immutable-block-body-record
+     database batch :invalid-tipset block "Legacy invalid block"
+     :allow-missing-committed-p t)
+    (kv-apply-batch database batch)))
+
 (defun chain-store-bal-persistence-record-field-count (record)
   (length (rlp-list-items (rlp-decode-one record))))
 
@@ -49,11 +59,15 @@
     (chain-store-export-block-records-to-kv source database)
     (ethereum-lisp.node-store.persistence::chain-store-export-remote-blocks-to-kv
      source database)
-    (ethereum-lisp.node-store.persistence::chain-store-export-invalid-tipsets-to-kv
+    (ethereum-lisp.node-store.persistence::chain-store-sweep-invalid-tipsets-from-kv
      source database)
+    ;; The in-memory verdict writes neither a record nor side data.
+    (dolist (kind '(:invalid-tipset :block-access-list))
+      (is (not (nth-value
+                1 (kv-get-chain-record
+                   database kind (hash32-bytes (block-hash invalid)))))))
     (dolist (entry (list (cons :block accepted)
-                         (cons :remote-block remote)
-                         (cons :invalid-tipset invalid)))
+                         (cons :remote-block remote)))
       (let ((identifier (hash32-bytes (block-hash (cdr entry)))))
         (multiple-value-bind (record present-p)
             (kv-get-chain-record database (car entry) identifier)
@@ -66,8 +80,6 @@
                       side-data)))))
     (ethereum-lisp.node-store.persistence::chain-store-import-block-records-from-kv
      restored database)
-    (ethereum-lisp.node-store.persistence::chain-store-import-invalid-tipsets-from-kv
-     restored database)
     (ethereum-lisp.node-store.persistence::chain-store-import-remote-blocks-from-kv
      restored database)
     (chain-store-bal-persistence-assert-restored
@@ -76,10 +88,8 @@
      remote
      (ethereum-lisp.chain-store:engine-payload-store-remote-block
       restored (block-hash remote)))
-    (chain-store-bal-persistence-assert-restored
-     invalid
-     (ethereum-lisp.chain-store:engine-payload-store-invalid-block
-      restored (block-hash invalid)))))
+    (is (null (ethereum-lisp.chain-store:engine-payload-store-invalid-block
+               restored (block-hash invalid))))))
 
 (deftest chain-store-cache-standalone-exporters-delete-only-unowned-bal-side-data
   (let* ((database (make-memory-key-value-database))
@@ -114,7 +124,7 @@
 
       ;; This authoritative helper used to return deletion identifiers as the
       ;; generic exporter's second value, which treated them as trie nodes.
-      (ethereum-lisp.node-store.persistence::chain-store-export-invalid-tipsets-to-kv
+      (ethereum-lisp.node-store.persistence::chain-store-sweep-invalid-tipsets-from-kv
        store database)
       (is (not (present-p :invalid-tipset invalid-orphan)))
       (is (not (present-p :invalid-tipset invalid-staged)))
@@ -201,9 +211,9 @@
      store remote)
     (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
      store invalid)
-    ;; Seed every side record before export.  The known/remote/invalid bodies
-    ;; are put in this same batch, while the stale remote reference below is
-    ;; deleted in it.
+    ;; Seed every side record before export.  The known/remote bodies are put
+    ;; in this same batch, while the stale remote reference below is deleted
+    ;; in it.
     (dolist (block (list known remote invalid persisted staged orphan))
       (kv-put-chain-record
        database :block-access-list
@@ -221,18 +231,21 @@
               1 (kv-get-chain-record database :remote-block staged-id))))
     (is (nth-value
          1 (kv-get-chain-record database :staged-block staged-id)))
-    (dolist (block (list known remote invalid persisted staged))
+    (dolist (block (list known remote persisted staged))
       (multiple-value-bind (side-data present-p)
           (kv-get-chain-record
            database :block-access-list
            (hash32-bytes (block-hash block)))
         (is present-p)
         (is (bytes= (block-encoded-block-access-list block) side-data))))
-    (is (not (nth-value
-              1
-              (kv-get-chain-record
-               database :block-access-list orphan-id))))
-    (is (= 5 (length
+    ;; An in-memory INVALID verdict owns nothing durable, so its side data
+    ;; goes with the orphan's.
+    (dolist (identifier (list orphan-id (hash32-bytes (block-hash invalid))))
+      (is (not (nth-value
+                1
+                (kv-get-chain-record
+                 database :block-access-list identifier)))))
+    (is (= 4 (length
               (kv-chain-record-entries database :block-access-list))))))
 
 (deftest node-store-persistence-package-boundary

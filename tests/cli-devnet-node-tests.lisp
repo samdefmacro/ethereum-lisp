@@ -1433,8 +1433,11 @@ transfer that leaves the contract untouched."
                                   :validate t
                                   :if-does-not-exist :ignore))))
 
-(deftest devnet-peer-range-batch-persists-an-intermediate-invalid-verdict
+(deftest devnet-peer-range-batch-does-not-persist-an-intermediate-invalid-verdict
   (:layer :unit :module :p2p)
+  ;; The batch importer used to hand an intermediate INVALID block to the
+  ;; durability function as :INVALID.  A verdict is process-local now, so the
+  ;; batch stops with the typed outcome and persists nothing for it.
   (let* ((node
            (ethereum-lisp.cli:make-devnet-node
             :genesis-json *eth-sync-paris-genesis-json*
@@ -1470,10 +1473,9 @@ transfer that leaves the contract untouched."
        (signals ethereum-lisp.cli::devnet-peer-sync-invalid
          (ethereum-lisp.cli::devnet-peer-sync-import-batch
           node blocks nil :invalid-head-hash target-hash))))
-    (is (= 1 durability-calls))
-    (is (eq :invalid durable-kind))
-    (is (string= +payload-status-invalid+
-                 (payload-status-status durable-status)))))
+    (is (= 0 durability-calls))
+    (is (null durable-kind))
+    (is (null durable-status))))
 
 (defun devnet-engine-priority-fcu-request (head-hash)
   "An engine_forkchoiceUpdatedV1 request naming HEAD-HASH, with no attributes."

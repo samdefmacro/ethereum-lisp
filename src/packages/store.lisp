@@ -227,6 +227,7 @@
    #:engine-payload-store-forkchoice-sync-targets
    #:engine-payload-store-prune-prepared-payloads-for-block
    #:engine-payload-store-mark-invalid
+   #:engine-payload-store-forget-invalid-block
    #:engine-payload-store-invalid-block
    #:engine-payload-store-invalid-ancestor
    #:engine-payload-id-key

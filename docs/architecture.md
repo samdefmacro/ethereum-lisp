@@ -992,22 +992,24 @@ Non-obvious properties the implementation relies on:
   wall-clock admission history. A namespace restored into memory is re-admitted
   at startup time, so its age begins again in that process; count, exact-byte,
   and known-finality bounds are enforced before the startup store is exposed.
-  Public direct-provider startup restores only invalid verdicts and remote
-  candidates. Durable blob sidecars remain immutable content served by bounded,
-  lazy content-addressed point reads without eager hydration or retaining
-  point-read results in memory; prepared payloads and hash-only forkchoice
-  targets are process-private and are not restart state.
+  Public direct-provider startup restores only remote candidates; INVALID
+  verdicts are process-local and never written (a client defect produces one
+  as readily as a bad block does), and startup deletes the records older
+  revisions wrote. Durable blob sidecars remain immutable content served by
+  bounded, lazy content-addressed point reads without eager hydration or
+  retaining point-read results in memory; prepared payloads and hash-only
+  forkchoice targets are process-private and are not restart state.
 - **Durable invalid/remote recovery is bounded.** Direct-provider startup
-  streams the invalid-tipset prefix first and the remote-block prefix second,
-  admitting one record at a time so legacy durable input cannot create an
-  unbounded memory table during restart. Once each retained set is known, a
+  deletes the legacy invalid-tipset prefix, then streams the remote-block
+  prefix, admitting one record at a time so legacy durable input cannot create
+  an unbounded memory table during restart. Once the retained set is known, a
   second prefix-only pass deletes rejected or evicted records in bounded pages.
   Within each page, a body record and its block-access-list side record are
   deleted in the same atomic batch, and the side record is removed only after
-  point reads prove that no known, retained-invalid, retained-remote, or staged
-  block owns it. Missing-parent candidates that survive the bounds are
-  immediately available to normal gap-fill enumeration, while restored invalid
-  hashes reject replay without re-execution.
+  point reads prove that no known, retained-remote, or staged block owns it.
+  Missing-parent candidates that survive the bounds are immediately available
+  to normal gap-fill enumeration; a block an earlier process rejected is
+  executed again.
 - **State-root memoization.** Each `state-object` memoizes its storage root. A
   state root is taken over every account, but a block touches a handful, and
   rebuilding the untouched accounts' storage tries was ~93% of the cost

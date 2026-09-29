@@ -480,25 +480,17 @@
            store invalid config
            :invalid-head-hash head-hash
            :durability-function
-           (lambda (callback-store callback-block
-                    &key candidate-kind &allow-other-keys)
-             (incf durability-calls)
-             (is (eq :invalid candidate-kind))
-             (is (hash32= (block-hash invalid)
-                          (block-hash callback-block)))
-             ;; This is the production persistence adapter's prerequisite:
-             ;; it exports the candidate's own verdict and every head alias.
-             (is (engine-payload-store-invalid-block
-                  callback-store (block-hash invalid)))
-             (is (engine-payload-store-invalid-block
-                  callback-store head-hash))))
+           (lambda (&rest arguments)
+             (declare (ignore arguments))
+             (incf durability-calls)))
         (is (string= +payload-status-invalid+
                      (payload-status-status status)))
         (is (search "Receipts root mismatch"
                     (payload-status-validation-error status)))
         (is (null candidate))
         (is (null receipts)))
-      (is (= 1 durability-calls))
+      ;; The verdict and its alias are process-local: nothing is persisted.
+      (is (= 0 durability-calls))
       (is (engine-payload-store-invalid-block store (block-hash invalid)))
       (let ((aliased
               (engine-payload-store-invalid-block store head-hash)))
@@ -1113,15 +1105,11 @@
                (incf executor-calls)
                (error 'ethereum-lisp.execution:transaction-validation-error
                       :message "Injected deterministic transaction failure")))
+           ;; A verdict is process-local: INVALID never reaches durability.
            (durability
-             (lambda (callback-store candidate
-                      &key candidate-kind payload-status &allow-other-keys)
-               (incf invalid-durability-calls)
-               (is (eq :invalid candidate-kind))
-               (is (string= +payload-status-invalid+
-                            (payload-status-status payload-status)))
-               (is (engine-payload-store-invalid-block
-                    callback-store (block-hash candidate))))))
+             (lambda (&rest arguments)
+               (declare (ignore arguments))
+               (incf invalid-durability-calls))))
       (dotimes (attempt 2)
         (declare (ignore attempt))
         (multiple-value-bind (status candidate receipts)
@@ -1154,4 +1142,6 @@
           (is (null receipts)))
         (is (null (engine-payload-store-remote-block
                    store (block-hash descendant))))
-        (is (= 3 invalid-durability-calls))))))
+        (is (= 0 invalid-durability-calls))
+        ;; Positive control: the verdicts are held in this process.
+        (is (engine-payload-store-invalid-block store (block-hash child)))))))

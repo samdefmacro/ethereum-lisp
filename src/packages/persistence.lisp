@@ -128,7 +128,6 @@
    #:chain-store-export-state-records-to-kv
    #:node-store-export-txpool-records-to-kv
    #:node-store-export-buffered-candidate-to-kv
-   #:node-store-export-invalid-candidate-to-kv
    #:node-store-export-payload-candidate-to-kv
    #:node-store-export-forkchoice-to-kv
    #:node-store-export-to-kv

@@ -559,9 +559,9 @@
        store old-remote :now 10)
       (node-store-export-buffered-candidate-to-kv
        store old-remote database)
+      ;; An old datadir's record, and the same verdict held in memory.
+      (chain-store-seed-legacy-invalid-tipset database old-invalid)
       (engine-payload-store-mark-invalid store old-invalid :now 10)
-      (node-store-export-invalid-candidate-to-kv
-       store old-invalid database)
       (ethereum-lisp.chain-store:engine-payload-store-remove-remote-block
        store (block-hash old-remote))
       (engine-payload-store-invalid-block
@@ -594,38 +594,42 @@
             (ethereum-lisp.chain-store.state:memory-chain-store-invalid-tipset-durable-deletions
              chain)))))))
 
-(deftest node-store-invalid-verdict-atomically-replaces-buffered-record
+(deftest node-store-invalid-verdict-writes-nothing-and-its-buffered-copy-goes-with-the-next-batch
+  ;; An INVALID verdict is process-local: no durability callback runs for it
+  ;; and no :INVALID-TIPSET record is written.  The buffered copy it replaced
+  ;; in memory leaves a tombstone, and the next durable batch deletes that
+  ;; remote record together with the BAL it alone owned; a failed WAL apply
+  ;; keeps the tombstone for the retry.
   (let* ((database
            (make-instance 'forkchoice-delta-failing-test-database))
          (store (make-engine-payload-memory-store))
          (candidate (chain-store-bal-persistence-test-block 8 42 :bal-p t))
+         (later (chain-store-bal-persistence-test-block 9 43 :bal-p nil))
          (identifier (hash32-bytes (block-hash candidate))))
     (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
      store candidate)
     (ethereum-lisp.node-store.persistence:node-store-export-buffered-candidate-to-kv
      store candidate database)
+    (is (nth-value 1
+                   (kv-get-chain-record database :block-access-list identifier)))
     (engine-payload-store-mark-invalid store candidate)
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store later)
     (setf (forkchoice-delta-failing-test-database-fail-next-apply-p database)
           t)
     (signals error
-      (ethereum-lisp.node-store.persistence:node-store-export-invalid-candidate-to-kv
-       store candidate database))
+      (ethereum-lisp.node-store.persistence:node-store-export-buffered-candidate-to-kv
+       store later database))
     ;; A failed WAL apply preserves the complete old buffered view.
     (is (nth-value 1
                    (kv-get-chain-record database :remote-block identifier)))
-    (is (not (nth-value
-              1 (kv-get-chain-record database :invalid-tipset identifier))))
-    (ethereum-lisp.node-store.persistence:node-store-export-invalid-candidate-to-kv
-     store candidate database)
-    (is (not (nth-value
-              1 (kv-get-chain-record database :remote-block identifier))))
-    (is (nth-value 1
-                   (kv-get-chain-record database :invalid-tipset identifier)))
-    ;; The invalid record now owns the same private BAL side data, so incremental
-    ;; remote cleanup must retain it even though the old remote owner vanished.
-    (is (nth-value 1
-                   (kv-get-chain-record
-                    database :block-access-list identifier)))))
+    (ethereum-lisp.node-store.persistence:node-store-export-buffered-candidate-to-kv
+     store later database)
+    (dolist (kind '(:remote-block :invalid-tipset :block-access-list))
+      (is (not (nth-value
+                1 (kv-get-chain-record database kind identifier)))))
+    ;; Positive control: the verdict is still held by this process.
+    (is (engine-payload-store-invalid-block store (block-hash candidate)))))
 
 (deftest node-store-invalid-descendant-removes-buffered-bal-without-false-owner
   (let* ((database (make-memory-key-value-database))
@@ -634,11 +638,10 @@
            (chain-store-bal-persistence-test-block 9 60 :bal-p nil))
          (descendant
            (chain-store-bal-persistence-test-block 10 61 :bal-p t))
+         (later (chain-store-bal-persistence-test-block 11 62 :bal-p nil))
          (root-id (hash32-bytes (block-hash invalid-root)))
          (descendant-id (hash32-bytes (block-hash descendant))))
     (engine-payload-store-mark-invalid store invalid-root)
-    (node-store-export-invalid-candidate-to-kv
-     store invalid-root database)
     (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
      store descendant)
     (node-store-export-buffered-candidate-to-kv
@@ -647,22 +650,27 @@
          1 (kv-get-chain-record database :block-access-list descendant-id)))
     (engine-payload-store-mark-invalid
      store invalid-root :head-hash (block-hash descendant))
-    (node-store-export-invalid-candidate-to-kv
-     store descendant database)
-    (is (nth-value
-         1 (kv-get-chain-record database :invalid-tipset root-id)))
-    ;; Descendant mappings are process-local acceleration only. They never own
-    ;; a durable block body or keep the removed remote block's BAL alive.
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store later)
+    (node-store-export-buffered-candidate-to-kv store later database)
+    (is (not (nth-value
+              1 (kv-get-chain-record database :invalid-tipset root-id))))
+    ;; Verdicts and descendant mappings are process-local. They never own a
+    ;; durable block body or keep the removed remote block's BAL alive.
     (dolist (kind '(:remote-block :invalid-tipset :block-access-list))
       (is (not
            (nth-value
             1 (kv-get-chain-record database kind descendant-id)))))))
 
 (deftest node-store-invalid-eviction-cleans-orphan-bal-and-keeps-shared-owner
+  ;; Old datadirs hold :INVALID-TIPSET records.  When this process evicts the
+  ;; same verdict from its cache, the tombstone deletes the legacy record and
+  ;; the BAL no other record owns.
   (let* ((database (make-memory-key-value-database))
          (store (make-engine-payload-memory-store))
          (shared (chain-store-bal-persistence-test-block 1 1 :bal-p t))
          (orphan (chain-store-bal-persistence-test-block 2 2 :bal-p t))
+         (drain (chain-store-bal-persistence-test-block 600 3 :bal-p nil))
          (shared-id (hash32-bytes (block-hash shared)))
          (orphan-id (hash32-bytes (block-hash orphan))))
     ;; A staged body is an independent owner of the same immutable BAL.
@@ -670,6 +678,9 @@
      database :staged-block shared-id
      (ethereum-lisp.node-store.persistence::chain-store-block-record-rlp
       shared))
+    (chain-store-seed-legacy-invalid-tipset database shared)
+    (chain-store-seed-legacy-invalid-tipset database orphan)
+    (engine-payload-store-enable-durable-cache-change-tracking store)
     (loop for number from 1 to 514
           for block =
             (cond
@@ -677,9 +688,10 @@
               ((= number 2) orphan)
               (t (chain-store-bal-persistence-test-block
                   number (mod number 256) :bal-p t)))
-          do (engine-payload-store-mark-invalid store block :now number)
-             (node-store-export-invalid-candidate-to-kv
-              store block database))
+          do (engine-payload-store-mark-invalid store block :now number))
+    (ethereum-lisp.chain-store:engine-payload-store-put-remote-block
+     store drain :now 514)
+    (node-store-export-buffered-candidate-to-kv store drain database)
     (dolist (identifier (list shared-id orphan-id))
       (is (not
            (nth-value
@@ -751,8 +763,9 @@
               store block :now marker)
              (node-store-export-buffered-candidate-to-kv
               store block database))
+    ;; An old datadir's record, and the same verdict held in memory.
+    (chain-store-seed-legacy-invalid-tipset database invalid)
     (engine-payload-store-mark-invalid store invalid :now 100)
-    (node-store-export-invalid-candidate-to-kv store invalid database)
     (engine-payload-store-invalid-block
      store (block-hash invalid)
      :now (+ 100

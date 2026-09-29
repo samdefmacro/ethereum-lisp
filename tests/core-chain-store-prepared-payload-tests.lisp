@@ -666,6 +666,9 @@
             source invalid-block)
            (let ((database (make-file-key-value-database path)))
              (node-store-export-to-kv source database)
+             ;; The export writes no verdict; an old datadir's record does
+             ;; the same job for the legacy importer under test.
+             (chain-store-seed-legacy-invalid-tipset database invalid-block)
              (kv-put-chain-record
               database
               :prepared-payload

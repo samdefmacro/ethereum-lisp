@@ -712,6 +712,29 @@ height."
        hits invalid-key (1+ (gethash invalid-key hits 0))))
     invalid-block))
 
+(defun engine-payload-store-forget-invalid-block (store hash)
+  "Drop this process's INVALID verdict on HASH, with every descendant alias.
+
+For a block that a consensus-authorized ancestry contains: the snap pivot's
+state is authenticated by the snap proofs, so such a verdict is a local defect,
+and every descendant key that points at the block would otherwise keep
+answering 'links to previously rejected block'. Returns the number of keys
+removed, 0 when HASH has no verdict."
+  (setf store (chain-store-require-memory-store store))
+  (let ((invalid-key (engine-payload-store-key hash))
+        (stale-keys '()))
+    (maphash (lambda (key invalid-block)
+               (when (string= invalid-key
+                              (engine-payload-store-key
+                               (block-hash invalid-block)))
+                 (push key stale-keys)))
+             (memory-chain-store-invalid-tipsets store))
+    (dolist (key (sort stale-keys #'string<))
+      (engine-payload-store-cache-remove-key store :invalid key))
+    (chain-store-journal-remhash
+     (memory-chain-store-invalid-block-hits store) invalid-key)
+    (length stale-keys)))
+
 (defun engine-payload-store-invalid-block
     (store hash &key (now (unix-time)))
   (setf store (chain-store-require-memory-store store))

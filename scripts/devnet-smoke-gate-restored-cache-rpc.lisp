@@ -168,17 +168,21 @@
     (devnet-smoke-gate-require
      (not (fixture-object-field engine-rpc "error"))
      "Restored invalid-tipset engine_newPayloadV2 returned an error")
+    ;; An INVALID verdict belongs to the process that reached it and is never
+    ;; persisted (go-ethereum keeps its Engine verdicts in memory only).  The
+    ;; restored node has never seen the rejected parent, so the descendant
+    ;; waits for it: SYNCING, with no latestValidHash and no validation error.
     (devnet-smoke-gate-require
-     (string= +payload-status-invalid+
+     (string= +payload-status-syncing+
               (fixture-object-field payload-status "status"))
      "Restored invalid-tipset engine_newPayloadV2 status mismatch")
     (devnet-smoke-gate-require
-     (string= (hash32-to-hex expected-latest-valid-hash)
-              (fixture-object-field payload-status "latestValidHash"))
-     "Restored invalid-tipset latestValidHash mismatch")
+     (null (fixture-object-field payload-status "latestValidHash"))
+     "Restored invalid-tipset SYNCING status should not report latestValidHash (the pre-restart verdict named ~A)"
+     (hash32-to-hex expected-latest-valid-hash))
     (devnet-smoke-gate-require
-     (string= "links to previously rejected block" validation-error)
-     "Restored invalid-tipset validation error mismatch: ~A"
+     (null validation-error)
+     "Restored invalid-tipset node restored a verdict: ~A"
      validation-error)
     (devnet-smoke-gate-require
      (string= expected-head-block-number

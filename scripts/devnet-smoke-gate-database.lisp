@@ -135,16 +135,13 @@
                (block-rlp restored-remote-block))
        "Database restore changed the remote block RLP"))
     (when invalid-block
+      ;; INVALID verdicts are process-local: never written, never restored.
       (devnet-smoke-gate-require
-       (< 0 (length (kv-chain-record-entries database :invalid-tipset)))
-       "Database export did not write invalid-tipset records")
+       (null (kv-chain-record-entries database :invalid-tipset))
+       "Database export wrote an invalid-tipset record")
       (devnet-smoke-gate-require
-       restored-invalid-block
-       "Database restore did not publish the invalid-tipset cache")
-      (devnet-smoke-gate-require
-       (bytes= (block-rlp invalid-block)
-               (block-rlp restored-invalid-block))
-       "Database restore changed the invalid-tipset block RLP"))
+       (null restored-invalid-block)
+       "Database restore published an INVALID verdict"))
     (when txpool-transactions
       (devnet-smoke-gate-require
        (< 0 (length (kv-chain-record-entries database :txpool)))
