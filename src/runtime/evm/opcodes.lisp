@@ -113,6 +113,23 @@ the end of the code read as zero.  The frame's register loop inlines this."
                    (incf pc))))
     bitmap))
 
+;;; A contract's JUMPDEST analysis is a pass over its whole code, and a frame
+;;; ran it on every entry: an ERC-4337 bundle calls the same EntryPoint,
+;;; account and paymaster code dozens of times per block.  The bitmap is
+;;; remembered per code vector (EQ, weakly, so it goes with the code).  Code
+;;; vectors are never modified once they are code: state objects share them
+;;; (state-db STATE-OBJECT CODE) and CREATE copies its initcode out of memory.
+
+(defvar *jump-destination-bitmaps*
+  (make-hash-table :test 'eq :weakness :key :synchronized t)
+  "JUMP-DESTINATION-BITMAP results by code vector.")
+
+(defun code-jump-destinations (code)
+  "CODE's JUMPDEST bitmap, computed once per code vector."
+  (or (gethash code *jump-destination-bitmaps*)
+      (setf (gethash code *jump-destination-bitmaps*)
+            (jump-destination-bitmap code))))
+
 (defun valid-jump-destination-p (code destination &optional bitmap)
   (when (and (typep code 'byte-vector)
              (typep destination '(and fixnum unsigned-byte))

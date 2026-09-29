@@ -49,28 +49,29 @@ hiding them in one large lexical scope."
   (halted-p nil :type boolean))
 
 (defun make-evm-machine (code context gas-limit step-budget &optional gas-budget)
-  (%make-evm-machine
-   :code (ensure-byte-vector code)
-   :jump-destinations (jump-destination-bitmap (ensure-byte-vector code))
-   :context context
-   :gas-limit gas-limit
-   :gas-budget
-   (or gas-budget
-       (make-evm-gas-budget :regular (or gas-limit 0)))
-   :step-budget step-budget
-   :return-data-buffer
-   (if context
-       (ensure-byte-vector (evm-context-return-data context))
-       (make-byte-vector 0))
-   :frame-snapshot (capture-frame-snapshot context)
-   :original-storage-values
-   (if context
-       (evm-context-storage-originals context)
-       (make-hash-table :test 'equalp))
-   :cleared-storage-slots
-   (if context
-       (evm-context-storage-clears context)
-       (make-hash-table :test 'equalp))))
+  (let ((code (ensure-byte-vector code)))
+    (%make-evm-machine
+     :code code
+     :jump-destinations (code-jump-destinations code)
+     :context context
+     :gas-limit gas-limit
+     :gas-budget
+     (or gas-budget
+         (make-evm-gas-budget :regular (or gas-limit 0)))
+     :step-budget step-budget
+     :return-data-buffer
+     (if context
+         (ensure-byte-vector (evm-context-return-data context))
+         (make-byte-vector 0))
+     :frame-snapshot (capture-frame-snapshot context)
+     :original-storage-values
+     (if context
+         (evm-context-storage-originals context)
+         (make-hash-table :test 'equalp))
+     :cleared-storage-slots
+     (if context
+         (evm-context-storage-clears context)
+         (make-hash-table :test 'equalp)))))
 
 (defun %grow-evm-stack (machine)
   "Double MACHINE's stack vector (never beyond +STACK-LIMIT+) and return it."

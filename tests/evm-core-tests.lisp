@@ -856,3 +856,22 @@
     (dolist (value values)
       (is (= (mod value (expt 2 256))
              (ethereum-lisp.evm.internal::word value))))))
+
+(deftest evm-jumpdest-analysis-runs-once-per-code-vector
+  ;; Frames entering the same code vector share one JUMPDEST bitmap; another
+  ;; vector, even with equal bytes, is analysed for itself.
+  (let* ((code (hex-to-bytes "0x600456005b00"))
+         (twin (copy-seq code))
+         (first (ethereum-lisp.evm.internal::make-evm-machine code nil 100 nil))
+         (second (ethereum-lisp.evm.internal::make-evm-machine code nil 100 nil))
+         (other (ethereum-lisp.evm.internal::make-evm-machine twin nil 100 nil)))
+    (is (eq (ethereum-lisp.evm.internal::evm-machine-jump-destinations first)
+            (ethereum-lisp.evm.internal::evm-machine-jump-destinations second)))
+    (is (not (eq (ethereum-lisp.evm.internal::evm-machine-jump-destinations first)
+                 (ethereum-lisp.evm.internal::evm-machine-jump-destinations
+                  other))))
+    (is (equal (ethereum-lisp.evm.internal::jump-destination-bitmap code)
+               (ethereum-lisp.evm.internal::evm-machine-jump-destinations
+                first)))
+    (is (eq :stopped (evm-result-status
+                      (execute-bytecode code :gas-limit 100))))))
