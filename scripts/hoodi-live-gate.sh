@@ -1237,6 +1237,10 @@ docker stats --no-stream --format \
 printf 'datadir-bytes='
 du -sb "$datadir" | awk '{print $1}'
 printf 'datadir=%s\n' "$datadir"
+# Printed before any RPC, so it is there even when the node is down.
+printf 'runtime-revision-marker=%s container-revision=%s\n' \
+    "$(gate_read_runtime_revision "$datadir")" \
+    "$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container")"
 df -B1 "$datadir" | awk '
     NR == 2 {
         printf "data-filesystem-bytes=total=%s used=%s available=%s utilization=%s mount=%s\n", $2, $3, $4, $5, $6

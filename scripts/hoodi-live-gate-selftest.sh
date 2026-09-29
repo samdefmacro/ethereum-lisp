@@ -1284,6 +1284,29 @@ run 1 "restart over a newer marker" -- "$broker" restart
 says "FAIL: refusing to start $head_rev on $local_a: $head_rev is older than its last runtime revision $newer_rev ($local_a/RUNTIME-REVISION)"
 no_lifecycle_call "restart over a newer marker"
 
+# --- status prints the marker ------------------------------------------------------
+reset_world
+plant_key 0600
+plant_gate
+run 0 "status of a datadir without a marker" -- "$broker" status
+has "runtime-revision-marker=absent container-revision=$head_rev"
+
+plant_marker "$datadir_a" "$newer_rev"
+run 0 "status of a datadir with a marker" -- "$broker" status
+has "runtime-revision-marker=$newer_rev container-revision=$head_rev"
+
+printf 'garbage\n' > "$datadir_a/RUNTIME-REVISION"
+run 0 "status of a datadir with a malformed marker" -- "$broker" status
+has "runtime-revision-marker=malformed container-revision=$head_rev"
+
+# A stopped node has no RPC, but its marker is still reported.
+plant_marker "$datadir_a" "$head_rev"
+echo false > "$STUB_STATE/$new_container/running"
+run 1 "status of a stopped container" -- "$broker" status
+has "runtime-revision-marker=$head_rev container-revision=$head_rev"
+has "public RPC loopback port is unavailable"
+no_lifecycle_call "status"
+
 cat "$STUB_LOG" >> "$lifecycle_log"
 : > "$out"
 if grep -qE '^docker (rm|container rm|image rm|volume|system)' "$lifecycle_log"; then
