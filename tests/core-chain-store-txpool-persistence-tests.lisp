@@ -623,8 +623,14 @@
              :number 1
              :timestamp 12
              :gas-limit 30000000
+             :base-fee-per-gas 1
              :blob-gas-used 0
-             :excess-blob-gas (* 64 1024 1024))))
+             :excess-blob-gas (* 64 1024 1024)
+             :parent-beacon-root (zero-hash32))
+            ;; A whole Cancun header: the export/import round trip refuses a
+            ;; partial fork shape (which the old SIGNALS assertion here
+            ;; accepted as its expected failure).
+            :withdrawals '()))
          (transaction
            (transaction-from-encoding
             (hex-to-bytes
@@ -635,7 +641,9 @@
            (is (> (block-header-blob-base-fee (block-header head-block))
                   (blob-transaction-max-fee-per-blob-gas transaction)))
            (is (transaction-sender transaction :expected-chain-id 1337))
-           (chain-store-put-block source head-block :state-available-p t)
+           ;; No head state: the fixture's sender is unfunded, and the
+           ;; balance-dependent overdraft pruning is not what this pins.
+           (chain-store-put-block source head-block :state-available-p nil)
            (let ((database (make-file-key-value-database path)))
              (node-store-export-to-kv source database)
              (kv-put-chain-record
@@ -656,10 +664,11 @@
                (is (eq restored imported))
                (is (= 1 records))
                (is (null drops)))
-             (is (eq transaction
-                     (ethereum-lisp.txpool:engine-payload-store-blob-transaction
-                      restored
-                      (transaction-hash transaction))))
+             (is (bytes= (transaction-encoding transaction)
+                         (transaction-encoding
+                          (ethereum-lisp.txpool:engine-payload-store-blob-transaction
+                           restored
+                           (transaction-hash transaction)))))
              (is (eql 1000
                       (ethereum-lisp.txpool.index:engine-pending-txpool-admission-time
                        (ethereum-lisp.txpool:engine-payload-store-txpool restored)

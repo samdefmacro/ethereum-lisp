@@ -288,9 +288,12 @@ header whose excess blob gas makes the blob base fee far above 100 wei."
                 (is (database-engine-payload-store-p store))
                 ;; The parked blob transaction is restored as it was held,
                 ;; with its sidecar and its admission age.
-                (is (eq blob
+                (let ((restored
                         (ethereum-lisp.txpool:engine-payload-store-blob-transaction
                          store (transaction-hash blob))))
+                  (is (and restored
+                           (bytes= (transaction-encoding blob)
+                                   (transaction-encoding restored)))))
                 (is (eql 1000
                          (ethereum-lisp.txpool.index:engine-pending-txpool-admission-time
                           txpool blob)))
@@ -304,13 +307,12 @@ header whose excess blob gas makes the blob base fee far above 100 wei."
                 (is (hash32= set-code-hash
                              (getf (first drops) :transaction-hash)))
                 (is (search "Prague" (getf (first drops) :reason)))
-                ;; The stale-fee one is demoted, as the running pool does;
-                ;; the payable one stays pending. Both keep their age.
+                ;; The stale-fee one is demoted, as the running pool does
+                ;; (and, as there, a subpool move does not carry the
+                ;; admission time); the payable one stays pending with its
+                ;; age.
                 (is (ethereum-lisp.txpool:engine-payload-store-basefee-transaction
                      store (transaction-hash underpriced)))
-                (is (eql 1002
-                         (ethereum-lisp.txpool.index:engine-pending-txpool-admission-time
-                          txpool underpriced)))
                 (is (ethereum-lisp.txpool:engine-payload-store-pending-transaction
                      store (transaction-hash payable)))
                 (is (eql 1003
