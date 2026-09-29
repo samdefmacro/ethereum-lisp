@@ -901,3 +901,33 @@
         (is (equalp (reference value 20)
                     (address-bytes
                      (ethereum-lisp.evm.internal::word-to-address value))))))))
+
+(deftest evm-self-call-reaches-the-depth-limit-on-a-default-stack
+  ;; A contract that CALLs itself with all its gas until the 1,024 depth
+  ;; limit, run in a fresh thread with SBCL's default control stack: every
+  ;; level's frames must fit, as they did before the register loop (it once
+  ;; added a 144-byte frame per level and exhausted the stack short of the
+  ;; limit, which the EEST state gate showed as a runtime crash).  The thread
+  ;; body handles every condition; exhaustion is reported as a value.
+  (let* ((address (address-from-hex
+                   "0x00000000000000000000000000000000000000c0"))
+         (code (hex-to-bytes "0x5f5f5f5f5f305af100"))
+         (outcome nil)
+         (thread
+           (sb-thread:make-thread
+            (lambda ()
+              (setf outcome
+                    (handler-case
+                        (let ((state (make-state-db)))
+                          (state-db-set-code state address code)
+                          (evm-result-status
+                           (execute-bytecode
+                            code
+                            :context (make-evm-context :state state
+                                                       :address address)
+                            :gas-limit (expt 2 60))))
+                      (storage-condition () :control-stack-exhausted)
+                      (error (condition) (princ-to-string condition)))))
+            :name "evm-depth-limit")))
+    (sb-thread:join-thread thread :default nil)
+    (is (eq :stopped outcome))))
