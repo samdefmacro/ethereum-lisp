@@ -431,6 +431,7 @@
    #:+cell-proofs-per-blob+
    #:+bytes-per-cell+
    #:kzg-compute-cells-and-proofs
+   #:kzg-compute-cells
    #:validate-blob-sidecar-fields)
   (#:ethereum-lisp.p2p
    #:ecies-encrypt

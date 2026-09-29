@@ -164,28 +164,68 @@ deadline."
               when (logbitp bit byte)
                 collect (+ (* byte-index 8) bit))))
 
+(defun engine-rpc-blob-cells-and-proofs-v1 (blob-and-proofs indices)
+  "The BlobCellsAndProofsV1 object of BLOB-AND-PROOFS at cell INDICES.
+
+The cell proofs are the ones the store holds, as geth v1.17.6 serves them
+(blobpool Cache.GetCells, BlobPool.GetBlobCells); only the cells are computed
+from the blob, about 2 ms where cells and proofs together cost about 130 ms
+(docs/evidence/sec5-get-blobs-v4-cells.txt). A blob stored before Osaka
+carries its one EIP-4844 proof instead, and only then are its cell proofs
+derived. No index, no work."
+  (if (null indices)
+      (engine-rpc-blob-cells-and-proofs-v1-object '() '())
+      (let ((stored
+              (engine-blob-and-proofs-cell-proofs blob-and-proofs))
+            (blob (engine-blob-and-proofs-blob blob-and-proofs)))
+        (multiple-value-bind (cells proofs)
+            (if (= +cell-proofs-per-blob+ (length stored))
+                (values (kzg-compute-cells blob) stored)
+                (kzg-compute-cells-and-proofs blob))
+          (let ((cells (coerce cells 'simple-vector))
+                (proofs (coerce proofs 'simple-vector)))
+            (engine-rpc-blob-cells-and-proofs-v1-object
+             (mapcar (lambda (index) (svref cells index)) indices)
+             (mapcar (lambda (index) (svref proofs index)) indices)))))))
+
 (defun engine-rpc-handle-get-blobs-v4 (params store config)
+  "engine_getBlobsV4 (execution-apis src/engine/amsterdam.md): one
+BlobCellsAndProofsV1 or null per requested hash, in request order.
+
+Every distinct blob is read once, inside one blob read batch, so the cache
+bounds are enforced once for the request; its cells are computed once however
+often its hash repeats, after the reads and outside the batch."
   (engine-rpc-validate-blob-param-count params "engine_getBlobsV4" 2)
   (unless (engine-rpc-get-blobs-osaka-p store config)
     (return-from engine-rpc-handle-get-blobs-v4 nil))
   (let* ((method "engine_getBlobsV4")
          (hashes (engine-rpc-get-blob-hashes-param params method))
          (bitmap (engine-rpc-get-blobs-indices-bitmap-param params method))
-         (indices (engine-rpc-custody-bitmap-indices bitmap)))
+         (indices (engine-rpc-custody-bitmap-indices bitmap))
+         (keys (mapcar #'hash32-to-hex hashes))
+         (entries (make-hash-table :test #'equal))
+         (objects (make-hash-table :test #'equal)))
     (engine-rpc-validate-get-blobs-request-size hashes)
+    (call-with-engine-payload-store-blob-read-batch
+     store
+     (lambda ()
+       (loop for versioned-hash in hashes
+             for key in keys
+             unless (nth-value 1 (gethash key entries))
+               do (setf (gethash key entries)
+                        (engine-payload-store-blob-and-proofs-v1
+                         store versioned-hash)))))
     (mapcar
-     (lambda (versioned-hash)
-       (let ((blob-and-proofs
-               (engine-payload-store-blob-and-proofs-v1
-                store versioned-hash)))
-         (when blob-and-proofs
-           (multiple-value-bind (cells proofs)
-               (kzg-compute-cells-and-proofs
-                (engine-blob-and-proofs-blob blob-and-proofs))
-             (engine-rpc-blob-cells-and-proofs-v1-object
-              (mapcar (lambda (index) (nth index cells)) indices)
-              (mapcar (lambda (index) (nth index proofs)) indices))))))
-     hashes)))
+     (lambda (key)
+       (multiple-value-bind (object present-p) (gethash key objects)
+         (if present-p
+             object
+             (setf (gethash key objects)
+                   (let ((blob-and-proofs (gethash key entries)))
+                     (and blob-and-proofs
+                          (engine-rpc-blob-cells-and-proofs-v1
+                           blob-and-proofs indices)))))))
+     keys)))
 
 (defun engine-rpc-handle-has-blobs (params store)
   (let ((method "engine_hasBlobs"))

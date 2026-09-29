@@ -492,3 +492,264 @@
              (result (field response "result")))
         (is (eq t (first result)))
         (is (eq :false (second result)))))))
+
+;;; engine_getBlobsV4: one read batch, stored cell proofs, per-position nulls.
+
+(defun get-blobs-v4-test-cell-proof (blob-index cell-index)
+  "A stand-in cell proof naming its blob and its cell, so that a proof derived
+by c-kzg can never pass for the stored one."
+  (let ((proof (make-byte-vector +kzg-proof-size+ :initial-element #xa0)))
+    (setf (aref proof 0) blob-index
+          (aref proof 1) cell-index)
+    proof))
+
+(defun get-blobs-v4-test-blob (blob-index)
+  "A distinct, canonical blob: its first field element is 1 + BLOB-INDEX."
+  (let ((blob (make-byte-vector +blob-byte-size+)))
+    (setf (aref blob 31) (1+ blob-index))
+    blob))
+
+(defun get-blobs-v4-test-sidecar (first-index count &key cell-proofs-p)
+  "A sidecar of COUNT distinct blobs numbered from FIRST-INDEX, carrying the
+stand-in cell proofs when CELL-PROOFS-P and one EIP-4844 proof per blob
+otherwise."
+  (let ((indices (loop for index from first-index repeat count
+                       collect index)))
+    (make-blob-sidecar
+     :blobs (mapcar #'get-blobs-v4-test-blob indices)
+     :commitments
+     (mapcar (lambda (index)
+               (let ((commitment
+                       (make-byte-vector +kzg-commitment-size+
+                                         :initial-element #xc0)))
+                 (setf (aref commitment 1) index)
+                 commitment))
+             indices)
+     :proofs
+     (if cell-proofs-p
+         (loop for index in indices
+               append (loop for cell below +cell-proofs-per-blob+
+                            collect (get-blobs-v4-test-cell-proof index cell)))
+         (loop repeat count
+               collect (make-byte-vector +kzg-proof-size+
+                                         :initial-element #x22))))))
+
+(defun get-blobs-v4-test-put (store sidecar)
+  "Publish SIDECAR in STORE as the pool does, its proofs already verified."
+  (engine-payload-store-put-blob-sidecar
+   store sidecar
+   :proofs-verified-p t
+   :blob-proof-function
+   (lambda (blob commitment)
+     (declare (ignore blob commitment))
+     (make-byte-vector +kzg-proof-size+ :initial-element #x33))))
+
+(defun get-blobs-v4-test-bitmap (indices)
+  "The 16-byte little-endian custody bitmap selecting cell INDICES."
+  (let ((bitmap (make-byte-vector 16)))
+    (dolist (index indices bitmap)
+      (setf (aref bitmap (floor index 8))
+            (logior (aref bitmap (floor index 8))
+                    (ash 1 (mod index 8)))))))
+
+(defun get-blobs-v4-test-call (store config id hashes bitmap)
+  "The engine_getBlobsV4 response to HASHES and BITMAP."
+  (engine-rpc-handle-request
+   (list (cons "jsonrpc" "2.0")
+         (cons "id" id)
+         (cons "method" "engine_getBlobsV4")
+         (cons "params"
+               (list (mapcar #'hash32-to-hex hashes)
+                     (bytes-to-hex bitmap))))
+   store config))
+
+(defun get-blobs-v4-test-field (object name)
+  (cdr (assoc name object :test #'string=)))
+
+(defun get-blobs-v4-test-counting-calls (symbols thunk)
+  "Call THUNK with every function named in SYMBOLS counting its calls, and
+restore every definition after. THUNK receives a function of one symbol that
+answers that function's count so far."
+  (let ((originals (mapcar (lambda (symbol)
+                             (cons symbol (fdefinition symbol)))
+                           symbols))
+        (counts (make-hash-table :test #'eq)))
+    (unwind-protect
+         (progn
+           (dolist (entry originals)
+             (let ((symbol (car entry))
+                   (original (cdr entry)))
+               (setf (fdefinition symbol)
+                     (lambda (&rest arguments)
+                       (incf (gethash symbol counts 0))
+                       (apply original arguments)))))
+           (funcall thunk (lambda (symbol) (gethash symbol counts 0))))
+      (dolist (entry originals)
+        (setf (fdefinition (car entry)) (cdr entry))))))
+
+(defun get-blobs-v4-test-expected-object (cells blob-index indices)
+  "The blob_cells and proofs hex lists engine_getBlobsV4 must answer for the
+blob numbered BLOB-INDEX, whose 128 cells are CELLS."
+  (values
+   (mapcar (lambda (index) (bytes-to-hex (nth index cells))) indices)
+   (mapcar (lambda (index)
+             (bytes-to-hex (get-blobs-v4-test-cell-proof blob-index index)))
+           indices)))
+
+(deftest engine-rpc-get-blobs-v4-reads-each-blob-once-and-serves-stored-cell-proofs
+  ;; E1 (wave 6, out of scope there): the V4 handler read every requested blob
+  ;; through a call that enforced the blob cache bounds -- a walk and two sorts
+  ;; of the whole cache -- once per blob, the per-read cost 68c2f376 removed
+  ;; from V1-V3 and hasBlobs; and it ran c-kzg's full cell AND proof derivation
+  ;; for every blob (about 0.12 s each in the warm image) although the store
+  ;; holds the 128 cell proofs. go-ethereum v1.17.6 GetBlobsV4 answers from
+  ;; blobpool Cache.GetCells / BlobPool.GetBlobCells, which serve the stored
+  ;; proofs as they are. For six blobs: six enforcements become one, six
+  ;; derivations none, and the proofs answered are the stored ones.
+  (unless (kzg-cell-computation-available-p)
+    (skip-test "c-kzg cell computation (libethckzg) is unavailable"))
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :london-block 0 :osaka-time 0))
+         (sidecar (get-blobs-v4-test-sidecar 0 6 :cell-proofs-p t))
+         (legacy (get-blobs-v4-test-sidecar 6 1))
+         (indices '(0 9 127))
+         (bitmap (get-blobs-v4-test-bitmap indices))
+         (oracle-cells
+           (mapcar (lambda (blob)
+                     (values (kzg-compute-cells-and-proofs blob)))
+                   (blob-sidecar-blobs sidecar)))
+         (enforce
+           'ethereum-lisp.chain-store::engine-payload-store-enforce-cache-bounds)
+         (derive 'ethereum-lisp.kzg::kzg-compute-cells-and-proofs))
+    (get-blobs-v4-test-put store sidecar)
+    (get-blobs-v4-test-put store legacy)
+    (get-blobs-v4-test-counting-calls
+     (list enforce derive)
+     (lambda (count)
+       (let ((result
+               (get-blobs-v4-test-field
+                (get-blobs-v4-test-call
+                 store config 50 (blob-sidecar-versioned-hashes sidecar)
+                 bitmap)
+                "result")))
+         (is (= 6 (length result)))
+         (loop for object in result
+               for cells in oracle-cells
+               for blob-index from 0
+               do (multiple-value-bind (expected-cells expected-proofs)
+                      (get-blobs-v4-test-expected-object
+                       cells blob-index indices)
+                    (is (equal expected-cells
+                               (get-blobs-v4-test-field object "blob_cells")))
+                    (is (equal expected-proofs
+                               (get-blobs-v4-test-field object "proofs")))))
+         (is (= 1 (funcall count enforce)))
+         (is (= 0 (funcall count derive))))
+       ;; Positive control: a blob stored before Osaka with its one EIP-4844
+       ;; proof has no cell proofs to serve, so its cells and proofs are
+       ;; derived, and the counters see both the read and the derivation.
+       (let* ((result
+                (get-blobs-v4-test-field
+                 (get-blobs-v4-test-call
+                  store config 51 (blob-sidecar-versioned-hashes legacy)
+                  bitmap)
+                 "result"))
+              (object (first result)))
+         (is (= 1 (length result)))
+         (is (= 3 (length (get-blobs-v4-test-field object "proofs"))))
+         (is (= 2 (funcall count enforce)))
+         (is (= 1 (funcall count derive))))))))
+
+(deftest engine-rpc-get-blobs-v4-answers-each-position-and-bounds-the-request
+  ;; Parity with go-ethereum v1.17.6 GetBlobsV4 and execution-apis
+  ;; src/engine/amsterdam.md: one entry per requested hash in request order,
+  ;; null where the blob is unknown (never an error, never a null response
+  ;; for a partial hit); a repeated hash answers the same blob, its cells
+  ;; computed once; more than 128 hashes is -38004 (geth's len(hashes) > 128,
+  ;; and 128 itself is served); before Osaka the result is null; the bitmap
+  ;; is 16 bytes.
+  (unless (kzg-cell-computation-available-p)
+    (skip-test "c-kzg cell computation (libethckzg) is unavailable"))
+  (let* ((store (make-engine-payload-memory-store))
+         (config (make-chain-config :london-block 0 :osaka-time 0))
+         (sidecar (get-blobs-v4-test-sidecar 0 2 :cell-proofs-p t))
+         (hashes (blob-sidecar-versioned-hashes sidecar))
+         (a (first hashes))
+         (b (second hashes))
+         (unknown (make-hash32 (make-byte-vector 32 :initial-element #x44)))
+         (other-unknown
+           (make-hash32 (make-byte-vector 32 :initial-element #x45)))
+         (indices '(0 9 127))
+         (bitmap (get-blobs-v4-test-bitmap indices))
+         (cells-of-b
+           (values (kzg-compute-cells-and-proofs
+                    (second (blob-sidecar-blobs sidecar)))))
+         (compute-cells 'ethereum-lisp.kzg::kzg-compute-cells)
+         (derive 'ethereum-lisp.kzg::kzg-compute-cells-and-proofs))
+    (get-blobs-v4-test-put store sidecar)
+    ;; The cells alone are the cells of the full derivation.
+    (is (equalp cells-of-b
+                (ethereum-lisp.kzg::kzg-compute-cells
+                 (second (blob-sidecar-blobs sidecar)))))
+    (get-blobs-v4-test-counting-calls
+     (list compute-cells derive)
+     (lambda (count)
+       (let ((result
+               (get-blobs-v4-test-field
+                (get-blobs-v4-test-call store config 60
+                                        (list a unknown a b) bitmap)
+                "result")))
+         (is (= 4 (length result)))
+         (is (null (second result)))
+         (is (equal (first result) (third result)))
+         (multiple-value-bind (expected-cells expected-proofs)
+             (get-blobs-v4-test-expected-object cells-of-b 1 indices)
+           (is (equal expected-cells
+                      (get-blobs-v4-test-field (fourth result) "blob_cells")))
+           (is (equal expected-proofs
+                      (get-blobs-v4-test-field (fourth result) "proofs"))))
+         (is (= 2 (funcall count compute-cells)))
+         (is (= 0 (funcall count derive))))
+       ;; A mask selecting no cell answers empty arrays and computes nothing.
+       (let ((object
+               (first
+                (get-blobs-v4-test-field
+                 (get-blobs-v4-test-call store config 61 (list a)
+                                         (make-byte-vector 16))
+                 "result"))))
+         (is (ethereum-lisp.json:json-empty-array-p
+              (get-blobs-v4-test-field object "blob_cells")))
+         (is (ethereum-lisp.json:json-empty-array-p
+              (get-blobs-v4-test-field object "proofs")))
+         (is (= 2 (funcall count compute-cells))))))
+    ;; Nothing known: a null per position, not a null response or an error.
+    (let ((response (get-blobs-v4-test-call store config 62
+                                            (list unknown other-unknown)
+                                            bitmap)))
+      (is (null (get-blobs-v4-test-field response "error")))
+      (is (equal '(nil nil) (get-blobs-v4-test-field response "result"))))
+    ;; 128 hashes are served; 129 are too large a request.
+    (let ((response (get-blobs-v4-test-call
+                     store config 63
+                     (loop repeat 128 collect unknown) bitmap)))
+      (is (null (get-blobs-v4-test-field response "error")))
+      (is (= 128 (length (get-blobs-v4-test-field response "result")))))
+    (let ((error (get-blobs-v4-test-field
+                  (get-blobs-v4-test-call
+                   store config 64 (loop repeat 129 collect a) bitmap)
+                  "error")))
+      (is (= -38004 (get-blobs-v4-test-field error "code")))
+      (is (string= "The number of requested blobs must not exceed 128"
+                   (get-blobs-v4-test-field error "message"))))
+    ;; Before Osaka the method answers null.
+    (let ((response (get-blobs-v4-test-call store (make-chain-config) 65
+                                            (list a) bitmap)))
+      (is (null (get-blobs-v4-test-field response "error")))
+      (is (assoc "result" response :test #'string=))
+      (is (null (get-blobs-v4-test-field response "result"))))
+    ;; The custody bitmap is 16 bytes.
+    (let ((error (get-blobs-v4-test-field
+                  (get-blobs-v4-test-call store config 66 (list a)
+                                          (make-byte-vector 15))
+                  "error")))
+      (is (= -32602 (get-blobs-v4-test-field error "code"))))))
