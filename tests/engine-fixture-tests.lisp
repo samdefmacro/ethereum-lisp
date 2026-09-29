@@ -18,5 +18,6 @@
            "tests/engine-fixture-rpc-request-helpers.lisp"
            "tests/engine-fixture-shape-tests.lisp"
            "tests/engine-fixture-receipt-tests.lisp"
-           "tests/engine-fixture-canonical-tests.lisp"))
+           "tests/engine-fixture-canonical-tests.lisp"
+           "tests/fixture-runner-amsterdam.lisp"))
   (load-engine-fixture-test-file relative-path))
