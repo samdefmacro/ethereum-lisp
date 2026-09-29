@@ -97,6 +97,7 @@ record names no fix.
 - The six seconds are EVM interpreter throughput on Hoodi gas-burner blocks → [sec5-newpayload-six-second-cpu.txt](sec5-newpayload-six-second-cpu.txt) → 43be69c5
 - A full gas-burner block still cost ~1 s: list stack, generic arithmetic, byte-wise memory → [sec5-evm-throughput.txt](sec5-evm-throughput.txt) → 94a0ade3, 0db8897f, 3e56d398, e8f58512
 - Hoodi block 3684027 rejected with a gas-used mismatch, and the verdict survived the upgrade: a lazily read storage slot read as zero after a reverted frame; verdicts were restored at startup → [sec5-hoodi-gas-mismatch.txt](sec5-hoodi-gas-mismatch.txt) → 72d148aa, 60fb6e91
+- An offline gate replaying real Hoodi blocks against their header commitments and a reference client; on 322 blocks it found only 3685491's defect (four EntryPoint transactions 3 gas short) → [sec5-hoodi-differential-replay.txt](sec5-hoodi-differential-replay.txt) → 879f7454 (test)
 - Engine requests timed out behind long store-guard holds (R4) → [sec5-engine-availability.txt](sec5-engine-availability.txt) → 1b84073c, 28721a06
 - Peer-session holds of 20-134 s and heap growth: snap serving enumerated whole tries → [sec5-peer-session-holds.txt](sec5-peer-session-holds.txt) → 6dae34ea
 - forkchoiceUpdated's growing CPU cost was the txpool reconciliation → [sec5-fcu-canonical-cost.txt](sec5-fcu-canonical-cost.txt) → 80da9d7c

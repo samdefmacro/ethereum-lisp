@@ -1331,9 +1331,14 @@ block whose manifest verifies. Then run the gate:
 ETHEREUM_LISP_HOODI_REPLAY_ROOT=.hoodi-replay \
   cl-workbench validation run cold-integration \
   --match HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT
-# Optional: ETHEREUM_LISP_HOODI_REPLAY_BLOCKS=3685380-3685490,3685492
+# Optional subset, numbers and FROM-TO ranges:
+#   ETHEREUM_LISP_HOODI_REPLAY_BLOCKS=3685380-3685490,3685492
 cl-workbench validation run cold-unit --match HOODI-REPLAY-
 ```
+
+On the default corpus at 1a7b9059 the gate fails on six blocks: four
+EntryPoint handleOps transactions 3 gas short (3685491's defect) and two whose
+witness lacks a trie node (3679328, 3685509); the record lists them.
 
 The cold broker mounts the corpus read-only. Without the variable the test
 skips and says so; with it, the test fails unless it replayed at least one

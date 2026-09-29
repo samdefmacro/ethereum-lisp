@@ -1,0 +1,266 @@
+Section 5: a differential replay of real Hoodi blocks, before any deploy
+
+Status
+
+Branch hoodi-differential-replay, from 1a7b9059 (sec5-public-bootstrap-sync
+head, 1a7b9059fef8ab705e6b0b56db831c7e6adef911). A new offline gate, not a
+fix: a fetch script, a test file, one cold-broker variable and documentation.
+No src/ change, so every result below is the behaviour of 1a7b9059. Not
+deployed, no live run, no cold-all (the coordinator runs it once at the end).
+
+Why. Two consensus divergences reached the live node in one week: 3684027 (a
+lazily read slot lost on revert, docs/evidence/sec5-hoodi-gas-mismatch.txt)
+and 3685491 (3 gas short, fixed on another branch). EEST tests@v20.0.2 passed
+8/8 on both revisions: it drives an in-memory state that holds every slot from
+the start and contains none of today's Hoodi traffic (gas burners, ERC-4337
+bundles, blob transactions, EIP-7702, the BPO blob schedule).
+
+Result on the default corpus (322 blocks, 9,740 transactions): 316 blocks
+match every header commitment, the post-state root included; 4 diverge, all
+the same defect as 3685491 (an ERC-4337 EntryPoint handleOps transaction 3 gas
+short); 2 cannot be replayed from their witness. No other divergence.
+
+Revision
+
+  879f7454  test: replay real Hoodi blocks offline against the chain and a
+            reference client
+  (the commit adding this record follows it)
+
+================================================================================
+1. What the gate does
+================================================================================
+
+scripts/fetch-hoodi-replay-corpus.sh (control plane: bash, curl, jq, a sha256
+tool) writes, per block N, .hoodi-replay/N/ holding the JSON-RPC results of
+
+  eth_getBlockByNumber(N, true)            block.json
+  debug_getRawBlock(N)                     raw-block.json (the exact RLP)
+  eth_getBlockReceipts(N)                  receipts.json
+  debug_traceBlockByNumber prestateTracer  prestate.json
+  debug_traceBlockByNumber diffMode        diff.json
+  eth_getBlockByNumber(N-1, false)         parent.json
+  debug_executionWitness(N)                witness.json
+  eth_getCode(A, N-1), withdrawal
+    recipients A that have code            codes.json
+  manifest.json                            hash, parent hash, source, client
+                                           version, sha256 of each file
+
+one call at a time (0.2 s apart, three retries), into .partial-N renamed into
+place only after the cross-file checks pass (block number and hash, parent
+link, one receipt and one trace per transaction in block order, witness
+shape). A rerun skips a block whose manifest verifies. Default: 3685380..
+3685600, 3684027, and 100 blocks every 500 from 3666328 (head 3716328 at the
+first run, pinned in .hoodi-replay/sample-blocks.txt). The source is
+https://rpc.hoodi.ethpandaops.io, which is load-balanced: web3_clientVersion
+answered "reth/v2.6.0-73a3a00/x86_64-unknown-linux-gnu" for 321 of the 322
+blocks' runs and "erigon/3.7.0/linux-amd64/go1.27.1" for the codes.json pass
+and one block, and a single call cannot say which backend served it. The brief
+called the traces "geth's view"; they are reth's or erigon's.
+
+HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT (tests/hoodi-replay-tests.lisp,
+integration). ETHEREUM_LISP_HOODI_REPLAY_ROOT selects the corpus and
+ETHEREUM_LISP_HOODI_REPLAY_BLOCKS an optional subset (numbers and FROM-TO
+ranges); scripts/dev.sh mounts the corpus read-only in the cold container.
+Per block:
+
+  (a) Decode raw-block.json with BLOCK-FROM-RLP and require BLOCK-HASH to be
+      the manifest's hash.
+  (b) Build the parent state the way CHAIN-STORE-STATE-DB builds it on the
+      direct RocksDB provider: MAKE-LAZY-STATE-DB over MAKE-PERSISTED-MPT at
+      the parent's state root (:trie, :cached-root, :direct-trie-p t), each
+      account's storage trie a MAKE-PERSISTED-MPT at its storage root, code by
+      hash. Only the byte source differs: the witness's trie nodes and codes
+      instead of RocksDB. Every node is hash-checked when first read, the root
+      is the parent header's, and the parent header (from the witness, each
+      ancestor linked by hash) hashes to the block's parent hash, so the
+      pre-state is authenticated by the block hash. A witness carries only the
+      code execution ran; the loader reads every loaded account's code, so code
+      also comes from the traces and codes.json, keyed by its own keccak.
+  (c) Strict run: VALIDATE-BLOCK-AGAINST-CONFIG (the parent/header/body half
+      of BLOCK-IMPORT-VALIDATE-CANDIDATE: base fee, gas limit, excess blob
+      gas under the BPO schedule, blob counts), then EXECUTE-SIGNED-BLOCK with
+      the arguments EXECUTE-AND-COMMIT-ENGINE-PAYLOAD passes (the block's own
+      header, :expected-block-hash, :apply-block-rewards-p t, ommers,
+      withdrawals, the chain config, the parent header, BLOCKHASH history from
+      the witness's headers), minus the store commit. Requests are derived and
+      checked against the header's requests hash, as a P2P import checks them
+      (newPayload would also supply them). Success means every commitment
+      matched, the state root included.
+  (d) Localizing run, from a fresh pre-state: EXECUTE-BLOCK-WITH-MESSAGE-
+      APPLIER (which EXECUTE-SIGNED-BLOCK wraps) with the header's state root,
+      receipts root, logs bloom, gas used and requests hash cleared so it runs
+      to the end, and the node's applier (APPLY-SIGNED-MESSAGE-LIST) wrapped to
+      read the state once the transactions are done. Compared: per transaction
+      status, gas used and every log (address, topics, data) with the server's
+      receipts; every account the server's diffMode changed or our
+      transactions touched (presence, balance, nonce, code hash, every slot
+      either side knows) with the diffMode post-state, unchanged values read
+      from the pre-state; gasUsed, blobGasUsed, logsBloom, receiptsRoot,
+      requestsHash and stateRoot with the header. The strict run never reads
+      the state itself, so these reads cannot change what it measures (the
+      3684027 defect depended on when a slot was first read).
+  (e) Checks on the oracle: the server's receipts must rebuild the header's
+      receipts root (they are then authenticated); parent.json must name the
+      witness's parent and its state root; the server's prestateTracer values
+      (first appearance of each account and slot in the block) must equal the
+      witness-backed pre-state, the EIP-4788 and EIP-2935 contracts excepted
+      (the server shows them after the pre-block system calls).
+
+Verdicts: match (strict run passed and no difference anywhere); diverges (the
+strict run failed, or the decoded block hash differs); comparator (the strict
+run passed but the localizing comparison found a difference: a comparator or
+oracle defect); prestate (the server's prestate differs from the witness
+state); unreplayable (the corpus lacks a trie node, code or ancestor header
+the execution needs, or its files disagree). The test fails unless it
+replayed at least one block and every block matched. Each block prints
+"HOODI-REPLAY block=N verdict=... txs accounts slots prestateSlots ..." and,
+on a difference, the first one (transaction index and hash, account, field or
+slot, ours and the reference's, and the reference transaction that last
+wrote it) followed by up to eight of each kind.
+
+What it proves, and what it cannot
+
+- A match is a match with the chain, not only with the server: gas used,
+  receipts root, logs bloom, requests hash, blob gas used and the POST-STATE
+  ROOT are the block's own commitments. The brief expected a per-touched-
+  account check because a state root needs the full trie; the execution
+  witness supplies the trie nodes the root computation reads, so the root is
+  checked, and the per-account comparison only locates.
+- The per-transaction and per-account comparisons are the server's view. The
+  receipts are authenticated by the receipts root; the diffMode post-state is
+  not, and describes the state after the transactions, before withdrawals and
+  the post-block request system calls. Its reth-specific shapes were learned
+  from blocks whose root matched: a slot on a transaction's pre side and
+  absent from its post side was cleared; an account only on the pre side was
+  deleted; an account whose post side is only a zero codeHash was touched and
+  does not exist.
+- The account loader is a copy of CHAIN-STORE-STATE-DB's direct-provider
+  branch, not that function over RocksDB. Pending (unexported) parent tries,
+  the node's caches across blocks and a state object reused from the previous
+  block are not exercised: every block starts from a fresh state.
+- Not exercised: the Engine request's JSON decoding, a supplied
+  executionRequests list, the store's sender-admission checks, the durable
+  commit, forkchoice.
+- The corpus is what one load-balanced endpoint says the canonical chain is;
+  block hashes are not checked against a second source.
+
+================================================================================
+2. Controls
+================================================================================
+
+RED control: block 3684027 on the state layer before 72d148aa. In the warm
+image, `git apply -R` of 72d148aa's two src/runtime/state files, image
+restarted (the fix changed a defstruct), the block replayed alone:
+
+  verdict=diverges strict="Gas used mismatch at block 3684027:
+    header=4348360 computed=4329758"
+  first="tx 9 0xff0ed042a61bbb2000141154f326a90488a4d19c30e7d91e15592300a1
+    43025d gasUsed ours=323810 reference=342412"
+  commitments gasUsed 0x42111e / 0x4259c8, receiptsRoot and stateRoot differ
+
+the live rejection and the transaction sec5-hoodi-gas-mismatch.txt names, to
+the unit. Restored (git checkout of both files, image restarted): verdict=match,
+prestateSlots=402 (the record counts "all 402 slots the block touches"). The
+harness therefore catches the lazily-read-slot class EEST missed. (The first
+RED attempt stopped the localizing run on STATE-OBJECT-ZERO-SLOTS, which the
+fix introduced; the harness now guards that one call with FBOUNDP.)
+
+Natural positive control: 3685491 and three other blocks diverge (section 3),
+with receipt, state and commitment differences all reported.
+
+Comparator: on every matched block the localizing comparison found nothing
+while reading 11,868 accounts and 71,805 slots, and the prestate check
+compared 76,335 slots; on the diverging blocks it found the differences. The
+unit test HOODI-REPLAY-COMPARATOR-FINDS-EACH-KIND-OF-STATE-DIFFERENCE feeds a
+synthetic diffMode trace (a transfer to a created account, a written slot, a
+cleared slot, a deleted account, a zero-codeHash touched account): the
+matching state reads clean, and each single mutation (a slot, a cleared slot
+left set, an untouched slot, a balance, a missing created account, a
+surviving deleted account, a created touched account) is reported by field
+and attributed to transaction 0. Before the zero-codeHash rule, a 195-block
+warm run reported 27 blocks whose strict run passed as comparator
+disagreements (all "present ours=absent reference=present"); after it, none.
+
+Zero selection: HOODI-REPLAY-GATE-FAILS-A-RUN-THAT-REPLAYED-NOTHING (an empty
+run and a run of only unreplayable blocks fail with "no block was replayed").
+
+================================================================================
+3. Findings on the default corpus
+================================================================================
+
+(1) 3685491, 3685492, 3685546, 3685584 diverge, one transaction each, 3 gas
+short, the only four EntryPoint v0.6 handleOps transactions in the corpus
+(to 0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789, selector 0x1fad948c, from
+the bundler 0xe7ddc2a5ef61c12e9098a76973952c2870a0df13):
+
+  block    tx  hash (prefix)  ours     reference
+  3685491   7  0xe47dfc85...  785,933  785,936
+  3685492  22  0x5af499ac...  785,921  785,924
+  3685546  23  0x061a9ee3...  785,957  785,960
+  3685584   9  0x85a8e3ef...  785,969  785,972
+
+In each, log 6 of that transaction differs in its data (the EntryPoint's
+UserOperationEvent, which reports the gas it measured with GAS), the bundler
+and the EntryPoint's balances differ, one EntryPoint slot (0x91328e98...)
+differs, and the coinbase differs through the fee. So the 3 gas are spent
+inside the user operation's execution, before the EntryPoint reads GAS. This
+is the 3685491 defect under repair on another branch; nothing was changed
+here. The four blocks are the regression set for that fix.
+
+(2) 3679328 and 3685509 cannot be replayed: a storage deletion collapses a
+branch whose surviving child, trie node 0xbf99d9e4a9caedfad1f6c95434981ef4ae
+a13d6d8dfd63f302ee5733afbc3548 (the same node in both blocks, 6,181 blocks
+apart), is not in the witness. In 3685509 the deletions are transaction 45's
+five cleared slots of 0xbb8fb1bc9ffbfd7c06dfa9fdc3cbe3e89aeb37d0, which the
+server's diff clears too. MPT-DELETE resolves the surviving child to decide
+whether to merge its path, as go-ethereum's trie does. That reth needs no
+such read (it can know a child is a branch without its bytes) is a plausible
+explanation, not verified. Four more fetches of the 3685509 witness returned
+the same 655 nodes. This is a gap of the corpus, not a divergence.
+
+No other divergence: 9,475 transactions in 316 blocks match the chain.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0.
+
+Corpus: scripts/fetch-hoodi-replay-corpus.sh (default, then again to add
+codes.json in place): "blocks: 321 selected, 0 failed", then "blocks: 322
+selected, 0 failed" (321 codes.json added, 3685446 fetched again whole), 410
+MB. A second run on a fetched block prints "present".
+
+Cold, on 879f7454:
+  cl-workbench validation run cold-unit --match HOODI-REPLAY-
+    3 tests passed, EXIT=0
+  cl-workbench validation run cold-integration
+    --match HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT
+    corpus absent: "skip ... Set ETHEREUM_LISP_HOODI_REPLAY_ROOT to a corpus
+    fetched by scripts/fetch-hoodi-replay-corpus.sh to run this test",
+    0 passed, 1 skipped, EXIT=0
+  ETHEREUM_LISP_HOODI_REPLAY_ROOT=.hoodi-replay (same command)
+    "HOODI-REPLAY summary: selected=322 replayed=320 match=316 diverges=4
+    comparator=0 prestate=0 unreplayable=2", not ok "Hoodi replay: 6
+    failures", EXIT=1 (the four blocks of finding 1 and two of finding 2)
+  the same with ETHEREUM_LISP_HOODI_REPLAY_BLOCKS=3666328-3679327,
+    3679329-3685490,3685493-3685508,3685510-3685545,3685547-3685583,
+    3685585-3715828
+    "selected=316 replayed=316 match=316 ...", ok, EXIT=0
+
+Warm image (cl-workbench test NAME with temporary probes, removed before the
+commit): the RED control of section 2, 3684027 matching before and after it.
+
+Not verified
+
+- G1's fix: not on this branch. Replaying finding 1's four blocks on the
+  merged tree is the check for it.
+- The two unreplayable blocks (finding 2): what the missing node holds, and so
+  whether their execution matches, is unknown.
+- The diffMode interpretation beyond what the corpus exercised (SELFDESTRUCT,
+  EIP-7702 delegations reset, accounts created and deleted in one block).
+- The client that served each individual call (the endpoint is
+  load-balanced; section 1).
+- Blocks before the corpus's oldest (3666328), a fork boundary, and Amsterdam.
+- Run time: a full cold run of 322 blocks took a few minutes; not measured
+  precisely.

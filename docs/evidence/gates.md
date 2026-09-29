@@ -69,6 +69,7 @@ upstream `abbe05777ab83fb94ce18c425daaa7ab79e779c1`); Hive
 | 04a3aff4 | 2026-09-24 | f192550ac742 + smoke PASS (SBOM, provenance, SHA256SUMS exported) | 8/8 | — | — | — | upgrade on datadir-b5161312 (12 GiB): forward sync refused at 3684027 (persisted INVALID), pivot rebased to 3684866, healed from retained state in ~90 s, tail 3684877-3684908 at ~0.7 s/block, RSS 788 MB; exit 1 at 05:00:49Z on "tail block 3684909 returned SYNCING" | wave 1 + F fcu-canonical-cost + N peer-session-holds; records sec5-b5161312-hoodi-run.txt (addenda), sec5-snap-tail-syncing.txt |
 | cbfe2c63 | 2026-09-24 | — | 8/8 | — | — | — | — | evm-throughput branch (P2) on 886afd05: manifest lines identical to b5161312; merged as 5fee5219 |
 | 70409b12 | 2026-09-24 | — | 8/8 | — | — | — | — | hoodi-gas-mismatch branch (X) on 04a3aff4: lazy-state slot lost on revert (Hoodi 3684027) and persisted INVALID verdicts; record sec5-hoodi-gas-mismatch.txt |
+| 1a7b9059 | 2026-09-29 | — | — | — | — | — | offline differential replay, 322 blocks: 316 match every header commitment (state root included), 4 diverge (3685491, 3685492, 3685546, 3685584: EntryPoint handleOps 3 gas short), 2 unreplayable (witness gap) | replay gate added on hoodi-differential-replay (879f7454, tests only, src identical); record sec5-hoodi-differential-replay.txt |
 
 ## Revisions and source records
 
@@ -115,6 +116,7 @@ one with
 | 04a3aff4 | `04a3aff4f1bf6e68856131e641e9ddcedeb3f6fa` | coordinator run logs (scratchpad eest-04a3aff4, r5b-runtime-*.log, r5b-gate-upgrade2.log); sec5-b5161312-hoodi-run.txt addendum 2 |
 | cbfe2c63 | `cbfe2c633129d644b020e43cbdde0f9e52134296` | sec5-evm-throughput.txt |
 | 70409b12 | `70409b12184b5577da44e158d5d819c5d533183d` | sec5-hoodi-gas-mismatch.txt |
+| 1a7b9059 | `1a7b9059fef8ab705e6b0b56db831c7e6adef911` | sec5-hoodi-differential-replay.txt |
 
 Full revisions that the records give only in short form (d203fee6, aee866f7,
 880319df, b5161312) were resolved with `git rev-parse` on this repository.
