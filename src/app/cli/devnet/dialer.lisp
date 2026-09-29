@@ -604,14 +604,22 @@ are one recovery session and must agree."
                        headers)))))
          :penalty
          (lambda (reason score detail)
-           (devnet-peer-manager-log
-            node "peer.sync.source_penalty"
-            "peer" id "reason" reason "score" score "detail" detail)
-           (call-with-devnet-peer-table
-            node
-            (lambda ()
-              (devnet-peer-note-score
-               (devnet-node-peer-table node) id score))))
+           ;; A :FAILED fetch is the condition of a job this session ran,
+           ;; which DEVNET-PEER-PENDING-REQUEST also re-signalled into the
+           ;; session: the session ended on it, and its end charged it or not
+           ;; (DEVNET-PEER-SESSION-END-CHARGES-PEER-P). Charging it here as
+           ;; well scored one reply twice (-50). (A block outcome keeps the
+           ;; session and is charged nowhere, DEVNET-PEER-REQUEST-BLOCK-
+           ;; OUTCOME-P.)
+           (unless (eq reason :failed)
+             (devnet-peer-manager-log
+              node "peer.sync.source_penalty"
+              "peer" id "reason" reason "score" score "detail" detail)
+             (call-with-devnet-peer-table
+              node
+              (lambda ()
+                (devnet-peer-note-score
+                 (devnet-node-peer-table node) id score)))))
          :reject
          (lambda (condition)
            ;; A body or receipt list that contradicts its header: geth drops
