@@ -33,6 +33,20 @@ grinding backwards forever would be worse than reporting that.")
   (:documentation
    "A peer-specific backfill refusal or malformed backfill response."))
 
+(define-condition eth-sync-backfill-invalid-body
+    (eth-sync-backfill-peer-error eth-peer-protocol-error)
+  ()
+  (:documentation
+   "A backfilled block body whose commitments (transactions root, withdrawals
+root, ommers hash) do not match its header.
+
+Still a backfill refusal the coordinator recovers from on another peer, but
+also a protocol violation that ends the delivering peer's session: go-ethereum
+v1.17.6 queue.go DeliverBodies answers it errInvalidBody, which
+fetchers_concurrent.go validityErrorOfRequest hands back to the peer's
+message handler (eth/protocols/eth/dispatcher.go dispatchResponse), and the
+returned error disconnects the peer."))
+
 (defun eth-sync-backfill-peer-fail (control &rest arguments)
   "Signal a peer-scoped backfill failure that another target may recover from."
   (error 'eth-sync-backfill-peer-error
@@ -190,10 +204,14 @@ parent has been. Returns how many were imported."
                             (eth-sync-validate-body header body)
                           (ethereum-lisp.validation:block-validation-error
                               (condition)
-                            (eth-sync-backfill-peer-fail
+                            (error
+                             'eth-sync-backfill-invalid-body
+                             :format-control
                              "peer returned a body with invalid commitments: ~A"
-                             (ethereum-lisp.validation:block-validation-error-message
-                              condition))))
+                             :format-arguments
+                             (list
+                              (ethereum-lisp.validation:block-validation-error-message
+                               condition)))))
                         (let ((block (eth-sync-assemble-block header body)))
                           (funcall import-block block)
                           (incf imported)

@@ -1417,3 +1417,82 @@ until the peer disconnects."
                  (when server-error
                    (error "read-once server side failed: ~A" server-error)))))
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
+
+(deftest eth-sync-multi-peer-rejects-the-source-of-a-body-that-contradicts-its-header
+  (:layer :unit :module :p2p)
+  ;; go-ethereum v1.17.6 queue.go DeliverBodies answers a body whose
+  ;; transactions root, ommers hash or withdrawals do not match its header
+  ;; errInvalidBody, which fetchers_concurrent.go validityErrorOfRequest hands
+  ;; back to the delivering peer's handler: the peer is disconnected. The
+  ;; downloader disabled such a source for the download and kept its session.
+  ;; It now also hands the typed failure to the source's REJECT; a malformed
+  ;; answer of another kind (too few headers) is not rejected.
+  ;; (docs/evidence/sec5-robustness-followups.txt)
+  (let* ((header
+           (make-block-header
+            :number 1 :difficulty 0 :gas-limit 30000000
+            :extra-data (make-byte-vector 0)
+            :transactions-root (transaction-list-root '())
+            :ommers-hash (ommers-hash '())))
+         (empty-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions '() :ommers '()))
+         (wrong-body
+           (ethereum-lisp.eth-wire:make-eth-block-body
+            :transactions (list (make-legacy-transaction
+                                 :nonce 1 :gas-price 2 :gas-limit 21000
+                                 :value 3 :v 27 :r 4 :s 5))
+            :ommers '())))
+    (flet ((attempt (headers bodies)
+             (let* ((rejected '())
+                    (penalties '())
+                    (outcome
+                      (handler-case
+                          (list :imported
+                                (eth-sync-download-blocks-multi
+                                 (list
+                                  (make-eth-sync-peer-source
+                                   nil :id :only :head-number 1
+                                   :fetch-headers
+                                   (lambda (origin amount)
+                                     (declare (ignore origin amount))
+                                     headers)
+                                   :fetch-bodies
+                                   (lambda (seen-headers)
+                                     (declare (ignore seen-headers))
+                                     bodies)
+                                   :penalty
+                                   (lambda (reason score detail)
+                                     (declare (ignore score detail))
+                                     (push reason penalties))
+                                   :reject
+                                   (lambda (condition)
+                                     (push condition rejected))))
+                                 (lambda (block) (declare (ignore block)))
+                                 :start-number 1 :target-number 1
+                                 :fetch-receipts-p nil
+                                 :request-timeout-seconds 1d0))
+                        (ethereum-lisp.eth-sync:eth-sync-multi-peer-error (condition)
+                          (list :failed condition)))))
+               (values outcome rejected penalties))))
+      (multiple-value-bind (outcome rejected penalties)
+          (attempt (list header) (list wrong-body))
+        (is (eq :failed (first outcome)))
+        (is (= 1 (length rejected)))
+        (is (typep (first rejected)
+                   'ethereum-lisp.eth-sync::eth-sync-invalid-delivery))
+        (is (search "body does not match its header"
+                    (princ-to-string (first rejected))))
+        (is (equal '(:malformed) penalties)))
+      ;; Control: an answer with no header is malformed, not rejected.
+      (multiple-value-bind (outcome rejected penalties)
+          (attempt '() (list empty-body))
+        (is (eq :failed (first outcome)))
+        (is (null rejected))
+        (is (equal '(:malformed) penalties)))
+      ;; Control: the committed body imports.
+      (multiple-value-bind (outcome rejected penalties)
+          (attempt (list header) (list empty-body))
+        (is (equal '(:imported 1) outcome))
+        (is (null rejected))
+        (is (null penalties))))))

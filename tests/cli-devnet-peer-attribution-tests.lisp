@@ -919,3 +919,228 @@ TYPE-ERROR Hoodi 3685491 raised before d7a28c6c when it executes block HASH."
                'ethereum-lisp.eth-sync:eth-peer-protocol-error
                :format-control "injected protocol violation"
                :format-arguments nil)))))
+
+;;;; Parity with go-ethereum v1.17.6 where we were more lenient: a peer that
+;;;; answers with data contradicting its request is disconnected (geth
+;;;; errInvalidBody / errInvalidReceipt, eth/downloader/fetchers_concurrent.go
+;;;; validityErrorOfRequest; a snap handler's returned error,
+;;;; eth/protocols/snap/handler.go HandleMessage). A well-formed block that
+;;;; executes INVALID still disconnects nobody.
+
+(defun peer-attribution-body-mismatch-copy (block)
+  "BLOCK with a header that commits to a transactions root its (empty) body
+does not have: the wire-level fault geth answers errInvalidBody."
+  (let ((header (copy-structure (block-header block)))
+        (copy (copy-structure block)))
+    (setf (block-header-transactions-root header)
+          (make-hash32 (make-byte-vector 32 :initial-element #x5b))
+          (block-header copy) header)
+    copy))
+
+(defun peer-attribution-child-of (parent)
+  "A block the CL could have buffered on PARENT: a gap-fill target."
+  (make-block
+   :header
+   (make-block-header
+    :parent-hash (block-hash parent)
+    :number (1+ (block-header-number (block-header parent)))
+    :gas-limit 30000000
+    :timestamp (+ 12 (block-header-timestamp (block-header parent))))))
+
+(deftest devnet-peer-session-ends-on-a-gap-fill-body-that-contradicts-its-header
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; sec5-peer-attribution.txt D5: a backfilled body whose commitments do not
+  ;; match its header was logged as peer.sync.gap_failed and the session
+  ;; kept. geth drops the peer (errInvalidBody). Control first, on the same
+  ;; session: a well-formed block that executes INVALID keeps it (H2's rule,
+  ;; DEVNET-PEER-SESSION-OUTLIVES-AN-INVALID-VERDICT-FROM-ITS-GAP-FILL). RED
+  ;; at c677bdf0: the session survived the contradicting body.
+  #+sbcl
+  (let* ((blocks nil)
+         (executes-invalid nil)
+         (contradicting nil)
+         (server-outcome
+           (call-with-peer-attribution-session
+            (lambda (genesis config)
+              (setf blocks (eth-sync-produce-empty-blocks genesis config 2)
+                    executes-invalid (peer-attribution-invalid-copy
+                                      (second blocks))
+                    contradicting (peer-attribution-body-mismatch-copy
+                                   (second blocks)))
+              (list (first blocks) executes-invalid contradicting))
+            (lambda (client entry logs)
+              (let ((queue (ethereum-lisp.cli::devnet-peer-entry-request-queue
+                            entry))
+                    (table (ethereum-lisp.cli:devnet-node-peer-table client))
+                    (id-hex (ethereum-lisp.cli::devnet-peer-entry-id-hex entry)))
+                ;; Control: INVALID by execution.
+                (let ((outcome (peer-attribution-fill-gap
+                                client (peer-attribution-child-of
+                                        executes-invalid))))
+                  (is (typep (second outcome)
+                             'ethereum-lisp.cli::devnet-peer-sync-invalid)))
+                (sleep 0.5)
+                (is (peer-attribution-session-intact-p client entry))
+                ;; A body its header does not commit to.
+                (let ((outcome (peer-attribution-fill-gap
+                                client (peer-attribution-child-of
+                                        contradicting))))
+                  ;; The coordinator moved on: no other live peer to ask.
+                  (is (typep (second outcome)
+                             'ethereum-lisp.eth-sync:eth-sync-multi-peer-error)))
+                (wait-for-test-condition
+                 "session teardown after a contradicting body" 5d0
+                 (lambda () (null (peer-attribution-entry client))))
+                (is (ethereum-lisp.cli::devnet-peer-request-queue-closed-p
+                     queue))
+                (is (= -25 (ethereum-lisp.cli::devnet-peer-score table id-hex)))
+                ;; The dial thread logs after the session's own teardown.
+                (wait-for-test-condition
+                 "peer.dial.failed after the teardown" 5d0
+                 (lambda ()
+                   (find "peer.dial.failed" (funcall logs)
+                         :key #'first :test #'string=)))
+                (let ((events (funcall logs)))
+                  (is (= 1 (count "peer.sync.gap_invalid_body" events
+                                  :key #'first :test #'string=)))
+                  (is (find "peer.sync.gap_peer_failed" events
+                            :key #'first :test #'string=))))))))
+    ;; The peer was told why: a devp2p Disconnect, subprotocol error.
+    (is (equal (list :disconnected
+                     ethereum-lisp.p2p:+devp2p-disconnect-subprotocol-error+)
+               server-outcome)))
+  #-sbcl
+  (is t))
+
+(deftest devnet-peer-session-ends-on-a-downloaded-body-that-contradicts-its-header
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; The same fault met by the multi-peer forward downloader: the delivery
+  ;; is refused and scored as malformed (-50) as before, and now the session
+  ;; ends too, without a second charge. RED at c677bdf0: the session
+  ;; survived.
+  #+sbcl
+  (let* ((contradicting nil)
+         (server-outcome
+           (call-with-peer-attribution-session
+            (lambda (genesis config)
+              (setf contradicting
+                    (peer-attribution-body-mismatch-copy
+                     (first (eth-sync-produce-empty-blocks genesis config 1))))
+              (list contradicting))
+            (lambda (client entry logs)
+              (let ((table (ethereum-lisp.cli:devnet-node-peer-table client))
+                    (id-hex (ethereum-lisp.cli::devnet-peer-entry-id-hex entry)))
+                (is (typep (handler-case
+                               (eth-sync-download-blocks-multi
+                                (ethereum-lisp.cli::devnet-node-sync-peer-sources
+                                 client)
+                                (lambda (block) (declare (ignore block)))
+                                :start-number 1 :target-number 1
+                                :fetch-receipts-p nil
+                                :request-timeout-seconds 10)
+                             (serious-condition (condition) condition))
+                           'ethereum-lisp.eth-sync:eth-sync-multi-peer-error))
+                (wait-for-test-condition
+                 "session teardown after a contradicting downloaded body" 5d0
+                 (lambda () (null (peer-attribution-entry client))))
+                (is (= -50 (ethereum-lisp.cli::devnet-peer-score table id-hex)))
+                (is (= 1 (count "peer.session.invalid_delivery" (funcall logs)
+                                :key #'first :test #'string=))))))))
+    (is (equal (list :disconnected
+                     ethereum-lisp.p2p:+devp2p-disconnect-subprotocol-error+)
+               server-outcome)))
+  #-sbcl
+  (is t))
+
+(deftest devnet-snap-source-pool-ends-the-session-of-an-invalid-dependency-response
+  (:layer :unit :module :p2p)
+  ;; sec5-peer-attribution.txt D5: a pooled dependency whose proof failed
+  ;; cooled the peer down for 30 s and kept its session; geth disconnects
+  ;; it. Only that failure ends the session: an empty answer (state
+  ;; unavailable), a request timeout and a transport failure do not.
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (bad (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "bad-peer"))
+         (good (ethereum-lisp.cli::make-devnet-peer-entry :id-hex "good-peer"))
+         (ended '()))
+    (flet ((call-with-first-failing (failure)
+             ;; FAILURE is the bad peer's first answer; a retry that returns
+             ;; to it (a timeout does not cool a peer down) is answered.
+             (setf ended '())
+             (let ((pool (ethereum-lisp.cli::make-devnet-snap-source-pool
+                          node))
+                   (bad-calls 0))
+               (devnet-peer-sync-call-with-function-overrides
+                (list
+                 (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+                       (lambda (seen-node &key snap-only-p)
+                         (declare (ignore seen-node snap-only-p))
+                         (list bad good)))
+                 (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+                       (lambda (entry)
+                         (devnet-snap-test-source
+                          :storage-ranges
+                          (lambda (request)
+                            (declare (ignore request))
+                            (if (and (eq entry bad) (= 1 (incf bad-calls)))
+                                (funcall failure)
+                                :good-response)))))
+                 (cons 'ethereum-lisp.cli::devnet-peer-end-session-for-invalid-delivery
+                       (lambda (seen-node entry reason &key charged-p)
+                         (declare (ignore seen-node charged-p))
+                         (push (cons entry reason) ended)
+                         t))
+                 (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+                       (lambda (&rest arguments)
+                         (declare (ignore arguments)))))
+                (lambda ()
+                  (ethereum-lisp.cli::devnet-snap-source-pool-call
+                   pool ethereum-lisp.snap:+snap-message-storage-ranges+
+                   #'ethereum-lisp.snap-sync:snap-sync-source-storage-ranges
+                   :request "storage ranges"))))))
+      ;; The failing peer is tried first and its session ends; the request
+      ;; completes on the other peer.
+      (is (eq :good-response
+              (call-with-first-failing
+               (lambda ()
+                 (error 'ethereum-lisp.snap-sync::snap-sync-invalid-response
+                        :kind "storage-range"
+                        :cause (make-condition
+                                'simple-error
+                                :format-control "range proof does not verify"
+                                :format-arguments nil))))))
+      (is (= 1 (length ended)))
+      (is (eq bad (car (first ended))))
+      (is (typep (cdr (first ended))
+                 'ethereum-lisp.snap-sync::snap-sync-invalid-response))
+      ;; Controls: none of these is a contradicting answer.
+      (dolist (failure
+               (list
+                (lambda ()
+                  (ethereum-lisp.snap-sync::snap-sync-state-unavailable
+                   "storage-range"))
+                (lambda ()
+                  (error (make-condition
+                          'ethereum-lisp.cli::devnet-snap-request-timeout
+                          :request-id 1 :response-id 1 :timeout-seconds 1)))
+                (lambda ()
+                  (error 'ethereum-lisp.eth-sync:eth-sync-peer-transport-error
+                         :operation "GetStorageRanges"
+                         :cause (make-condition 'end-of-file
+                                                :stream *standard-input*)))))
+        (is (eq :good-response (call-with-first-failing failure)))
+        (is (null ended))))))
+
+(deftest devnet-peer-invalid-delivery-is-charged-once
+  (:layer :unit :module :p2p)
+  ;; A session ended for a contradicting answer is charged at its end,
+  ;; unless the requester already charged it (the downloader's -50).
+  (is (= -25 (peer-attribution-session-score
+              (make-condition 'ethereum-lisp.cli::devnet-peer-invalid-delivery
+                              :charged-p nil
+                              :format-control "x" :format-arguments nil))))
+  (is (= 0 (peer-attribution-session-score
+            (make-condition 'ethereum-lisp.cli::devnet-peer-invalid-delivery
+                            :charged-p t
+                            :format-control "x" :format-arguments nil)))))

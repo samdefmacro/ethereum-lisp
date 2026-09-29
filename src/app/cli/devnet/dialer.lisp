@@ -605,6 +605,12 @@ are one recovery session and must agree."
             (lambda ()
               (devnet-peer-note-score
                (devnet-node-peer-table node) id score))))
+         :reject
+         (lambda (condition)
+           ;; A body or receipt list that contradicts its header: geth drops
+           ;; the peer. :PENALTY above has already scored it as malformed.
+           (devnet-peer-end-session-for-invalid-delivery
+            node entry condition :charged-p t))
          :cancel
          (lambda ()
            (ignore-errors
@@ -1309,6 +1315,14 @@ the transport which supplied it."
            "peer" (devnet-peer-entry-id-hex entry)
            "type" label
            "error" transport-condition)
+          (when (typep transport-condition
+                       'ethereum-lisp.snap-sync:snap-sync-invalid-response)
+            ;; A proof that fails, an unrequested code: geth returns the error
+            ;; from its snap handler and the peer is disconnected. The pool
+            ;; already retired it for this request; its session ends too, and
+            ;; that end is the charge.
+            (devnet-peer-end-session-for-invalid-delivery
+             (devnet-snap-source-pool-node pool) entry transport-condition))
           (when (and
                  (typep
                   transport-condition
@@ -2847,9 +2861,11 @@ buffered a block it could not execute, and nothing went to fetch the ancestors
 that would let it. Each gap is filled by walking back from the buffered block's
 PARENT until we reach a block we hold, then executing forward.
 
-A peer-specific backfill refusal is logged and the next target is tried. Local
-storage, capability, validation, and unknown program failures propagate to the
-session supervisor instead of being misclassified as a peer branch miss."
+A peer-specific backfill refusal is logged and the next target is tried, except
+a body that does not match its header: that propagates, ending this peer's
+session as geth's errInvalidBody does. Local storage, capability, validation,
+and unknown program failures propagate to the session supervisor instead of
+being misclassified as a peer branch miss."
   (let ((store (devnet-node-store node))
         (imported 0)
         (*telemetry-activity-label* "sync-gap-fill"))
@@ -2882,6 +2898,14 @@ session supervisor instead of being misclassified as a peer branch miss."
                                        "target" (hash32-to-hex
                                                  (block-hash target)))
               (incf imported (1+ filled)))
+          (eth-sync-backfill-invalid-body (condition)
+            ;; The peer paired a header with a body it does not commit to.
+            ;; geth drops such a peer (errInvalidBody): this job's error ends
+            ;; the session, and the coordinator asks another peer.
+            (devnet-peer-manager-log node "peer.sync.gap_invalid_body"
+                                     "target" (hash32-to-hex (block-hash target))
+                                     "error" condition)
+            (error condition))
           (eth-sync-backfill-peer-error (condition)
             (devnet-peer-manager-log node "peer.sync.gap_failed"
                                      "target" (hash32-to-hex (block-hash target))
@@ -2908,6 +2932,11 @@ session supervisor instead of being misclassified as a peer branch miss."
                                        "blocks" filled
                                        "target" (hash32-to-hex target))
               (incf imported filled)))
+        (eth-sync-backfill-invalid-body (condition)
+          (devnet-peer-manager-log node "peer.sync.gap_invalid_body"
+                                   "target" (hash32-to-hex target)
+                                   "error" condition)
+          (error condition))
         (eth-sync-backfill-peer-error (condition)
           (devnet-peer-manager-log node "peer.sync.head_failed"
                                    "target" (hash32-to-hex target)

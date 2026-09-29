@@ -124,6 +124,8 @@
    #:+eth-backfill-batch-size+
    #:+eth-backfill-max-headers+
    #:eth-sync-backfill-peer-error
+   #:eth-sync-backfill-invalid-body
+   #:eth-sync-invalid-delivery
    #:eth-sync-peer-transport-error
    #:eth-sync-peer-transport-error-operation
    #:eth-sync-peer-transport-error-cause

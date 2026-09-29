@@ -372,6 +372,36 @@ throttling.")
      (format stream "Snap peer does not have the requested ~A state"
              (snap-sync-state-unavailable-request-kind condition)))))
 
+(define-condition snap-sync-invalid-response (error)
+  ((kind :initarg :kind :reader snap-sync-invalid-response-kind)
+   (cause :initarg :cause :reader snap-sync-invalid-response-cause))
+  (:report
+   (lambda (condition stream)
+     (format stream "Snap peer returned an invalid ~A response: ~A"
+             (snap-sync-invalid-response-kind condition)
+             (snap-sync-invalid-response-cause condition))))
+  (:documentation
+   "A snap response that fails verification against its request: a range
+proof that does not verify, an unrequested bytecode, a malformed group.
+
+The peer, not this node, is at fault, and go-ethereum v1.17.6 disconnects it:
+eth/protocols/snap/sync.go OnStorage and OnByteCodes return an error for
+each (\"Storage range failed proof\", \"unexpected bytecode\"), and the snap
+handler tears the connection down on any returned error
+(eth/protocols/snap/handler.go HandleMessage). An empty answer is the
+separate SNAP-SYNC-STATE-UNAVAILABLE."))
+
+(defun snap-sync-call-verifying-response (kind thunk)
+  "Call THUNK, the verification of one KIND response, re-signalling a failure
+as SNAP-SYNC-INVALID-RESPONSE. An empty answer (SNAP-SYNC-STATE-UNAVAILABLE)
+and a local storage fault keep their own types."
+  (handler-case (funcall thunk)
+    ((or snap-sync-state-unavailable ethereum-lisp.validation:storage-error)
+        (condition)
+      (error condition))
+    (error (condition)
+      (error 'snap-sync-invalid-response :kind kind :cause condition))))
+
 (define-condition snap-sync-request-timeout (error) ()
   (:documentation
    "One SNAP request expired without proving the peer session unusable.
@@ -1274,33 +1304,36 @@ response before retrying the same immutable request elsewhere."
            (make-byte-vector 0) (make-byte-vector 0) byte-limit)))
     (labels
         ((verify (response)
-           (let* ((groups (snap-storage-ranges-slots response))
-                  (proof (snap-storage-ranges-proof response))
-                  (received (length groups)))
-             (unless (= 1 (snap-storage-ranges-id response))
-               (error "Snap storage response id mismatch"))
-             (when (and (null groups) (null proof))
-               (snap-sync-state-unavailable "storage-range"))
-             (when (or (zerop received) (> received (length requested)))
-               (error "Snap peer returned an invalid storage group count"))
-             (let ((complete-count (if proof (1- received) received))
-                   (verified-groups '()))
-               (loop for commitment in requested
-                     for slots in groups
-                     repeat complete-count
-                     do (push
-                         (snap-sync-verify-complete-storage-group
-                          commitment slots)
-                         verified-groups))
-               (when proof
-                 (let ((commitment (nth (1- received) requested)))
-                   (push
-                    (snap-sync-verify-partial-storage-group
-                     commitment (nth (1- received) groups) proof)
-                    verified-groups)))
-               (values received
-                       (and proof (nth (1- received) requested))
-                       (nreverse verified-groups))))))
+           (snap-sync-call-verifying-response
+            "storage-range"
+            (lambda ()
+              (let* ((groups (snap-storage-ranges-slots response))
+                     (proof (snap-storage-ranges-proof response))
+                     (received (length groups)))
+                (unless (= 1 (snap-storage-ranges-id response))
+                  (error "Snap storage response id mismatch"))
+                (when (and (null groups) (null proof))
+                  (snap-sync-state-unavailable "storage-range"))
+                (when (or (zerop received) (> received (length requested)))
+                  (error "Snap peer returned an invalid storage group count"))
+                (let ((complete-count (if proof (1- received) received))
+                      (verified-groups '()))
+                  (loop for commitment in requested
+                        for slots in groups
+                        repeat complete-count
+                        do (push
+                            (snap-sync-verify-complete-storage-group
+                             commitment slots)
+                            verified-groups))
+                  (when proof
+                    (let ((commitment (nth (1- received) requested)))
+                      (push
+                       (snap-sync-verify-partial-storage-group
+                        commitment (nth (1- received) groups) proof)
+                       verified-groups)))
+                  (values received
+                          (and proof (nth (1- received) requested))
+                          (nreverse verified-groups))))))))
       (multiple-value-bind (received open-commitment verified-groups)
           (if (functionp (snap-sync-source-storage-ranges-verified source))
               (funcall
@@ -1402,22 +1435,25 @@ and increases timeout pressure without creating another on-wire slot."
                        (lambda (hash) (member hash hashes :test #'bytes=))
                        requested))
            (error "Snap bytecode scheduler selected an invalid hash batch"))
-         (unless (= 1 (snap-bytecodes-id response))
-           (error "Snap bytecode response id mismatch"))
-         (let ((requested-pending (make-hash-table :test #'equalp))
-               (received (snap-bytecodes-codes response))
-               (codes '()))
-           (when (null received)
-             (snap-sync-state-unavailable "bytecodes"))
-           (dolist (hash requested)
-             (setf (gethash hash requested-pending) t))
-           (dolist (code received)
-             (let ((hash (keccak-256 code)))
-               (unless (nth-value 1 (gethash hash requested-pending))
-                 (error "Snap peer returned unrequested bytecode"))
-               (push (cons hash (copy-seq code)) codes)
-               (remhash hash requested-pending)))
-           (values (nreverse codes) requested))))
+         (snap-sync-call-verifying-response
+          "bytecodes"
+          (lambda ()
+            (unless (= 1 (snap-bytecodes-id response))
+              (error "Snap bytecode response id mismatch"))
+            (let ((requested-pending (make-hash-table :test #'equalp))
+                  (received (snap-bytecodes-codes response))
+                  (codes '()))
+              (when (null received)
+                (snap-sync-state-unavailable "bytecodes"))
+              (dolist (hash requested)
+                (setf (gethash hash requested-pending) t))
+              (dolist (code received)
+                (let ((hash (keccak-256 code)))
+                  (unless (nth-value 1 (gethash hash requested-pending))
+                    (error "Snap peer returned unrequested bytecode"))
+                  (push (cons hash (copy-seq code)) codes)
+                  (remhash hash requested-pending)))
+              (values (nreverse codes) requested))))))
     (cond
       ((functionp (snap-sync-source-bytecodes-batch-verified source))
        (funcall

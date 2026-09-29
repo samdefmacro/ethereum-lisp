@@ -11456,3 +11456,35 @@ node is durable, so this count is how many plan roots are actually healed."
                                  (hash32-bytes pivot-hash))
           (is present-p)
           (is (bytes= persisted-root (hash32-bytes root))))))))
+
+(deftest snap-dependency-response-that-fails-verification-is-an-invalid-response
+  (:layer :unit :module :p2p)
+  ;; go-ethereum v1.17.6 eth/protocols/snap/sync.go OnByteCodes and OnStorage
+  ;; return an error for an unrequested code or a range proof that fails, and
+  ;; the snap handler disconnects the peer on any returned error
+  ;; (handler.go HandleMessage). The verifiers now type that failure
+  ;; SNAP-SYNC-INVALID-RESPONSE so the pooled scheduler can end the session;
+  ;; an empty answer stays SNAP-SYNC-STATE-UNAVAILABLE.
+  (let* ((code (make-byte-vector 3 :initial-element 7))
+         (hash (keccak-256 code))
+         (other (make-byte-vector 3 :initial-element 8)))
+    (flet ((fetch (codes)
+             (handler-case
+                 (ethereum-lisp.snap-sync::snap-sync-fetch-code-request
+                  (ethereum-lisp.snap-sync:make-snap-sync-source
+                   :bytecodes-batch
+                   (lambda (hashes byte-limit)
+                     (declare (ignore byte-limit))
+                     (values (ethereum-lisp.snap:make-snap-bytecodes 1 codes)
+                             hashes)))
+                  (list hash) (* 512 1024))
+               (error (condition) condition))))
+      (let ((condition (fetch (list other))))
+        (is (typep condition
+                   'ethereum-lisp.snap-sync::snap-sync-invalid-response))
+        (is (search "unrequested bytecode" (princ-to-string condition))))
+      (is (typep (fetch '())
+                 'ethereum-lisp.snap-sync:snap-sync-state-unavailable))
+      (let ((fetched (fetch (list code))))
+        (is (listp fetched))
+        (is (bytes= hash (car (first fetched))))))))

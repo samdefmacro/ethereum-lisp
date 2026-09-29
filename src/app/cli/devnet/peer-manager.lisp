@@ -525,6 +525,55 @@ as reported while preserving this condition's type."))
   (devnet-peer-request-queue-submit-job
    queue (make-devnet-peer-request-job function)))
 
+(define-condition devnet-peer-invalid-delivery (eth-peer-protocol-error)
+  ((charged-p :initarg :charged-p :initform nil
+              :reader devnet-peer-invalid-delivery-charged-p))
+  (:documentation
+   "The peer answered a request with data that contradicts what it answers
+for: a block body or receipt list that does not match its header, a snap
+dependency whose proof fails. go-ethereum v1.17.6 disconnects the peer for
+each (errInvalidBody / errInvalidReceipt, eth/downloader/
+fetchers_concurrent.go validityErrorOfRequest; a snap handler's returned
+error, eth/protocols/snap/handler.go HandleMessage), so the peer's own session
+signals this to end itself: a devp2p Disconnect (subprotocol error) and
+teardown. CHARGED-P says the requester already scored the fault, so the
+session's end does not score it again."))
+
+#+sbcl
+(defun devnet-peer-request-queue-post (queue function)
+  "Queue FUNCTION to run on the queue's session writer and return at once,
+true when it was queued and NIL when the session has already ended."
+  (unless (functionp function)
+    (error "Peer request job must be a function"))
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (unless (devnet-peer-request-queue-closed-p queue)
+      (setf (devnet-peer-request-queue-pending queue)
+            (nconc (devnet-peer-request-queue-pending queue)
+                   (list (make-devnet-peer-request-job function))))
+      t)))
+
+#+sbcl
+(defun devnet-peer-end-session-for-invalid-delivery
+    (node entry reason &key charged-p)
+  "End ENTRY's session because the peer delivered data REASON (a condition)
+says contradicts its request, as go-ethereum does.
+
+Runs on any thread: the ending is posted to the session's own writer, which
+alone may write the Disconnect, and happens after any request it is already
+serving. Returns true when the session was still there to end."
+  (let ((queue (devnet-peer-entry-request-queue entry)))
+    (devnet-peer-manager-log
+     node "peer.session.invalid_delivery"
+     "peer" (devnet-peer-entry-id-hex entry) "error" reason)
+    (and queue
+         (devnet-peer-request-queue-post
+          queue
+          (lambda ()
+            (error 'devnet-peer-invalid-delivery
+                   :charged-p charged-p
+                   :format-control "peer delivered invalid data: ~A"
+                   :format-arguments (list reason)))))))
+
 #+sbcl
 (define-condition devnet-snap-request-timeout
     (ethereum-lisp.snap-sync:snap-sync-request-timeout)
@@ -836,14 +885,17 @@ peer message from a local program error, and both stay charged."
               (ethereum-lisp.eth-sync:eth-sync-peer-transport-error-cause
                condition)
               condition)))
-    (not (typep cause
-                '(or rlpx-disconnect
-                  stream-error
-                  #+sbcl sb-bsd-sockets:socket-error
-                  #+sbcl sb-ext:timeout
-                  storage-error
-                  block-execution-internal-error
-                  devnet-peer-request-queue-closed)))))
+    (not (or (typep cause
+                    '(or rlpx-disconnect
+                      stream-error
+                      #+sbcl sb-bsd-sockets:socket-error
+                      #+sbcl sb-ext:timeout
+                      storage-error
+                      block-execution-internal-error
+                      devnet-peer-request-queue-closed))
+             ;; Already charged by the requester that found it.
+             (and (typep cause 'devnet-peer-invalid-delivery)
+                  (devnet-peer-invalid-delivery-charged-p cause))))))
 
 (defun devnet-peer-manager-log (node event &rest fields)
   (telemetry-log :info event
