@@ -1470,7 +1470,10 @@ provider reads them, through `execute-signed-block` with the block's own header
 transaction applier observed, which compares each receipt with the server's
 and each touched account and slot with its diffMode post-state. Each block
 prints one `HOODI-REPLAY` line and, on a divergence, the transaction, account
-and slot it starts at. The unit controls check the comparator and the
+and slot it starts at, and one `HOODI-REPLAY-COST` line: the thread CPU time
+and bytes consed of the strict run and of the whole block, numbers only; the
+run ends with their totals and the median strict run, which is how interpreter
+throughput is measured on real traffic. The unit controls check the comparator and the
 zero-replay refusal without a corpus. The record is
 `docs/evidence/sec5-hoodi-differential-replay.txt`.
 

@@ -90,6 +90,86 @@ diff the touched set instead of the whole world."
        (state-db-journal state))))
   state)
 
+;;; The frequent changes -- a storage write, a balance or nonce change, an
+;;; EIP-161 touch -- journal only what they change.  A whole-object clone copies
+;;; the account's loaded storage table, so journaling each SSTORE and each
+;;; balance change that way cost the size of the contract's touched storage
+;;; per write: an ERC-4337 EntryPoint, written to throughout a bundle, was
+;;; copied whole on every write and every call into it.
+
+(defun state-db-record-storage-change (state key object slot-key)
+  "Journal SLOT-KEY of OBJECT, the object at KEY, before a write changes it."
+  (unless (state-db-reverting-p state)
+    (multiple-value-bind (value present-p)
+        (gethash slot-key (state-object-storage object))
+      (let ((zero-slots (state-object-zero-slots object))
+            (trie (state-object-trie object)))
+        (vector-push-extend
+         (make-state-journal-entry
+          :key key
+          :kind :storage
+          :slot-key slot-key
+          :previous-value value
+          :previous-present-p present-p
+          :previous-zero-p (and zero-slots (gethash slot-key zero-slots) t)
+          :previous-trie (and trie (copy-mpt-root trie))
+          :previous-storage-root (state-object-cached-storage-root object))
+         (state-db-journal state)))))
+  state)
+
+(defun state-db-record-account-change (state key object)
+  "Journal OBJECT's account record, OBJECT being the object at KEY, before a
+change replaces it.  Account records are never modified in place."
+  (unless (state-db-reverting-p state)
+    (vector-push-extend
+     (make-state-journal-entry :key key
+                               :kind :account
+                               :previous-account (state-object-account object))
+     (state-db-journal state)))
+  state)
+
+(defun state-db-record-touch (state key)
+  "Journal a change to KEY that alters nothing: the undo marks KEY dirty, and
+the transaction finalizer still finds KEY among the entries since its mark."
+  (unless (state-db-reverting-p state)
+    (vector-push-extend (make-state-journal-entry :key key :kind :touch)
+                        (state-db-journal state)))
+  state)
+
+(defun %state-db-undo-in-place (state entry)
+  "Write ENTRY's before-image back into the object now at its key."
+  (let ((object (gethash (state-journal-entry-key entry)
+                         (state-db-objects state))))
+    (unless object
+      (error "State journal ~(~A~) entry for ~A found no object to restore"
+             (state-journal-entry-kind entry)
+             (state-journal-entry-key entry)))
+    (ecase (state-journal-entry-kind entry)
+      (:account
+       (setf (state-object-account object)
+             (state-journal-entry-previous-account entry)))
+      (:storage
+       (let ((slot-key (state-journal-entry-slot-key entry))
+             (storage (state-object-storage object))
+             (zero-slots (state-object-zero-slots object)))
+         (if (state-journal-entry-previous-present-p entry)
+             (setf (gethash slot-key storage)
+                   (state-journal-entry-previous-value entry))
+             (remhash slot-key storage))
+         (cond
+           ((state-journal-entry-previous-zero-p entry)
+            (setf (gethash slot-key
+                           (or zero-slots
+                               (setf (state-object-zero-slots object)
+                                     (make-hash-table :test #'equal))))
+                  t))
+           (zero-slots
+            (remhash slot-key zero-slots)))
+         (setf (state-object-trie object)
+               (state-journal-entry-previous-trie entry)
+               (state-object-cached-storage-root object)
+               (state-journal-entry-previous-storage-root entry)))))))
+
 (defun state-db-snapshot (state)
   "Return an O(1) mark for reverting subsequent state mutations."
   (fill-pointer (state-db-journal state)))
@@ -136,7 +216,7 @@ successful persistence staging step cleared DIRTY or TOUCHED before failing."
     ;; Otherwise a later load followed by rollback removes the account while
     ;; leaving it marked loaded, so full materialization cannot restore it.
     (state-db-get-object state address)
-    (state-db-record-change state key)))
+    (state-db-record-touch state key)))
 
 (defun state-db-revert-to-snapshot (state snapshot)
   "Replay journal entries backwards to SNAPSHOT and discard them."
@@ -152,9 +232,15 @@ successful persistence staging step cleared DIRTY or TOUCHED before failing."
                    for entry = (vector-pop journal)
                    for key = (state-journal-entry-key entry)
                    for previous = (state-journal-entry-previous-object entry)
-                   do (if previous
-                          (setf (gethash key (state-db-objects state)) previous)
-                          (remhash key (state-db-objects state)))
+                   do (case (state-journal-entry-kind entry)
+                        (:object
+                         (if previous
+                             (setf (gethash key (state-db-objects state))
+                                   previous)
+                             (remhash key (state-db-objects state))))
+                        (:touch)
+                        (t
+                         (%state-db-undo-in-place state entry)))
                       (mark-account-dirty state key)))
         (setf (state-db-reverting-p state) previous-reverting-p))))
   state)
@@ -238,10 +324,12 @@ revert the transaction."
 
 (defun state-db-set-account (state address account)
   (record-state-access :account-write state address)
-  (let ((key (address-key address)))
-    (state-db-get-object state address)
-    (state-db-record-change state key)
-    (let ((object (or (gethash key (state-db-objects state))
+  (let* ((key (address-key address))
+         (existing (state-db-get-object state address)))
+    (if existing
+        (state-db-record-account-change state key existing)
+        (state-db-record-change state key))
+    (let ((object (or existing
                       (setf (gethash key (state-db-objects state))
                             (make-state-object)))))
       (setf (state-object-account object)
@@ -442,41 +530,44 @@ revert the transaction."
     (state-db-get-object state address)
     ;; Preserve a lazily-backed slot's before-image before mutating it.
     (state-db-get-storage state address slot)
-    (when (or (gethash key (state-db-objects state))
-              (not (zerop value)))
-      (state-db-record-change state key))
-    (let* ((object (or (gethash key (state-db-objects state))
-                       (and (not (zerop value))
-                            (setf (gethash key (state-db-objects state))
-                                  (make-state-object
-                                   :account (make-state-account))))))
-           (storage-key (storage-key slot))
-           (storage (and object (state-object-storage object))))
-    ;; The one place STORAGE changes: drop the object's memoized storage root
-    ;; AND mark the account dirty -- the account leaf embeds the storage root
-    ;; (state-account-with-object-commitments), so a storage-only write changes
-    ;; the ACCOUNT trie even when nonce/balance/code are untouched. Marking the
-    ;; storage root alone (wave 3a) is not enough for the account root.
-    (when object
-      (setf (state-object-cached-storage-root object) nil)
-      (mark-account-dirty state key))
-    (cond
-      ((zerop value)
-       (when object
-         (remhash storage-key storage)
-         (state-object-mark-zero-slot object storage-key)
-         (when (state-object-trie object)
-           (mpt-delete
-            (state-object-trie object)
-            (state-db-storage-proof-key slot)))))
-      (t
-       (setf (gethash storage-key storage) value)
-       (when (state-object-trie object)
-         (mpt-put
-          (state-object-trie object)
-          (state-db-storage-proof-key slot)
-          (rlp-encode value)))))
-      state)))
+    (let ((existing (gethash key (state-db-objects state)))
+          (storage-key (storage-key slot)))
+      (cond (existing
+             (state-db-record-storage-change state key existing storage-key))
+            ((not (zerop value))
+             (state-db-record-change state key)))
+      (let* ((object (or existing
+                         (and (not (zerop value))
+                              (setf (gethash key (state-db-objects state))
+                                    (make-state-object
+                                     :account (make-state-account))))))
+             (storage (and object (state-object-storage object))))
+        ;; The one place STORAGE changes: drop the object's memoized storage
+        ;; root AND mark the account dirty -- the account leaf embeds the
+        ;; storage root (state-account-with-object-commitments), so a
+        ;; storage-only write changes the ACCOUNT trie even when
+        ;; nonce/balance/code are untouched. Marking the storage root alone
+        ;; (wave 3a) is not enough for the account root.
+        (when object
+          (setf (state-object-cached-storage-root object) nil)
+          (mark-account-dirty state key))
+        (cond
+          ((zerop value)
+           (when object
+             (remhash storage-key storage)
+             (state-object-mark-zero-slot object storage-key)
+             (when (state-object-trie object)
+               (mpt-delete
+                (state-object-trie object)
+                (state-db-storage-proof-key slot)))))
+          (t
+           (setf (gethash storage-key storage) value)
+           (when (state-object-trie object)
+             (mpt-put
+              (state-object-trie object)
+              (state-db-storage-proof-key slot)
+              (rlp-encode value)))))
+        state))))
 
 (defun state-object-mark-zero-slot (object slot-key)
   "Record that backed OBJECT's slot SLOT-KEY holds zero (see ZERO-SLOTS)."

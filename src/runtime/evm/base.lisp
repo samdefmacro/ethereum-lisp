@@ -1,13 +1,82 @@
 (in-package #:ethereum-lisp.evm.internal)
 
+(defconstant +word-mask+ (1- (expt 2 256)))
+
 (defun word (value)
   ;; Every stack push reduces its value; a non-negative fixnum is already a
-  ;; word, and skipping the bignum MOD for it keeps pushes allocation-free.
-  ;; A bignum already below 2^256 (a PUSH32 immediate, an MLOAD result) is
-  ;; returned as well: MOD would divide and allocate a copy of it.
+  ;; word, and skipping the bignum reduction for it keeps pushes
+  ;; allocation-free.  A bignum already below 2^256 (a PUSH32 immediate, an
+  ;; MLOAD result) is returned as well.  Anything else is reduced modulo 2^256
+  ;; with a mask, which is that modulus for every integer, negative ones too
+  ;; (two's complement), and costs a fifth of the bignum division MOD makes.
   (cond ((typep value '(and fixnum unsigned-byte)) value)
         ((and (typep value 'unsigned-byte) (< value +word-modulus+)) value)
-        (t (mod value +word-modulus+))))
+        (t (logand value +word-mask+))))
+
+;;; The cheap word operations.  Both the opcode handlers and the frame's
+;;; register loop (interpreter/interpreter.lisp) call these, so each opcode has
+;;; one definition.  Stack words are non-negative integers below 2^256, and
+;;; most of them in real code (counters, offsets, gas, small constants) are
+;;; fixnums: each operation takes a branch that compiles to machine arithmetic
+;;; for two fixnums and the generic one otherwise.  Both branches compute the
+;;; same word, so every result may be pushed without a further reduction.
+
+(deftype small-word ()
+  "A stack word that is a fixnum."
+  '(and fixnum unsigned-byte))
+
+(declaim (inline word-add word-sub word-lt word-gt word-eq word-iszero
+                 word-and word-or word-xor))
+
+(defun word-add (left right)
+  (if (and (typep left 'small-word) (typep right 'small-word))
+      (+ left right)
+      (word (+ left right))))
+
+(defun word-sub (left right)
+  (if (and (typep left 'small-word) (typep right 'small-word)
+           (>= left right))
+      (- left right)
+      (word (- left right))))
+
+(defun word-lt (left right)
+  (if (if (and (typep left 'small-word) (typep right 'small-word))
+          (< left right)
+          (< left right))
+      1
+      0))
+
+(defun word-gt (left right)
+  (if (if (and (typep left 'small-word) (typep right 'small-word))
+          (> left right)
+          (> left right))
+      1
+      0))
+
+(defun word-eq (left right)
+  (if (if (and (typep left 'small-word) (typep right 'small-word))
+          (= left right)
+          (= left right))
+      1
+      0))
+
+(defun word-iszero (value)
+  (if (eql value 0) 1 0))
+
+(defun word-and (left right)
+  (if (and (typep left 'small-word) (typep right 'small-word))
+      (logand left right)
+      (logand left right)))
+
+(defun word-or (left right)
+  (if (and (typep left 'small-word) (typep right 'small-word))
+      (logior left right)
+      (logior left right)))
+
+(defun word-xor (left right)
+  (if (and (typep left 'small-word) (typep right 'small-word))
+      (logxor left right)
+      (logxor left right)))
 
 (defun fail (control &rest args)
   (error 'evm-error :message (apply #'format nil control args)))

@@ -1,20 +1,28 @@
 (in-package #:ethereum-lisp.evm.internal)
 
+(declaim (inline read-small-push-immediate))
+(defun read-small-push-immediate (code pc size)
+  "The SIZE-byte (at most 7) immediate after PC in CODE, a fixnum.  Bytes past
+the end of the code read as zero.  The frame's register loop inlines this."
+  (declare (type byte-vector code) (type (and fixnum unsigned-byte) pc)
+           (type (integer 0 7) size))
+  (let ((value 0)
+        (end (length code)))
+    (declare (type (unsigned-byte 56) value))
+    (dotimes (i size value)
+      (let ((index (+ pc 1 i)))
+        (setf value
+              (logior (ash value 8)
+                      (if (< index end) (aref code index) 0)))))))
+
 (defun read-push-immediate (code pc size)
   ;; PUSH1..PUSH7 immediates fit a fixnum: read them with word arithmetic.
   ;; Bytes past the end of the code read as zero either way.
   (when (and (typep code 'byte-vector)
              (typep pc '(and fixnum unsigned-byte))
              (typep size '(integer 0 7)))
-    (let ((value 0)
-          (end (length code)))
-      (declare (type (unsigned-byte 56) value))
-      (dotimes (i size)
-        (let ((index (+ pc 1 i)))
-          (setf value
-                (logior (ash value 8)
-                        (if (< index end) (aref code index) 0)))))
-      (return-from read-push-immediate value)))
+    (return-from read-push-immediate
+      (read-small-push-immediate code pc size)))
   ;; PUSH8..PUSH32: the leading SIZE mod 4 bytes, then one 32-bit piece at a
   ;; time, so a PUSH32 builds eight intermediate integers, not thirty-two.
   (when (and (typep code 'byte-vector)
@@ -104,6 +112,23 @@
                    (incf pc (+ 1 (- op #x5f)))
                    (incf pc))))
     bitmap))
+
+;;; A contract's JUMPDEST analysis is a pass over its whole code, and a frame
+;;; ran it on every entry: an ERC-4337 bundle calls the same EntryPoint,
+;;; account and paymaster code dozens of times per block.  The bitmap is
+;;; remembered per code vector (EQ, weakly, so it goes with the code).  Code
+;;; vectors are never modified once they are code: state objects share them
+;;; (state-db STATE-OBJECT CODE) and CREATE copies its initcode out of memory.
+
+(defvar *jump-destination-bitmaps*
+  (make-hash-table :test 'eq :weakness :key :synchronized t)
+  "JUMP-DESTINATION-BITMAP results by code vector.")
+
+(defun code-jump-destinations (code)
+  "CODE's JUMPDEST bitmap, computed once per code vector."
+  (or (gethash code *jump-destination-bitmaps*)
+      (setf (gethash code *jump-destination-bitmaps*)
+            (jump-destination-bitmap code))))
 
 (defun valid-jump-destination-p (code destination &optional bitmap)
   (when (and (typep code 'byte-vector)

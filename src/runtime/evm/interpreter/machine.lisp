@@ -56,11 +56,10 @@ hiding them in one large lexical scope."
   gas-budget
   step-budget
   ;; PC only ever holds a code offset (a jump target is checked against the
-  ;; code length before it is stored) and STEPS counts executed instructions,
-  ;; so both are fixnums and their per-instruction updates are word
-  ;; arithmetic.
+  ;; code length before it is stored), so it is a fixnum and its
+  ;; per-instruction updates are word arithmetic.  (A per-frame instruction
+  ;; count nothing read was dropped; the tree-wide STEP-BUDGET counts steps.)
   (pc 0 :type (and fixnum unsigned-byte))
-  (steps 0 :type (and fixnum unsigned-byte))
   (gas-used 0 :type (integer 0 *))
   ;; The operand stack: words in STACK[0..SP), the top at SP-1.  The vector
   ;; starts small and doubles up to +STACK-LIMIT+, so a push or pop is an
@@ -79,28 +78,29 @@ hiding them in one large lexical scope."
   (halted-p nil :type boolean))
 
 (defun make-evm-machine (code context gas-limit step-budget &optional gas-budget)
-  (%make-evm-machine
-   :code (ensure-byte-vector code)
-   :jump-destinations (jump-destination-bitmap (ensure-byte-vector code))
-   :context context
-   :gas-limit gas-limit
-   :gas-budget
-   (or gas-budget
-       (make-evm-gas-budget :regular (or gas-limit 0)))
-   :step-budget step-budget
-   :return-data-buffer
-   (if context
-       (ensure-byte-vector (evm-context-return-data context))
-       (make-byte-vector 0))
-   :frame-snapshot (capture-frame-snapshot context)
-   :original-storage-values
-   (if context
-       (evm-context-storage-originals context)
-       (make-hash-table :test 'equalp))
-   :cleared-storage-slots
-   (if context
-       (evm-context-storage-clears context)
-       (make-hash-table :test 'equalp))))
+  (let ((code (ensure-byte-vector code)))
+    (%make-evm-machine
+     :code code
+     :jump-destinations (code-jump-destinations code)
+     :context context
+     :gas-limit gas-limit
+     :gas-budget
+     (or gas-budget
+         (make-evm-gas-budget :regular (or gas-limit 0)))
+     :step-budget step-budget
+     :return-data-buffer
+     (if context
+         (ensure-byte-vector (evm-context-return-data context))
+         (make-byte-vector 0))
+     :frame-snapshot (capture-frame-snapshot context)
+     :original-storage-values
+     (if context
+         (evm-context-storage-originals context)
+         (make-hash-table :test 'equalp))
+     :cleared-storage-slots
+     (if context
+         (evm-context-storage-clears context)
+         (make-hash-table :test 'equalp)))))
 
 (defun %grow-evm-stack (machine)
   "Double MACHINE's stack vector (never beyond +STACK-LIMIT+) and return it."
@@ -289,7 +289,7 @@ zero; GAS-USED, a diagnostic scalar, stops at zero."
 (defmacro with-evm-machine-state ((machine) &body body)
   "Bind the mutable frame fields used by an opcode handler."
   `(with-slots (code jump-destinations context gas-limit gas-budget step-budget
-                pc steps gas-used memory
+                pc gas-used memory
                 return-data return-data-buffer frame-snapshot
                 original-storage-values cleared-storage-slots logs
                 refund-counter status halted-p)
