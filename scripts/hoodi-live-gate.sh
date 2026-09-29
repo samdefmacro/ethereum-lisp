@@ -282,6 +282,33 @@ gate_verify_owned() {
     esac
 }
 
+# gate_last_log_line CONTAINER: the container's last log line as one printable
+# line of at most 240 characters.  IPv4 addresses, enode URLs and hex runs of
+# 40 or more digits are replaced, so no peer identity leaves the host.
+gate_last_log_line() {
+    ll_line="$(docker logs --tail 1 "$1" 2>&1 | tail -n 1 | tr -c '[:print:]' ' ' |
+        sed -E -e 's#enode://[^ ]*#<enode>#g' \
+            -e 's/[0-9]{1,3}([.][0-9]{1,3}){3}/<ip>/g' \
+            -e 's/(0x)?[0-9A-Fa-f]{40,}/<hex>/g' \
+            -e 's/ +$//' | cut -c 1-240 || true)"
+    printf '%s' "${ll_line:-none}"
+}
+
+# gate_record_not_running CONTAINER PREFIX: the before-state of a container
+# that is not running, read from Docker's record and its last log line.  It is
+# never started to read its store: on 2026-09-29 a previous container that
+# upgrade started for exactly that died on a start-up defect 7 s later, and the
+# upgrade failed although the new image would have started.
+gate_record_not_running() {
+    printf '%s-state=%s exit=%s finished=%s last-log=%s\n' "$2" \
+        "$(docker container inspect --format '{{.State.Status}}' "$1")" \
+        "$(docker container inspect --format '{{.State.ExitCode}}' "$1")" \
+        "$(docker container inspect --format '{{.State.FinishedAt}}' "$1")" \
+        "$(gate_last_log_line "$1")"
+    printf '%s-oom-killed=%s\n' "$2" \
+        "$(docker container inspect --format '{{.State.OOMKilled}}' "$1")"
+}
+
 # SBCL prints "CORRUPTION WARNING" and continues, so a faulted process can
 # still exit 0 (docs/evidence/sec5-shutdown-memory-fault-trace.txt).
 gate_runtime_fault_pattern='CORRUPTION WARNING|Memory fault at|fatal error encountered'
@@ -873,54 +900,70 @@ rpc() {
         "http://127.0.0.1:$rpc_port"
 }
 
-if [ "$previous_initially_running" != true ]; then
-    docker start "$previous" >/dev/null
-fi
-previous_ready=false
-previous_ready_deadline="$(( $(date +%s) + ready_timeout ))"
-while :; do
-    previous_ready_now="$(date +%s)"
-    previous_ready_remaining="$(( previous_ready_deadline - previous_ready_now ))"
-    [ "$previous_ready_remaining" -gt 0 ] || break
-    if [ "$previous_ready_remaining" -gt 10 ]; then
-        previous_attempt_timeout=10
-    else
-        previous_attempt_timeout="$previous_ready_remaining"
+if [ "$previous_initially_running" = true ]; then
+    previous_ready=false
+    previous_ready_deadline="$(( $(date +%s) + ready_timeout ))"
+    while :; do
+        previous_ready_now="$(date +%s)"
+        previous_ready_remaining="$(( previous_ready_deadline - previous_ready_now ))"
+        [ "$previous_ready_remaining" -gt 0 ] || break
+        if [ "$previous_ready_remaining" -gt 10 ]; then
+            previous_attempt_timeout=10
+        else
+            previous_attempt_timeout="$previous_ready_remaining"
+        fi
+        if rpc "$previous" eth_chainId "$previous_attempt_timeout" >/dev/null 2>&1; then
+            previous_ready=true
+            break
+        fi
+        [ "$(docker container inspect --format '{{.State.Running}}' "$previous")" = true ] || break
+        sleep 1
+    done
+    if [ "$previous_ready" != true ]; then
+        docker logs "$previous" 2>&1 | tail -80 >&2 || true
+        echo "previous public RPC did not return within ${ready_timeout}s" >&2
+        exit 1
     fi
-    if rpc "$previous" eth_chainId "$previous_attempt_timeout" >/dev/null 2>&1; then
-        previous_ready=true
-        break
-    fi
-    [ "$(docker container inspect --format '{{.State.Running}}' "$previous")" = true ] || break
-    sleep 1
-done
-if [ "$previous_ready" != true ]; then
-    docker logs "$previous" 2>&1 | tail -80 >&2 || true
-    if [ "$previous_initially_running" != true ]; then
-        docker stop --time "$stop_timeout" "$previous" >/dev/null 2>&1 || true
-    fi
-    echo "previous public RPC did not return within ${ready_timeout}s" >&2
-    exit 1
 fi
 
 date -u +before-timestamp=%Y-%m-%dT%H:%M:%SZ
 printf 'before-container=%s\n' "$previous"
 printf 'before-started='; docker container inspect --format '{{.State.StartedAt}}' "$previous"
 printf 'before-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
-printf 'before-block='; rpc "$previous" eth_blockNumber; printf '\n'
-printf 'before-syncing='; rpc "$previous" eth_syncing; printf '\n'
+if [ "$previous_initially_running" = true ]; then
+    printf 'before-block='; rpc "$previous" eth_blockNumber; printf '\n'
+    printf 'before-syncing='; rpc "$previous" eth_syncing; printf '\n'
 
-# Reported, not fatal: the replacement opens the same store, and RocksDB
-# recovers an unclean close on open (docs/runbook.md, Stop).
-previous_stop_status=0
-gate_stop "$previous" "$datadir" "$stop_timeout" previous-stop || previous_stop_status=$?
-[ "$previous_stop_status" -le 1 ] ||
-    gate_fail "could not stop $previous; nothing was replaced"
+    # Reported, not fatal: the replacement opens the same store, and RocksDB
+    # recovers an unclean close on open (docs/runbook.md, Stop).
+    previous_stop_status=0
+    gate_stop "$previous" "$datadir" "$stop_timeout" previous-stop || previous_stop_status=$?
+    [ "$previous_stop_status" -le 1 ] ||
+        gate_fail "could not stop $previous; nothing was replaced"
+else
+    # Not started to read its store: its block number is not readable without
+    # starting it, and a container that stopped on a start-up defect would
+    # only fail again (gate_record_not_running).
+    gate_record_not_running "$previous" previous
+    printf '%s\n' 'before-block=unavailable (previous not running; its store is not opened)'
+    printf '%s\n' 'before-syncing=unavailable (previous not running)'
+    printf '%s\n' 'previous-stop=skipped (not running)'
+fi
+# rollback: stop the replacement and put the previous container back the way
+# it was found.  A previous that was not running stays stopped; a failed start
+# of one that was is reported, never fatal, because the upgrade has already
+# failed and exits non-zero either way.
 rollback() {
     if docker container inspect "$container" >/dev/null 2>&1; then
         docker stop --time "$stop_timeout" "$container" >/dev/null 2>&1 || true
     fi
-    docker start "$previous" >/dev/null 2>&1 || true
+    if [ "$previous_initially_running" != true ]; then
+        printf '%s\n' 'rollback-previous-start=skipped (it was not running before the upgrade)'
+    elif docker start "$previous" >/dev/null 2>&1; then
+        printf '%s\n' 'rollback-previous-start=ok'
+    else
+        printf '%s\n' 'rollback-previous-start=failed (reported; the upgrade had already failed)'
+    fi
 }
 trap rollback EXIT HUP INT TERM
 
@@ -969,7 +1012,7 @@ fi
 if ! docker network connect "$egress_network" "$container"; then
     rollback
     trap - EXIT HUP INT TERM
-    echo "failed to attach upgraded gate to $egress_network; previous container restored" >&2
+    echo "failed to attach upgraded gate to $egress_network; previous container put back as it was" >&2
     exit 1
 fi
 
@@ -991,7 +1034,7 @@ if [ "$ready" != true ]; then
     docker logs "$container" 2>&1 | tail -80 >&2 || true
     rollback
     trap - EXIT HUP INT TERM
-    echo "upgraded public RPC did not return within ${ready_timeout}s; previous container restored" >&2
+    echo "upgraded public RPC did not return within ${ready_timeout}s; previous container put back as it was" >&2
     exit 1
 fi
 trap - EXIT HUP INT TERM

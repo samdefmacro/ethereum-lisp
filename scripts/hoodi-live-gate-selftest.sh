@@ -150,6 +150,10 @@ case "$1" in
         set_field "$name" nodekey "$nodekey"; set_field "$name" user "$user"
         set_field "$name" args "${args# }"; set_field "$name" running true
         set_field "$name" exit 0; set_field "$name" oom false
+        # STUB_RUN_DIES: the new container exits at once (a start-up defect).
+        if [ -n "${STUB_RUN_DIES:-}" ]; then
+            set_field "$name" running false; set_field "$name" exit 1
+        fi
         set_field "$name" memory "${STUB_MEMORY:-7516192768}" ;;
     container)
         name="$(last_arg "$@")"
@@ -172,6 +176,9 @@ case "$1" in
             *'.Config.User'*) field "$name" user ;;
             *'ReadonlyRootfs'*) echo true ;;
             *'MemorySwap'*|*'.HostConfig.Memory'*) field "$name" memory ;;
+            *'.State.Status'*)
+                if [ "$(field "$name" running)" = true ]; then echo running
+                else status="$(field "$name" status)"; echo "${status:-exited}"; fi ;;
             *'.State.StartedAt'*|*'.State.FinishedAt'*) echo 2026-09-29T00:00:00Z ;;
             *'.State.ExitCode'*) field "$name" exit ;;
             *'.State.OOMKilled'*) field "$name" oom ;;
@@ -180,8 +187,18 @@ case "$1" in
             *) echo "docker stub: unexpected format $format" >&2; exit 99 ;;
         esac ;;
     start)
+        # A container with start-fails is refused by the daemon; one with
+        # dies-on-start starts and exits at once, as a start-up defect does.
         [ -d "$STUB_STATE/$2" ] || exit 1
-        set_field "$2" running true ;;
+        if [ -e "$STUB_STATE/$2/start-fails" ]; then
+            echo "Error response from daemon: stub start refused for $2" >&2
+            exit 1
+        fi
+        if [ -e "$STUB_STATE/$2/dies-on-start" ]; then
+            set_field "$2" running false; set_field "$2" exit 1
+        else
+            set_field "$2" running true
+        fi ;;
     stop)
         # STUB_STOP_OUTCOME: clean (the default: exit 0 and RocksDB's
         # "Shutdown complete" in the datadir's LOG), killed (SIGKILL after the
@@ -203,7 +220,10 @@ case "$1" in
             echo "CORRUPTION WARNING in SBCL pid 7 tid 8: Memory fault at 0x10 (pc=0x20)" >> "$STUB_STATE/$name/log"
         fi ;;
     logs) name="$(last_arg "$@")"; cat "$STUB_STATE/$name/log" 2>/dev/null || true ;;
-    port) echo "127.0.0.1:18545" ;;
+    # A container that is not running publishes no port, so an RPC to it fails.
+    port)
+        [ "$(field "$2" running)" = true ] || exit 1
+        echo "127.0.0.1:18545" ;;
     stats) echo "runtime=cpu=1.00% memory=1GiB / 7GiB blockIo=0B / 0B pids=10" ;;
     *) echo "docker stub: unexpected $*" >&2; exit 99 ;;
 esac
@@ -488,7 +508,8 @@ reset_world() {
     echo true > "$STUB_STATE/hoodi-lighthouse-public/running"
     unset STUB_UID STUB_KEY_OWNER STUB_DIR_OWNER HOODI_GATE_PREVIOUS_CONTAINER \
         HOODI_GATE_PREVIOUS_REVISION HOODI_GATE_DATADIR STUB_STOP_OUTCOME \
-        HOODI_GATE_STOP_TIMEOUT
+        HOODI_GATE_STOP_TIMEOUT STUB_RUN_DIES HOODI_GATE_OLD_CONTAINER \
+        HOODI_GATE_OLD_REVISION
     : > "$STUB_LOG"
 }
 
@@ -848,6 +869,88 @@ export HOODI_GATE_PREVIOUS_CONTAINER="$prev_container" HOODI_GATE_PREVIOUS_REVIS
 run 0 "upgrade stops the previous container through the helper" -- "$broker" upgrade
 logged "docker stop --time 120 $prev_container"
 has "previous-stop-clean=true"
+has "before-block=$STUB_BLOCK"
+
+# --- upgrade from a previous container that is not running ------------------------
+# On 2026-09-29 upgrade started the stopped previous container to read its
+# before-state; it died on a start-up defect 7 s later and the upgrade failed
+# although the new image would have started.  A previous that is not running
+# is now read from Docker's record and its last log line, never started.
+not_logged() {
+    if grep -qF -- "$1" "$STUB_LOG"; then
+        record fail "never calls: $1" "$STUB_LOG"
+    else
+        record ok "never calls: $1"
+    fi
+}
+hex40=abababababababababababababababababababab
+# plant_exited NAME: the container stopped on a start-up defect, and a start
+# would kill it again at once.  Its last log line names a peer address and a
+# long hex id, which must not cross the broker.
+plant_exited() {
+    echo false > "$STUB_STATE/$1/running"; echo 1 > "$STUB_STATE/$1/exit"
+    echo exited > "$STUB_STATE/$1/status"
+    touch "$STUB_STATE/$1/dies-on-start"
+    printf '%s\n' "node.start bootnode=enode://$hex40@192.0.2.8:30303" \
+        "FATAL: txpool journal import refused a transaction from 192.0.2.9 id 0x$hex40" \
+        > "$STUB_STATE/$1/log"
+}
+upgrade_env() {
+    export HOODI_GATE_PREVIOUS_CONTAINER="$prev_container" HOODI_GATE_PREVIOUS_REVISION="$prev_rev" \
+        HOODI_GATE_DATADIR=/data/hoodi-sec5-20260814/datadir-bbbbbbbb
+}
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+plant_exited "$prev_container"
+upgrade_env
+run 0 "upgrade from a previous container that stopped on a start-up defect" -- "$broker" upgrade
+has "previous-state=exited exit=1 finished=2026-09-29T00:00:00Z last-log=FATAL: txpool journal import refused a transaction from <ip> id <hex>"
+has "previous-oom-killed=false"
+has "before-block=unavailable (previous not running; its store is not opened)"
+has "before-syncing=unavailable (previous not running)"
+has "previous-stop=skipped (not running)"
+lacks "192.0.2."
+lacks "$hex40"
+lacks "enode://"
+check_run_line "upgrade from a stopped previous"
+not_logged "docker start $prev_container"
+not_logged "docker stop --time 120 $prev_container"
+
+# The replacement dies too: the previous is put back as it was found.  A
+# stopped previous stays stopped ...
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+plant_exited "$prev_container"
+upgrade_env
+export STUB_RUN_DIES=1
+run 1 "upgrade whose replacement dies, from a stopped previous" -- "$broker" upgrade
+has "rollback-previous-start=skipped (it was not running before the upgrade)"
+has "upgraded public RPC did not return within 600s; previous container put back as it was"
+not_logged "docker start $prev_container"
+
+# ... a running previous is started again (the control for the check above) ...
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+upgrade_env
+export STUB_RUN_DIES=1
+run 1 "upgrade whose replacement dies, from a running previous" -- "$broker" upgrade
+has "rollback-previous-start=ok"
+logged "docker start $prev_container"
+
+# ... and a start of it that fails is reported, not fatal: the upgrade's own
+# failure is still the one the broker exits with.
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+touch "$STUB_STATE/$prev_container/start-fails"
+upgrade_env
+export STUB_RUN_DIES=1
+run 1 "upgrade whose replacement dies and whose previous cannot start" -- "$broker" upgrade
+has "rollback-previous-start=failed (reported; the upgrade had already failed)"
+has "upgraded public RPC did not return within 600s; previous container put back as it was"
 
 cat "$STUB_LOG" >> "$lifecycle_log"
 : > "$out"
