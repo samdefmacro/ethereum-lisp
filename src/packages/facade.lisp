@@ -1300,7 +1300,6 @@
    #:log-entry-data
    #:log-entry-rlp-object
    #:make-eth-transfer-log-entry
-   #:make-eth-burn-log-entry
    #:make-eth-trace-transfer-log-entry
    #:bloom
    #:make-bloom

@@ -96,7 +96,7 @@
 
 (defun selfdestruct-account
     (state address beneficiary rules
-     &key clear-self-balance-p burn-log-p)
+     &key clear-self-balance-p)
   (let* ((account (account-or-empty state address))
          (balance (state-account-balance account))
          (transfer-p
@@ -122,17 +122,15 @@
        (state-account-nonce account)
        0
        (state-account-code-hash account)))
+    ;; EIP-7708 logs only moved balance. EIP-8246 leaves a self-beneficiary's
+    ;; balance in place, so there is no burn to log (geth v1.17.6
+    ;; opSelfdestruct6780).
     (let ((transfer-log
             (when (and rules
                        (chain-rules-amsterdam-p rules)
-                       (plusp balance)
-                       (or transfer-p burn-log-p))
+                       transfer-p)
               (evm-capture-trace-log
-               (if burn-log-p
-                   (make-eth-burn-log-entry address balance)
-                   (and transfer-p
-                        (make-eth-transfer-log-entry
-                         address beneficiary balance)))))))
+               (make-eth-transfer-log-entry address beneficiary balance)))))
       (when (and *evm-trace-transfers-p* (plusp balance))
         (evm-capture-trace-log
          (make-eth-trace-transfer-log-entry address beneficiary balance)))

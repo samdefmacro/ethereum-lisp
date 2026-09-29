@@ -384,11 +384,14 @@
           (account nil))
       (setf account (state-db-get-account state contract))
       (is (= 1 (receipt-status receipt)))
-      (is (= 2 (length (receipt-logs receipt))))
+      ;; Only the creation's EIP-7708 transfer log: EIP-8246 removes the
+      ;; burn, so there is no burn to log (geth v1.17.6 opSelfdestruct6780;
+      ;; tests-glamsterdam-devnet@v7.2.1 create_transaction_initcode_selfdestruct).
+      (is (= 1 (length (receipt-logs receipt))))
       (is (string=
-           "0xcc16f5dbb4873280815c1ee09dbd06736cffcc184412cf7a71a0fdb75d397ca5"
+           "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
            (hash32-to-hex
-            (first (log-entry-topics (second (receipt-logs receipt)))))))
+            (first (log-entry-topics (first (receipt-logs receipt)))))))
       (is account)
       (is (= 7 (state-account-balance account)))
       (is (= 0 (state-account-nonce account)))
