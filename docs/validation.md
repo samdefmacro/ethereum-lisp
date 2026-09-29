@@ -1038,7 +1038,14 @@ of grace (default 120, accepted 30--600) and reports the same verdict; `stop`
 first applies upgrade's and restart's ownership checks together. The
 self-test pairs each refusal (no mutation allowance, a timeout outside the
 range, each ownership mismatch, a stopped container) with an accepted case
-and tells a clean stop from a SIGKILLed, OOM-killed or faulted one.
+and tells a clean stop from a SIGKILLed, OOM-killed or faulted one. It also
+drives `upgrade`, `start` and `restart` over a container that stopped on a
+start-up defect (never started or stopped, its log line's peer identities
+replaced; a running one is the control), every rollback outcome, and the
+runtime revision marker against a modelled Git history: each downgrade
+refusal (older, unknown, diverged, malformed, changed between the two reads)
+is paired with an accepted case or the allowance
+(`HOODI-LIVE-GATE-SELFTEST-SUMMARISES-ENGINE-TELEMETRY`, 304 checks).
 
 When `start` replaces a container previously created by this live gate, set
 `HOODI_GATE_OLD_CONTAINER` and its full `HOODI_GATE_OLD_REVISION`. The broker
@@ -1100,13 +1107,31 @@ scripts/hoodi-live-gate.sh upgrade
 
 `upgrade` requires the previous container to be owned by this gate,
 read-only-root, explicitly non-root, labelled with the supplied exact revision,
-and mounted on that same non-empty datadir. If an interrupted control-plane
-operation left that exact container stopped, the broker starts it and waits for
-public-RPC readiness before collecting the before evidence and continuing. It
-preserves the previous container stopped on success. A previous-readiness,
-new-container, network-attachment, exit, or replacement-readiness failure stops
-the attempted process where applicable and restores the previous container;
-neither path removes a container, image, artifact, or datadir.
+and mounted on that same non-empty datadir. A running previous container must
+answer public RPC before the broker records its before-block and stops it. A
+previous container that is not running (a crash, or an interrupted
+control-plane operation) is never started: its before-state is recorded from
+Docker and its last log line (`previous-state=exited exit=N finished=<ts>
+last-log=<line>`, peer identities replaced) and its block number is reported
+unavailable. On 2026-09-29 the broker still started such a container to read
+it; it died 7 s later on a start-up defect and failed an upgrade whose new
+image would have started. The broker preserves the previous container stopped
+on success. A new-container, network-attachment, exit, or
+replacement-readiness failure stops the attempted process and puts the
+previous container back as it was found: started again if it was running
+(`rollback-previous-start=ok`, or `failed`, reported and never fatal), left
+stopped if it was not; neither path removes a container, image, artifact, or
+datadir.
+
+Every start the broker performs (`start`, `upgrade`, `restart`) first records
+the runtime revision in `<datadir>/RUNTIME-REVISION`. The control plane reads
+that marker before starting anything and refuses an image revision that is not
+the marker's revision or a Git descendant of it (for a datadir without a
+marker, `upgrade` uses the previous container's revision label), naming the
+reason; `HOODI_GATE_ALLOW_DOWNGRADE=1` overrides it and leaves the newer
+revision in the marker. The host re-reads the marker before stopping anything.
+`status` prints it (`runtime-revision-marker=`). `docs/runbook.md`, Upgrade
+and Runtime revision marker, has the lines and the rollback case.
 
 When a live stall needs the bounded allocation profiler but the exact runtime
 image must remain unchanged, the broker permits one same-revision diagnostic
@@ -1150,12 +1175,16 @@ gate scripts; any runtime-sensitive change keeps those paths fail-closed.
 that stopped container and its datadir, and connects the exact-revision EL to
 the already-running Lighthouse alias. It uses the SSH user's non-root uid/gid,
 a read-only container root, an empty revision-named bind-mounted datadir, preset
-bootnodes, and no manual enode. If launch or network attachment fails, it stops
-the failed gate container and restores the rehearsal EL. `restart` verifies the
-same container's revision, datadir, and memory ownership, records its
-running/exit/OOM state, then stops it when necessary and starts it again. A
-crash-stopped container reports its unavailable before-RPC values instead of
-preventing recovery. The broker prints the remaining before/after RPC and
+bootnodes, and no manual enode. The cutover does not depend on the old
+container being alive: one that is not running is recorded (`old-state=`) and
+never started or stopped. If launch or network attachment fails, it stops the
+failed gate container and restarts the old EL only if it was running
+(`rollback-old-start=ok|failed|skipped`; a failed start is reported, never
+fatal). `restart` verifies the same container's revision, datadir, and memory
+ownership, records its running/exit/OOM state, then stops it when necessary
+and starts it again. A crash-stopped container reports `before-state=` from
+Docker and its last log line and unavailable before-RPC values instead of
+preventing recovery; a start the daemon refuses fails with that reason. The broker prints the remaining before/after RPC and
 datadir evidence needed to assess durable progress; a restart is not by itself
 proof that progress advanced.
 

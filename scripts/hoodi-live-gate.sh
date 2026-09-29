@@ -95,6 +95,11 @@ nodekey_dir="${HOODI_GATE_NODEKEY_DIR:-$remote_root/nodekey}"
 # (docs/runbook.md, Stop); the former fixed 30 s grace could SIGKILL a node
 # whose request ran to its deadline.
 stop_timeout="${HOODI_GATE_STOP_TIMEOUT:-120}"
+# start, upgrade and restart refuse to start a runtime on a datadir whose
+# RUNTIME-REVISION marker names a newer revision (a descendant of the image's
+# revision, or one this checkout cannot order): the newer runtime may have
+# written state the older one cannot read.  1 overrides it, knowingly.
+allow_downgrade="${HOODI_GATE_ALLOW_DOWNGRADE:-0}"
 
 case "$host" in *[!A-Za-z0-9_.@-]*|'') fail "unsafe SSH host: $host" ;; esac
 case "$remote_root" in
@@ -154,6 +159,10 @@ esac
 case "$rocksdb_async_read_io" in
     0|1) ;;
     *) fail "RocksDB async-read-I/O override must be zero or one" ;;
+esac
+case "$allow_downgrade" in
+    0|1) ;;
+    *) fail "downgrade allowance must be zero or one" ;;
 esac
 case "$memory_limit_bytes" in
     *[!0-9]*|'') fail "memory limit must be an integer number of bytes" ;;
@@ -282,6 +291,75 @@ gate_verify_owned() {
     esac
 }
 
+# gate_last_log_line CONTAINER: the container's last log line as one printable
+# line of at most 240 characters.  IPv4 addresses, enode URLs and hex runs of
+# 40 or more digits are replaced, so no peer identity leaves the host.
+gate_last_log_line() {
+    ll_line="$(docker logs --tail 1 "$1" 2>&1 | tail -n 1 | tr -c '[:print:]' ' ' |
+        sed -E -e 's#enode://[^ ]*#<enode>#g' \
+            -e 's/[0-9]{1,3}([.][0-9]{1,3}){3}/<ip>/g' \
+            -e 's/(0x)?[0-9A-Fa-f]{40,}/<hex>/g' \
+            -e 's/ +$//' | cut -c 1-240 || true)"
+    printf '%s' "${ll_line:-none}"
+}
+
+# gate_record_not_running CONTAINER PREFIX: the before-state of a container
+# that is not running, read from Docker's record and its last log line.  It is
+# never started to read its store: on 2026-09-29 a previous container that
+# upgrade started for exactly that died on a start-up defect 7 s later, and the
+# upgrade failed although the new image would have started.
+gate_record_not_running() {
+    printf '%s-state=%s exit=%s finished=%s last-log=%s\n' "$2" \
+        "$(docker container inspect --format '{{.State.Status}}' "$1")" \
+        "$(docker container inspect --format '{{.State.ExitCode}}' "$1")" \
+        "$(docker container inspect --format '{{.State.FinishedAt}}' "$1")" \
+        "$(gate_last_log_line "$1")"
+}
+
+# The datadir's runtime revision marker, DATADIR/RUNTIME-REVISION: one line,
+# the 40-hex revision of the newest runtime this broker has started on the
+# datadir.  The control plane orders revisions (it has the Git history); the
+# remote side only reads, re-checks and writes the marker.
+
+# gate_read_runtime_revision DATADIR: the marker's revision, "absent", or
+# "malformed" (anything but one 40-hex line, a symbolic link included).
+gate_read_runtime_revision() {
+    rr_file="$1/RUNTIME-REVISION"
+    if [ -L "$rr_file" ]; then
+        echo malformed
+    elif [ ! -e "$rr_file" ]; then
+        echo absent
+    elif [ ! -f "$rr_file" ] || [ "$(( $(wc -c < "$rr_file") ))" -ne 41 ]; then
+        echo malformed
+    else
+        rr_value="$(head -n 1 "$rr_file")"
+        case "$rr_value" in
+            *[!0-9a-f]*) echo malformed ;;
+            *) if [ "${#rr_value}" -eq 40 ]; then echo "$rr_value"; else echo malformed; fi ;;
+        esac
+    fi
+}
+
+# gate_require_runtime_revision DATADIR EXPECTED: the marker still reads what
+# the control plane judged, so nothing can slip in between the two.
+gate_require_runtime_revision() {
+    rq_now="$(gate_read_runtime_revision "$1")"
+    [ "$rq_now" = "$2" ] ||
+        gate_fail "RUNTIME-REVISION in $1 changed since the control plane checked it: now $rq_now, checked $2; nothing was started"
+}
+
+# gate_write_runtime_revision DATADIR MARKER RUNTIME: record MARKER just before
+# RUNTIME starts on DATADIR.  MARKER is RUNTIME unless an allowed downgrade
+# keeps the newer revision.  Written through a rename, so a reader never sees
+# a torn marker.
+gate_write_runtime_revision() {
+    rw_partial="$1/.RUNTIME-REVISION.partial"
+    rm -f "$rw_partial"
+    printf '%s\n' "$2" > "$rw_partial"
+    mv -f "$rw_partial" "$1/RUNTIME-REVISION"
+    printf 'runtime-revision-marker=%s written runtime=%s\n' "$2" "$3"
+}
+
 # SBCL prints "CORRUPTION WARNING" and continues, so a faulted process can
 # still exit 0 (docs/evidence/sec5-shutdown-memory-fault-trace.txt).
 gate_runtime_fault_pattern='CORRUPTION WARNING|Memory fault at|fatal error encountered'
@@ -350,6 +428,64 @@ LIB
 # with the given positional arguments.
 remote() {
     { print_remote_lib; cat; } | ssh "$host" bash -s -- "$@"
+}
+
+# read_runtime_marker: the datadir's RUNTIME-REVISION marker (a revision,
+# "absent" or "malformed").  Read-only on the remote side.  (The remote call
+# is its own function so no heredoc sits inside a $(...) capture.)
+print_runtime_marker() {
+    remote "$datadir" <<'REMOTE'
+set -eu
+printf 'runtime-revision-marker-read=%s\n' "$(gate_read_runtime_revision "$1")"
+REMOTE
+}
+read_runtime_marker() {
+    local marker
+    marker="$(print_runtime_marker | sed -n 's/^runtime-revision-marker-read=//p')" ||
+        fail "could not read the runtime revision marker in $datadir"
+    case "$marker" in
+        absent|malformed) ;;
+        *[!0-9a-f]*|'') fail "unexpected runtime revision marker read: $marker" ;;
+        *) [ "${#marker}" -eq 40 ] || fail "unexpected runtime revision marker read: $marker" ;;
+    esac
+    printf '%s' "$marker"
+}
+
+# decide_runtime_order MARKER FALLBACK FALLBACK-SOURCE: refuse to start the
+# image's revision on a datadir that a newer runtime has opened, unless
+# HOODI_GATE_ALLOW_DOWNGRADE=1.  MARKER is what read_runtime_marker returned;
+# FALLBACK ("none" for no fallback) stands in for an absent marker.  The image
+# revision must equal the last revision or descend from it.  Sets
+# marker_to_write: the image revision, or on an allowed downgrade the newer
+# revision it replaces, so a later start is still judged against that.
+decide_runtime_order() {
+    local marker="$1" last="$1" source="$datadir/RUNTIME-REVISION" reason=""
+    if [ "$marker" = absent ]; then
+        last="$2"; source="$3"
+    fi
+    marker_to_write="$revision"
+    if [ "$last" = none ]; then
+        printf 'runtime-order=first datadir=%s (no marker)\n' "$datadir"
+        return 0
+    elif [ "$last" = malformed ]; then
+        reason="its marker $source is malformed"
+    elif [ "$last" = "$revision" ]; then
+        printf 'runtime-order=same revision=%s source=%s\n' "$revision" "$source"
+        return 0
+    elif ! git -C "$repo_root" cat-file -e "$last^{commit}" 2>/dev/null; then
+        reason="its last runtime revision $last ($source) is not a commit in this checkout, so $revision cannot be shown to be at least it"
+    elif git -C "$repo_root" merge-base --is-ancestor "$last" "$revision"; then
+        printf 'runtime-order=newer revision=%s last=%s source=%s\n' "$revision" "$last" "$source"
+        return 0
+    elif git -C "$repo_root" merge-base --is-ancestor "$revision" "$last"; then
+        reason="$revision is older than its last runtime revision $last ($source)"
+    else
+        reason="$revision does not descend from its last runtime revision $last ($source)"
+    fi
+    [ "$allow_downgrade" = 1 ] ||
+        fail "refusing to start $revision on $datadir: $reason; a newer runtime may have written what this one cannot read (set HOODI_GATE_ALLOW_DOWNGRADE=1 only after checking that it can)"
+    printf 'runtime-order=downgrade-allowed reason=%s\n' "$reason"
+    [ "$last" = malformed ] || marker_to_write="$last"
 }
 
 require_clean_checkout() {
@@ -573,14 +709,18 @@ start_gate() {
     # ssh constructs a remote command string and does not preserve an empty
     # positional argument. Keep the optional revision slot present so every
     # following ownership argument retains its reviewed position.
-    local old_revision_arg="${old_revision:-none}"
+    local old_revision_arg="${old_revision:-none}" runtime_marker
+    # A fresh datadir has no marker; one that has a marker is refused below
+    # as not fresh, but a newer marker is refused here first, with its reason.
+    runtime_marker="$(read_runtime_marker)"
+    decide_runtime_order "$runtime_marker" none none
     remote \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
         "$lighthouse_container" "$old_container" "$cl_network" "$egress_network" \
         "$cl_alias" "$p2p_port" "$memory_limit_bytes" \
         "$allocation_profile_seconds" "$rocksdb_async_read_io" "$old_revision_arg" \
-        "$nodekey_dir" "$stop_timeout" <<'REMOTE'
+        "$nodekey_dir" "$stop_timeout" "$runtime_marker" "$marker_to_write" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; old="${10}"
@@ -591,6 +731,8 @@ rocksdb_async_read_io="${17}"
 old_expected_revision="${18}"
 nodekey_dir="${19}"
 stop_timeout="${20}"
+expected_marker="${21}"
+marker_to_write="${22}"
 [ "$old_expected_revision" != none ] || old_expected_revision=""
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
@@ -633,6 +775,7 @@ docker run --rm --pull never \
     --network none \
     --entrypoint /usr/local/libexec/ethereum-lisp-io-uring-probe \
     "$image"
+gate_require_runtime_revision "$datadir" "$expected_marker"
 gate_check_nodekey "$nodekey_dir" create
 if [ -d "$datadir" ]; then
     [ -z "$(find "$datadir" -mindepth 1 -maxdepth 1 -print -quit)" ] || {
@@ -643,9 +786,17 @@ else
     install -d -m 0700 "$datadir"
 fi
 
+# The cutover never depends on the old container being alive.  One that is
+# not running is not started, stopped or otherwise touched; its state is
+# recorded from Docker and its last log line, and a failed launch leaves it
+# stopped.
 old_was_running=false
-if docker container inspect "$old" >/dev/null 2>&1 &&
-   [ "$(docker container inspect --format '{{.State.Running}}' "$old")" = true ]; then
+if ! docker container inspect "$old" >/dev/null 2>&1; then
+    printf 'old-state=absent container=%s\n' "$old"
+elif [ "$(docker container inspect --format '{{.State.Running}}' "$old")" != true ]; then
+    gate_record_not_running "$old" old
+    printf '%s\n' 'old-stop=skipped (not running)'
+else
     old_agent="$(docker container inspect --format '{{ index .Config.Labels "agent" }}' "$old")"
     old_image_revision="$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$old")"
     old_gate_revision="$(docker container inspect --format '{{ index .Config.Labels "io.ethereum-lisp.gate-revision" }}' "$old")"
@@ -693,15 +844,23 @@ if docker container inspect "$old" >/dev/null 2>&1 &&
     old_was_running=true
 fi
 
+# rollback: stop the failed gate container and put the old one back the way
+# it was found.  A failed start of the old container is reported, never
+# fatal: the launch has already failed and the broker exits non-zero anyway.
 rollback() {
     if docker container inspect "$container" >/dev/null 2>&1; then
         docker stop --time "$stop_timeout" "$container" >/dev/null 2>&1 || true
     fi
-    if [ "$old_was_running" = true ]; then
-        docker start "$old" >/dev/null 2>&1 || true
+    if [ "$old_was_running" != true ]; then
+        printf '%s\n' 'rollback-old-start=skipped (no old container was running)'
+    elif docker start "$old" >/dev/null 2>&1; then
+        printf '%s\n' 'rollback-old-start=ok'
+    else
+        printf '%s\n' 'rollback-old-start=failed (reported; the launch had already failed)'
     fi
 }
 
+gate_write_runtime_revision "$datadir" "$marker_to_write" "$revision"
 if ! docker run --detach --pull never \
     --name "$container" \
     --label agent=codex-sec5-live-gate \
@@ -745,14 +904,14 @@ fi
 
 if ! docker network connect "$egress_network" "$container"; then
     rollback
-    echo "failed to attach $container to $egress_network; old container restored" >&2
+    echo "failed to attach $container to $egress_network; old container put back as it was" >&2
     exit 1
 fi
 sleep 2
 if [ "$(docker container inspect --format '{{.State.Running}}' "$container")" != true ]; then
     docker logs "$container" 2>&1 | tail -80 >&2 || true
     rollback
-    echo "exact-revision EL exited during startup; old container restored" >&2
+    echo "exact-revision EL exited during startup; old container put back as it was" >&2
     exit 1
 fi
 docker container inspect --format \
@@ -775,6 +934,12 @@ upgrade_gate() {
             fail "same-revision replacement requires a non-zero allocation profile duration"
     fi
     note "replacing the exact previous EL while preserving its durable datadir"
+    # A datadir from before the marker existed is judged against the previous
+    # container's own revision label, the newest runtime known to have run it.
+    local runtime_marker
+    runtime_marker="$(read_runtime_marker)"
+    decide_runtime_order "$runtime_marker" "$previous_revision" \
+        "the previous container's revision label, no marker yet"
     remote \
         "$revision" "$image" "$container" "$datadir" "$jwt_dir" "$public_ip" \
         "$remote_seccomp_profile" "$expected_seccomp_sha256" \
@@ -782,7 +947,7 @@ upgrade_gate() {
         "$cl_network" "$egress_network" "$cl_alias" "$p2p_port" \
         "$restart_ready_timeout" "$memory_limit_bytes" \
         "$allocation_profile_seconds" "$rocksdb_async_read_io" \
-        "$nodekey_dir" "$stop_timeout" <<'REMOTE'
+        "$nodekey_dir" "$stop_timeout" "$runtime_marker" "$marker_to_write" <<'REMOTE'
 set -eu
 revision="$1"; image="$2"; container="$3"; datadir="$4"; jwt_dir="$5"; public_ip="$6"
 seccomp_profile="$7"; expected_seccomp="$8"; lighthouse="$9"; previous="${10}"
@@ -793,6 +958,8 @@ allocation_profile_seconds="${18}"
 rocksdb_async_read_io="${19}"
 nodekey_dir="${20}"
 stop_timeout="${21}"
+expected_marker="${22}"
+marker_to_write="${23}"
 
 image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")"
 image_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")"
@@ -848,6 +1015,7 @@ docker run --rm --pull never \
     echo "upgrade datadir is absent or empty: $datadir" >&2
     exit 1
 }
+gate_require_runtime_revision "$datadir" "$expected_marker"
 [ -r "$jwt_dir/jwt.hex" ] || { echo "JWT file is not readable: $jwt_dir/jwt.hex" >&2; exit 1; }
 docker network inspect "$cl_network" >/dev/null
 docker network inspect "$egress_network" >/dev/null
@@ -873,55 +1041,78 @@ rpc() {
         "http://127.0.0.1:$rpc_port"
 }
 
-if [ "$previous_initially_running" != true ]; then
-    docker start "$previous" >/dev/null
-fi
-previous_ready=false
-previous_ready_deadline="$(( $(date +%s) + ready_timeout ))"
-while :; do
-    previous_ready_now="$(date +%s)"
-    previous_ready_remaining="$(( previous_ready_deadline - previous_ready_now ))"
-    [ "$previous_ready_remaining" -gt 0 ] || break
-    if [ "$previous_ready_remaining" -gt 10 ]; then
-        previous_attempt_timeout=10
-    else
-        previous_attempt_timeout="$previous_ready_remaining"
+if [ "$previous_initially_running" = true ]; then
+    previous_ready=false
+    previous_ready_deadline="$(( $(date +%s) + ready_timeout ))"
+    while :; do
+        previous_ready_now="$(date +%s)"
+        previous_ready_remaining="$(( previous_ready_deadline - previous_ready_now ))"
+        [ "$previous_ready_remaining" -gt 0 ] || break
+        if [ "$previous_ready_remaining" -gt 10 ]; then
+            previous_attempt_timeout=10
+        else
+            previous_attempt_timeout="$previous_ready_remaining"
+        fi
+        if rpc "$previous" eth_chainId "$previous_attempt_timeout" >/dev/null 2>&1; then
+            previous_ready=true
+            break
+        fi
+        [ "$(docker container inspect --format '{{.State.Running}}' "$previous")" = true ] || break
+        sleep 1
+    done
+    if [ "$previous_ready" != true ]; then
+        docker logs "$previous" 2>&1 | tail -80 >&2 || true
+        echo "previous public RPC did not return within ${ready_timeout}s" >&2
+        exit 1
     fi
-    if rpc "$previous" eth_chainId "$previous_attempt_timeout" >/dev/null 2>&1; then
-        previous_ready=true
-        break
-    fi
-    [ "$(docker container inspect --format '{{.State.Running}}' "$previous")" = true ] || break
-    sleep 1
-done
-if [ "$previous_ready" != true ]; then
-    docker logs "$previous" 2>&1 | tail -80 >&2 || true
-    if [ "$previous_initially_running" != true ]; then
-        docker stop --time "$stop_timeout" "$previous" >/dev/null 2>&1 || true
-    fi
-    echo "previous public RPC did not return within ${ready_timeout}s" >&2
-    exit 1
 fi
 
 date -u +before-timestamp=%Y-%m-%dT%H:%M:%SZ
 printf 'before-container=%s\n' "$previous"
 printf 'before-started='; docker container inspect --format '{{.State.StartedAt}}' "$previous"
 printf 'before-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
-printf 'before-block='; rpc "$previous" eth_blockNumber; printf '\n'
-printf 'before-syncing='; rpc "$previous" eth_syncing; printf '\n'
+if [ "$previous_initially_running" = true ]; then
+    printf 'before-block='; rpc "$previous" eth_blockNumber; printf '\n'
+    printf 'before-syncing='; rpc "$previous" eth_syncing; printf '\n'
 
-# Reported, not fatal: the replacement opens the same store, and RocksDB
-# recovers an unclean close on open (docs/runbook.md, Stop).
-previous_stop_status=0
-gate_stop "$previous" "$datadir" "$stop_timeout" previous-stop || previous_stop_status=$?
-[ "$previous_stop_status" -le 1 ] ||
-    gate_fail "could not stop $previous; nothing was replaced"
+    # Reported, not fatal: the replacement opens the same store, and RocksDB
+    # recovers an unclean close on open (docs/runbook.md, Stop).
+    previous_stop_status=0
+    gate_stop "$previous" "$datadir" "$stop_timeout" previous-stop || previous_stop_status=$?
+    [ "$previous_stop_status" -le 1 ] ||
+        gate_fail "could not stop $previous; nothing was replaced"
+else
+    # Not started to read its store: its block number is not readable without
+    # starting it, and a container that stopped on a start-up defect would
+    # only fail again (gate_record_not_running).
+    gate_record_not_running "$previous" previous
+    printf 'previous-oom-killed='
+    docker container inspect --format '{{.State.OOMKilled}}' "$previous"
+    printf '%s\n' 'before-block=unavailable (previous not running; its store is not opened)'
+    printf '%s\n' 'before-syncing=unavailable (previous not running)'
+    printf '%s\n' 'previous-stop=skipped (not running)'
+fi
+# rollback: stop the replacement and put the previous container back the way
+# it was found.  A previous that was not running stays stopped; a failed start
+# of one that was is reported, never fatal, because the upgrade has already
+# failed and exits non-zero either way.
 rollback() {
     if docker container inspect "$container" >/dev/null 2>&1; then
         docker stop --time "$stop_timeout" "$container" >/dev/null 2>&1 || true
     fi
-    docker start "$previous" >/dev/null 2>&1 || true
+    # The replacement may already have written to the store, so the marker is
+    # not lowered: restarting the previous later needs the downgrade override.
+    printf 'runtime-revision-marker=%s kept (the replacement was started on this datadir)\n' \
+        "$marker_to_write"
+    if [ "$previous_initially_running" != true ]; then
+        printf '%s\n' 'rollback-previous-start=skipped (it was not running before the upgrade)'
+    elif docker start "$previous" >/dev/null 2>&1; then
+        printf '%s\n' 'rollback-previous-start=ok'
+    else
+        printf '%s\n' 'rollback-previous-start=failed (reported; the upgrade had already failed)'
+    fi
 }
+gate_write_runtime_revision "$datadir" "$marker_to_write" "$revision"
 trap rollback EXIT HUP INT TERM
 
 if ! docker run --detach --pull never \
@@ -969,7 +1160,7 @@ fi
 if ! docker network connect "$egress_network" "$container"; then
     rollback
     trap - EXIT HUP INT TERM
-    echo "failed to attach upgraded gate to $egress_network; previous container restored" >&2
+    echo "failed to attach upgraded gate to $egress_network; previous container put back as it was" >&2
     exit 1
 fi
 
@@ -991,7 +1182,7 @@ if [ "$ready" != true ]; then
     docker logs "$container" 2>&1 | tail -80 >&2 || true
     rollback
     trap - EXIT HUP INT TERM
-    echo "upgraded public RPC did not return within ${ready_timeout}s; previous container restored" >&2
+    echo "upgraded public RPC did not return within ${ready_timeout}s; previous container put back as it was" >&2
     exit 1
 fi
 trap - EXIT HUP INT TERM
@@ -1046,6 +1237,10 @@ docker stats --no-stream --format \
 printf 'datadir-bytes='
 du -sb "$datadir" | awk '{print $1}'
 printf 'datadir=%s\n' "$datadir"
+# Printed before any RPC, so it is there even when the node is down.
+printf 'runtime-revision-marker=%s container-revision=%s\n' \
+    "$(gate_read_runtime_revision "$datadir")" \
+    "$(docker container inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$container")"
 df -B1 "$datadir" | awk '
     NR == 2 {
         printf "data-filesystem-bytes=total=%s used=%s available=%s utilization=%s mount=%s\n", $2, $3, $4, $5, $6
@@ -1097,13 +1292,21 @@ REMOTE
 restart_gate() {
     require_mutation
     note "recording progress, restarting the same container, and recording it again"
+    # Restart starts a runtime too: an older container is not restarted on a
+    # datadir a newer one has opened (for example after a rolled-back upgrade).
+    local runtime_marker
+    runtime_marker="$(read_runtime_marker)"
+    decide_runtime_order "$runtime_marker" none none
     remote \
         "$revision" "$container" "$datadir" "$restart_ready_timeout" \
-        "$memory_limit_bytes" "$nodekey_dir" "$stop_timeout" <<'REMOTE'
+        "$memory_limit_bytes" "$nodekey_dir" "$stop_timeout" \
+        "$runtime_marker" "$marker_to_write" <<'REMOTE'
 set -eu
 revision="$1"; container="$2"; datadir="$3"; ready_timeout="$4"
 memory_limit="$5"; nodekey_dir="$6"; stop_timeout="$7"
+expected_marker="$8"; marker_to_write="$9"
 gate_verify_owned "$container" "$revision" "$datadir"
+gate_require_runtime_revision "$datadir" "$expected_marker"
 actual_memory="$(docker container inspect --format '{{.HostConfig.Memory}}' "$container")"
 actual_memory_swap="$(docker container inspect --format '{{.HostConfig.MemorySwap}}' "$container")"
 [ "$actual_memory" = "$memory_limit" ] || {
@@ -1142,15 +1345,23 @@ printf 'before-finished='; docker container inspect --format '{{.State.FinishedA
 printf 'before-exit='; docker container inspect --format '{{.State.ExitCode}}' "$container"
 printf 'before-oom='; docker container inspect --format '{{.State.OOMKilled}}' "$container"
 printf 'before-datadir-bytes='; du -sb "$datadir" | awk '{print $1}'
-if before_block="$(rpc eth_blockNumber)"; then
-    printf 'before-block=%s\n' "$before_block"
+if [ "$before_running" != true ]; then
+    # A crash-stopped container: its store is not readable without starting
+    # it, which this restart is about to do anyway.
+    gate_record_not_running "$container" before
+    printf '%s\n' 'before-block=unavailable (not running)'
+    printf '%s\n' 'before-syncing=unavailable (not running)'
 else
-    printf '%s\n' 'before-block=unavailable'
-fi
-if before_syncing="$(rpc eth_syncing)"; then
-    printf 'before-syncing=%s\n' "$before_syncing"
-else
-    printf '%s\n' 'before-syncing=unavailable'
+    if before_block="$(rpc eth_blockNumber)"; then
+        printf 'before-block=%s\n' "$before_block"
+    else
+        printf '%s\n' 'before-block=unavailable'
+    fi
+    if before_syncing="$(rpc eth_syncing)"; then
+        printf 'before-syncing=%s\n' "$before_syncing"
+    else
+        printf '%s\n' 'before-syncing=unavailable'
+    fi
 fi
 
 stop_clean=true
@@ -1163,7 +1374,9 @@ if [ "$before_running" = true ]; then
         *) gate_fail "could not stop $container; it was not restarted" ;;
     esac
 fi
-docker start "$container" >/dev/null
+gate_write_runtime_revision "$datadir" "$marker_to_write" "$revision"
+docker start "$container" >/dev/null ||
+    gate_fail "docker start failed for $container; it is not running"
 
 ready=false
 ready_deadline="$(( $(date +%s) + ready_timeout ))"

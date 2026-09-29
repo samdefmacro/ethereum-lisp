@@ -28,7 +28,13 @@
 # docker stop (both timeout bounds and the clean stop are the controls), and a
 # clean stop is told apart from a SIGKILLed, OOM-killed or faulted one by exit
 # code, OOMKilled, the RocksDB "Shutdown complete" count and the fault lines;
-# restart and upgrade stop through the same helper and grace.
+# restart and upgrade stop through the same helper and grace.  A container
+# that stopped on a start-up defect (STUB: dies-on-start, start-fails) is
+# recorded by upgrade, start and restart from Docker and its last log line and
+# never started to be read; each rollback outcome is checked.  A modelled Git
+# history (STUB_HISTORY, STUB_SIDE) drives the RUNTIME-REVISION marker: every
+# downgrade refusal is paired with an accepted case or the allowance, and an
+# ssh hook changes the marker between the control plane's read and the action.
 #
 # Run it from the tests (tests/control-plane-broker-tests.lisp) in the
 # project container; it prints one line per check and exits non-zero on any
@@ -49,12 +55,31 @@ real_date="$(command -v date)"
 
 head_rev=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
+# STUB_HISTORY models one line of commits, oldest first, and STUB_SIDE commits
+# known to the checkout but on another line.  Unset, every commit is known and
+# every ancestry holds.
 cat > "$bin/git" <<'STUB'
 #!/bin/sh
 [ "$1" = -C ] && shift 2
+pos() {
+    i=0
+    for r in ${STUB_HISTORY:-}; do
+        i=$((i + 1))
+        [ "$r" = "$1" ] && { echo "$i"; return; }
+    done
+    echo 0
+}
 case "$1" in
     rev-parse) echo "$STUB_HEAD" ;;
-    merge-base) true ;;
+    merge-base)
+        [ -n "${STUB_HISTORY:-}" ] || exit 0
+        a="$(pos "$3")"; b="$(pos "$4")"
+        [ "$a" -gt 0 ] && [ "$b" -gt 0 ] && [ "$a" -le "$b" ] ;;
+    cat-file)
+        [ -n "${STUB_HISTORY:-}" ] || exit 0
+        rev="${3%%^*}"
+        [ "$(pos "$rev")" -gt 0 ] && exit 0
+        case " ${STUB_SIDE:-} " in *" $rev "*) exit 0 ;; *) exit 1 ;; esac ;;
     diff) case " $* " in *" --quiet "*) true ;; *) printf '' ;; esac ;;
     status) true ;;
     *) echo "git stub: unexpected $*" >&2; exit 99 ;;
@@ -65,9 +90,16 @@ STUB
 # STUB_REMOTE_DATA set, every remote path argument under /data/ is moved below
 # that scratch directory, so a mutating action's remote side can create and
 # check real directories without touching /data.
+# STUB_SSH_HOOK runs (with sh -c) just before the STUB_SSH_HOOK_CALL-th ssh
+# call, to change remote state between two calls of one action.
 cat > "$bin/ssh" <<'STUB'
 #!/usr/bin/env bash
 echo "ssh $*" >> "$STUB_LOG"
+if [ -n "${STUB_SSH_HOOK:-}" ]; then
+    calls=$(( $(cat "$STUB_SSH_COUNT" 2>/dev/null || echo 0) + 1 ))
+    echo "$calls" > "$STUB_SSH_COUNT"
+    [ "$calls" != "${STUB_SSH_HOOK_CALL:-0}" ] || sh -c "$STUB_SSH_HOOK"
+fi
 shift
 if [ -n "${STUB_REMOTE_DATA:-}" ]; then
     args=()
@@ -150,6 +182,10 @@ case "$1" in
         set_field "$name" nodekey "$nodekey"; set_field "$name" user "$user"
         set_field "$name" args "${args# }"; set_field "$name" running true
         set_field "$name" exit 0; set_field "$name" oom false
+        # STUB_RUN_DIES: the new container exits at once (a start-up defect).
+        if [ -n "${STUB_RUN_DIES:-}" ]; then
+            set_field "$name" running false; set_field "$name" exit 1
+        fi
         set_field "$name" memory "${STUB_MEMORY:-7516192768}" ;;
     container)
         name="$(last_arg "$@")"
@@ -172,6 +208,9 @@ case "$1" in
             *'.Config.User'*) field "$name" user ;;
             *'ReadonlyRootfs'*) echo true ;;
             *'MemorySwap'*|*'.HostConfig.Memory'*) field "$name" memory ;;
+            *'.State.Status'*)
+                if [ "$(field "$name" running)" = true ]; then echo running
+                else status="$(field "$name" status)"; echo "${status:-exited}"; fi ;;
             *'.State.StartedAt'*|*'.State.FinishedAt'*) echo 2026-09-29T00:00:00Z ;;
             *'.State.ExitCode'*) field "$name" exit ;;
             *'.State.OOMKilled'*) field "$name" oom ;;
@@ -180,8 +219,18 @@ case "$1" in
             *) echo "docker stub: unexpected format $format" >&2; exit 99 ;;
         esac ;;
     start)
+        # A container with start-fails is refused by the daemon; one with
+        # dies-on-start starts and exits at once, as a start-up defect does.
         [ -d "$STUB_STATE/$2" ] || exit 1
-        set_field "$2" running true ;;
+        if [ -e "$STUB_STATE/$2/start-fails" ]; then
+            echo "Error response from daemon: stub start refused for $2" >&2
+            exit 1
+        fi
+        if [ -e "$STUB_STATE/$2/dies-on-start" ]; then
+            set_field "$2" running false; set_field "$2" exit 1
+        else
+            set_field "$2" running true
+        fi ;;
     stop)
         # STUB_STOP_OUTCOME: clean (the default: exit 0 and RocksDB's
         # "Shutdown complete" in the datadir's LOG), killed (SIGKILL after the
@@ -203,7 +252,10 @@ case "$1" in
             echo "CORRUPTION WARNING in SBCL pid 7 tid 8: Memory fault at 0x10 (pc=0x20)" >> "$STUB_STATE/$name/log"
         fi ;;
     logs) name="$(last_arg "$@")"; cat "$STUB_STATE/$name/log" 2>/dev/null || true ;;
-    port) echo "127.0.0.1:18545" ;;
+    # A container that is not running publishes no port, so an RPC to it fails.
+    port)
+        [ "$(field "$2" running)" = true ] || exit 1
+        echo "127.0.0.1:18545" ;;
     stats) echo "runtime=cpu=1.00% memory=1GiB / 7GiB blockIo=0B / 0B pids=10" ;;
     *) echo "docker stub: unexpected $*" >&2; exit 99 ;;
 esac
@@ -350,6 +402,16 @@ has() {
     fi
 }
 
+# says TEXT: the last run printed TEXT somewhere (for long refusal lines).
+says() {
+    if grep -qF -- "$1" "$out"; then
+        record ok "says: $1"
+    else
+        echo "missing text: $1" >> "$out"
+        record fail "says: $1"
+    fi
+}
+
 lacks() {
     if grep -qF -- "$1" "$out"; then
         echo "unexpected text: $1" >> "$out"
@@ -466,7 +528,7 @@ fi
 # ================================================================================
 export STUB_MODE=lifecycle STUB_STATE="$work/state" HOODI_GATE_ALLOW_MUTATION=1
 remote_data="$work/remote-data"
-export STUB_REMOTE_DATA="$remote_data"
+export STUB_REMOTE_DATA="$remote_data" STUB_SSH_COUNT="$work/ssh-count"
 root="$remote_data/hoodi-sec5-20260814"
 nk="$root/nodekey"
 key="$nk/nodekey.hex"
@@ -483,12 +545,16 @@ lifecycle_log="$work/lifecycle.log"
 : > "$lifecycle_log"
 reset_world() {
     cat "$STUB_LOG" >> "$lifecycle_log"
-    rm -rf "$STUB_STATE" "$root/datadir-aaaaaaaa"
+    rm -rf "$STUB_STATE" "$root"/datadir-* "$STUB_SSH_COUNT"
     mkdir -p "$STUB_STATE/hoodi-lighthouse-public"
     echo true > "$STUB_STATE/hoodi-lighthouse-public/running"
     unset STUB_UID STUB_KEY_OWNER STUB_DIR_OWNER HOODI_GATE_PREVIOUS_CONTAINER \
         HOODI_GATE_PREVIOUS_REVISION HOODI_GATE_DATADIR STUB_STOP_OUTCOME \
-        HOODI_GATE_STOP_TIMEOUT
+        HOODI_GATE_STOP_TIMEOUT STUB_RUN_DIES HOODI_GATE_OLD_CONTAINER \
+        HOODI_GATE_OLD_REVISION HOODI_GATE_ALLOW_DOWNGRADE STUB_SSH_HOOK \
+        STUB_SSH_HOOK_CALL STUB_SIDE
+    # prev_rev is older than head_rev unless a test says otherwise.
+    export STUB_HISTORY="$prev_rev $head_rev"
     : > "$STUB_LOG"
 }
 
@@ -848,6 +914,404 @@ export HOODI_GATE_PREVIOUS_CONTAINER="$prev_container" HOODI_GATE_PREVIOUS_REVIS
 run 0 "upgrade stops the previous container through the helper" -- "$broker" upgrade
 logged "docker stop --time 120 $prev_container"
 has "previous-stop-clean=true"
+has "before-block=$STUB_BLOCK"
+
+# --- upgrade from a previous container that is not running ------------------------
+# On 2026-09-29 upgrade started the stopped previous container to read its
+# before-state; it died on a start-up defect 7 s later and the upgrade failed
+# although the new image would have started.  A previous that is not running
+# is now read from Docker's record and its last log line, never started.
+not_logged() {
+    if grep -qF -- "$1" "$STUB_LOG"; then
+        record fail "never calls: $1" "$STUB_LOG"
+    else
+        record ok "never calls: $1"
+    fi
+}
+hex40=abababababababababababababababababababab
+# plant_exited NAME: the container stopped on a start-up defect, and a start
+# would kill it again at once.  Its last log line names a peer address and a
+# long hex id, which must not cross the broker.
+plant_exited() {
+    echo false > "$STUB_STATE/$1/running"; echo 1 > "$STUB_STATE/$1/exit"
+    echo exited > "$STUB_STATE/$1/status"
+    touch "$STUB_STATE/$1/dies-on-start"
+    printf '%s\n' "node.start bootnode=enode://$hex40@192.0.2.8:30303" \
+        "FATAL: txpool journal import refused a transaction from 192.0.2.9 id 0x$hex40" \
+        > "$STUB_STATE/$1/log"
+}
+upgrade_env() {
+    export HOODI_GATE_PREVIOUS_CONTAINER="$prev_container" HOODI_GATE_PREVIOUS_REVISION="$prev_rev" \
+        HOODI_GATE_DATADIR=/data/hoodi-sec5-20260814/datadir-bbbbbbbb
+}
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+plant_exited "$prev_container"
+upgrade_env
+run 0 "upgrade from a previous container that stopped on a start-up defect" -- "$broker" upgrade
+has "previous-state=exited exit=1 finished=2026-09-29T00:00:00Z last-log=FATAL: txpool journal import refused a transaction from <ip> id <hex>"
+has "previous-oom-killed=false"
+has "before-block=unavailable (previous not running; its store is not opened)"
+has "before-syncing=unavailable (previous not running)"
+has "previous-stop=skipped (not running)"
+lacks "192.0.2."
+lacks "$hex40"
+lacks "enode://"
+check_run_line "upgrade from a stopped previous"
+not_logged "docker start $prev_container"
+not_logged "docker stop --time 120 $prev_container"
+
+# The replacement dies too: the previous is put back as it was found.  A
+# stopped previous stays stopped ...
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+plant_exited "$prev_container"
+upgrade_env
+export STUB_RUN_DIES=1
+run 1 "upgrade whose replacement dies, from a stopped previous" -- "$broker" upgrade
+has "rollback-previous-start=skipped (it was not running before the upgrade)"
+has "upgraded public RPC did not return within 600s; previous container put back as it was"
+not_logged "docker start $prev_container"
+
+# ... a running previous is started again (the control for the check above) ...
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+upgrade_env
+export STUB_RUN_DIES=1
+run 1 "upgrade whose replacement dies, from a running previous" -- "$broker" upgrade
+has "rollback-previous-start=ok"
+logged "docker start $prev_container"
+
+# ... and a start of it that fails is reported, not fatal: the upgrade's own
+# failure is still the one the broker exits with.
+reset_world
+plant_key 0600
+plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+touch "$STUB_STATE/$prev_container/start-fails"
+upgrade_env
+export STUB_RUN_DIES=1
+run 1 "upgrade whose replacement dies and whose previous cannot start" -- "$broker" upgrade
+has "rollback-previous-start=failed (reported; the upgrade had already failed)"
+has "upgraded public RPC did not return within 600s; previous container put back as it was"
+
+# --- start: the alias cutover does not depend on the old container ---------------
+old_name=hoodi-el-sec5-cccccccc
+old_datadir="$root/datadir-cccccccc"
+start_old_env() {
+    export HOODI_GATE_OLD_CONTAINER="$old_name" HOODI_GATE_OLD_REVISION="$prev_rev"
+}
+# No old container at all.
+reset_world
+plant_key 0600
+run 0 "start with no old container" -- "$broker" start
+has "old-state=absent container=hoodi-el-sec5-rehearsal-old3"
+check_run_line "start with no old container"
+
+# An old container that stopped on a start-up defect is recorded, never
+# started or stopped, and the new EL takes the alias.
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+plant_exited "$old_name"
+start_old_env
+run 0 "start over a stopped old container" -- "$broker" start
+has "old-state=exited exit=1 finished=2026-09-29T00:00:00Z last-log=FATAL: txpool journal import refused a transaction from <ip> id <hex>"
+has "old-stop=skipped (not running)"
+lacks "192.0.2."
+check_run_line "start over a stopped old container"
+not_logged "docker start $old_name"
+not_logged "docker stop --time 120 $old_name"
+
+# A running old container is stopped through the helper (the control for the
+# two checks above) ...
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+start_old_env
+run 0 "start over a running old container" -- "$broker" start
+logged "docker stop --time 120 $old_name"
+has "old-stop-clean=true"
+lacks "old-state="
+
+# ... and started again when the new EL dies ...
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+start_old_env
+export STUB_RUN_DIES=1
+run 1 "start whose new EL dies, over a running old container" -- "$broker" start
+has "rollback-old-start=ok"
+has "exact-revision EL exited during startup; old container put back as it was"
+logged "docker start $old_name"
+
+# ... where a failed start of it is reported, not fatal ...
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+touch "$STUB_STATE/$old_name/start-fails"
+start_old_env
+export STUB_RUN_DIES=1
+run 1 "start whose new EL dies and whose old container cannot start" -- "$broker" start
+has "rollback-old-start=failed (reported; the launch had already failed)"
+has "exact-revision EL exited during startup; old container put back as it was"
+
+# ... while a stopped old container stays stopped.
+reset_world
+plant_key 0600
+plant_container "$old_name" "$prev_rev" "$old_datadir" "$nk" "$with_key_args"
+plant_exited "$old_name"
+start_old_env
+export STUB_RUN_DIES=1
+run 1 "start whose new EL dies, over a stopped old container" -- "$broker" start
+has "rollback-old-start=skipped (no old container was running)"
+not_logged "docker start $old_name"
+
+# --- restart: a crash-stopped container ------------------------------------------
+reset_world
+plant_key 0600
+plant_gate
+plant_exited "$new_container"
+rm -f "$STUB_STATE/$new_container/dies-on-start"
+run 0 "restart of a crash-stopped container" -- "$broker" restart
+has "before-state=exited exit=1 finished=2026-09-29T00:00:00Z last-log=FATAL: txpool journal import refused a transaction from <ip> id <hex>"
+has "before-block=unavailable (not running)"
+has "before-syncing=unavailable (not running)"
+lacks "192.0.2."
+not_logged "docker stop --time 120 $new_container"
+logged "docker start $new_container"
+has "after-block=$STUB_BLOCK"
+
+# Control: a running container is read over RPC and has no before-state line.
+reset_world
+plant_key 0600
+plant_gate
+run 0 "restart of a running container" -- "$broker" restart
+has "before-block=$STUB_BLOCK"
+lacks "before-state="
+
+# A crash-stopped container that dies again, or that the daemon will not
+# start, fails the restart with the reason.
+reset_world
+plant_key 0600
+plant_gate
+plant_exited "$new_container"
+run 1 "restart of a container that dies again on start" -- "$broker" restart
+has "public RPC did not return within 600s after restart"
+
+reset_world
+plant_key 0600
+plant_gate
+plant_exited "$new_container"
+touch "$STUB_STATE/$new_container/start-fails"
+run 1 "restart of a container the daemon will not start" -- "$broker" restart
+has "docker start failed for $new_container; it is not running"
+
+# --- the runtime revision marker and the downgrade refusal ------------------------
+# Every start writes DATADIR/RUNTIME-REVISION; start, upgrade and restart refuse
+# an image revision that is not the marker's revision or a descendant of it.
+newer_rev=cccccccccccccccccccccccccccccccccccccccc
+unknown_rev=dddddddddddddddddddddddddddddddddddddddd
+side_rev=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+local_a=/data/hoodi-sec5-20260814/datadir-aaaaaaaa
+local_b=/data/hoodi-sec5-20260814/datadir-bbbbbbbb
+marker_is() {  # DATADIR WANT DESCRIPTION
+    local got
+    got="$(cat "$1/RUNTIME-REVISION" 2>/dev/null || echo absent)"
+    if [ "$got" = "$2" ]; then
+        record ok "$3: the marker reads $2"
+    else
+        echo "the marker reads $got" > "$work/detail"
+        record fail "$3: the marker reads $2" "$work/detail"
+    fi
+}
+plant_marker() { mkdir -p "$1"; printf '%s\n' "$2" > "$1/RUNTIME-REVISION"; }
+plant_previous() {
+    plant_key 0600
+    plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+    upgrade_env
+}
+
+# start writes the marker of a fresh datadir ...
+reset_world
+plant_key 0600
+run 0 "start on a fresh datadir" -- "$broker" start
+has "runtime-order=first datadir=$local_a (no marker)"
+has "runtime-revision-marker=$head_rev written runtime=$head_rev"
+marker_is "$root/datadir-aaaaaaaa" "$head_rev" "start"
+
+# ... and refuses a datadir a newer runtime opened, with that reason rather
+# than merely as a datadir that is not empty.
+reset_world
+plant_key 0600
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev"
+plant_marker "$root/datadir-aaaaaaaa" "$newer_rev"
+run 1 "start on a datadir a newer runtime opened" -- "$broker" start
+says "FAIL: refusing to start $head_rev on $local_a: $head_rev is older than its last runtime revision $newer_rev ($local_a/RUNTIME-REVISION)"
+no_lifecycle_call "start on a newer datadir"
+marker_is "$root/datadir-aaaaaaaa" "$newer_rev" "refused start"
+
+# upgrade of a datadir without a marker is judged against the previous
+# container's revision label: accepted when it is older ...
+reset_world
+plant_previous
+run 0 "upgrade from an older previous without a marker" -- "$broker" upgrade
+has "runtime-order=newer revision=$head_rev last=$prev_rev source=the previous container's revision label, no marker yet"
+has "runtime-revision-marker=$head_rev written runtime=$head_rev"
+marker_is "$prev_datadir" "$head_rev" "upgrade"
+
+# ... refused when it is newer ...
+reset_world
+plant_previous
+export STUB_HISTORY="$head_rev $prev_rev"
+run 1 "upgrade to a revision older than the previous container" -- "$broker" upgrade
+says "FAIL: refusing to start $head_rev on $local_b: $head_rev is older than its last runtime revision $prev_rev (the previous container's revision label, no marker yet)"
+no_lifecycle_call "upgrade to an older revision"
+marker_is "$prev_datadir" absent "refused upgrade"
+
+# ... unless the downgrade is explicitly allowed, and then the marker keeps
+# the newer revision.
+reset_world
+plant_previous
+export STUB_HISTORY="$head_rev $prev_rev" HOODI_GATE_ALLOW_DOWNGRADE=1
+run 0 "an allowed downgrade" -- "$broker" upgrade
+says "runtime-order=downgrade-allowed reason=$head_rev is older than its last runtime revision $prev_rev"
+has "runtime-revision-marker=$prev_rev written runtime=$head_rev"
+marker_is "$prev_datadir" "$prev_rev" "allowed downgrade"
+
+run 1 "HOODI_GATE_ALLOW_DOWNGRADE=2" -- env HOODI_GATE_ALLOW_DOWNGRADE=2 "$broker" upgrade
+has "FAIL: downgrade allowance must be zero or one"
+
+# A marker newer than the image is refused; an older one is the control.
+reset_world
+plant_previous
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev"
+plant_marker "$prev_datadir" "$newer_rev"
+run 1 "upgrade of a datadir whose marker is newer" -- "$broker" upgrade
+says "FAIL: refusing to start $head_rev on $local_b: $head_rev is older than its last runtime revision $newer_rev ($local_b/RUNTIME-REVISION)"
+no_lifecycle_call "newer marker"
+marker_is "$prev_datadir" "$newer_rev" "refused upgrade over a newer marker"
+
+reset_world
+plant_previous
+plant_marker "$prev_datadir" "$prev_rev"
+run 0 "upgrade of a datadir whose marker is older" -- "$broker" upgrade
+has "runtime-order=newer revision=$head_rev last=$prev_rev source=$local_b/RUNTIME-REVISION"
+marker_is "$prev_datadir" "$head_rev" "upgrade over an older marker"
+
+# A marker this checkout cannot order is refused: unknown, on another line of
+# history, or malformed.
+for kind in unknown side malformed; do
+    reset_world
+    plant_previous
+    case "$kind" in
+        unknown)
+            plant_marker "$prev_datadir" "$unknown_rev"
+            want="its last runtime revision $unknown_rev ($local_b/RUNTIME-REVISION) is not a commit in this checkout" ;;
+        side)
+            export STUB_SIDE="$side_rev"
+            plant_marker "$prev_datadir" "$side_rev"
+            want="$head_rev does not descend from its last runtime revision $side_rev ($local_b/RUNTIME-REVISION)" ;;
+        malformed)
+            plant_marker "$prev_datadir" not-a-revision
+            want="its marker $local_b/RUNTIME-REVISION is malformed" ;;
+    esac
+    run 1 "upgrade over a marker that is $kind" -- "$broker" upgrade
+    says "$want"
+    no_lifecycle_call "$kind marker"
+done
+
+# The host re-reads the marker before anything starts: a marker written
+# between the control plane's read and the action is refused.  The same hook
+# before the read (call 1) is the control: then the ordinary refusal fires.
+reset_world
+plant_previous
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev" \
+    STUB_SSH_HOOK="printf '%s\n' $newer_rev > $prev_datadir/RUNTIME-REVISION" STUB_SSH_HOOK_CALL=2
+run 1 "a marker written between the read and the upgrade" -- "$broker" upgrade
+says "RUNTIME-REVISION in $prev_datadir changed since the control plane checked it: now $newer_rev, checked absent; nothing was started"
+no_lifecycle_call "marker changed under the upgrade"
+
+reset_world
+plant_previous
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev" \
+    STUB_SSH_HOOK="printf '%s\n' $newer_rev > $prev_datadir/RUNTIME-REVISION" STUB_SSH_HOOK_CALL=1
+run 1 "a marker written before the read" -- "$broker" upgrade
+says "is older than its last runtime revision $newer_rev ($local_b/RUNTIME-REVISION)"
+lacks "changed since the control plane checked it"
+
+# A rolled-back upgrade keeps the replacement's revision in the marker, so
+# restarting the previous container afterwards is a downgrade ...
+reset_world
+plant_previous
+export STUB_RUN_DIES=1
+run 1 "an upgrade that rolls back" -- "$broker" upgrade
+has "runtime-revision-marker=$head_rev kept (the replacement was started on this datadir)"
+has "rollback-previous-start=ok"
+marker_is "$prev_datadir" "$head_rev" "rolled-back upgrade"
+unset STUB_RUN_DIES
+cat "$STUB_LOG" >> "$lifecycle_log"
+: > "$STUB_LOG"
+# (the previous container restarted by the rollback, now with the node key)
+echo "$nk" > "$STUB_STATE/$prev_container/nodekey"
+echo "$with_key_args" > "$STUB_STATE/$prev_container/args"
+restart_previous() {
+    env HOODI_GATE_RUNTIME_REVISION="$prev_rev" HOODI_GATE_CONTAINER="$prev_container" \
+        HOODI_GATE_DATADIR="$local_b" "$broker" restart
+}
+run 1 "restart of the previous after a rolled-back upgrade" -- restart_previous
+says "FAIL: refusing to start $prev_rev on $local_b: $prev_rev is older than its last runtime revision $head_rev ($local_b/RUNTIME-REVISION)"
+no_lifecycle_call "restart of the rolled-back previous"
+
+# ... which the allowance permits, keeping the newer marker.
+export HOODI_GATE_ALLOW_DOWNGRADE=1
+run 0 "allowed restart of the previous after a rolled-back upgrade" -- restart_previous
+has "runtime-revision-marker=$head_rev written runtime=$prev_rev"
+marker_is "$prev_datadir" "$head_rev" "allowed restart of an older container"
+
+# restart of the same revision rewrites the same marker (the control) ...
+reset_world
+plant_key 0600
+plant_gate
+plant_marker "$datadir_a" "$head_rev"
+run 0 "restart over its own marker" -- "$broker" restart
+has "runtime-order=same revision=$head_rev source=$local_a/RUNTIME-REVISION"
+has "runtime-revision-marker=$head_rev written runtime=$head_rev"
+
+# ... and refuses a newer one.
+reset_world
+plant_key 0600
+plant_gate
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev"
+plant_marker "$datadir_a" "$newer_rev"
+run 1 "restart over a newer marker" -- "$broker" restart
+says "FAIL: refusing to start $head_rev on $local_a: $head_rev is older than its last runtime revision $newer_rev ($local_a/RUNTIME-REVISION)"
+no_lifecycle_call "restart over a newer marker"
+
+# --- status prints the marker ------------------------------------------------------
+reset_world
+plant_key 0600
+plant_gate
+run 0 "status of a datadir without a marker" -- "$broker" status
+has "runtime-revision-marker=absent container-revision=$head_rev"
+
+plant_marker "$datadir_a" "$newer_rev"
+run 0 "status of a datadir with a marker" -- "$broker" status
+has "runtime-revision-marker=$newer_rev container-revision=$head_rev"
+
+printf 'garbage\n' > "$datadir_a/RUNTIME-REVISION"
+run 0 "status of a datadir with a malformed marker" -- "$broker" status
+has "runtime-revision-marker=malformed container-revision=$head_rev"
+
+# A stopped node has no RPC, but its marker is still reported.
+plant_marker "$datadir_a" "$head_rev"
+echo false > "$STUB_STATE/$new_container/running"
+run 1 "status of a stopped container" -- "$broker" status
+has "runtime-revision-marker=$head_rev container-revision=$head_rev"
+has "public RPC loopback port is unavailable"
+no_lifecycle_call "status"
 
 cat "$STUB_LOG" >> "$lifecycle_log"
 : > "$out"
