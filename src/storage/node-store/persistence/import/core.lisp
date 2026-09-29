@@ -8,6 +8,8 @@
         (make-hash-table :test 'eql)
         (memory-chain-store-canonical-hashes store)
         (make-hash-table :test 'eql)
+        (memory-chain-store-total-difficulties store)
+        (make-hash-table :test 'equalp)
         (memory-chain-store-transaction-locations store)
         (make-hash-table :test 'equalp)
         (memory-chain-store-account-balances store)
@@ -51,6 +53,8 @@
           (memory-chain-store-number-blocks source-chain)
           (memory-chain-store-canonical-hashes target-chain)
           (memory-chain-store-canonical-hashes source-chain)
+          (memory-chain-store-total-difficulties target-chain)
+          (memory-chain-store-total-difficulties source-chain)
           (memory-chain-store-transaction-locations target-chain)
           (memory-chain-store-transaction-locations source-chain)
           (memory-chain-store-account-balances target-chain)
@@ -127,6 +131,37 @@
         (make-hash-table :test 'eql)
         (memory-chain-store-transaction-locations store)
         (make-hash-table :test 'equalp)))
+
+(defun chain-store-import-total-difficulty-records-from-kv (store database)
+  "Restore every persisted total difficulty of a known block, then derive the
+rest in height order.
+
+Block records are imported in key (hash) order, so a total derived while
+importing them depends on which parent happened to come first. The durable
+records come first; a database written before they existed still derives
+every total whose ancestry reaches genesis."
+  (setf store (chain-store-require-memory-store store))
+  (let ((totals (memory-chain-store-total-difficulties store)))
+    (dolist (entry (kv-chain-record-entries database :total-difficulty))
+      (let* ((hash (make-hash32 (car entry)))
+             (block (chain-store-known-block store hash)))
+        (unless block
+          (block-validation-fail
+           "KV total difficulty record references an unknown block"))
+        (setf (gethash (engine-payload-store-key hash) totals)
+              (chain-store-total-difficulty-from-record
+               (cdr entry) "KV block"))))
+    (let ((missing '()))
+      (maphash (lambda (key block)
+                 (unless (nth-value 1 (gethash key totals))
+                   (push (cons key block) missing)))
+               (memory-chain-store-blocks store))
+      (dolist (entry (sort missing #'<
+                           :key (lambda (entry)
+                                  (block-header-number
+                                   (block-header (cdr entry))))))
+        (memory-chain-store-record-total-difficulty
+         store (cdr entry) (car entry))))))
 
 (defun chain-store-import-header-records-from-kv (store database)
   (dolist (entry (kv-chain-record-entries database :header))

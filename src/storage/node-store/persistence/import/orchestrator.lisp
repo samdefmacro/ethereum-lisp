@@ -26,6 +26,7 @@ does this; see NODE-STORE-DISCARD-INVALID-TIPSETS-FROM-KV)."
       (engine-payload-store-enable-durable-cache-change-tracking staging))
     (chain-store-import-block-records-from-kv staging database)
     (chain-store-import-header-records-from-kv staging database)
+    (chain-store-import-total-difficulty-records-from-kv staging database)
     (chain-store-import-canonical-indexes-from-kv staging database)
     (chain-store-import-receipt-records-from-kv staging database)
     (chain-store-import-state-records-from-kv staging database)

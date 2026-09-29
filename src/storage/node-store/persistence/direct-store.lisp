@@ -81,6 +81,8 @@ hash-table slot can start as NIL."
      (memory-chain-store-number-blocks defaults)
      (memory-chain-store-canonical-hashes store)
      (memory-chain-store-canonical-hashes defaults)
+     (memory-chain-store-total-difficulties store)
+     (memory-chain-store-total-difficulties defaults)
      (memory-chain-store-transaction-locations store)
      (memory-chain-store-transaction-locations defaults)
      (memory-chain-store-account-balances store)
@@ -191,6 +193,19 @@ hash-table slot can start as NIL."
             (error (condition)
               (storage-fail "Durable block record is invalid: ~A" condition)))
           (values nil nil)))))
+
+(defmethod chain-store-backing-total-difficulty
+    ((store database-chain-store) hash)
+  (unless (hash32-p hash)
+    (block-validation-fail "Durable total difficulty lookup requires a hash32"))
+  (multiple-value-bind (record present-p)
+      (kv-get-chain-record (database-chain-store-database store)
+                           :total-difficulty (hash32-bytes hash))
+    (if present-p
+        (values (chain-store-total-difficulty-from-record
+                 record "Durable block")
+                t)
+        (values nil nil))))
 
 (defmethod chain-store-backing-canonical-hash
     ((store database-chain-store) number)

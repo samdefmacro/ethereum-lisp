@@ -96,6 +96,71 @@
     (block-validation-fail "Cannot revert from post-Merge to PoW difficulty"))
   t)
 
+(defun block-header-merge-rules-p
+    (config parent-header header &key parent-total-difficulty)
+  "Whether HEADER, the child of PARENT-HEADER, is held to proof-of-stake rules.
+
+Where CHAIN-CONFIG-MERGE-BY-TOTAL-DIFFICULTY-P is false the configuration
+answers. Otherwise the answer is EIP-3675's, read from
+PARENT-TOTAL-DIFFICULTY, the parent's cumulative difficulty from genesis:
+
+- below the TTD the child is proof-of-work, and a zero-difficulty child is
+  refused;
+- at or above it the parent must be the terminal block -- itself a
+  proof-of-stake block, or a proof-of-work block whose own parent was still
+  below the TTD -- and the child is proof-of-stake, so a positive difficulty
+  is refused by the proof-of-stake field rules.
+
+Without the parent's total difficulty (a chain entered at a snap or checkpoint
+pivot), a proof-of-stake parent is enough: every descendant of a
+proof-of-stake block is one, which is go-ethereum v1.17.6's beacon
+VerifyHeader rule. A proof-of-work parent then cannot be shown terminal, so a
+zero-difficulty child is refused rather than accepted unverified, and a
+positive-difficulty child keeps the proof-of-work rules."
+  (let ((number (block-header-number header)))
+    (unless (chain-config-merge-by-total-difficulty-p config number)
+      (return-from block-header-merge-rules-p
+        (chain-config-post-merge-p config number)))
+    (let ((terminal-total-difficulty
+            (chain-config-terminal-total-difficulty config))
+          (proof-of-stake-header-p
+            (zerop (block-header-difficulty header))))
+      (cond
+        (parent-total-difficulty
+         (cond
+           ((< parent-total-difficulty terminal-total-difficulty)
+            (when proof-of-stake-header-p
+              (block-validation-fail
+               "Proof-of-stake header before the terminal total difficulty: parent total difficulty ~D, terminal ~D"
+               parent-total-difficulty terminal-total-difficulty))
+            nil)
+           ((and (plusp (block-header-difficulty parent-header))
+                 (>= (- parent-total-difficulty
+                        (block-header-difficulty parent-header))
+                     terminal-total-difficulty))
+            (block-validation-fail
+             "Parent is a proof-of-work block past the terminal block: its own parent's total difficulty ~D reached the terminal ~D"
+             (- parent-total-difficulty
+                (block-header-difficulty parent-header))
+             terminal-total-difficulty))
+           (t t)))
+        ((block-header-post-merge-p parent-header) t)
+        (proof-of-stake-header-p
+         (block-validation-fail
+          "Proof-of-stake header over a proof-of-work parent whose total difficulty is unknown: the terminal block cannot be verified"))
+        (t nil)))))
+
+(defun block-header-post-merge-block-p (config header)
+  "Whether HEADER, a block already admitted under CONFIG, is proof-of-stake.
+
+Admission held HEADER to the rules BLOCK-HEADER-MERGE-RULES-P chose, so where
+total difficulty decides the Merge its own zero difficulty says which side it
+is on; elsewhere the configuration does."
+  (let ((number (block-header-number header)))
+    (if (chain-config-merge-by-total-difficulty-p config number)
+        (block-header-post-merge-p header)
+        (chain-config-post-merge-p config number))))
+
 (defun validate-block-merge-fields
     (header &key (post-merge-p (block-header-post-merge-p header)))
   (when post-merge-p

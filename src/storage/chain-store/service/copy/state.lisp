@@ -12,6 +12,9 @@
    :canonical-hashes
    (engine-payload-store-copy-table
     (memory-chain-store-canonical-hashes store))
+   :total-difficulties
+   (engine-payload-store-copy-table
+    (memory-chain-store-total-difficulties store))
    :transaction-locations
    (engine-payload-store-copy-transaction-location-table
     (memory-chain-store-transaction-locations store))

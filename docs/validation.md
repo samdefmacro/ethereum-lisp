@@ -1896,10 +1896,25 @@ and both are echoed into the job summary.
 ## Historical proof-of-work scope
 
 Pre-Merge blocks are validated rather than refused. The Merge boundary is taken
-from the chain configuration instead of from a header's difficulty field, so a
-header below that boundary is checked against the fork-specific
-Frontier-through-Gray-Glacier difficulty formula and its Ethash seal is
-verified. Ommer lists are checked against the two-ommer cap, the six-block depth
+from the chain configuration where it fixes one (a Merge netsplit block at or
+below the height, or a TTD of zero, absent or declared passed) and otherwise
+from total difficulty, as EIP-3675 defines it: the chain store records every
+block's cumulative difficulty from genesis with its header (the
+`:total-difficulty` record), a child is proof-of-stake exactly when its
+parent's total reaches the TTD, and a proof-of-work parent must then be the
+terminal block. A chain entered at a snap or checkpoint pivot has no totals; a
+proof-of-stake parent then makes its child proof-of-stake (go-ethereum
+v1.17.6 beacon `VerifyHeader`), and a proof-of-stake child of a proof-of-work
+parent whose total is unknown is refused. A header on the proof-of-work side
+is checked against the fork-specific Frontier-through-Gray-Glacier difficulty
+formula and its Ethash seal is verified.
+
+```sh
+cl-workbench validation run cold-unit --match MERGE-TRANSITION
+cl-workbench validation run cold-unit --match PUBLIC-PRESET-POST-MERGE
+cl-workbench validation run cold-unit --match POST-MERGE-AUTHORITY
+cl-workbench validation run cold-unit --match TOTAL-DIFFICULTY-SURVIVES
+``` Ommer lists are checked against the two-ommer cap, the six-block depth
 window, duplicate and canonical-ancestor rejection, and full header validation
 of each ommer against the supplied recent ancestry; block and ommer rewards are
 paid. The DAO fork's ten-block extra-data rule and its drain-list balance

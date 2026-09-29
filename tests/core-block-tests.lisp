@@ -128,9 +128,11 @@
     (signals block-validation-error
       (validate-block-header-against-config
        parent forged-pow-child post-merge-config))
+    ;; Under a TTD configuration the parent's total difficulty, not the
+    ;; zero difficulty both headers claim, says the TTD is not reached.
     (signals block-validation-error
       (validate-block-header-against-config
-       parent child pre-merge-config))))
+       parent child pre-merge-config :parent-total-difficulty 99))))
 
 (deftest configured-merge-block-preserves-the-historical-pow-prefix
   (let ((config

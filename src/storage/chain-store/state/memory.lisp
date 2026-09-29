@@ -29,6 +29,7 @@ reads treat absence as that same default."
                 (&key (blocks (make-hash-table :test 'equalp))
                       (number-blocks (make-hash-table :test 'eql))
                       (canonical-hashes (make-hash-table :test 'eql))
+                      (total-difficulties (make-hash-table :test 'equalp))
                       (transaction-locations (make-hash-table :test 'equalp))
                       (account-balances (make-hash-table :test 'equalp))
                       (account-nonces (make-hash-table :test 'equalp))
@@ -76,6 +77,10 @@ reads treat absence as that same default."
   blocks
   number-blocks
   canonical-hashes
+  ;; Block key -> cumulative difficulty from genesis, for known blocks whose
+  ;; ancestry back to genesis this store has seen. A direct provider keeps
+  ;; only unexported entries here; see CHAIN-STORE-BLOCK-TOTAL-DIFFICULTY.
+  total-difficulties
   transaction-locations
   account-balances
   account-nonces

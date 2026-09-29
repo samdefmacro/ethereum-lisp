@@ -258,6 +258,8 @@
    #:expected-ethash-difficulty
    #:validate-ethash-header
    #:validate-block-dao-extra-data
+   #:block-header-merge-rules-p
+   #:block-header-post-merge-block-p
    #:validate-block-header-basics
    #:validate-block-header-against-config
    #:validate-blob-versioned-hash
@@ -347,6 +349,7 @@
    #:chain-config-homestead-p
    #:chain-config-dao-fork-p
    #:chain-config-post-merge-p
+   #:chain-config-merge-by-total-difficulty-p
    #:chain-config-eip150-p
    #:chain-config-eip155-p
    #:chain-config-eip158-p
@@ -1088,6 +1091,7 @@
    #:engine-payload-store-prepared-payload
    #:chain-store-put-block
    #:chain-store-known-block
+   #:chain-store-block-total-difficulty
    #:chain-store-block-by-number
    #:chain-store-canonical-hash
    #:chain-store-canonical-block-p

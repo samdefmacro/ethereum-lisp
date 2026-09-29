@@ -159,9 +159,11 @@
                                  block-access-list-max-code-size))))
 
 (defun validate-block-against-config
-    (parent-header block config &key (ancestor-blocks '()))
-  (validate-block-header-against-config parent-header (block-header block)
-                                        config)
+    (parent-header block config
+     &key (ancestor-blocks '()) parent-total-difficulty)
+  (validate-block-header-against-config
+   parent-header (block-header block) config
+   :parent-total-difficulty parent-total-difficulty)
   (validate-block-body-against-config block config)
   (validate-block-ommers-against-config
    block parent-header config :ancestor-blocks ancestor-blocks))

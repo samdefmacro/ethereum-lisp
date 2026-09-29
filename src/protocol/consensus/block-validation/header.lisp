@@ -170,11 +170,18 @@
                                :london-parent-p london-parent-p)))
   t)
 
-(defun validate-block-header-against-config (parent-header header config)
+(defun validate-block-header-against-config
+    (parent-header header config &key parent-total-difficulty)
+  "Validate HEADER as the child of PARENT-HEADER under CONFIG.
+
+PARENT-TOTAL-DIFFICULTY, when the caller's store knows it, decides the Merge
+transition for a configuration that leaves it to the terminal total
+difficulty; see BLOCK-HEADER-MERGE-RULES-P."
   (let ((number (block-header-number header))
         (timestamp (block-header-timestamp header))
-        (post-merge-p (chain-config-post-merge-p config
-                                                  (block-header-number header))))
+        (post-merge-p (block-header-merge-rules-p
+                       config parent-header header
+                       :parent-total-difficulty parent-total-difficulty)))
     (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
         (chain-config-blob-schedule config number timestamp)
       (validate-block-header-basics
