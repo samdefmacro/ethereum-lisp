@@ -59,11 +59,40 @@ EIP-170 arrived with Spurious Dragon: go-ethereum v1.17.6
 core/vm/common.go CheckMaxCodeSize checks nothing before IsEIP158."
   (chain-rules-eip158-active-p rules))
 
+;;; The same reading for London and Shanghai, against the go-ethereum v1.17.6
+;;; params/config.go helpers IsLondon and IsShanghai ("activated at or after"
+;;; the fork's own block or time). Both forks are mandatory in geth's
+;;; CheckConfigForkOrder, so in any configuration geth accepts a later flag
+;;; implies them, and these predicates are its helpers exactly. Cancun and
+;;; later forks are optional there (a configuration may skip one, and then
+;;; geth's helper is false where a later flag is set), so a predicate over
+;;; them reads its own flag unless geth's rule is itself latest-first
+;;; (CHAIN-RULES-TRANSACTION-TYPE-SUPPORTED-P, MakeSigner) or is reached only
+;;; for a rule set without a configured schedule
+;;; (CHAIN-RULES-EXPANDED-BLOB-SCHEDULE-P). Amsterdam has no later fork in
+;;; geth's order (UBT is scheduled before BPO1).
+
+(defun chain-rules-london-active-p (rules)
+  "Whether RULES are London or later (geth IsLondon)."
+  (or (null rules)
+      (chain-rules-london-p rules)
+      (>= (chain-rules-fork-level rules) 12)))
+
+(defun chain-rules-shanghai-active-p (rules)
+  "Whether RULES are Shanghai or later (geth IsShanghai)."
+  (or (null rules)
+      (chain-rules-shanghai-p rules)
+      (>= (chain-rules-fork-level rules) 13)))
+
 (defun chain-rules-initcode-metering-p (rules)
-  (or (null rules) (chain-rules-shanghai-p rules)))
+  "Whether RULES meter and bound initcode (EIP-3860). go-ethereum v1.17.6
+core/state_transition.go and the Shanghai jump table ask rules.IsShanghai."
+  (chain-rules-shanghai-active-p rules))
 
 (defun chain-rules-code-prefix-restricted-p (rules)
-  (or (null rules) (chain-rules-london-p rules)))
+  "Whether RULES refuse deployed code starting with 0xEF (EIP-3541).
+go-ethereum v1.17.6 core/vm/evm.go initNewContract asks chainRules.IsLondon."
+  (chain-rules-london-active-p rules))
 
 (defun chain-rules-contract-code-size-limit (rules)
   (if (and rules (chain-rules-amsterdam-p rules))

@@ -188,10 +188,11 @@ ruleset, not a transition, so it is dropped (matching go-ethereum gatherForks)."
       (chain-config-bpo5-p config block-number timestamp)))
 
 (defun chain-rules-expanded-blob-schedule-p (rules)
-  (or (chain-rules-prague-p rules)
-      (chain-rules-osaka-p rules)
-      (chain-rules-bpo1-p rules)
-      (chain-rules-bpo2-p rules)
-      (chain-rules-bpo3-p rules)
-      (chain-rules-bpo4-p rules)
-      (chain-rules-bpo5-p rules)))
+  "Whether RULES are Prague or later, for the blob schedule of a rule set that
+carries none (CHAIN-RULES-BLOB-SCHEDULE; CHAIN-CONFIG-RULES always supplies
+one). Such a set names only its latest fork, so Amsterdam and UBT imply
+Prague as every BPO fork does; go-ethereum v1.17.6 consensus/misc/eip4844
+latestBlobConfig falls back from a later fork to Prague's parameters. NIL
+RULES are the latest fork."
+  (or (null rules)
+      (>= (chain-rules-fork-level rules) 15)))

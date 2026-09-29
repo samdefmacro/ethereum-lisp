@@ -2,15 +2,33 @@
 
 ;;;; Transaction validation, pricing, encoding, and sender recovery.
 
+(defun chain-rules-signer-fork-level (rules)
+  "The CHAIN-RULES-FORK-LEVEL of the signer RULES select: go-ethereum v1.17.6
+core/types/transaction_signing.go MakeSigner switches latest first on
+IsPrague, IsCancun, IsLondon and IsBerlin, and each of those signers accepts
+its own envelope type and every earlier one. A rule set naming none of the
+four (pre-Berlin, or a single later flag such as :OSAKA-P alone) is read by
+its fork level. NIL RULES are the latest fork."
+  (cond
+    ((or (null rules) (chain-rules-prague-p rules)) 15)
+    ((chain-rules-cancun-p rules) 14)
+    ((chain-rules-london-p rules) 12)
+    ((chain-rules-berlin-p rules) 11)
+    (t (chain-rules-fork-level rules))))
+
 (defun chain-rules-transaction-type-supported-p (rules transaction)
-  "Return whether RULES activate the envelope type used by TRANSACTION."
-  (case (transaction-type transaction)
-    (0 t)
-    (1 (chain-rules-berlin-p rules))
-    (2 (chain-rules-london-p rules))
-    (3 (chain-rules-cancun-p rules))
-    (4 (chain-rules-prague-p rules))
-    (otherwise nil)))
+  "Return whether the signer RULES select accepts TRANSACTION's envelope type:
+EIP-2930 from Berlin, EIP-1559 from London, EIP-4844 from Cancun and EIP-7702
+from Prague (CHAIN-RULES-SIGNER-FORK-LEVEL)."
+  (let ((type (transaction-type transaction)))
+    (or (eql type 0)
+        (let ((level (chain-rules-signer-fork-level rules)))
+          (case type
+            (1 (>= level 11))
+            (2 (>= level 12))
+            (3 (>= level 14))
+            (4 (>= level 15))
+            (otherwise nil))))))
 
 (defun validate-transaction-type-for-config
     (transaction config block-number timestamp)
