@@ -1,0 +1,274 @@
+Section 5: a sync outcome stopped the node; INVALID verdicts are no longer persisted
+
+Status
+
+Branch sync-outcomes-nonfatal, from 1a7b9059 (sec5-public-bootstrap-sync
+head, 1a7b9059fef8ab705e6b0b56db831c7e6adef911). Reproduced and fixed
+locally. Not deployed, no live run, no cold-all (the coordinator runs it once
+at the end). The gas bug that produced the verdict (Hoodi block 3685491) is
+agent G1's; this record is about what the node did with the verdict.
+
+Revision
+
+  71840dc5  node: an INVALID verdict is never persisted, and a sync outcome
+            never stops the node
+
+================================================================================
+1. Live evidence (container hoodi-el-sec5-1a7b9059, exited; docker logs -t)
+================================================================================
+
+  06:53:37Z  engine_newPayloadV4 for 3685491 answers INVALID (gas used
+             mismatch); the verdict is held in the process.
+  07:13:45Z- peer.sync.invalid_ancestor every ~2.5 s: "Peer range block
+  07:14:34Z  0x154fcffe...c2f7 was invalid: INVALID (links to previously
+             rejected block)"; at 07:14:23Z the 128-hit eviction let the block
+             execute again and it failed the same way ("Gas used mismatch at
+             block 3685491: header=58730304 computed=58730301"). Several
+             peer.dial.failed lines carry the same text (section 4, O2).
+  07:14:37Z  peer.snap.pivot_rebased fromPivot 3685391 -> pivot 3685520,
+             target 3685584 (the CL-authorized target moved past the rejected
+             block).
+  07:15:32Z  peer.snap.history_backfilled pivot 3685520, from 3685265 to
+             3685519, 255 blocks. 3685491 is inside the window.
+  07:15:33Z  HTTP listeners finish (shutdown begins, 0.1 s after the backfill).
+  07:15:46Z  "Invalid candidate export refuses a known executed block"; exit 1.
+
+================================================================================
+2. Mechanism
+================================================================================
+
+1. The rejected block's verdict lives in the in-memory invalid-tipset cache
+   (keyed by its hash, plus descendant aliases). 60fb6e91 already stopped
+   restoring verdicts at startup, but every INVALID answer still ran the
+   durability callback with :CANDIDATE-KIND :INVALID, and the CLI adapter
+   exported it (NODE-STORE-EXPORT-INVALID-CANDIDATE-TO-KV).
+2. The BLOCKHASH backfill (7f079d8f, NODE-STORE-EXPORT-SNAP-HISTORY-BLOCKS-
+   TO-KV) wrote the pivot's 255 ancestors as known, stateless blocks,
+   3685491 among them: the CL-authorized chain contains the block we
+   rejected.
+3. The first tail block (3685521, a known skeleton block) was imported by
+   IMPORT-P2P-BLOCK-CANDIDATE. ENGINE-PAYLOAD-STORE-INVALID-ANCESTOR walks up
+   to 97 blocks through known blocks and the remote cache; 30 steps down it
+   reached 3685491 and answered INVALID "links to previously rejected block".
+4. The service called the durability callback with :INVALID for 3685521.
+   The exporter refuses a known block (it was written to refuse persisting a
+   verdict for an executed block) and signalled BLOCK-VALIDATION-ERROR. That
+   is not DEVNET-PEER-SYNC-INVALID, so DEVNET-NODE-SYNC-COORDINATOR-PASS let
+   it escape and the coordinator thread's outer boundary stopped the node.
+
+Removing the refusal alone would not have been enough: the tail would then
+answer DEVNET-PEER-SYNC-INVALID for every tail block on every pass (until the
+128-hit eviction), because a verdict on the CL-authorized ancestry blocks the
+invalid-ancestor walk. The pivot state is authenticated by the snap proofs
+and the ancestry by hash from the CL target, so that verdict is our bug.
+
+================================================================================
+3. Fix
+================================================================================
+
+(i) INVALID is not durable (geth v1.17 eth/catalyst/api.go keeps
+invalidTipsets and invalidBlocksHits in memory; core/blockchain.go
+reportBadBlock -> rawdb.WriteBadBlock is diagnostics and never read on
+import). IMPORT-P2P-BLOCK-CANDIDATE and IMPORT-EXECUTABLE-PAYLOAD run no
+durability callback for INVALID; the forward batch importer's intermediate
+:INVALID call is gone; the CLI adapter has no :INVALID kind;
+NODE-STORE-EXPORT-INVALID-CANDIDATE-TO-KV and the full export's verdict
+writer are deleted. What remains only deletes the :INVALID-TIPSET records
+older revisions wrote: startup discard (60fb6e91, unchanged), the full
+export's sweep (CHAIN-STORE-POPULATE-INVALID-TIPSET-DELETION-BATCH
+:AUTHORITATIVE-P T), and eviction tombstones. An in-memory verdict no longer
+owns BAL side data. The in-process cache and its count/byte/age/hit bounds
+are unchanged. The stale buffered copy an INVALID replaces in memory leaves a
+remote-block tombstone that the next durable batch deletes (before, the
+:INVALID export deleted it in its own batch); after a crash in between, the
+restarted node re-admits it as an ordinary candidate and re-executes it.
+
+(ii) The backfill is coherent with process state.
+DEVNET-NODE-SNAP-BACKFILL-BLOCKHASH-WINDOW, after writing (or finding) the
+window, calls DEVNET-NODE-SNAP-FORGET-REJECTED-ANCESTRY: it walks the pivot
+and its known ancestors down to the window's low end under the store guard,
+drops each verdict with every descendant alias
+(ENGINE-PAYLOAD-STORE-FORGET-INVALID-BLOCK) and logs
+peer.snap.ancestry_contains_rejected_block (number, hash, pivot) per block.
+Nothing is re-executed: the backfill writes no state and the tail executes
+only blocks above the pivot. A verdict on a block ABOVE the pivot (a tail
+block) is left alone: the tail re-imports that block and a deterministic
+INVALID still ends the phase as DEVNET-PEER-SYNC-INVALID.
+
+(iii) "Snap pivot state import returned before completion" (STORAGE-FAIL)
+is DEVNET-SNAP-STATE-INCOMPLETE, contained by the coordinator pass as
+peer.snap.state_incomplete; the next pass resumes from the durable cursors.
+
+================================================================================
+4. Classification of failures reachable from sync outcomes
+================================================================================
+
+Sites reachable from the sync coordinator pass, the snap phases (target
+resolution, pivot selection, range import, heal, backfill, tail),
+forward/gap sync and the Engine import path. "Sync outcome" = triggered by
+peer data, a verdict, a target move, a pivot or source not ready; "local" =
+a persistence, merge or program invariant.
+
+ site                                   trigger              before -> after
+ -------------------------------------  -------------------  -------------------------------
+ C1 INVALID durability export           verdict (+ backfill/ BLOCK-VALIDATION-FAIL, exit
+    (NODE-STORE-EXPORT-INVALID-         skeleton made the    -> removed: INVALID runs no
+    CANDIDATE-TO-KV refusals: known     block known)         durability callback. Reached
+    executed block, known invalid                            from the snap tail, forward
+    ancestor, no cache verdict)                              batch/gap fill (P2P) and
+                                                             Engine newPayload (there
+                                                             re-signalled as STORAGE-ERROR
+                                                             "New payload persistence
+                                                             failed", not reproduced)
+ C2 verdict on CL-authorized ancestry   verdict + target     at 1a7b9059: C1's exit; with C1
+    (tail invalid-ancestor walk)        move                 alone: INVALID every pass ->
+                                                             verdict dropped, typed event
+                                                             peer.snap.ancestry_contains_
+                                                             rejected_block
+ C3 "Snap pivot state import returned   importer returned    STORAGE-FAIL, exit
+    before completion" (dialer)         incomplete progress  -> DEVNET-SNAP-STATE-INCOMPLETE,
+                                                             peer.snap.state_incomplete
+ C4 tail block ACCEPTED/SYNCING         ancestry/parent      already a phase outcome
+                                        state not readable   (7f079d8f, DEVNET-SNAP-TAIL-
+                                                             INCOMPLETE); unchanged
+ C5 INVALID peer range                  verdict              contained (DEVNET-PEER-SYNC-
+                                                             INVALID); unchanged
+ C6 no live peer / all sources failed   source exhausted     contained (ETH-SYNC-MULTI-PEER-
+    (resolve, pivot probe, downloads,                        ERROR, SNAP-SYNC-SOURCES-
+    range/heal import)                                       EXHAUSTED); unchanged
+ C7 pivot state pruned / stale target   pivot not ready,     contained in DEVNET-NODE-SNAP-
+                                        target move          SYNC-TARGET (STATE-UNAVAILABLE
+                                                             -> pivot_wait, HEAL-YIELDED ->
+                                                             stale-target); unchanged
+ C8 target header missing / malformed   peer data            per-peer handling in
+    (DEVNET-SNAP-TARGET-UNAVAILABLE/                         DEVNET-NODE-RESOLVE-SNAP-TARGET,
+    -MALFORMED)                                              then C6; unchanged
+ K1 skeleton/history batch validation   local: peer data is  fatal (kept). The downloader
+    (NODE-STORE-EXPORT-SNAP-SKELETON-   verified by the      already checks body roots
+    BATCH-TO-KV, -HISTORY-BLOCKS-)      downloader first     (ETH-SYNC-VALIDATE-BODY),
+                                                             receipt roots, contiguity and
+                                                             the terminal hash
+ K2 "Snap skeleton block ~A             local store          fatal (kept)
+    disappeared"                        invariant
+ K3 "Snap pivot requires canonical      configuration        fatal (kept)
+    persistence"
+ K4 INSTALL-FORKCHOICE-SYNC-PIVOT       local invariants     fatal (kept)
+    validations (pivot/target known,    after a completed
+    tail <= 64, ancestor, state)        import
+ K5 payload-candidate export refusals   local invariants     fatal (kept)
+    (known block, state, ancestry)
+ K6 STORAGE-ERROR anywhere (importer,   local persistence    fatal (kept; PROJECT.md)
+    rebase batch, exporters)
+ K7 "SNAP source pool reservation       program invariant    fatal (kept)
+    underflow"
+
+Not converted, noted (section 6): O1 "Snap workers stopped without
+source-failure evidence" and O2 the session-level handling of a peer-range
+verdict.
+
+================================================================================
+5. Reproduction and verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0.
+
+RED at 1a7b9059 (new tests added to the base tree, warm image,
+cl-workbench test NAME):
+  DEVNET-SNAP-TAIL-COMPLETES-OVER-AN-ANCESTRY-THIS-PROCESS-REJECTED
+    (tests/cli-devnet-snap-tail-tests.lisp, integration): RocksDB node, a
+    24-block chain whose block 22 reads BLOCKHASH(12), pivot 20, target 23.
+    Block 12 is rejected in process (ENGINE-PAYLOAD-STORE-MARK-INVALID, what
+    an INVALID newPayload leaves), the coordinator pass runs the shipped
+    backfill, pivot installation and tail. EXIT=1:
+      "The coordinator pass let a sync outcome escape: Invalid candidate
+       export refuses a known executed block"   (the Hoodi message)
+  DEVNET-SNAP-STATE-IMPORT-THAT-RETURNS-INCOMPLETE-IS-A-PHASE-OUTCOME: the
+    state importer double returns an incomplete progress once. EXIT=1:
+      "The coordinator pass let a sync outcome escape: Snap pivot state
+       import returned before completion"
+
+GREEN at 71840dc5 (warm image): both EXIT=0. The first also asserts the
+tail's 3 blocks executed, target_completed once, no invalid_ancestor, one
+peer.snap.ancestry_contains_rejected_block naming block 12, its hash and
+pivot 20, the verdict gone, and no :invalid-tipset record in the RocksDB
+store. The second asserts peer.snap.state_incomplete once (pivot 20), no
+tail block executed, then the next pass returns 3 and completes the target.
+
+Mutation control M1 (DEVNET-NODE-SNAP-FORGET-REJECTED-ANCESTRY stubbed to 0,
+temporary probe, not committed): the first test fails with "Assertion
+failed: (EQL 3 RESULT)" -- the pass no longer escapes (C1 gone) but ends with
+the tail's INVALID instead of completing, which is what (ii) fixes.
+
+Existing tests changed to the new contract (warm image, each EXIT=0): see the
+commit; they now assert that INVALID reaches no durability callback
+(BLOCK-IMPORT-P2P-INVALID-ANCESTOR-IS-ALIASED-TO-CONSENSUS-HEAD,
+BLOCK-IMPORT-P2P-INVALID-CACHE-SKIPS-REPEAT-EXECUTION-AND-DESCENDANTS,
+ENGINE-RPC-NEW-PAYLOAD-V2-ROLLS-BACK-STATE-PROJECTION-ON-BAD-COMMITMENT,
+ENGINE-RPC-NEW-PAYLOAD-PERSISTENCE-PERSISTS-SYNCING-BUT-NOT-INVALID,
+DEVNET-PEER-RANGE-BATCH-DOES-NOT-PERSIST-AN-INTERMEDIATE-INVALID-VERDICT),
+writes no record (NODE-STORE-FULL-EXPORT-WRITES-NO-INVALID-VERDICT-AND-
+SWEEPS-A-LEGACY-ONE, NODE-STORE-INVALID-VERDICT-WRITES-NOTHING-AND-ITS-
+BUFFERED-COPY-GOES-WITH-THE-NEXT-BATCH), owns no BAL
+(NODE-STORE-FULL-EXPORT-SWEEPS-ONLY-UNREFERENCED-BAL-SIDE-DATA), and that
+legacy records are still cleaned (eviction, startup discard and sweep tests
+seed them with CHAIN-STORE-SEED-LEGACY-INVALID-TIPSET). The devnet smoke
+gate now requires no :invalid-tipset record, no restored verdict, and a
+restarted node answering the rejected block's descendant SYNCING.
+
+Cold, on committed trees (logs redirected to files, no duplicated ok lines):
+  cl-workbench validation run cold-unit --match SNAP --match INVALID
+    --match DIRECT --match PERSIST --match DEVNET-SYNC-COORDINATOR
+    --match PACKAGE --match BLOCK-IMPORT --match NEW-PAYLOAD
+    --match CHAIN-STORE --match NODE-STORE --match DEVNET-PEER-RANGE
+    --match ARCHITECTURE
+      336 tests passed, EXIT=0 (on the first cut of this commit, whose
+      source is identical to 71840dc5; the amend changed only two
+      integration test files). Includes PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-
+      ACYCLIC and -INCLUDES-SOURCE-REFERENCES; no WARNING in the log.
+  cl-workbench validation run cold-integration --match SNAP-STATE-IMPORT
+    --match DEVNET-SNAP --match DEVNET-SYNC-COORDINATOR
+    --match DEVNET-PEER-SYNC --match FORWARD --match RESTART-BEHIND
+    --match INVALID --match DIRECT --match CHAIN-STORE --match NODE-STORE
+    --match BAL --match BLOCK-ACCESS-LIST --match REMOTE-BLOCK
+    --match PREPARED-PAYLOAD --match DEVNET-SMOKE-GATE
+    --match PHASE-A-SMOKE-GATE
+      first cut: 258 passed, 2 failed, EXIT=1 --
+      NODE-STORE-IMPORT-FROM-KV-DROPS-INVALID-REMOTE-BLOCK-RECORD and
+      -PREPARED-PAYLOAD-RECORD relied on the full export writing the verdict
+      the legacy importer then read; they now seed the legacy record.
+      71840dc5: 260 tests passed, EXIT=0 (14 DEVNET-SNAP, 18
+      SNAP-STATE-IMPORT, both new tests by name).
+  cl-workbench validation run cold-e2e --match RESTART --match PERSIST
+    --match ROCKSDB --match DEVNET-SMOKE-GATE-SCRIPT
+    --match PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE
+      71840dc5: 15 tests passed (6 + 9), EXIT=0, including the three smoke-
+      gate tests whose invalid-tipset expectations changed
+      (DEVNET-SMOKE-GATE-SCRIPT-WRITES-READY-AND-LOG-FILES, -RUNS-ALL-
+      PINNED-FIXTURES, PHASE-A-SMOKE-GATE-SCRIPT-CAN-INCLUDE-DEVNET-SUITE).
+
+================================================================================
+6. Not verified
+================================================================================
+
+- Live: nothing deployed. The next Hoodi run that meets a rejected block
+  inside a rebased pivot's window should log
+  peer.snap.ancestry_contains_rejected_block and complete the target.
+- The Engine newPayload path of C1 (a known block whose ancestor carries a
+  verdict) is removed with the export but was not reproduced separately.
+- C3 is reproduced with an importer double; in production
+  SNAP-SYNC-IMPORT-STATE-MULTI returns an incomplete progress only through
+  its MAX-PAGES limit (:LIMITED), which the CLI never sets. The conversion
+  removes a latent exit, not an observed one.
+- O1: "Snap workers stopped without source-failure evidence" is a plain
+  ERROR that would stop the node; the range workers' claim/fail bookkeeping
+  makes it unreachable today (a worker leaves only by stop, completion or a
+  reported failure). Not converted.
+- O2: a DEVNET-PEER-SYNC-INVALID raised by gap fill on a peer's request
+  queue ends that peer's session (peer.dial.failed with the verdict text,
+  1a7b9059 log 07:14:25Z-07:14:34Z): a verdict about a block is charged to
+  the transport that delivered it. Not an exit; not changed here.
+- The legacy importers (NODE-STORE-IMPORT-FROM-KV :IMPORT-INVALID-TIPSETS-P,
+  default T; NODE-STORE-IMPORT-BOUNDED-INVALID-TIPSETS-FROM-KV) still read
+  :invalid-tipset records if a caller asks; the node's startup paths pass
+  NIL / discard. Nothing writes such records any more.
+- EEST was not rerun: no execution, root, receipt or gas code changed.
