@@ -1,12 +1,12 @@
 (in-package #:ethereum-lisp.public-api)
 
-(defconstant +eth-rpc-default-call-gas-limit+ 50000000
-  "Unauthenticated call gas cap, matching geth's default RPCGasCap.")
-
 (defun eth-rpc-call-object-default-gas-limit (header method)
+  "The gas a call object without a gas field gets: the call gas cap for
+eth_call and eth_createAccessList (geth's CallDefaults: the cap, or
+MaxUint64 / 2 without one), else the block's gas limit."
   (if (or (string= method "eth_call")
           (string= method "eth_createAccessList"))
-      +eth-rpc-default-call-gas-limit+
+      (or (eth-rpc-gas-cap) +eth-rpc-uncapped-call-gas+)
       (or (and header (block-header-gas-limit header))
           +genesis-gas-limit+)))
 
@@ -167,8 +167,9 @@
                         :default (eth-rpc-call-object-default-gas-limit
                                   header method)))))
              (if (or (string= method "eth_call")
-                     (string= method "eth_createAccessList"))
-                 (min requested +eth-rpc-default-call-gas-limit+)
+                     (string= method "eth_createAccessList")
+                     (string= method "debug_traceCall"))
+                 (eth-rpc-apply-gas-cap requested)
                  requested)))
          (value
            (eth-rpc-call-object-quantity-field

@@ -14,6 +14,22 @@ built-in default in place."
     (write-timeout write-timeout)
     (t nil)))
 
+(defun devnet-cli-rpc-budgets (options)
+  "The --rpc.* work budgets OPTIONS names, as an RPC-BUDGETS for every
+listener's context, or NIL when none was given (the defaults then apply)."
+  (let ((gas-cap (getf options :rpc-gas-cap))
+        (evm-timeout (getf options :rpc-evm-timeout-seconds))
+        (tx-fee-cap (getf options :rpc-tx-fee-cap-wei))
+        (batch-request-limit (getf options :rpc-batch-request-limit))
+        (batch-response-max-size (getf options :rpc-batch-response-max-size)))
+    (when (or gas-cap evm-timeout tx-fee-cap batch-request-limit
+              batch-response-max-size)
+      (make-rpc-budgets :gas-cap gas-cap
+                        :evm-timeout-seconds evm-timeout
+                        :tx-fee-cap-wei tx-fee-cap
+                        :batch-request-limit batch-request-limit
+                        :batch-response-max-size batch-response-max-size))))
+
 (defun call-with-devnet-cli-http-limits (options thunk)
   "Run THUNK with request limits taken from OPTIONS."
   (unless (functionp thunk)

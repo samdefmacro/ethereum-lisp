@@ -15,6 +15,29 @@ item runs, and every remaining call is answered -32003 \"response too large\"
 error bytes, we count the whole encoded response object: at most ~40 bytes more
 per item.")
 
+(defstruct (rpc-budgets
+            (:constructor make-rpc-budgets
+                (&key batch-request-limit batch-response-max-size gas-cap
+                      evm-timeout-seconds tx-fee-cap-wei)))
+  "The --rpc.* work budgets one listener enforces. Each slot left NIL keeps
+the built-in default (geth's); 0 means no limit, as in geth:
+
+- BATCH-REQUEST-LIMIT: --rpc.batch-request-limit (*RPC-BATCH-REQUEST-LIMIT*).
+- BATCH-RESPONSE-MAX-SIZE: --rpc.batch-response-max-size, in bytes
+  (*RPC-BATCH-RESPONSE-MAX-SIZE*).
+- GAS-CAP: --rpc.gascap (public-api *ETH-RPC-GAS-CAP*).
+- EVM-TIMEOUT-SECONDS: --rpc.evmtimeout (*ETH-RPC-EVM-TIMEOUT-SECONDS*).
+- TX-FEE-CAP-WEI: --rpc.txfeecap, in wei (*ETH-RPC-TX-FEE-CAP-WEI*).
+
+They are bound per request from the context that serves it
+(CALL-WITH-RPC-CONTEXT-BUDGETS), so an HTTP and a WebSocket listener built from
+one node, or several nodes in one process, each keep their own."
+  (batch-request-limit nil :read-only t)
+  (batch-response-max-size nil :read-only t)
+  (gas-cap nil :read-only t)
+  (evm-timeout-seconds nil :read-only t)
+  (tx-fee-cap-wei nil :read-only t))
+
 (defstruct (rpc-context
             (:constructor %make-rpc-context
                 (&key store config import-function
@@ -31,7 +54,7 @@ per item.")
                       txpool-local-addresses txpool-no-local-exemptions-p
                       txpool-lifetime-seconds txpool-now admin-backend
                       gas-limit-target get-blobs-v3-function
-                      gas-oracle-state)))
+                      gas-oracle-state budgets)))
   store
   config
   import-function
@@ -71,7 +94,9 @@ per item.")
   txpool-now
   gas-limit-target
   get-blobs-v3-function
-  gas-oracle-state)
+  gas-oracle-state
+  ;; An RPC-BUDGETS, or NIL for the defaults.
+  budgets)
 
 (defun make-rpc-context
     (store config &key import-function
@@ -100,7 +125,10 @@ per item.")
                        gas-limit-target
                        get-blobs-v3-function
                        (gas-oracle-state
-                         (make-eth-rpc-gas-oracle-state)))
+                         (make-eth-rpc-gas-oracle-state))
+                       budgets)
+  (when (and budgets (not (typep budgets 'rpc-budgets)))
+    (block-validation-fail "JSON-RPC budgets must be rpc-budgets"))
   (unless (functionp allowed-method-p)
     (block-validation-fail "JSON-RPC method filter must be a function"))
   (when (and new-payload-persistence-function
@@ -164,7 +192,43 @@ per item.")
    :txpool-now txpool-now
    :gas-limit-target gas-limit-target
    :get-blobs-v3-function get-blobs-v3-function
-   :gas-oracle-state gas-oracle-state))
+   :gas-oracle-state gas-oracle-state
+   :budgets budgets))
+
+(defun call-with-rpc-context-budgets (context thunk)
+  "Call THUNK with CONTEXT's RPC-BUDGETS bound for this thread, each slot that
+is set overriding its default."
+  (let ((budgets (and (typep context 'rpc-context)
+                      (rpc-context-budgets context))))
+    (if (null budgets)
+        (funcall thunk)
+        (flet ((pick (value default) (if value value default)))
+          (let ((*rpc-batch-request-limit*
+                  (pick (rpc-budgets-batch-request-limit budgets)
+                        *rpc-batch-request-limit*))
+                (*rpc-batch-response-max-size*
+                  (pick (rpc-budgets-batch-response-max-size budgets)
+                        *rpc-batch-response-max-size*))
+                (*eth-rpc-gas-cap*
+                  (pick (rpc-budgets-gas-cap budgets) *eth-rpc-gas-cap*))
+                (*eth-rpc-evm-timeout-seconds*
+                  (pick (rpc-budgets-evm-timeout-seconds budgets)
+                        *eth-rpc-evm-timeout-seconds*))
+                (*eth-rpc-tx-fee-cap-wei*
+                  (pick (rpc-budgets-tx-fee-cap-wei budgets)
+                        *eth-rpc-tx-fee-cap-wei*)))
+            (funcall thunk))))))
+
+(defun rpc-batch-over-request-limit-p (items)
+  "Whether a batch of ITEMS exceeds *RPC-BATCH-REQUEST-LIMIT* (0: no limit)."
+  (let ((limit *rpc-batch-request-limit*))
+    (and (plusp limit) (> (length items) limit))))
+
+(defun rpc-batch-over-response-size-p (bytes)
+  "Whether BYTES of batch responses exceed *RPC-BATCH-RESPONSE-MAX-SIZE*
+(0: no limit)."
+  (let ((limit *rpc-batch-response-max-size*))
+    (and (plusp limit) (> bytes limit))))
 
 (defun rpc-context-with-txpool-now (context txpool-now)
   (unless (typep context 'rpc-context)
@@ -392,6 +456,11 @@ ENGINE-RPC-STORE-BUSY-RESPONSE instead of the generic internal error."))
 (defun rpc-handle-request (request context)
   (unless (typep context 'rpc-context)
     (block-validation-fail "JSON-RPC context must be an rpc-context"))
+  (call-with-rpc-context-budgets
+   context
+   (lambda () (%rpc-handle-request request context))))
+
+(defun %rpc-handle-request (request context)
   (handler-case
       (let* ((thunk (lambda ()
                       (rpc-handle-request-without-guard request context)))
@@ -449,20 +518,23 @@ Nothing in ITEMS runs."
            :error (json-rpc-error-object -32600 "batch too large")))))
 
 (defun rpc-handle-request-value (request context)
-  (cond
-    ((json-object-p request)
-     (rpc-handle-request request context))
-    ((and (listp request) request)
-     (if (> (length request) *rpc-batch-request-limit*)
-         (rpc-batch-too-large-response request)
-         (loop for item in request
-               for response = (if (json-object-p item)
-                                  (rpc-handle-request item context)
-                                  (json-rpc-invalid-request-response))
-               when response
-                 collect response)))
-    (t
-     (json-rpc-invalid-request-response))))
+  (call-with-rpc-context-budgets
+   context
+   (lambda ()
+     (cond
+       ((json-object-p request)
+        (rpc-handle-request request context))
+       ((and (listp request) request)
+        (if (rpc-batch-over-request-limit-p request)
+            (rpc-batch-too-large-response request)
+            (loop for item in request
+                  for response = (if (json-object-p item)
+                                     (rpc-handle-request item context)
+                                     (json-rpc-invalid-request-response))
+                  when response
+                    collect response)))
+       (t
+        (json-rpc-invalid-request-response))))))
 
 (defun engine-rpc-handle-request (request store config &rest options)
   (rpc-handle-request

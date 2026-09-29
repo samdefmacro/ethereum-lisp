@@ -15,9 +15,13 @@
 ;;;; trivial -- the socket closing IS the unsubscribe, which is exactly the
 ;;;; lifetime the spec gives a subscription.
 ;;;;
-;;;; THE STORE GUARD IS TAKEN PER REQUEST AND PER POLL, NEVER ACROSS A WRITE.
-;;;; Same rule the peer sessions follow. A client that has stopped reading must
-;;;; not be able to hold the guard that block import needs.
+;;;; THE STORE GUARD IS NEVER HELD ACROSS A WRITE. Same rule the peer sessions
+;;;; follow. A client that has stopped reading must not be able to hold the
+;;;; guard that block import needs. A request takes it as the public RPC does
+;;;; (after the published read view, for the methods the view answers); the
+;;;; notification poll reads the view and takes the guard only if it is free
+;;;; (DEVNET-WS-NOTIFICATION-SOURCE), so a connection never waits behind an
+;;;; import either.
 
 (defconstant +devnet-ws-accept-timeout-seconds+ 1
   "How long the accept gate waits before returning to its loop. Our policy: also
@@ -39,7 +43,7 @@ once per second rather than twice.")
 
 (defparameter *devnet-ws-max-connections* 128
   "How many WebSocket connections are served at once. Our policy (geth sets no
-bound): each one is a thread and a poll of the store guard per second. The next
+bound): each one is a thread and a poll per second. The next
 client is answered HTTP 503 on the accept thread and closed, before a session
 thread exists.")
 
@@ -188,17 +192,47 @@ the sake of six lines."
    :sink (devnet-node-telemetry-sink node)
    :fields `(("error" . ,(princ-to-string condition)))))
 
+(defun devnet-ws-poll-chain (node registry)
+  "NODE's newHeads and logs notifications for REGISTRY, from the published
+read view.
+
+Only when the view cannot answer (none published yet, or the connection's
+cursor is older than its window) is the live store asked, and then only if the
+store guard is free: a connection behind a block import waits for the next
+poll, not for the import."
+  (let ((view (devnet-node-read-view node))
+        (store (devnet-node-store node)))
+    (multiple-value-bind (messages answered-p)
+        (if view
+            (node-store-read-view-attempt
+             (lambda (view) (eth-rpc-subscription-poll-chain view registry))
+             view store)
+            (values nil nil))
+      (if answered-p
+          messages
+          (values (call-with-devnet-node-store-guard-if-free
+                   node
+                   (lambda ()
+                     (eth-rpc-subscription-poll-chain store registry))))))))
+
 (defun devnet-ws-notification-source (node registry)
   "A function returning the notifications this connection is owed.
 
-Takes the store guard for the poll and releases it before anything is written,
-because the write can block on a slow client and the guard must not."
+The chain part (newHeads, logs) reads the published read view, so a poll never
+waits for the store guard (DEVNET-WS-POLL-CHAIN). The pending part reads the
+txpool, which the view does not hold: it runs under the guard, taken only if
+free, and only for a connection that has such a subscription. Nothing is
+written to the client while the guard is held, because a write can block on a
+slow client and the guard must not."
   (lambda ()
-    (call-with-devnet-node-store-guard
-     node
-     (lambda ()
-       (eth-rpc-subscription-poll (devnet-node-store node) registry
-                                  :config (devnet-node-config node))))))
+    (append
+     (devnet-ws-poll-chain node registry)
+     (when (eth-rpc-subscription-wants-pending-p registry)
+       (values (call-with-devnet-node-store-guard-if-free
+                node
+                (lambda ()
+                  (eth-rpc-subscription-poll-pending
+                   (devnet-node-store node) registry))))))))
 
 (defun devnet-ws-serve-connection (node socket shutdown-controller)
   "Run one client from its handshake to its close."

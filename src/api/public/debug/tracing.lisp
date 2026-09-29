@@ -1,45 +1,52 @@
 (in-package #:ethereum-lisp.public-api)
 
-;;;; debug_traceCall — the call tracer.
+;;;; debug_traceCall, debug_traceTransaction, debug_traceBlockBy* -- the call
+;;;; tracer.
 ;;;;
 ;;;; Reports the tree of calls an execution makes: who called whom, with how
 ;;;; much gas and value, and what came back. The shape is geth's `callTracer`,
 ;;;; because that is what every tool that reads a trace already expects.
 ;;;;
-;;;; ONLY callTracer, AND ONLY traceCall, DELIBERATELY. `structLog` reports
-;;;; every instruction and needs a hook in the interpreter loop that does not
-;;;; exist; `debug_traceTransaction` additionally needs the preceding
-;;;; transactions of its block replayed to reach the right pre-state. Both are
-;;;; real work rather than an afternoon, and shipping a `tracer` parameter that
-;;;; silently ignored what it was asked for would be worse than refusing it.
+;;;; ONLY callTracer, DELIBERATELY. `structLog` reports every instruction and
+;;;; needs a hook in the interpreter loop that does not exist, and shipping a
+;;;; `tracer` parameter that silently ignored what it was asked for would be
+;;;; worse than refusing it.
+;;;;
+;;;; A BLOCK IS EXECUTED ONCE. debug_traceBlockBy* runs the block from its
+;;;; parent's state through the same executor block import uses (pre-execution
+;;;; system calls included) and attaches a fresh tracer to each transaction as
+;;;; it is applied, as geth's traceBlock does (eth/tracers/api.go at 38271784):
+;;;; work linear in the block, where replaying each transaction's prefix was
+;;;; quadratic. debug_traceTransaction stops after its transaction.
 
 (defun eth-rpc-trace-hex-bytes (bytes)
-  "BYTES as hex, or NIL when there are none.
-
-An absent `output` and an empty one mean different things to a client reading a
-trace, so an empty byte string is reported as 0x rather than dropped."
+  "BYTES as hex, or NIL when there are none."
   (when bytes (bytes-to-hex bytes)))
 
 (defun eth-rpc-call-frame-object (frame)
   "One call frame as the JSON object callTracer produces.
 
-Fields a frame does not have are omitted rather than emitted as null: geth
-omits `error` on a successful frame and `calls` on a leaf, and a tool that
-switches on presence would misread nulls as values."
+Fields a frame does not have are omitted rather than emitted as null, as geth's
+callTracer omits them (eth/tracers/native/call.go callFrame, omitempty): no
+`error` on a successful frame, no `calls` on a leaf, no `output` when nothing
+was returned, no `value` on a STATICCALL, and no `to` on a failed creation. A
+tool that switches on presence would misread nulls as values."
   (append
    (list (cons "type" (evm-call-frame-type frame))
          (cons "from" (when (evm-call-frame-from frame)
-                        (address-to-hex (evm-call-frame-from frame))))
-         (cons "to" (when (evm-call-frame-to frame)
-                      (address-to-hex (evm-call-frame-to frame))))
-         (cons "value" (quantity-to-hex (or (evm-call-frame-value frame) 0)))
-         (cons "gas" (quantity-to-hex (or (evm-call-frame-gas frame) 0)))
+                        (address-to-hex (evm-call-frame-from frame)))))
+   (when (evm-call-frame-to frame)
+     (list (cons "to" (address-to-hex (evm-call-frame-to frame)))))
+   (when (evm-call-frame-value frame)
+     (list (cons "value" (quantity-to-hex (evm-call-frame-value frame)))))
+   (list (cons "gas" (quantity-to-hex (or (evm-call-frame-gas frame) 0)))
          (cons "gasUsed"
                (quantity-to-hex (or (evm-call-frame-gas-used frame) 0)))
          (cons "input" (or (eth-rpc-trace-hex-bytes (evm-call-frame-input frame))
                            "0x")))
-   (let ((output (eth-rpc-trace-hex-bytes (evm-call-frame-output frame))))
-     (when output (list (cons "output" output))))
+   (let ((output (evm-call-frame-output frame)))
+     (when (plusp (length output))
+       (list (cons "output" (bytes-to-hex output)))))
    (when (evm-call-frame-error frame)
      (list (cons "error" (evm-call-frame-error frame))))
    (let ((children (evm-call-frame-children frame)))
@@ -126,81 +133,124 @@ broadly would quietly start collecting frames for block import."
       (block-validation-fail "debug_traceCall produced no call frames"))
     (eth-rpc-call-frame-object frame)))
 
-(defun eth-rpc-block-execution-context-arguments (store block config)
-  (let* ((header (block-header block))
-         (block-number (block-header-number header))
-         (timestamp (block-header-timestamp header)))
-    (multiple-value-bind (target-blob-gas max-blob-gas update-fraction)
-        (chain-config-blob-schedule config block-number timestamp)
-      (declare (ignore target-blob-gas max-blob-gas))
-      (list
-       :base-fee (or (block-header-base-fee-per-gas header) 0)
-       :blob-base-fee
-       (if (block-header-excess-blob-gas header)
-           (block-header-blob-base-fee
-            header :update-fraction update-fraction)
-           0)
-       :chain-config config
-       :block-gas-limit (block-header-gas-limit header)
-       :coinbase (or (block-header-beneficiary header) (zero-address))
-       :timestamp timestamp
-       :block-number block-number
-       :prev-randao (or (block-header-mix-hash header) (zero-hash32))
-       :difficulty (block-header-difficulty header)
-       :random-p t
-       :context-gas-limit (block-header-gas-limit header)
-       :block-hashes
-       (chain-store-block-hashes-for-header store header)))))
+(defun eth-rpc-trace-applied-transaction
+    (state transaction chain-id apply-options)
+  "Apply TRANSACTION to STATE, as the block executor's applier does, with a
+fresh call tracer bound, and return its root frame.
 
-(defun eth-rpc-trace-transaction-location (location store config)
-  (let* ((block (engine-transaction-location-block location))
-         (transaction (engine-transaction-location-transaction location))
-         (index (engine-transaction-location-index location))
-         (parent
-           (chain-store-known-block
-            store (block-header-parent-hash (block-header block)))))
-    (unless parent
-      (block-validation-fail
-       "debug_traceTransaction parent block is unavailable"))
-    (let* ((state (chain-store-state-db store (block-hash parent)))
-           (context
-             (eth-rpc-block-execution-context-arguments store block config))
-           (prefix (subseq (block-transactions block) 0 index)))
-      (when prefix
-        (apply #'apply-signed-message-list
-               state prefix
-               :expected-chain-id (chain-config-chain-id config)
-               context))
-      (let* ((sender
-               (or (transaction-sender
-                    transaction
-                    :expected-chain-id (chain-config-chain-id config))
-                   (block-validation-fail
-                    "debug_traceTransaction sender recovery failed")))
-             (tracer (make-evm-call-tracer))
-             (*evm-call-tracer* tracer)
-             (depth
-               (evm-call-tracer-enter
-                tracer
-                :type "CALL"
-                :from sender
-                :to (transaction-to transaction)
-                :value (transaction-value transaction)
-                :gas (transaction-gas-limit transaction)
-                :input (transaction-data transaction))))
-        (multiple-value-bind (status output gas-used)
-            (apply #'execute-message-call
-                   state sender transaction
-                   (loop for (key value) on context by #'cddr
-                         unless (eq key :block-gas-limit)
-                           append (list key value)))
+The root is the transaction's own frame, which no call hook sees: geth's
+callTracer takes its type, sender, recipient (or created address), value, gas
+limit and input from the transaction, its gasUsed from the receipt (OnTxEnd),
+and its output and error from the top-level execution, which the applier notes
+on the tracer (EVM-CALL-TRACER-NOTE-TOP-LEVEL)."
+  (let* ((sender
+           (or (transaction-sender transaction :expected-chain-id chain-id)
+               (block-validation-fail "Traced transaction sender recovery failed")))
+         (to (transaction-to transaction))
+         (created
+           (unless to
+             (execution-create-address
+              sender
+              (let ((account (state-db-get-account state sender)))
+                (if account (state-account-nonce account) 0)))))
+         (tracer (make-evm-call-tracer)))
+    (let ((*evm-call-tracer* tracer))
+      (let ((depth (evm-call-tracer-enter
+                    tracer
+                    :type (if to "CALL" "CREATE")
+                    :from sender
+                    :to (or to created)
+                    :value (transaction-value transaction)
+                    :gas (transaction-gas-limit transaction)
+                    :input (transaction-data transaction)))
+            (receipt (first (apply #'apply-signed-message-list
+                                   state (list transaction)
+                                   :expected-chain-id chain-id
+                                   apply-options))))
+        (let ((failed-p (eql 0 (receipt-status receipt)))
+              (failure (evm-call-tracer-top-failure tracer))
+              (output (evm-call-tracer-top-output tracer)))
           (evm-call-tracer-exit
            tracer depth
-           :gas-used gas-used
-           :output output
-           :error (unless (eth-rpc-call-status-success-p status)
-                    "execution reverted")))
-        (eth-rpc-call-frame-object (evm-call-tracer-root tracer))))))
+           ;; A one-transaction list: its cumulative gas is its own.
+           :gas-used (receipt-cumulative-gas-used receipt)
+           :output (and (or (not failed-p) (eq failure :reverted)) output)
+           :error (when failed-p
+                    (evm-call-trace-error-text (or failure :reverted))))
+          (when (and failed-p created)
+            (setf (evm-call-frame-to (evm-call-tracer-root tracer)) nil)))))
+    (evm-call-tracer-root tracer)))
+
+(defun eth-rpc-trace-block-frames
+    (state block config &key block-hashes parent-header (last-index nil))
+  "Execute BLOCK once from STATE, its parent's state, and return the root call
+frame of each transaction, in order.
+
+The block runs through EXECUTE-BLOCK-WITH-MESSAGE-APPLIER, the executor block
+import uses, so its pre-execution system calls (beacon root, parent hash) run
+first, as geth's traceBlock runs core.PreExecution. The applier applies one
+transaction at a time with a tracer bound (ETH-RPC-TRACE-APPLIED-TRANSACTION)
+and leaves the executor once the last wanted transaction has run: nothing after
+the transactions is needed, and STATE is the caller's private copy. With
+LAST-INDEX, the transactions before it are applied untraced and the result is
+the one frame at LAST-INDEX, as geth's traceTransaction replays its prefix."
+  (let ((chain-id (chain-config-chain-id config))
+        (block-header (block-header block))
+        (frames '()))
+    (catch 'eth-rpc-trace-block-frames
+      (apply #'execute-block-with-message-applier
+             state
+             (block-transactions block)
+             (lambda (state transactions &rest options)
+               (loop for transaction in transactions
+                     for index from 0
+                     do (if (or (null last-index) (= index last-index))
+                            (push (eth-rpc-trace-applied-transaction
+                                   state transaction chain-id options)
+                                  frames)
+                            (apply #'apply-signed-message-list
+                                   state (list transaction)
+                                   :expected-chain-id chain-id options))
+                        (when (eql index last-index)
+                          (return)))
+               (throw 'eth-rpc-trace-block-frames nil))
+             :header (engine-payload-store-copy-block-header block-header)
+             :parent-header parent-header
+             :chain-config config
+             :block-hashes (or block-hashes (make-hash-table))
+             :ommers (block-ommers block)
+             (append
+              (when (block-withdrawals-present-p block)
+                (list :withdrawals (block-withdrawals block)
+                      :withdrawals-supplied-p t))
+              (when (block-requests-present-p block)
+                (list :requests (block-requests block)
+                      :requests-supplied-p t))
+              (when (block-block-access-list-present-p block)
+                (list :block-access-list (block-block-access-list block)
+                      :block-access-list-supplied-p t)))))
+    (nreverse frames)))
+
+(defun eth-rpc-trace-block-from-store (block store config &key last-index)
+  "ETH-RPC-TRACE-BLOCK-FRAMES for BLOCK, from STORE's parent state."
+  (let* ((header (block-header block))
+         (parent (chain-store-known-block
+                  store (block-header-parent-hash header)))
+         (state (and parent (chain-store-state-db store (block-hash parent)))))
+    (unless state
+      (engine-rpc-fail -32000
+                       (format nil "required historical state unavailable")))
+    (eth-rpc-trace-block-frames
+     state block config
+     :block-hashes (chain-store-block-hashes-for-header store header)
+     :parent-header (block-header parent)
+     :last-index last-index)))
+
+(defun eth-rpc-trace-transaction-location (location store config)
+  (let ((frames (eth-rpc-trace-block-from-store
+                 (engine-transaction-location-block location) store config
+                 :last-index (engine-transaction-location-index location))))
+    (eth-rpc-call-frame-object (first frames))))
 
 (defun engine-rpc-handle-debug-trace-transaction (params store config)
   (unless (<= 1 (length params) 2)
@@ -224,15 +274,11 @@ broadly would quietly start collecting frames for block import."
     (engine-rpc-fail -32000 "genesis is not traceable"))
   (eth-rpc-json-array
    (loop for transaction in (block-transactions block)
-         for location =
-           (chain-store-transaction-location
-            store (transaction-hash transaction))
+         for frame in (eth-rpc-trace-block-from-store block store config)
          collect
          (list
           (cons "txHash" (hash32-to-hex (transaction-hash transaction)))
-          (cons "result"
-                (eth-rpc-trace-transaction-location
-                 location store config))))))
+          (cons "result" (eth-rpc-call-frame-object frame))))))
 
 (defun engine-rpc-handle-debug-trace-block-by-hash (params store config)
   (unless (<= 1 (length params) 2)

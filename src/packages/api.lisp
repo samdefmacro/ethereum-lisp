@@ -148,6 +148,9 @@
         #:ethereum-lisp.engine-api)
   (:export
    #:engine-rpc-handle-public-method
+   #:*eth-rpc-gas-cap*
+   #:*eth-rpc-evm-timeout-seconds*
+   #:*eth-rpc-tx-fee-cap-wei*
    #:eth-rpc-gas-oracle-state
    #:make-eth-rpc-gas-oracle-state
    #:admin-backend
@@ -171,6 +174,9 @@
    #:eth-rpc-subscription-notification-json
    #:eth-rpc-subscription-new-heads
    #:eth-rpc-subscription-pending-hashes
+   #:eth-rpc-subscription-wants-pending-p
+   #:eth-rpc-subscription-poll-chain
+   #:eth-rpc-subscription-poll-pending
    #:eth-rpc-subscription-poll))
 
 (defpackage #:ethereum-lisp.rpc
@@ -193,6 +199,14 @@
    #:rpc-context-allowed-method-p
    #:rpc-context-rebind
    #:rpc-context-with-txpool-now
+   #:rpc-context-budgets
+   #:rpc-budgets
+   #:make-rpc-budgets
+   #:rpc-budgets-batch-request-limit
+   #:rpc-budgets-batch-response-max-size
+   #:rpc-budgets-gas-cap
+   #:rpc-budgets-evm-timeout-seconds
+   #:rpc-budgets-tx-fee-cap-wei
    #:rpc-handle-request
    #:rpc-request-guard-busy
    #:rpc-request-guard-busy-holder

@@ -86,6 +86,25 @@
       (error "~A must be non-negative" option))
     quantity))
 
+(defun devnet-cli-parse-ether-amount (value option)
+  "VALUE, a decimal amount of ether such as 1, 0.5 or 0 (geth's --rpc.txfeecap
+float), as an exact number of wei. At most 18 fractional digits."
+  (let* ((point (and (stringp value) (position #\. value)))
+         (whole (and (stringp value) (subseq value 0 (or point (length value)))))
+         (fraction (if point (subseq value (1+ point)) "")))
+    (unless (and (stringp value)
+                 (plusp (length value))
+                 (every #'digit-char-p whole)
+                 (every #'digit-char-p fraction)
+                 (plusp (+ (length whole) (length fraction)))
+                 (<= (length fraction) 18))
+      (error "~A requires a non-negative decimal amount of ether" option))
+    (+ (* (if (plusp (length whole)) (parse-integer whole) 0) (expt 10 18))
+       (if (plusp (length fraction))
+           (* (parse-integer fraction)
+              (expt 10 (- 18 (length fraction))))
+           0))))
+
 (defun devnet-cli-parse-uint64-quantity (value option)
   (let ((quantity (devnet-cli-parse-non-negative-quantity value option)))
     (unless (< quantity (expt 2 64))

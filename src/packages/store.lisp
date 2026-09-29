@@ -180,6 +180,15 @@
    #:chain-store-backing-block-cache-lookup
    #:chain-store-backing-block-cache-put
    #:chain-store-forkchoice-cache-reset
+   #:chain-store-guard-free-reader
+   #:chain-store-guard-free-state-reader
+   #:make-chain-store-guard-free-state-reader
+   #:chain-store-guard-free-state-reader-account-function
+   #:chain-store-guard-free-state-reader-storage-function
+   #:chain-store-guard-free-state-reader-code-function
+   #:chain-store-guard-free-state-reader-trie-node-function
+   #:chain-store-published-state
+   #:chain-store-recorded-block-hashes
    #:chain-store-release-durable-block-overlay
    #:call-with-chain-store-transaction
    #:chain-store-journal-record-key

@@ -23,6 +23,8 @@
       (when (and (typep transaction 'blob-transaction) (null sidecar))
         (block-validation-fail
          "Blob transaction admission requires an EIP-4844 sidecar wrapper"))
+      ;; geth's SubmitTransaction checks the fee cap first, before the pool.
+      (eth-rpc-check-transaction-fee-cap transaction)
       (let ((policy
               (make-txpool-admission-policy
                :allow-unprotected-transactions-p

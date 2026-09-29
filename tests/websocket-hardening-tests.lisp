@@ -415,3 +415,77 @@ SOCKET RESPONSE-HEAD)."
       (ignore-errors (sb-bsd-sockets:socket-close client))
       (when server (ignore-errors (sb-bsd-sockets:socket-close server)))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+
+;;;; The notification poll reads the published view, not the store guard.
+
+(defun wsh-advance-head (node count)
+  "Extend NODE's canonical chain by COUNT blocks and make the last the
+forkchoice head. Call it with NODE's store guard held."
+  (let* ((store (ethereum-lisp.cli:devnet-node-store node))
+         (tip (read-view-test-extend store (chain-store-latest-block store)
+                                     count)))
+    (chain-store-update-forkchoice-checkpoints
+     store (make-forkchoice-state :head-block-hash (block-hash tip)
+                                  :safe-block-hash (zero-hash32)
+                                  :finalized-block-hash (zero-hash32)))
+    tip))
+
+(deftest websocket-notification-poll-answers-while-the-store-guard-is-held
+  ;; RED on 4b9f20b2: every WebSocket connection's notification poll took the
+  ;; store guard, so a connection with a newHeads subscription stopped (and
+  ;; its thread waited) for as long as a block import held it. It now reads
+  ;; the published view; a pending-transaction poll, which needs the txpool,
+  ;; takes the guard only if it is free. Control: a head the hold has made
+  ;; but not released is not reported, and is reported after the release.
+  #-sbcl (skip-test "Store-guard contention probe requires SBCL threads")
+  #+sbcl
+  (let* ((node (read-view-test-node :blocks 2 :transactions-at nil))
+         (registry (ethereum-lisp.public-api::make-eth-rpc-subscription-registry))
+         (source (ethereum-lisp.cli::devnet-ws-notification-source
+                  node registry))
+         (entered (sb-thread:make-semaphore :count 0))
+         (release (sb-thread:make-semaphore :count 0))
+         (holder-error nil)
+         (holder nil)
+         (during nil))
+    (ethereum-lisp.cli::call-with-devnet-node-store-guard
+     node (lambda () (wsh-advance-head node 1)))
+    (ethereum-lisp.public-api::eth-rpc-handle-eth-subscribe
+     (list "newHeads") registry)
+    (ethereum-lisp.public-api::eth-rpc-handle-eth-subscribe
+     (list "newPendingTransactions") registry)
+    ;; The first poll adopts the head as the cursor and reports nothing.
+    (is (null (funcall source)))
+    (setf holder
+          (sb-thread:make-thread
+           (lambda ()
+             (handler-case
+                 (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                  node
+                  (lambda ()
+                    (wsh-advance-head node 1)
+                    (sb-thread:signal-semaphore entered)
+                    (sb-thread:wait-on-semaphore release)))
+               (serious-condition (condition)
+                 (setf holder-error condition)
+                 (sb-thread:signal-semaphore entered))))
+           :name "wsh-poll-guard-holder"))
+    (unwind-protect
+         (progn
+           (sb-thread:wait-on-semaphore entered)
+           (setf during
+                 (sb-thread:join-thread
+                  (sb-thread:make-thread
+                   (lambda ()
+                     (handler-case (list :answer (funcall source))
+                       (serious-condition (condition)
+                         (list :error (princ-to-string condition)))))
+                   :name "wsh-poll-during-hold")
+                  :timeout 2 :default :timeout)))
+      (sb-thread:signal-semaphore release)
+      (sb-thread:join-thread holder :default nil))
+    (is (null holder-error))
+    (is (equal '(:answer nil) during))
+    (let ((after (funcall source)))
+      (is (= 1 (length after)))
+      (is (search "\"number\":\"0x4\"" (first after))))))

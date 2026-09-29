@@ -123,7 +123,12 @@ caller to charge."
             (evm-machine-refill-state-gas machine +new-account-state-gas+))
           (when (zerop success-address)
             (evm-log-tracer-restore trace-log-snapshot))
-          (values success-address return-data 0 logs refund 0))))))
+          ;; The tracer's FAILURE is not distinguished here: an Amsterdam
+          ;; creation frame that fails reports a generic error.
+          (values success-address return-data 0 logs refund 0 nil
+                  (and *evm-call-tracer*
+                       (not (zerop success-address))
+                       (state-db-get-code state new-address))))))))
 
 (defun execute-contract-creation (state
                                   context
@@ -133,12 +138,45 @@ caller to charge."
                                   initcode
                                   machine
                                   operation-name)
-  (when (and (evm-machine-gas-limit machine)
-             (amsterdam-context-p context))
-    (return-from execute-contract-creation
-      (execute-contract-creation-amsterdam
-       state context creator new-address value initcode machine
-       operation-name)))
+  "Run CREATE or CREATE2 (OPERATION-NAME) and return (VALUES SUCCESS-ADDRESS
+RETURN-DATA GAS-USED LOGS REFUND STATE-GAS-USED FAILURE DEPLOYED-CODE).
+
+The last two are for the call tracer, which records the creation as a frame of
+its own when one is bound (CALL-WITH-EVM-CREATE-TRACE); untraced, this costs
+one special-variable read."
+  (flet ((create ()
+           (if (and (evm-machine-gas-limit machine)
+                    (amsterdam-context-p context))
+               (execute-contract-creation-amsterdam
+                state context creator new-address value initcode machine
+                operation-name)
+               (%execute-contract-creation
+                state context creator new-address value initcode machine
+                operation-name))))
+    (declare (dynamic-extent #'create))
+    (if *evm-call-tracer*
+        (call-with-evm-create-trace
+         #'create
+         :type operation-name
+         :from creator
+         :to new-address
+         :value value
+         :gas (if (evm-machine-gas-limit machine)
+                  (child-create-regular-gas-limit
+                   (evm-machine-regular-gas-left machine)
+                   :eip150-p (context-eip150-p context))
+                  0)
+         :input initcode)
+        (create))))
+
+(defun %execute-contract-creation (state
+                                   context
+                                   creator
+                                   new-address
+                                   value
+                                   initcode
+                                   machine
+                                   operation-name)
   (let* ((creator-account (account-or-empty state creator))
          (child-return-data (make-byte-vector 0))
          (child-gas-limit
@@ -153,7 +191,10 @@ caller to charge."
          (trace-log-snapshot (evm-log-tracer-snapshot))
          (child-refund-counter 0)
          (success-address 0)
-         (charged-new-account-state-p nil))
+         (charged-new-account-state-p nil)
+         ;; For the call tracer only (EXECUTE-CONTRACT-CREATION).
+         (failure nil)
+         (deployed-code nil))
     (when (and *evm-trace-transfers-p* (plusp value))
       (evm-capture-trace-log
        (make-eth-trace-transfer-log-entry creator new-address value)))
@@ -161,11 +202,11 @@ caller to charge."
       ;; Depth, balance, and nonce-overflow failures push 0 and return the
       ;; full child gas to the caller. No nonce increment, no state change.
       ((>= (evm-context-depth context) +max-call-depth+)
-       nil)
+       (setf failure "max call depth exceeded"))
       ((< (state-account-balance creator-account) value)
-       nil)
+       (setf failure "insufficient balance for transfer"))
       ((= (state-account-nonce creator-account) +max-account-nonce+)
-       nil)
+       (setf failure "nonce uint64 overflow"))
       (t
        (increment-account-nonce state creator)
        (mark-account-accessed context new-address)
@@ -180,7 +221,8 @@ caller to charge."
                      :eip150-p (context-eip150-p context)))))
        (if (contract-address-collision-p state new-address)
         (progn
-          (setf child-gas-used (or child-gas-limit 0))
+          (setf child-gas-used (or child-gas-limit 0)
+                failure "contract address collision")
           (when charged-new-account-state-p
             (evm-machine-refill-state-gas
              machine +new-account-state-gas+)))
@@ -229,7 +271,8 @@ caller to charge."
                   (if (eq (evm-result-status child-result) :reverted)
                       (progn
                         (restore-execution-snapshot state context snapshot)
-                        (setf child-logs '())
+                        (setf child-logs '()
+                              failure :reverted)
                         (when charged-new-account-state-p
                           (evm-machine-refill-state-gas
                            machine +new-account-state-gas+)))
@@ -283,13 +326,15 @@ caller to charge."
                         (incf child-refund-counter
                               (evm-result-refund-counter child-result))
                         (setf success-address (address-to-word new-address)
+                              deployed-code child-return-data
                               child-return-data (make-byte-vector 0))))))
-            (evm-error ()
+            (evm-error (condition)
               (restore-execution-snapshot state context snapshot)
               (when charged-new-account-state-p
                 (evm-machine-refill-state-gas
                  machine +new-account-state-gas+))
               (setf success-address 0
+                    failure condition
                     child-return-data (make-byte-vector 0)
                     child-logs '()
                     child-refund-counter 0
@@ -304,4 +349,6 @@ caller to charge."
             child-gas-used
             child-logs
             child-refund-counter
-            child-state-gas-used)))
+            child-state-gas-used
+            failure
+            deployed-code)))

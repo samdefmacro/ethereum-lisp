@@ -53,7 +53,9 @@
                 #:make-eth-rpc-subscription-registry
                 #:eth-rpc-handle-eth-subscribe
                 #:eth-rpc-handle-eth-unsubscribe
-                #:eth-rpc-subscription-poll)
+                #:eth-rpc-subscription-wants-pending-p
+                #:eth-rpc-subscription-poll-chain
+                #:eth-rpc-subscription-poll-pending)
   ;; The WebSocket endpoint drives a transport that knows nothing about
   ;; Ethereum: it is handed a request handler and a notification source.
   (:import-from #:ethereum-lisp.websocket
@@ -71,7 +73,10 @@
                 #:rpc-handle-request-json
                 ;; Each WebSocket connection answers through its own copy of
                 ;; the public context: --ws.api filter, subscription methods.
-                #:rpc-context-rebind)
+                #:rpc-context-rebind
+                ;; --rpc.gascap, --rpc.evmtimeout, --rpc.txfeecap and the batch
+                ;; limits, carried by every listener's context.
+                #:make-rpc-budgets)
   (:import-from #:ethereum-lisp.json
                 #:json-array-values
                 #:json-object-p

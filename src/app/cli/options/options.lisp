@@ -62,6 +62,11 @@
         (http-max-clients nil)
         (http-read-timeout-seconds nil)
         (http-write-timeout-seconds nil)
+        (rpc-gas-cap nil)
+        (rpc-evm-timeout-seconds nil)
+        (rpc-tx-fee-cap-wei nil)
+        (rpc-batch-request-limit nil)
+        (rpc-batch-response-max-size nil)
         (peers nil)
         (bootnodes nil)
         (bootnodes-specified-p nil)
@@ -367,13 +372,26 @@
                         :test #'string=)
                 (error "~A is not supported because IPC is not implemented"
                        option))
-               ((member option '("--rpc.gascap"
-                                 "--rpc.evmtimeout"
-                                 "--rpc.batch-request-limit"
-                                 "--rpc.batch-response-max-size"
-                                 "--rpc.txfeecap")
-                        :test #'string=)
-                (error "~A is not configurable in this client" option))
+               ;; The --rpc.* work budgets, as geth reads them: 0 means no
+               ;; limit. Each reaches every listener's RPC context
+               ;; (DEVNET-CLI-RPC-BUDGETS).
+               ((string= option "--rpc.gascap")
+                (setf rpc-gas-cap
+                      (next-parsed-value option #'devnet-cli-parse-uint64-quantity)))
+               ((string= option "--rpc.evmtimeout")
+                (setf rpc-evm-timeout-seconds
+                      (next-parsed-value option #'devnet-cli-parse-duration-seconds)))
+               ((string= option "--rpc.txfeecap")
+                (setf rpc-tx-fee-cap-wei
+                      (next-parsed-value option #'devnet-cli-parse-ether-amount)))
+               ((string= option "--rpc.batch-request-limit")
+                (setf rpc-batch-request-limit
+                      (next-parsed-value
+                       option #'devnet-cli-parse-non-negative-integer)))
+               ((string= option "--rpc.batch-response-max-size")
+                (setf rpc-batch-response-max-size
+                      (next-parsed-value
+                       option #'devnet-cli-parse-non-negative-integer)))
                ;; --db.engine SELECTS the on-disk backend, so it is honoured
                ;; rather than ignored: the value chooses the CRC-framed log
                ;; ("file", the default) or RocksDB, and an unsupported value is
@@ -484,6 +502,11 @@
           :http-max-clients http-max-clients
           :http-read-timeout-seconds http-read-timeout-seconds
           :http-write-timeout-seconds http-write-timeout-seconds
+          :rpc-gas-cap rpc-gas-cap
+          :rpc-evm-timeout-seconds rpc-evm-timeout-seconds
+          :rpc-tx-fee-cap-wei rpc-tx-fee-cap-wei
+          :rpc-batch-request-limit rpc-batch-request-limit
+          :rpc-batch-response-max-size rpc-batch-response-max-size
           :peers (nreverse peers)
           :bootnodes (nreverse bootnodes)
           :discovery-enabled-p discovery-enabled-p

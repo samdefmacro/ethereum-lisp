@@ -87,9 +87,49 @@
   "A call tree under construction.
 
 STACK is the frames currently open, innermost first. ROOT is the outermost
-frame once one has been entered."
+frame once one has been entered.
+
+TOP-OUTPUT and TOP-FAILURE are what the transaction's own top-level frame
+returned, noted by the transaction applier (EVM-CALL-TRACER-NOTE-TOP-LEVEL),
+because that frame is not a child call and no hook below sees it."
   root
-  (stack '()))
+  (stack '())
+  (top-output nil)
+  (top-failure nil))
+
+(defun evm-call-tracer-note-top-level (&key output failure)
+  "Record the current transaction's top-level OUTPUT and FAILURE (:REVERTED,
+an EVM-ERROR, a message string, or NIL) on the bound tracer, if any."
+  (let ((tracer *evm-call-tracer*))
+    (when tracer
+      (setf (evm-call-tracer-top-output tracer) output
+            (evm-call-tracer-top-failure tracer) failure)))
+  nil)
+
+(defun evm-call-trace-error-text (failure)
+  "The error a frame that ended in FAILURE reports, in geth's words where the
+failure is one geth names (core/vm/errors.go at 38271784), else our own."
+  (cond
+    ((null failure) nil)
+    ((eq failure :reverted) "execution reverted")
+    ((stringp failure) failure)
+    ((typep failure 'evm-error)
+     (let ((message (princ-to-string failure)))
+       (flet ((prefix-p (prefix)
+                (let ((end (min (length message) (length prefix))))
+                  (string-equal prefix message :end2 end))))
+         (cond
+           ((search "code deposit out of gas" message)
+            "contract creation code storage out of gas")
+           ((or (prefix-p "EVM out of gas") (prefix-p "Precompile out of gas")
+                (search "out of gas" message :test #'char-equal))
+            "out of gas")
+           ((prefix-p "Maximum EVM call depth") "max call depth exceeded")
+           ((prefix-p "Insufficient balance") "insufficient balance for transfer")
+           ((prefix-p "Invalid EVM jump destination") "invalid jump destination")
+           ((search "not allowed in read-only" message) "write protection")
+           (t message)))))
+    (t (princ-to-string failure))))
 
 (defun evm-call-tracer-enter (tracer &key type from to (value 0) (gas 0) input)
   "Open a frame. Returns the depth to unwind to, which EXIT takes back.
@@ -129,8 +169,53 @@ keeps entering a frame O(1)."
 (defun call-with-evm-call-trace (thunk &key type from to (value 0) (gas 0) input)
   "Run THUNK as one traced frame, or plainly when nothing is tracing.
 
-THUNK returns (VALUES SUCCESS OUTPUT GAS-USED . rest); those are recorded and
-passed straight through, so a caller cannot tell tracing is on."
+THUNK returns (VALUES SUCCESS OUTPUT GAS-USED LOGS REFUND STATE-GAS EXIT-BUDGET
+FAILURE); SUCCESS, OUTPUT and GAS-USED are recorded, FAILURE (:REVERTED, the
+EVM-ERROR that ended the frame, or NIL) names the error, and all of them are
+passed straight through, so a caller cannot tell tracing is on. A STATICCALL
+frame carries no value, which geth's callTracer omits."
+  (let ((tracer *evm-call-tracer*))
+    (if (null tracer)
+        (funcall thunk)
+        (let ((depth (evm-call-tracer-enter
+                      tracer :type type :from from :to to
+                      :value (unless (equal type "STATICCALL") value)
+                      :gas gas :input input))
+              (recorded-p nil))
+          (unwind-protect
+               (multiple-value-call
+                   (lambda (&rest values)
+                     (let ((success (or (first values) 0))
+                           (output (second values))
+                           (gas-used (or (third values) 0))
+                           (failure (eighth values)))
+                       (evm-call-tracer-exit
+                        tracer depth
+                        :gas-used gas-used
+                        ;; geth keeps the output of a success and of a revert;
+                        ;; any other failure returns none.
+                        :output (and (or (eql success 1) (eq failure :reverted))
+                                     output)
+                        :error (when (eql success 0)
+                                 (evm-call-trace-error-text
+                                  (or failure :reverted))))
+                       (setf recorded-p t))
+                     (values-list values))
+                 (funcall thunk))
+            ;; A condition escaping the thunk skips the recording above, and a
+            ;; frame left open would swallow every later sibling as its child.
+            (unless recorded-p
+              (evm-call-tracer-exit tracer depth :error "execution failed")))))))
+
+(defun call-with-evm-create-trace
+    (thunk &key type from to (value 0) (gas 0) input)
+  "Run THUNK, one CREATE or CREATE2, as a traced frame of TYPE, or plainly.
+
+THUNK returns (VALUES SUCCESS-ADDRESS RETURN-DATA GAS-USED LOGS REFUND
+STATE-GAS FAILURE DEPLOYED-CODE). As geth's callTracer does, a successful
+frame's output is the deployed code, a reverted one's its revert data, and a
+failed frame names no address (core/vm/evm.go create, eth/tracers/native/
+call.go processOutput at 38271784)."
   (let ((tracer *evm-call-tracer*))
     (if (null tracer)
         (funcall thunk)
@@ -141,22 +226,24 @@ passed straight through, so a caller cannot tell tracing is on."
           (unwind-protect
                (multiple-value-call
                    (lambda (&rest values)
-                     (destructuring-bind
-                         (&optional (success 0) output (gas-used 0) &rest ignored)
-                         values
-                       (declare (ignore ignored))
+                     (let* ((success-p (not (eql 0 (or (first values) 0))))
+                            (return-data (second values))
+                            (gas-used (or (third values) 0))
+                            (failure (seventh values))
+                            (deployed (eighth values))
+                            (frame (first (evm-call-tracer-stack tracer))))
                        (evm-call-tracer-exit
                         tracer depth
                         :gas-used gas-used
-                        :output output
-                        ;; A zero success is a revert or an EVM failure. The
-                        ;; frame is what says WHERE it happened; the reason
-                        ;; itself is in the output when there was one.
-                        :error (when (eql success 0) "execution reverted"))
+                        :output (cond (success-p deployed)
+                                      ((eq failure :reverted) return-data))
+                        :error (unless success-p
+                                 (evm-call-trace-error-text
+                                  (or failure "contract creation failed"))))
+                       (unless success-p
+                         (setf (evm-call-frame-to frame) nil))
                        (setf recorded-p t))
                      (values-list values))
                  (funcall thunk))
-            ;; A condition escaping the thunk skips the recording above, and a
-            ;; frame left open would swallow every later sibling as its child.
             (unless recorded-p
               (evm-call-tracer-exit tracer depth :error "execution failed")))))))

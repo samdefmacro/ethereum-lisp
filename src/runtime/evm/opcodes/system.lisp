@@ -154,7 +154,8 @@
                :balance-check-address current-address
                :balance-check-value value
                :balance-check-message
-               "Insufficient balance for CALLCODE value"))))
+               "Insufficient balance for CALLCODE value"
+               :trace-type "CALLCODE"))))
          (incf pc))
         ((= op #xf4)
          (unless (and context (evm-context-state context))
@@ -179,7 +180,8 @@
              :child-address (evm-context-address context)
              :child-caller (evm-context-caller context)
              :child-value (evm-context-call-value context)
-             :read-only-p (evm-context-read-only-p context))))
+             :read-only-p (evm-context-read-only-p context)
+             :trace-type "DELEGATECALL")))
          (incf pc))
         ((= op #xfa)
          (unless (and context (evm-context-state context))
@@ -205,7 +207,8 @@
                :child-address callee
                :child-caller (evm-context-address context)
                :read-only-p t
-               :merge-logs-p nil))))
+               :merge-logs-p nil
+               :trace-type "STATICCALL"))))
          (incf pc))
         ((= op #xff)
          (unless (and context (evm-context-state context))

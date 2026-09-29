@@ -236,7 +236,27 @@ legacy in-memory baseline/diff representation."
    address
    balance))
 
-(defun chain-store-account-balance (store block-hash address)
+;;; The account readers are generic so that a published read view
+;;; (node-store/read-view) can answer them from committed state without the
+;;; store guard. Every other store takes the methods below.
+
+(defgeneric chain-store-account-balance (store block-hash address)
+  (:documentation "Return (VALUES BALANCE ACCOUNT-PRESENT-P) at BLOCK-HASH."))
+
+(defgeneric chain-store-account-nonce (store block-hash address)
+  (:documentation "Return (VALUES NONCE ACCOUNT-PRESENT-P) at BLOCK-HASH."))
+
+(defgeneric chain-store-account-code (store block-hash address)
+  (:documentation "Return ADDRESS's code at BLOCK-HASH, empty when none."))
+
+(defgeneric chain-store-account-state (store block-hash address)
+  (:documentation
+   "Return BALANCE, NONCE, CODE, ACCOUNT-PRESENT-P and STATE-PRESENT-P."))
+
+(defgeneric chain-store-account-storage (store block-hash address slot)
+  (:documentation "Return (VALUES VALUE PRESENT-P) for SLOT at BLOCK-HASH."))
+
+(defmethod chain-store-account-balance ((store t) block-hash address)
   (engine-payload-store-account-balance
    (chain-store-require-memory-store store)
    block-hash
@@ -250,7 +270,7 @@ legacy in-memory baseline/diff representation."
    address
    nonce))
 
-(defun chain-store-account-nonce (store block-hash address)
+(defmethod chain-store-account-nonce ((store t) block-hash address)
   (engine-payload-store-account-nonce
    (chain-store-require-memory-store store)
    block-hash
@@ -264,13 +284,13 @@ legacy in-memory baseline/diff representation."
    address
    code))
 
-(defun chain-store-account-code (store block-hash address)
+(defmethod chain-store-account-code ((store t) block-hash address)
   (engine-payload-store-account-code
    (chain-store-require-memory-store store)
    block-hash
    address))
 
-(defun chain-store-account-state (store block-hash address)
+(defmethod chain-store-account-state ((store t) block-hash address)
   (engine-payload-store-account-state
    (chain-store-require-memory-store store)
    block-hash
@@ -285,7 +305,7 @@ legacy in-memory baseline/diff representation."
    slot
    value))
 
-(defun chain-store-account-storage (store block-hash address slot)
+(defmethod chain-store-account-storage ((store t) block-hash address slot)
   (engine-payload-store-account-storage
    (chain-store-require-memory-store store)
    block-hash

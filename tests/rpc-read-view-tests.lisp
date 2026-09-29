@@ -205,7 +205,8 @@ answers each request finally produced once the guard was released."
 
 (deftest reads-outside-the-view-still-wait-for-the-guard-and-then-answer
   ;; The control for the test above: the holder really does hold the guard
-  ;; (a state read, which the view never serves, times out), and a read the
+  ;; (a state read, which the view cannot serve from a memory store, which
+  ;; has no guard-free state reader, times out), and a read the
   ;; view cannot answer completely -- a block above the head, an unknown
   ;; transaction -- is not answered from a
   ;; guess but falls back to the live store once the guard is free.
@@ -311,3 +312,238 @@ answers each request finally produced once the guard was released."
           (is (= 4 (length (ethereum-lisp.node-store::node-store-read-view-entries
                             third-view))))
           (is (entries-match-live-p third-view)))))))
+
+;;;; State reads from the published view (RocksDB direct provider).
+;;;;
+;;;; eth_getBalance, eth_getTransactionCount, eth_getCode, eth_getStorageAt,
+;;;; eth_call and eth_estimateGas read state. The view captures, for each
+;;;; window block whose state is durable, its state root, and answers these
+;;;; reads from the provider's content-addressed trie nodes and code, which a
+;;;; writer never changes in place. A memory store has no such reader, so its
+;;;; state reads keep the guard (READS-OUTSIDE-THE-VIEW-... above).
+
+(defparameter *read-view-state-contract*
+  (make-address (make-byte-vector 20 :initial-element #xc0))
+  "A genesis contract that returns its storage slot 0 (0x2a).")
+
+(defun read-view-state-genesis-json ()
+  "DEVNET-NP-LATENCY-GENESIS-JSON's funded key 1 and eight accounts, plus
+*READ-VIEW-STATE-CONTRACT*: PUSH1 0 SLOAD PUSH1 0 MSTORE PUSH1 32 PUSH1 0
+RETURN, with slot 0 holding 0x2a."
+  (let ((genesis (parse-json (devnet-np-latency-genesis-json '(1) 8))))
+    (push (cons (address-to-hex *read-view-state-contract*)
+                (list (cons "balance" "0x7")
+                      (cons "code" "0x60005460005260206000f3")
+                      (cons "storage"
+                            (list (cons (format nil "0x~64,'0D" 0)
+                                        (format nil "0x~(~64,'0x~)" #x2a))))))
+          (cdr (assoc "alloc" genesis :test #'string=)))
+    (let ((state (state-db-from-genesis-json-string (json-encode genesis))))
+      (setf (cdr (assoc "stateRoot" genesis :test #'string=))
+            (hash32-to-hex (state-db-root state))))
+    (json-encode genesis)))
+
+(defun read-view-state-import (node blocks)
+  "Import BLOCKS through NODE's Engine endpoint context (guarded, so each
+release publishes the view) and make each the forkchoice head."
+  (let ((context (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                  (ethereum-lisp.cli:devnet-node-service node)))
+        (store (ethereum-lisp.cli:devnet-node-store node)))
+    (dolist (block blocks)
+      (let ((response
+              (ethereum-lisp.rpc:rpc-handle-request
+               (engine-fixture-payload-request
+                1 (execution-payload-envelope-execution-payload
+                   (block-to-executable-data block)))
+               context)))
+        (is (string= +payload-status-valid+
+                     (fixture-object-field
+                      (fixture-object-field response "result") "status"))))
+      (ethereum-lisp.rpc:rpc-handle-request
+       (engine-fixture-forkchoice-request 2 (block-hash block))
+       context)
+      (is (hash32= (block-hash block)
+                   (block-hash (chain-store-head-block store)))))))
+
+(defun call-with-read-view-rocksdb-node (genesis-json function)
+  "Call FUNCTION with a fresh RocksDB devnet node built from GENESIS-JSON."
+  (let ((dir (namestring
+              (devnet-cli-temp-directory "ethereum-lisp-read-view-state"))))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (unwind-protect
+                 (let ((node (ethereum-lisp.cli:make-devnet-node
+                              :genesis-json genesis-json :port 0
+                              :public-port 0
+                              :database-path dir :db-engine :rocksdb)))
+                   (is (database-engine-payload-store-p
+                        (ethereum-lisp.cli:devnet-node-store node)))
+                   (funcall function node))
+              (let ((database
+                      (ethereum-lisp.cli::devnet-cli-cached-kv-database dir)))
+                (when database
+                  (ethereum-lisp.database:close-rocksdb-key-value-database
+                   database))))))
+      (uiop:delete-directory-tree
+       (uiop:ensure-directory-pathname dir)
+       :validate t :if-does-not-exist :ignore))))
+
+(defun read-view-state-requests ()
+  "State reads at the head and at an earlier block, by tag and by number."
+  (let* ((sender (address-to-hex (fixture-private-key-address 1)))
+         (recipient (address-to-hex (devnet-np-latency-account 3)))
+         (contract (address-to-hex *read-view-state-contract*))
+         (call (format nil "{\"from\":\"~A\",\"to\":\"~A\",\"data\":\"0x\"}"
+                       sender contract)))
+    (list
+     (read-view-test-request "eth_getBalance"
+                             (format nil "[\"~A\",\"latest\"]" sender))
+     (read-view-test-request "eth_getBalance"
+                             (format nil "[\"~A\",\"0x1\"]" sender))
+     (read-view-test-request "eth_getBalance"
+                             (format nil "[\"~A\",\"latest\"]" recipient))
+     (read-view-test-request "eth_getTransactionCount"
+                             (format nil "[\"~A\",\"latest\"]" sender))
+     (read-view-test-request "eth_getTransactionCount"
+                             (format nil "[\"~A\",\"0x1\"]" sender))
+     (read-view-test-request "eth_getCode"
+                             (format nil "[\"~A\",\"latest\"]" contract))
+     (read-view-test-request
+      "eth_getStorageAt"
+      (format nil "[\"~A\",\"0x0\",\"latest\"]" contract))
+     (read-view-test-request "eth_call" (format nil "[~A,\"latest\"]" call))
+     (read-view-test-request "eth_call" (format nil "[~A,\"0x1\"]" call))
+     (read-view-test-request "eth_estimateGas"
+                             (format nil "[~A,\"latest\"]" call)))))
+
+(deftest read-view-answers-state-reads-while-the-store-guard-is-held
+  (:layer :integration :module :rpc)
+  ;; RED on 3c0cfeab: state reads were not tried against the view, so every
+  ;; one of these waited for the held guard and timed out here. Each answer
+  ;; must also equal the guarded live answer.
+  (let* ((genesis-json (read-view-state-genesis-json))
+         (blocks (devnet-np-latency-build-blocks genesis-json '(1) 8 3)))
+    (call-with-read-view-rocksdb-node
+     genesis-json
+     (lambda (node)
+       (read-view-state-import node blocks)
+       (let* ((requests (read-view-state-requests))
+              (guarded (mapcar (lambda (request)
+                                 (read-view-test-call node request
+                                                      :guarded-p t))
+                               requests))
+              (during (read-view-test-under-held-guard node requests)))
+         (is (= (length requests) (length during)))
+         (loop for (request answer milliseconds) in during
+               for expected in guarded
+               do (unless (stringp answer)
+                    (error "~A waited for the guard" request))
+                  (unless (equal expected answer)
+                    (error "~A answered ~A from the view, ~A guarded"
+                           request answer expected))
+                  (unless (< milliseconds 1000)
+                    (error "~A took ~D ms" request milliseconds)))
+         ;; The fixture has content to disagree about: the sender's balance
+         ;; and nonce moved between block 1 and the head, the contract has
+         ;; code and storage, and the call returns the stored word.
+         (is (not (equal (nth 0 guarded) (nth 1 guarded))))
+         (is (search "\"result\":\"0x6\"" (nth 3 guarded)))
+         (is (search "\"result\":\"0x2\"" (nth 4 guarded)))
+         (is (search "\"result\":\"0x60005460005260206000f3\""
+                     (nth 5 guarded)))
+         (is (search "2a\"" (nth 6 guarded)))
+         (is (search "2a\"" (nth 7 guarded)))
+         (is (search "2a\"" (nth 8 guarded)))
+         (is (search "\"result\":\"0x" (nth 9 guarded)))
+         ;; eth_call's BLOCKHASH window from the view is the live walk's.
+         (let* ((store (ethereum-lisp.cli:devnet-node-store node))
+                (view (ethereum-lisp.cli::devnet-node-read-view node))
+                (recorded nil))
+           (dolist (number '(3 2 1))
+             (let ((header (block-header (chain-store-block-by-number
+                                          store number))))
+               (setf recorded
+                     (ethereum-lisp.chain-store:chain-store-recorded-block-hashes
+                      view header))
+               (let ((walked
+                       (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
+                        store header)))
+                 (is (= number (hash-table-count recorded)
+                        (hash-table-count walked)))
+                 (maphash (lambda (key value)
+                            (is (hash32= value (gethash key recorded))))
+                          walked))))))))))
+
+(deftest read-view-state-reads-hide-a-write-in-progress
+  (:layer :integration :module :rpc)
+  ;; The positive control for the test above: a hold that has imported a
+  ;; block and made it the head, but not released, must stay invisible to
+  ;; view state reads, and its release must publish it.
+  #-sbcl (skip-test "Store-guard contention probe requires SBCL threads")
+  #+sbcl
+  (let* ((genesis-json (read-view-state-genesis-json))
+         (blocks (devnet-np-latency-build-blocks genesis-json '(1) 8 3)))
+    (call-with-read-view-rocksdb-node
+     genesis-json
+     (lambda (node)
+       (read-view-state-import node (subseq blocks 0 2))
+       (let* ((request (read-view-test-request
+                        "eth_getBalance"
+                        (format nil "[\"~A\",\"latest\"]"
+                                (address-to-hex
+                                 (fixture-private-key-address 1)))))
+              (before (read-view-test-call node request))
+              (entered (sb-thread:make-semaphore :count 0))
+              (release (sb-thread:make-semaphore :count 0))
+              (engine (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                       (ethereum-lisp.cli:devnet-node-service node)))
+              (holder-error nil)
+              (holder
+                (sb-thread:make-thread
+                 (lambda ()
+                   (handler-case
+                       (ethereum-lisp.cli::call-with-devnet-node-store-guard
+                        node
+                        (lambda ()
+                          (let ((block (third blocks)))
+                            (ethereum-lisp.rpc::rpc-handle-request-without-guard
+                             (engine-fixture-payload-request
+                              1 (execution-payload-envelope-execution-payload
+                                 (block-to-executable-data block)))
+                             engine)
+                            (ethereum-lisp.rpc::rpc-handle-request-without-guard
+                             (engine-fixture-forkchoice-request
+                              2 (block-hash block))
+                             engine))
+                          (sb-thread:signal-semaphore entered)
+                          (sb-thread:wait-on-semaphore release)))
+                     (serious-condition (condition)
+                       (setf holder-error condition)
+                       (sb-thread:signal-semaphore entered))))
+                 :name "read-view-state-holder"))
+              (during nil))
+         (unwind-protect
+              (progn
+                (sb-thread:wait-on-semaphore entered)
+                (setf during
+                      (let ((worker
+                              (sb-thread:make-thread
+                               (lambda ()
+                                 (handler-case
+                                     (read-view-test-call node request)
+                                   (serious-condition (condition)
+                                     (princ-to-string condition))))
+                               :name "read-view-state-reader")))
+                        (sb-thread:join-thread worker :timeout 2
+                                                      :default :timeout))))
+           (sb-thread:signal-semaphore release)
+           (sb-thread:join-thread holder :default nil))
+         (is (null holder-error))
+         ;; The hold really imported block 3 and made it the head.
+         (is (= 3 (chain-store-head-number
+                   (ethereum-lisp.cli:devnet-node-store node))))
+         (is (equal before during))
+         (let ((after (read-view-test-call node request)))
+           (is (search "\"result\":\"0x" after))
+           (is (not (equal before after)))))))))

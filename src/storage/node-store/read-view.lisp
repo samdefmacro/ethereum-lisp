@@ -17,44 +17,83 @@
 ;;;; the view once per request and sees one canonical chain, never a torn one.
 ;;;;
 ;;;; A VIEW ANSWERS ONLY WHAT IT HOLDS. Anything outside it -- a block older
-;;;; than the window, a number above the head, an unknown hash, any state or
-;;;; txpool read, any direct access to the memory store -- throws to
-;;;; NODE-STORE-READ-VIEW-ATTEMPT, whose caller then runs the request under the
-;;;; guard against the live store as before. A miss therefore costs a wait, and
-;;;; never a different answer.
+;;;; than the window, a number above the head, an unknown hash, a txpool read,
+;;;; state the view did not capture, any direct access to the memory store --
+;;;; throws to NODE-STORE-READ-VIEW-ATTEMPT, whose caller then runs the request
+;;;; under the guard against the live store as before. A miss therefore costs a
+;;;; wait, and never a different answer.
 ;;;;
 ;;;; Blocks are shared with the live store only as read-only sources. Readers
 ;;;; work on a private copy made on first use, because transactions memoize
 ;;;; their hash and sender in place, and the guard owner may be computing those
 ;;;; same memo slots on the same objects.
+;;;;
+;;;; STATE IS READ BY ROOT, THROUGH THE PROVIDER'S GUARD-FREE READER. When the
+;;;; store offers a CHAIN-STORE-GUARD-FREE-READER (the RocksDB direct provider
+;;;; does; memory and file oracles do not), publication records, for each window
+;;;; block within the provider's state retention whose state is durable, that
+;;;; state's root. Balance, nonce, code, storage and eth_call reads at such a
+;;;; block then open the trie at the recorded root and read committed,
+;;;; content-addressed nodes and code: nothing a writer changes in place. A block
+;;;; whose state was still pending (executed, not yet in its durable batch) is
+;;;; retried at the next publication; one with no state stays a miss.
+;;;;
+;;;; eth_call also needs the BLOCKHASH window, 256 ancestors, which is more than
+;;;; the block window. The view therefore records the canonical hashes of the
+;;;; window plus 256 further ancestors, walked by parent hash exactly as
+;;;; CHAIN-STORE-BLOCK-HASHES-FOR-HEADER walks them, and reused across
+;;;; publications like the entries are.
 
 (defconstant +node-store-read-view-window+ 128
   "How many canonical blocks, counting back from the head, a view carries. Our
 policy: wide enough for explorers and wallets that follow the tip and for
 recent receipt lookups; older blocks fall back to the guarded path.")
 
+(defconstant +node-store-read-view-blockhash-depth+ 256
+  "How many ancestors BLOCKHASH can name: the EVM's history limit.")
+
 (defstruct (node-store-read-view-entry
             (:constructor %make-node-store-read-view-entry
                 (number hash block)))
   "One canonical block of a view. BLOCK is the live store's object and is never
 handed to a reader; COPY and TRANSACTION-KEYS are filled on first use by a
-reader, with compare-and-swap, and are immutable once installed."
+reader, with compare-and-swap, and are immutable once installed.
+
+STATE-ROOT is written only by publication, under the guard: NIL before the
+block's state was looked at, :PENDING while it was executed but not yet
+durable (looked at again by the next publication), :ABSENT when there is none,
+or the durable state root. A reader treats anything but a root as a miss."
   (number 0 :type (integer 0 *) :read-only t)
   (hash nil :read-only t)
   (block nil :read-only t)
   (copy nil)
-  (transaction-keys nil))
+  (transaction-keys nil)
+  (state-root nil))
 
 (defstruct (node-store-read-view
             (:constructor %make-node-store-read-view
                 (source head-number head-hash safe-number finalized-number
-                 entries)))
+                 entries hashes state-reader state-depth
+                 forkchoice-head-hash)))
   "What the public read path may answer without the store guard.
 
 ENTRIES is a simple vector, head first: entry I holds canonical block
 HEAD-NUMBER - I. It may be shorter than the window when ancestors are not
 available (genesis, a SNAP pivot). SAFE-NUMBER and FINALIZED-NUMBER are what
 the live tag lookup returned, or :UNAVAILABLE when it signalled.
+
+HASHES is a simple vector, head first, of canonical hashes: element I is the
+hash of block HEAD-NUMBER - I, for the window and up to 256 further ancestors.
+It ends early where the walk met an unknown block, whose hash is its last
+element, or genesis.
+
+STATE-READER is the source's guard-free state reader, or NIL; STATE-DEPTH is
+how many entries, from the head, may answer state (the window, capped by the
+provider's state retention).
+
+FORKCHOICE-HEAD-HASH is the head checkpoint's block hash (what
+CHAIN-STORE-HEAD-BLOCK names, and what WebSocket newHeads follows), or NIL
+before a consensus client has set one.
 
 SOURCE is the store the view was built from. A caller answering for another
 store object (a store that was swapped out, as test harnesses do) must not use
@@ -64,7 +103,11 @@ it; NODE-STORE-READ-VIEW-ATTEMPT enforces that."
   (head-hash nil :read-only t)
   (safe-number nil :read-only t)
   (finalized-number nil :read-only t)
-  (entries #() :type simple-vector :read-only t))
+  (entries #() :type simple-vector :read-only t)
+  (hashes #() :type simple-vector :read-only t)
+  (state-reader nil :read-only t)
+  (state-depth 0 :type (integer 0 *) :read-only t)
+  (forkchoice-head-hash nil :read-only t))
 
 (defun node-store-read-view-miss ()
   "Leave the view: the request is answered under the guard instead."
@@ -124,35 +167,134 @@ still the same canonical ancestry. Runs under the guard."
           (subseq entries 0 window)
           entries))))
 
+(defun %node-store-read-view-hashes (store head-number entries previous limit)
+  "The canonical hashes from HEAD-NUMBER back, at most LIMIT of them. Runs
+under the guard.
+
+Walks by parent hash, as CHAIN-STORE-BLOCK-HASHES-FOR-HEADER does: the hash of
+block N-1 is block N's parent hash, and the walk continues only through blocks
+the store knows. The part beyond ENTRIES is taken from PREVIOUS where it is the
+same ancestry, so a new head costs one step; only a first publication, a
+reorg deeper than the window or an ancestry the store has since learned walks."
+  (let ((hashes (make-array limit :fill-pointer 0)))
+    (loop for entry across entries
+          while (< (fill-pointer hashes) limit)
+          do (vector-push (node-store-read-view-entry-hash entry) hashes))
+    (let ((oldest (and (plusp (length entries))
+                       (svref entries (1- (length entries))))))
+      (when (and oldest
+                 (plusp (node-store-read-view-entry-number oldest))
+                 (< (fill-pointer hashes) limit))
+        (vector-push (block-header-parent-hash
+                      (block-header (node-store-read-view-entry-block oldest)))
+                     hashes)))
+    (when (and previous (plusp (fill-pointer hashes)))
+      (let* ((old (node-store-read-view-hashes previous))
+             (last (1- (fill-pointer hashes)))
+             (position (- (node-store-read-view-head-number previous)
+                          (- head-number last))))
+        (when (and (< -1 position (length old))
+                   (hash32= (aref hashes last) (svref old position)))
+          (loop for index from (1+ position) below (length old)
+                while (< (fill-pointer hashes) limit)
+                do (vector-push (svref old index) hashes)))))
+    (loop while (< 0 (fill-pointer hashes) limit)
+          do (let* ((last (1- (fill-pointer hashes)))
+                    (block (and (plusp (- head-number last))
+                                (chain-store-known-block
+                                 store (aref hashes last)))))
+               (unless block
+                 (return))
+               (vector-push (block-header-parent-hash (block-header block))
+                            hashes)))
+    (coerce hashes 'simple-vector)))
+
+(defun %node-store-read-view-state-root-now (store component entry)
+  "ENTRY's state as publication finds it: its durable root, :PENDING or
+:ABSENT. Runs under the guard."
+  (let ((hash (node-store-read-view-entry-hash entry)))
+    (handler-case
+        (if (chain-store-state-persistence-tries store hash)
+            ;; Executed but not yet in its durable batch: the trie is still
+            ;; the guard owner's mutable object. Look again next time.
+            :pending
+            (multiple-value-bind (root present-p)
+                (chain-store-backing-state-root component hash)
+              (if (and present-p (hash32-p root)) root :absent)))
+      (error () :absent))))
+
+(defun %node-store-read-view-capture-state (store view)
+  "Record the state root of VIEW's entries within its state depth that have
+none yet or were pending. Runs under the guard; readers see a slot change from
+NIL or :PENDING to a root, and treat both as a miss."
+  (when (node-store-read-view-state-reader view)
+    (let ((component (chain-store-component store)))
+      (loop for entry across (node-store-read-view-entries view)
+            for position from 0 below (node-store-read-view-state-depth view)
+            do (when (member (node-store-read-view-entry-state-root entry)
+                             '(nil :pending))
+                 (setf (node-store-read-view-entry-state-root entry)
+                       (%node-store-read-view-state-root-now
+                        store component entry))))))
+  view)
+
+(defun %node-store-read-view-state-source (store window)
+  "(VALUES READER DEPTH) for STORE's committed state, or (VALUES NIL 0)."
+  (let* ((component (chain-store-component store))
+         (reader (and component (chain-store-guard-free-reader component))))
+    (if reader
+        (values reader
+                (min window
+                     (memory-chain-store-state-retention-depth component)))
+        (values nil 0))))
+
 (defun node-store-publish-read-view
     (store previous &key (window +node-store-read-view-window+))
   "Build the view of STORE's canonical chain. Call it with the guard held.
 
 PREVIOUS is the last published view or NIL; when the head, safe and finalized
 blocks are unchanged it is returned as it is, so the common release (a read, a
-getPayload, a txpool change) costs two index lookups and no allocation."
+getPayload, a txpool change) costs two index lookups and no allocation beyond
+looking again at any block whose state was still pending."
   (let* ((head-number (chain-store-head-number store))
          (head-block (chain-store-block-by-number store head-number))
          (head-hash (and head-block (block-hash head-block)))
          (safe (%node-store-read-view-tag store "safe"))
-         (finalized (%node-store-read-view-tag store "finalized")))
-    (if (and previous
-             (eq store (node-store-read-view-source previous))
-             (eql head-number (node-store-read-view-head-number previous))
-             (let ((old (node-store-read-view-head-hash previous)))
-               (if head-hash (and old (hash32= head-hash old)) (null old)))
-             (eql safe (node-store-read-view-safe-number previous))
-             (eql finalized (node-store-read-view-finalized-number previous)))
-        previous
-        (%make-node-store-read-view
-         store head-number head-hash safe finalized
-         (if head-block
-             (%node-store-read-view-entries
-              store head-block
-              (and previous (eq store (node-store-read-view-source previous))
-                   previous)
-              window)
-             #())))))
+         (finalized (%node-store-read-view-tag store "finalized"))
+         (forkchoice-head-hash
+           (let ((checkpoint (chain-store-head-checkpoint store)))
+             (and checkpoint (chain-store-checkpoint-block-hash checkpoint))))
+         (same-source-previous
+           (and previous (eq store (node-store-read-view-source previous))
+                previous)))
+    (flet ((same-hash-p (new old)
+             (if new (and old (hash32= new old)) (null old))))
+      (if (and same-source-previous
+               (eql head-number (node-store-read-view-head-number previous))
+               (same-hash-p head-hash (node-store-read-view-head-hash previous))
+               (eql safe (node-store-read-view-safe-number previous))
+               (eql finalized (node-store-read-view-finalized-number previous))
+               (same-hash-p forkchoice-head-hash
+                            (node-store-read-view-forkchoice-head-hash
+                             previous)))
+        (%node-store-read-view-capture-state store previous)
+        (let ((entries (if head-block
+                           (%node-store-read-view-entries
+                            store head-block same-source-previous window)
+                           #())))
+          (multiple-value-bind (reader depth)
+              (%node-store-read-view-state-source store window)
+            (%node-store-read-view-capture-state
+             store
+             (%make-node-store-read-view
+              store head-number head-hash safe finalized entries
+              ;; Only state reads (eth_call) use the hashes.
+              (if reader
+                  (%node-store-read-view-hashes
+                   store head-number entries same-source-previous
+                   (+ window +node-store-read-view-blockhash-depth+))
+                  #())
+              reader depth forkchoice-head-hash))))))))
 
 (defun %node-store-read-view-entry-at (view number)
   "The window entry for canonical NUMBER, or a miss."
@@ -240,6 +382,14 @@ no lock and no GC-triggered rehash."
   (%node-store-read-view-entry-copy
    (%node-store-read-view-entry-by-hash store hash)))
 
+(defmethod chain-store-head-block ((store node-store-read-view))
+  ;; The forkchoice head as published: NIL before one was set, as the live
+  ;; store answers; a head outside the window is a miss.
+  (let ((hash (node-store-read-view-forkchoice-head-hash store)))
+    (and hash
+         (%node-store-read-view-entry-copy
+          (%node-store-read-view-entry-by-hash store hash)))))
+
 (defmethod chain-store-canonical-block-p ((store node-store-read-view) block)
   (hash32= (block-hash block)
            (node-store-read-view-entry-hash
@@ -269,3 +419,110 @@ no lock and no GC-triggered rehash."
                           repeat index
                           sum (length (receipt-logs receipt)))))))
     (node-store-read-view-miss)))
+
+;;; State, answered by root through the provider's guard-free reader.
+
+(defun %node-store-read-view-state (view block-hash)
+  "(VALUES ROOT READER) for BLOCK-HASH's captured state, or a miss."
+  (let* ((reader (node-store-read-view-state-reader view))
+         (entry (and reader
+                     (%node-store-read-view-entry-by-hash view block-hash)))
+         (root (and entry
+                    (< (- (node-store-read-view-head-number view)
+                          (node-store-read-view-entry-number entry))
+                       (node-store-read-view-state-depth view))
+                    (node-store-read-view-entry-state-root entry))))
+    (if (hash32-p root)
+        (values root reader)
+        (node-store-read-view-miss))))
+
+(defun %node-store-read-view-account (view block-hash address)
+  "BALANCE, NONCE, CODE-HASH, STORAGE-ROOT, ACCOUNT-PRESENT-P and the reader."
+  (multiple-value-bind (root reader) (%node-store-read-view-state view block-hash)
+    (multiple-value-bind (balance nonce code-hash storage-root present-p)
+        (funcall (chain-store-guard-free-state-reader-account-function reader)
+                 block-hash root address)
+      (values balance nonce code-hash storage-root present-p reader))))
+
+(defun %node-store-read-view-code (reader present-p code-hash)
+  "The account's code: empty when absent or code-less, a miss when the code
+record is missing (the guarded path reports that as its own error)."
+  (if (or (not present-p)
+          (not (hash32-p code-hash))
+          (hash32= code-hash ethereum-lisp.crypto:+empty-code-hash+))
+      (ethereum-lisp.bytes:make-byte-vector 0)
+      (multiple-value-bind (code code-present-p)
+          (funcall (chain-store-guard-free-state-reader-code-function reader)
+                   code-hash)
+        (if code-present-p
+            (copy-seq code)
+            (node-store-read-view-miss)))))
+
+(defmethod chain-store-state-available-p ((store node-store-read-view) hash)
+  (%node-store-read-view-state store hash)
+  t)
+
+(defmethod chain-store-published-state ((store node-store-read-view) block-hash)
+  (%node-store-read-view-state store block-hash))
+
+(defmethod chain-store-account-balance
+    ((store node-store-read-view) block-hash address)
+  (multiple-value-bind (balance nonce code-hash storage-root present-p)
+      (%node-store-read-view-account store block-hash address)
+    (declare (ignore nonce code-hash storage-root))
+    (values balance present-p)))
+
+(defmethod chain-store-account-nonce
+    ((store node-store-read-view) block-hash address)
+  (multiple-value-bind (balance nonce code-hash storage-root present-p)
+      (%node-store-read-view-account store block-hash address)
+    (declare (ignore balance code-hash storage-root))
+    (values nonce present-p)))
+
+(defmethod chain-store-account-code
+    ((store node-store-read-view) block-hash address)
+  (multiple-value-bind (balance nonce code-hash storage-root present-p reader)
+      (%node-store-read-view-account store block-hash address)
+    (declare (ignore balance nonce storage-root))
+    (%node-store-read-view-code reader present-p code-hash)))
+
+(defmethod chain-store-account-state
+    ((store node-store-read-view) block-hash address)
+  (multiple-value-bind (balance nonce code-hash storage-root present-p reader)
+      (%node-store-read-view-account store block-hash address)
+    (declare (ignore storage-root))
+    (values balance nonce
+            (%node-store-read-view-code reader present-p code-hash)
+            present-p t)))
+
+(defmethod chain-store-account-storage
+    ((store node-store-read-view) block-hash address slot)
+  (multiple-value-bind (balance nonce code-hash storage-root present-p reader)
+      (%node-store-read-view-account store block-hash address)
+    (declare (ignore balance nonce code-hash))
+    (if present-p
+        (funcall (chain-store-guard-free-state-reader-storage-function reader)
+                 storage-root slot)
+        (values 0 nil))))
+
+(defmethod chain-store-recorded-block-hashes
+    ((store node-store-read-view) header)
+  ;; The same table CHAIN-STORE-BLOCK-HASHES-FOR-HEADER builds by walking,
+  ;; for a header that is canonical in this view.
+  (let* ((number (block-header-number header))
+         (entry (%node-store-read-view-entry-at store number))
+         (hashes (node-store-read-view-hashes store))
+         (position (- (node-store-read-view-head-number store) number))
+         (table (make-hash-table :test 'eql)))
+    (unless (and (plusp (length hashes))
+                 (hash32= (block-header-hash header)
+                          (node-store-read-view-entry-hash entry)))
+      (node-store-read-view-miss))
+    (loop for offset from 0 below (min +node-store-read-view-blockhash-depth+
+                                       number)
+          for index = (+ position 1 offset)
+          do (setf (gethash (- number 1 offset) table)
+                   (if (< index (length hashes))
+                       (svref hashes index)
+                       :unavailable)))
+    table))

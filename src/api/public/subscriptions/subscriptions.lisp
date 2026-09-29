@@ -21,10 +21,10 @@ logs or indexes ids will not care, but matching the width costs nothing.")
 
 (defconstant +eth-rpc-max-subscriptions-per-connection+ 256
   "How many subscriptions one connection may hold. Our policy (geth sets no
-bound): every connection's subscriptions are polled under the store guard once a
-second, so an unbounded registry is unbounded guard time bought with one
-socket. The next eth_subscribe is refused with -32000 before anything is
-parsed or registered.")
+bound): every connection's subscriptions are polled once a second, and the
+pending-transaction part under the store guard, so an unbounded registry is
+unbounded work (and guard time) bought with one socket. The next eth_subscribe
+is refused with -32000 before anything is parsed or registered.")
 
 (defconstant +eth-rpc-subscription-head-catchup-limit+ 128
   "How far back a newHeads cursor will walk to find the head it last reported.
@@ -233,31 +233,31 @@ without disturbing the journal."
         (setf (gethash (hash32-to-hex (transaction-hash transaction)) known) t)))
     (nreverse fresh)))
 
-(defun eth-rpc-subscription-poll (store registry &key config)
-  "Everything this connection should be sent now, as a list of JSON strings.
+(defun eth-rpc-subscription-wants-p (registry kinds)
+  (some (lambda (subscription)
+          (member (eth-rpc-subscription-kind subscription) kinds))
+        (eth-rpc-subscription-registry-subscriptions registry)))
 
-Returns NIL when nothing has changed, which is the common case and costs one
-head comparison."
-  (declare (ignore config))
-  (let ((subscriptions (eth-rpc-subscription-registry-subscriptions registry))
-        (messages '()))
-    (when subscriptions
-      (let ((wants-chain-p
-              (some (lambda (s) (member (eth-rpc-subscription-kind s)
-                                        '(:new-heads :logs)))
-                    subscriptions)))
-        (multiple-value-bind (new-blocks removed-blocks)
-            (when wants-chain-p
-              (eth-rpc-subscription-new-heads store registry))
-          (let ((pending
-                  (when (some (lambda (s)
-                                (eq :new-pending-transactions
-                                    (eth-rpc-subscription-kind s)))
-                              subscriptions)
-                    (eth-rpc-subscription-pending-hashes store registry))))
-            (dolist (subscription subscriptions)
-              (let ((id (eth-rpc-subscription-id subscription)))
-                (ecase (eth-rpc-subscription-kind subscription)
+(defun eth-rpc-subscription-wants-pending-p (registry)
+  "Whether REGISTRY holds a newPendingTransactions subscription."
+  (eth-rpc-subscription-wants-p registry '(:new-pending-transactions)))
+
+(defun eth-rpc-subscription-poll-chain (store registry)
+  "The newHeads and logs notifications this connection is owed now, as a list
+of JSON strings.
+
+Reads only the head and canonical blocks, so STORE may be a published read
+view. Every store read happens before the connection's cursor moves
+(ETH-RPC-SUBSCRIPTION-NEW-HEADS), so a read that leaves the view leaves the
+cursor as it was and the poll can be run again against the live store."
+  (let ((messages '()))
+    (when (eth-rpc-subscription-wants-p registry '(:new-heads :logs))
+      (multiple-value-bind (new-blocks removed-blocks)
+          (eth-rpc-subscription-new-heads store registry)
+        (dolist (subscription
+                 (eth-rpc-subscription-registry-subscriptions registry))
+          (let ((id (eth-rpc-subscription-id subscription)))
+            (case (eth-rpc-subscription-kind subscription)
               (:new-heads
                (dolist (block new-blocks)
                  (push (eth-rpc-subscription-notification-json
@@ -280,17 +280,39 @@ head comparison."
                                (eth-rpc-subscription-topic-filters
                                 subscription)))
                    (push (eth-rpc-subscription-notification-json id log)
-                         messages))))
-              (:new-pending-transactions
-               (dolist (transaction pending)
-                 (push (eth-rpc-subscription-notification-json
-                        id
-                        (if (eth-rpc-subscription-include-transactions-p
-                             subscription)
-                            ;; No block and no index: a pending transaction is
-                            ;; in none, and the object renders those as null,
-                            ;; which is what a client expects here.
-                            (eth-rpc-transaction-object transaction nil nil)
-                            (hash32-to-hex (transaction-hash transaction))))
-                       messages)))))))))
-    (nreverse messages))))
+                         messages)))))))))
+    (nreverse messages)))
+
+(defun eth-rpc-subscription-poll-pending (store registry)
+  "The newPendingTransactions notifications this connection is owed now.
+Reads the txpool, so STORE must be the live store under its guard."
+  (let ((messages '()))
+    (when (eth-rpc-subscription-wants-pending-p registry)
+      (let ((pending (eth-rpc-subscription-pending-hashes store registry)))
+        (dolist (subscription
+                 (eth-rpc-subscription-registry-subscriptions registry))
+          (when (eq :new-pending-transactions
+                    (eth-rpc-subscription-kind subscription))
+            (let ((id (eth-rpc-subscription-id subscription)))
+              (dolist (transaction pending)
+                (push (eth-rpc-subscription-notification-json
+                       id
+                       (if (eth-rpc-subscription-include-transactions-p
+                            subscription)
+                           ;; No block and no index: a pending transaction is
+                           ;; in none, and the object renders those as null,
+                           ;; which is what a client expects here.
+                           (eth-rpc-transaction-object transaction nil nil)
+                           (hash32-to-hex (transaction-hash transaction))))
+                      messages)))))))
+    (nreverse messages)))
+
+(defun eth-rpc-subscription-poll (store registry &key config)
+  "Everything this connection should be sent now, as a list of JSON strings:
+the chain notifications, then the pending-transaction ones.
+
+Returns NIL when nothing has changed, which is the common case and costs one
+head comparison."
+  (declare (ignore config))
+  (append (eth-rpc-subscription-poll-chain store registry)
+          (eth-rpc-subscription-poll-pending store registry)))

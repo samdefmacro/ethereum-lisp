@@ -3,15 +3,45 @@
 (defconstant +default-gasless-evm-max-steps+ 100000)
 
 (defstruct evm-step-budget
-  "Mutable diagnostic instruction budget shared by an execution tree."
+  "Mutable diagnostic instruction budget shared by an execution tree.
+
+DEADLINE, when set, is an internal-real-time past which the tree stops with
+EVM-EXECUTION-DEADLINE-ERROR (CALL-WITH-EVM-DEADLINE); SECONDS is the budget it
+was set from, for the report."
   (limit 0 :type (integer 0 *))
-  (steps 0 :type (integer 0 *)))
+  (steps 0 :type (integer 0 *))
+  (deadline nil)
+  (seconds nil))
 
 (defvar *evm-step-budget* nil
   "Dynamically inherited diagnostic budget for nested EVM frames.")
 
 (defvar *evm-step-budget-policy-active-p* nil
   "Whether the enclosing execution tree has selected its budget policy.")
+
+(defconstant +evm-deadline-check-steps+ 1024
+  "How many instructions run between two looks at the clock under a deadline.")
+
+(defun call-with-evm-deadline (seconds thunk)
+  "Call THUNK with every EVM execution it starts on this thread stopped once
+SECONDS of wall time have passed, by signalling EVM-EXECUTION-DEADLINE-ERROR
+from the interpreter loop. That condition is not an EVM-ERROR, so no frame
+turns it into a failed call: it leaves the whole execution. geth's
+--rpc.evmtimeout (internal/ethapi DoCall at 38271784) cancels the EVM the same
+way. SECONDS NIL or zero means no deadline.
+
+Block execution never binds a deadline: without one, the budget is NIL for a
+gas-limited frame and the interpreter pays nothing."
+  (if (and seconds (plusp seconds))
+      (let ((*evm-step-budget*
+              (make-evm-step-budget
+               :limit most-positive-fixnum
+               :deadline (+ (get-internal-real-time)
+                            (ceiling (* seconds internal-time-units-per-second)))
+               :seconds seconds))
+            (*evm-step-budget-policy-active-p* t))
+        (funcall thunk))
+      (funcall thunk)))
 
 (defstruct (evm-machine (:constructor %make-evm-machine))
   "Mutable state for one EVM call frame.

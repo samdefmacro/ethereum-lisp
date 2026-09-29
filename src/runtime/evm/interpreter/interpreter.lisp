@@ -33,7 +33,14 @@
         (error 'evm-step-limit-error
                :limit (evm-step-budget-limit budget)
                :steps (evm-step-budget-steps budget)
-               :pc (evm-machine-pc machine)))))
+               :pc (evm-machine-pc machine)))
+      (let ((deadline (evm-step-budget-deadline budget)))
+        (when (and deadline
+                   (zerop (mod (evm-step-budget-steps budget)
+                               +evm-deadline-check-steps+))
+                   (> (get-internal-real-time) deadline))
+          (error 'evm-execution-deadline-error
+                 :seconds (evm-step-budget-seconds budget))))))
   (let ((opcode (aref (evm-machine-code machine)
                       (evm-machine-pc machine))))
     (%evm-machine-charge-gas

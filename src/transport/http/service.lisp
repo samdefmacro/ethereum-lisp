@@ -111,6 +111,8 @@
        txpool-lifetime-seconds
        gas-limit-target
        admin-backend
+       ;; The --rpc.* work budgets (ethereum-lisp.rpc RPC-BUDGETS), or NIL.
+       rpc-budgets
        (telemetry-sink ethereum-lisp.telemetry:*telemetry-sink*))
   (unless (stringp host)
     (block-validation-fail "Engine RPC HTTP host must be a string"))
@@ -216,7 +218,8 @@
     :txpool-no-local-exemptions-p txpool-no-local-exemptions-p
     :txpool-lifetime-seconds txpool-lifetime-seconds
     :gas-limit-target gas-limit-target
-    :admin-backend admin-backend)
+    :admin-backend admin-backend
+    :budgets rpc-budgets)
    :jwt-secret jwt-secret
    :now-provider now-provider
    :telemetry-sink telemetry-sink
