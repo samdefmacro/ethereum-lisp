@@ -931,3 +931,53 @@
             :name "evm-depth-limit")))
     (sb-thread:join-thread thread :default nil)
     (is (eq :stopped outcome))))
+
+(deftest evm-call-level-control-stack-stays-within-its-budget
+  ;; The depth test above passes or kills the whole run; this one says how
+  ;; close a change came. It records the stack pointer on entry to
+  ;; MAKE-CHILD-EVM-CONTEXT at every level of the same self-CALL recursion (the
+  ;; wrapper's own frame is gone before the next level starts) and bounds the
+  ;; bytes one CALL level holds. 1,840 bytes at 5068bbb1; 1,968 at 7cef5a67,
+  ;; where 1,024 levels overran a default 2 MB thread stack and the EEST state
+  ;; gate died; 1,376 once EXECUTE-MESSAGE-CALL-CHILD took the call record
+  ;; instead of fourteen keyword arguments. 1,600 x 1,024 is 78% of 2 MB.
+  (let* ((address (address-from-hex
+                   "0x00000000000000000000000000000000000000c0"))
+         (code (hex-to-bytes "0x5f5f5f5f5f305af100"))
+         (name 'ethereum-lisp.evm.internal::make-child-evm-context)
+         (samples '())
+         (lock (sb-thread:make-mutex :name "evm-call-level-samples"))
+         (outcome nil))
+    (sb-int:encapsulate
+     name 'evm-call-level-stack
+     (lambda (function &rest arguments)
+       (sb-thread:with-mutex (lock)
+         (push (sb-sys:sap-int (sb-vm::current-sp)) samples))
+       (apply function arguments)))
+    (unwind-protect
+         (sb-thread:join-thread
+          (sb-thread:make-thread
+           (lambda ()
+             (setf outcome
+                   (handler-case
+                       (let ((state (make-state-db)))
+                         (state-db-set-code state address code)
+                         (evm-result-status
+                          (execute-bytecode
+                           code
+                           :context (make-evm-context :state state
+                                                      :address address)
+                           :gas-limit (expt 2 60))))
+                     (storage-condition () :control-stack-exhausted)
+                     (error (condition) (princ-to-string condition)))))
+           :name "evm-call-level-stack")
+          :default nil)
+      (sb-int:unencapsulate name 'evm-call-level-stack))
+    (is (eq :stopped outcome))
+    ;; One entry per child frame, 1,024 of them.
+    (is (= 1024 (length samples)))
+    (let ((per-level (loop for (deeper shallower) on samples
+                           while shallower
+                           collect (abs (- shallower deeper)))))
+      (is (every #'plusp per-level))
+      (is (<= (reduce #'max per-level) 1600)))))

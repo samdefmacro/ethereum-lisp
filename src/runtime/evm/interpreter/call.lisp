@@ -159,25 +159,9 @@ merging are deliberately not configurable; those are shared EVM invariants."
                  child-logs child-refund-counter child-state-gas-used)
                 (execute-message-call-child
                  state context snapshot code-address args child-gas-limit
-                 :child-state-gas-reservoir
-                 (evm-gas-budget-state
-                  (evm-machine-gas-budget machine))
-                 :child-address child-address
-                 :child-caller child-caller
-                 :child-call-value child-value
-                 :read-only-p read-only-p
-                 :precompile-contract precompile-contract
-                 :value-transfer-from value-transfer-from
-                 :value-transfer-to value-transfer-to
-                 :trace-value-transfer-from trace-value-transfer-from
-                 :trace-value-transfer-to trace-value-transfer-to
-                 :balance-check-address balance-check-address
-                 :balance-check-value balance-check-value
-                 :balance-check-message balance-check-message
-                 :trace-type trace-type
-                 :trace-from (evm-context-address context)
-                 :create-callee-p (and new-account-p
-                                       (not (context-eip158-p context))))
+                 call precompile-contract
+                 (evm-gas-budget-state (evm-machine-gas-budget machine))
+                 nil)
               (evm-machine-charge-gas machine child-gas-used)
               (when (plusp child-state-gas-used)
                 (evm-machine-charge-state-gas machine child-state-gas-used))
@@ -282,21 +266,7 @@ its target is still empty."
                 (execute-message-call-child
                  state context snapshot code-address args
                  (evm-gas-budget-regular child-budget)
-                 :child-budget child-budget
-                 :child-address child-address
-                 :child-caller child-caller
-                 :child-call-value child-value
-                 :read-only-p read-only-p
-                 :precompile-contract precompile-contract
-                 :value-transfer-from value-transfer-from
-                 :value-transfer-to value-transfer-to
-                 :trace-value-transfer-from trace-value-transfer-from
-                 :trace-value-transfer-to trace-value-transfer-to
-                 :balance-check-address balance-check-address
-                 :balance-check-value balance-check-value
-                 :balance-check-message balance-check-message
-                 :trace-type trace-type
-                 :trace-from (evm-context-address context))
+                 call precompile-contract 0 child-budget)
               (declare (ignore child-gas-used child-state-gas-used))
               (evm-machine-absorb-child-budget machine exit-budget)
               (when (and value-p new-account-p (zerop success)
@@ -326,33 +296,20 @@ its target is still empty."
                                    code-address
                                    args
                                    child-gas-limit
-                                   &key
-                                   child-address
-                                   child-caller
-                                   (child-call-value 0)
-                                   read-only-p
+                                   call
                                    precompile-contract
-                                   (child-state-gas-reservoir 0)
-                                   child-budget
-                                   value-transfer-from
-                                   value-transfer-to
-                                   trace-value-transfer-from
-                                   trace-value-transfer-to
-                                   balance-check-address
-                                   (balance-check-value 0)
-                                   balance-check-message
-                                   (trace-type "CALL")
-                                   trace-from
-                                   create-callee-p)
-  "Run one CALL-family child frame and return (VALUES SUCCESS RETURN-DATA
-GAS-USED LOGS REFUND STATE-GAS-USED EXIT-BUDGET FAILURE).
+                                   child-state-gas-reservoir
+                                   child-budget)
+  "Run one CALL-family child frame described by CALL (an EVM-MESSAGE-CALL) and
+return (VALUES SUCCESS RETURN-DATA GAS-USED LOGS REFUND STATE-GAS-USED
+EXIT-BUDGET FAILURE).
 
 FAILURE is :REVERTED, the EVM-ERROR that ended the frame, or NIL; only the call
-tracer reads it. TRACE-TYPE and TRACE-FROM label the traced frame the way geth's
-callTracer does: the opcode, and the executing contract as the caller, which
+tracer reads it. The traced frame is labelled the way geth's callTracer does:
+CALL's TRACE-TYPE (the opcode), and the executing contract as the caller, which
 for DELEGATECALL is not the child's CALLER.
 
-CREATE-CALLEE-P (a CALL before EIP-158) creates CHILD-ADDRESS as an empty
+Before EIP-158 a CALL (NEW-ACCOUNT-P) creates CHILD-ADDRESS as an empty
 account when it does not exist, once the depth and balance checks pass, as
 go-ethereum v1.17.6 EVM.Call does; a failed frame reverts it with the rest.
 
@@ -360,7 +317,33 @@ With CHILD-BUDGET (Amsterdam), the frame runs on that budget and EXIT-BUDGET
 is its leftover for the caller to absorb, as geth's Call returns it: the
 budget unchanged when the frame never started (depth or balance), the revert
 or halt leftover when it failed, and the budget as the frame left it
-otherwise.  CHILD-GAS-LIMIT is then CHILD-BUDGET's regular gas."
+otherwise.  CHILD-GAS-LIMIT is then CHILD-BUDGET's regular gas.  Without it
+the child runs on CHILD-GAS-LIMIT and CHILD-STATE-GAS-RESERVOIR.
+
+Every argument is positional and the call's fields are read from CALL where
+they are used: one CALL level nests this frame, so each argument or local here
+is paid 1,024 times over by a maximally deep call chain, and a default 2 MB
+SBCL thread stack has little room to spare (see
+EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK)."
+  (declare (type evm-message-call call))
+  (symbol-macrolet
+      ((child-address (evm-message-call-child-address call))
+       (child-caller (evm-message-call-child-caller call))
+       (child-call-value (evm-message-call-child-value call))
+       (read-only-p (evm-message-call-read-only-p call))
+       (value-transfer-from (evm-message-call-value-transfer-from call))
+       (value-transfer-to (evm-message-call-value-transfer-to call))
+       (trace-value-transfer-from
+        (evm-message-call-trace-value-transfer-from call))
+       (trace-value-transfer-to
+        (evm-message-call-trace-value-transfer-to call))
+       (balance-check-address (evm-message-call-balance-check-address call))
+       (balance-check-value (evm-message-call-balance-check-value call))
+       (balance-check-message (evm-message-call-balance-check-message call))
+       (create-callee-p (and (evm-message-call-new-account-p call)
+                             (not (context-eip158-p context))))
+       (trace-type (evm-message-call-trace-type call))
+       (trace-from (evm-context-address context)))
   ;; Every frame of a call trace is one of these, so the tracer needs no hook
   ;; anywhere else. FLET with DYNAMIC-EXTENT rather than a fresh closure: this
   ;; is the hottest path in the EVM, and a heap-allocated closure per call
@@ -529,4 +512,4 @@ otherwise.  CHILD-GAS-LIMIT is then CHILD-BUDGET's regular gas."
      :to code-address
      :value child-call-value
      :gas child-gas-limit
-     :input args)))
+     :input args))))
