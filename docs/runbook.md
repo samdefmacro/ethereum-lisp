@@ -20,8 +20,10 @@ The node is one container. The Section 5 gate starts it like this (see
 docker run ... --read-only --cap-drop ALL --security-opt no-new-privileges \
   --memory 12g --memory-swap 12g \
   --mount type=bind,source=$DATADIR,target=/data \
+  --mount type=bind,source=$NODEKEY_DIR,target=/nodekey \
   --mount type=bind,source=$JWT_DIR,target=/jwt,readonly \
-  $IMAGE --hoodi --datadir /data --port 30303 --nat extip:$PUBLIC_IP \
+  $IMAGE --hoodi --datadir /data --nodekey /nodekey/nodekey.hex \
+  --port 30303 --nat extip:$PUBLIC_IP \
   --http --http.addr 0.0.0.0 --http.port 8545 \
   --http.api eth,net,web3,txpool,admin --http.vhosts '*' \
   --authrpc.addr 0.0.0.0 --authrpc.port 8551 \
@@ -36,6 +38,8 @@ endpoint (below). It is off unless both `--metrics` and a port are given.
   b5161312, 12 GiB was not enough either (OOM-killed at the head); see Memory
   below for why, and what `--memory.budget` changes.
 - Discovery uses the preset bootnodes; no static enode is needed.
+- The node key lives outside the datadir, so the node keeps one identity
+  across revisions and datadirs (see Node identity below).
 - The consensus client must reach the Engine port with the same JWT secret.
   While the EL is down the CL falls behind; after a start expect a burst of
   `peer.snap.pivot_unavailable` until it catches up (below).
@@ -99,8 +103,38 @@ following `heapMb` up means the Lisp heap is what grew.
 
 ## Stop
 
-Stop with SIGTERM and a grace period of at least 30 s:
-`docker stop --time 30 $CONTAINER`. The gate uses exactly this.
+Stop with SIGTERM and a grace period well above the 30 s Engine request
+deadline. On the live gate:
+
+```
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh stop
+```
+
+It checks that the container is this gate's (agent label, gate and image
+revision, `/data` mount, read-only root, non-root user) and running, then
+runs `docker stop --time $HOODI_GATE_STOP_TIMEOUT` (default 120 s, accepted
+30-600 s) and prints:
+
+```
+stop-requested=<UTC> container=<name> timeout=120s
+stop-elapsed=<s>s
+stop-exit=<code> oom-killed=<bool> running=<bool>
+stop-shutdown-complete=<before>-><after>
+stop-runtime-faults=<n>
+stop-clean=true | stop-clean=false reason=<list>
+```
+
+A clean stop is exit 0, not OOM-killed, exactly one new `Shutdown complete`
+line in the datadir's `chaindata/LOG` (RocksDB starts a new LOG at every
+open, so a running node's LOG has none) and no `CORRUPTION WARNING`,
+`Memory fault at` or `fatal error encountered` line logged since the
+request. Anything else exits 1 with the reasons (`exit-137`, `oom-killed`,
+`shutdown-complete-0-to-0`, `runtime-faults-N`, `still-running`). The action
+never removes the container or touches the datadir. `restart` stops through
+the same check and grace (it still starts the node after an unclean stop,
+then exits 1), and `start` and `upgrade` use it for the container they
+replace (`old-stop-` and `previous-stop-` lines, reported but not fatal: the
+store recovers on its next open).
 
 What the node does with SIGTERM, in order, and the budgets involved:
 
@@ -131,12 +165,11 @@ Measured stop-to-exit (sec5-ops-recovery.txt):
 | a payload build holding the guard 30 s | 30.0 s (cut by the request deadline) | 0 inside the node, 137 under `--time 30` |
 
 So the stop takes about as long as the longest Engine request in flight, up to
-that request's 30 s deadline. Under `docker stop --time 30` a request that runs
-to its deadline makes the stop miss the grace period. Normal Engine requests on
-Hoodi took 1.8-29 s before the Engine-priority guard (8e95b990) and are well
-under a second after it; if you see `engine.rpc.http.request` handlerMs near
-30,000 in the log, give the stop more time (`--time 60`) rather than letting it
-be killed.
+that request's 30 s deadline, plus the drain, the join budget and the store
+close. Under the gate's former `docker stop --time 30` a request that ran to
+its deadline made the stop miss the grace period; hence the 120 s default.
+Normal Engine requests on Hoodi took 1.8-29 s before the Engine-priority guard
+(8e95b990) and are well under a second after it.
 
 A SIGKILL (or a stop that ran out of grace) does not corrupt the store: every
 durable step is one atomic RocksDB batch and the node resumes from its cursors
@@ -157,6 +190,64 @@ Restart on the same datadir (`scripts/hoodi-live-gate.sh restart`, or
   Hoodi) with `peer.snap.pivot_rebased` / `peer.snap.target_completed` pairs.
 - A forward download resumes from its durable peer cursor; a payload build or
   a reorg that was cut is simply redone when the CL repeats forkchoiceUpdated.
+
+## Node identity
+
+The node's P2P identity is its secp256k1 node key: the enode, the discovery
+record and every RLPx handshake are derived from it. Without `--nodekey` the
+node keeps the key in its datadir (`geth/nodekey`), so a fresh datadir means a
+fresh identity.
+
+Why it must persist. Peers remember a node by its identity at an IP:port. The
+live gate used a fresh datadir for every revision while advertising the same
+165.154.224.110:30303, and the network kept dialling the retired identities
+for hours: the b5161312 run logged 12,398 inbound handshakes failing with
+"ECIES tag does not authenticate the message", from 692 hosts, because each
+initiator encrypted its auth to a key the node no longer had
+(`docs/evidence/sec5-rlpx-inbound-auth.txt`, section 2a). Those sessions were
+wasted slots and the peers never reached us.
+
+Where it lives. `scripts/hoodi-live-gate.sh` keeps one key for every revision
+in `HOODI_GATE_NODEKEY_DIR` (default `$REMOTE_ROOT/nodekey`, i.e.
+`/data/hoodi-sec5-20260814/nodekey`), outside every datadir. `start` and
+`upgrade` create the directory (owner 1000:1000, mode 0700) if it is absent,
+mount it read-write at `/nodekey` and pass `--nodekey /nodekey/nodekey.hex`.
+On its first start the node generates the key there as a 64-hex-character
+file, mode 0600 (go-ethereum `--nodekey` semantics: load it, or create it
+when absent); every later start loads the same file. The node runs as
+1000:1000, and every action that starts or restarts a node refuses, before
+touching any container:
+
+- a directory that is a symbolic link, not owned by 1000:1000, or not 0700;
+- a key file that is a symbolic link, not a regular file, not owned by uid
+  1000, or not 0600;
+- a node user other than 1000:1000;
+- for `restart`, a container created without the `/nodekey` mount or the
+  `--nodekey` argument (such a container keeps its datadir-local identity on
+  every start; replace it with `upgrade`, which gives the replacement the
+  persistent key).
+
+`status` prints `nodekey-mount=`, the key file's owner and mode, and the
+identity from `admin_nodeInfo`: `node-id=` (the 64-hex id, keccak-256 of the
+public key) and `node-pubkey=` (the 128-hex public key in the enode URL). It
+never reads, prints or hashes the key itself. Compare `node-id` across
+revisions: it must not change. A container from before this change reports
+`nodekey-mount=absent`.
+
+The first run with the persistent key still changes the identity once (the
+old per-datadir keys are not copied); every run after it keeps it.
+
+Rotating it (only when the key may have leaked, or the host changes hands).
+Rotation retires the identity, so expect the ECIES failures above for a while
+from peers that still remember it.
+
+1. Stop the node (`HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh
+   stop`, see Stop).
+2. On the host, as the gate user, move the key aside; never delete it until
+   the new identity is confirmed:
+   `mv $NODEKEY_DIR/nodekey.hex $NODEKEY_DIR/nodekey.hex.retired-$(date -u +%Y%m%dT%H%M%SZ)`.
+3. Start the node again (`restart`). It creates a new key; `status` shows the
+   new `node-id`.
 
 ## What a healthy sync looks like
 
@@ -345,6 +436,7 @@ scripts/hoodi-live-gate.sh logs       # recent log window with the snap/engine/g
 scripts/hoodi-fleet-status.sh         # live, Hive and shadow gates, host memory and /data, in one call
 scripts/hoodi-live-gate.sh complete   # the Section 5 completion check; exit 0 = complete
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh stop   # exit 0 = clean stop
 ```
 
 `complete` checks: `peer.snap.target_completed` present, the healer's last
@@ -386,12 +478,8 @@ and shadow-gate `status`, each discovered from container labels. It strips
 every mutation allowance from the brokers it calls, retries a dropped ssh
 session up to three times, and exits non-zero if any section failed.
 
-A `stop` action for the live gate (SIGTERM with a parameterised grace,
-default 120 s, then the exit code, OOMKilled, the RocksDB `Shutdown
-complete` line and runtime faults) is written but not yet in the broker; see
-`docs/evidence/sec5-gate-tooling.txt`. Until it lands, stop with `docker stop
---time 120` and read the store's `chaindata/LOG` tail for `Shutdown
-complete`.
+`HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh stop` stops the gate
+with a parameterised grace and says whether the stop was clean (see Stop).
 
 ## Release verification
 

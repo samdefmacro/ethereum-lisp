@@ -1024,7 +1024,18 @@ scripts/hoodi-live-gate.sh logs
 # EL execution through the logged CL-authorized target are all evidenced.
 scripts/hoodi-live-gate.sh complete
 HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh restart
+# Exits 0 only for a clean stop: exit 0, not OOM-killed, one new RocksDB
+# "Shutdown complete", no runtime fault. Never removes the container.
+HOODI_GATE_ALLOW_MUTATION=1 scripts/hoodi-live-gate.sh stop
 ```
+
+Every stop the broker performs (`stop`, `restart`, and the replaced container
+of `start` and `upgrade`) sends SIGTERM with `HOODI_GATE_STOP_TIMEOUT` seconds
+of grace (default 120, accepted 30--600) and reports the same verdict; `stop`
+first applies upgrade's and restart's ownership checks together. The
+self-test pairs each refusal (no mutation allowance, a timeout outside the
+range, each ownership mismatch, a stopped container) with an accepted case
+and tells a clean stop from a SIGKILLed, OOM-killed or faulted one.
 
 When `start` replaces a container previously created by this live gate, set
 `HOODI_GATE_OLD_CONTAINER` and its full `HOODI_GATE_OLD_REVISION`. The broker
@@ -1055,6 +1066,18 @@ its bundled
 probe to create RocksDB's exact 256-entry ring. Linux 5.15 must report the
 compatibility retry; any kernel, memory-lock, or seccomp failure leaves the
 previous client running.
+
+Every container the broker starts (`start`, `upgrade`, including a
+same-revision replacement) mounts one host directory,
+`HOODI_GATE_NODEKEY_DIR` (default `REMOTE_ROOT/nodekey`, outside every
+datadir), at `/nodekey` and passes `--nodekey /nodekey/nodekey.hex`, so the
+node keeps one P2P identity across revisions. The remote side creates the
+directory as 1000:1000 mode 0700 and refuses a key that is not a regular
+0600 file owned by uid 1000, a node user other than 1000:1000, and (for
+`restart`) a container created without the mount or the flag. `status`
+prints the node id from `admin_nodeInfo`, never the key. The self-test checks
+the generated run line, with a positive control for each missing piece
+(`docs/runbook.md`, Node identity).
 
 `HOODI_GATE_P2P_PORT` selects the same explicit TCP/UDP port inside and outside
 the container when the default 30303 is already reserved. If a live run exposes
