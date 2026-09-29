@@ -1426,7 +1426,8 @@ until the peer disconnects."
   ;; back to the delivering peer's handler: the peer is disconnected. The
   ;; downloader disabled such a source for the download and kept its session.
   ;; It now also hands the typed failure to the source's REJECT; a malformed
-  ;; answer of another kind (too few headers) is not rejected.
+  ;; answer of another kind (a header answer of the wrong size) is not
+  ;; rejected.
   ;; (docs/evidence/sec5-robustness-followups.txt)
   (let* ((header
            (make-block-header
@@ -1484,9 +1485,11 @@ until the peer disconnects."
         (is (search "body does not match its header"
                     (princ-to-string (first rejected))))
         (is (equal '(:malformed) penalties)))
-      ;; Control: an answer with no header is malformed, not rejected.
+      ;; Control: a header answer of the wrong size is malformed, not
+      ;; rejected. (An empty one is neither: ETH-SYNC-MULTI-PEER-CHARGES-
+      ;; NOTHING-FOR-AN-EMPTY-ANSWER.)
       (multiple-value-bind (outcome rejected penalties)
-          (attempt '() (list empty-body))
+          (attempt (list header header) (list empty-body))
         (is (eq :failed (first outcome)))
         (is (null rejected))
         (is (equal '(:malformed) penalties)))
@@ -1657,3 +1660,90 @@ until the peer disconnects."
                           :format-arguments nil)))
       (is (equal '((:failed -25)) penalties))
       (is (eq :failed kind)))))
+
+(deftest eth-sync-multi-peer-charges-nothing-for-an-empty-answer
+  (:layer :unit :module :p2p)
+  ;; A request answered with no items -- no headers, no bodies, no receipt
+  ;; groups -- was MALFORMED and cost the source 50: on Hoodi (f8c882bc, 10
+  ;; h) every peer.sync.source_penalty was 'peer returned 0 headers for
+  ;; requested N', two of which ban a peer. eth/66+ lets a peer answer with
+  ;; fewer items than asked for, none included, and a peer that lacks the
+  ;; range answers exactly this. go-ethereum v1.17.6 keeps no score:
+  ;; queue.go deliver marks an empty body or receipt answer's headers as
+  ;; lacking for that peer and requeues them, and fetchers_concurrent.go
+  ;; validityErrorOfRequest hands its handler no error. The source now
+  ;; leaves the download as :EMPTY, uncharged. RED at 05bbd4c5: each stage
+  ;; recorded (:MALFORMED -50).
+  (let ((headers (eth-sync-test-chain-headers 1))
+        (empty-body
+          (ethereum-lisp.eth-wire:make-eth-block-body
+           :transactions '() :ommers '())))
+    (flet ((attempt (empty-stage &key (header-answer nil header-answer-p))
+             ;; One source that answers EMPTY-STAGE with nothing (or the
+             ;; headers request with HEADER-ANSWER) and everything else in
+             ;; full. Returns (VALUES outcome penalties first-fault-kind).
+             (let ((penalties '())
+                   (events '()))
+               (let ((outcome
+                       (handler-case
+                           (list
+                            :imported
+                            (eth-sync-download-blocks-multi
+                             (list
+                              (make-eth-sync-peer-source
+                               nil :id :only :head-number 1
+                               :fetch-headers
+                               (lambda (origin amount)
+                                 (cond (header-answer-p header-answer)
+                                       ((eq empty-stage :headers) '())
+                                       (t (subseq headers (1- origin)
+                                                  (+ (1- origin) amount)))))
+                               :fetch-bodies
+                               (lambda (seen-headers)
+                                 (if (eq empty-stage :bodies)
+                                     '()
+                                     (loop repeat (length seen-headers)
+                                           collect empty-body)))
+                               :fetch-receipts
+                               (lambda (seen-headers)
+                                 (if (eq empty-stage :receipts)
+                                     (values '() nil)
+                                     (values (loop repeat (length seen-headers)
+                                                   collect '())
+                                             nil)))
+                               :penalty
+                               (lambda (reason score detail)
+                                 (declare (ignore detail))
+                                 (push (list reason score) penalties))))
+                             (lambda (block) (declare (ignore block)))
+                             :start-number 1 :target-number 1
+                             :request-timeout-seconds 5d0
+                             :progress
+                             (lambda (snapshot event)
+                               (declare (ignore snapshot))
+                               (push (getf event :event) events))))
+                         (ethereum-lisp.eth-sync:eth-sync-multi-peer-error ()
+                           (list :failed)))))
+                 (values outcome
+                         penalties
+                         (find-if (lambda (kind)
+                                    (member kind '(:empty :lost :internal
+                                                   :failed :malformed)))
+                                  (reverse events)))))))
+      (dolist (stage '(:headers :bodies :receipts))
+        (multiple-value-bind (outcome penalties kind) (attempt stage)
+          ;; Nobody else could serve the range, so the download gives up.
+          (is (equal '(:failed) outcome))
+          (is (null penalties))
+          (is (eq :empty kind))))
+      ;; Controls: a non-empty header answer of the wrong size is still the
+      ;; peer's malformed data; a full answer imports.
+      (multiple-value-bind (outcome penalties kind)
+          (attempt nil :header-answer (list (first headers) (first headers)))
+        (is (equal '(:failed) outcome))
+        (is (equal '((:malformed -50)) penalties))
+        (is (eq :malformed kind)))
+      (multiple-value-bind (outcome penalties kind) (attempt nil)
+        (is (equal '(:imported 1) outcome))
+        (is (null penalties))
+        (is (null kind))))))

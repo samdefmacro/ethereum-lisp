@@ -191,6 +191,33 @@ header answer) disable the source for this download only."))
   (error 'eth-sync-invalid-delivery
          :detail (apply #'format nil control arguments)))
 
+(define-condition eth-sync-empty-delivery (error)
+  ((detail :initarg :detail :reader eth-sync-empty-delivery-detail))
+  (:report (lambda (condition stream)
+             (format stream "empty sync delivery: ~A"
+                     (eth-sync-empty-delivery-detail condition))))
+  (:documentation
+   "A request answered with no items at all: no headers, no bodies, or no
+receipt groups. Not malformed: eth/66+ lets a peer answer with fewer items
+than asked for, none included, and one that lacks the range (behind us, or
+past its history window) answers exactly this.
+
+go-ethereum v1.17.6 keeps no peer score. For an empty body or receipt answer
+its queue.go deliver marks every requested header as lacking for that peer
+(MarkLacking) and returns the items to the task queue, and
+fetchers_concurrent.go validityErrorOfRequest hands the peer's handler no
+error, so the peer stays. Its header requests are the skeleton's, and
+skeleton.go executeTask rejects an empty header answer ('no headers
+delivered') and reschedules it; that error, returned through
+eth/protocols/eth/dispatcher.go dispatchResponse, disconnects the peer. Here
+the source takes no further part in this download, is charged nothing
+(ETH-SYNC-DELIVERY-FAILURE-KIND :EMPTY), and keeps its session, as the hash
+gap fill's empty answer already did (ETH-SYNC-COLLECT-BACKFILL-HEADERS)."))
+
+(defun eth-sync-empty-delivery-fail (control &rest arguments)
+  (error 'eth-sync-empty-delivery
+         :detail (apply #'format nil control arguments)))
+
 (define-condition eth-sync-multi-peer-error (simple-error) ()
   (:documentation
    "A bounded multi-peer attempt exhausted or contradicted its target."))
@@ -475,6 +502,9 @@ provide canonical RECEIPT values directly."
 charged (ETH-SYNC-PENALIZE):
 
   :MALFORMED  the delivery itself is wrong: the peer's data (-50);
+  :EMPTY      the peer answered with no items (ETH-SYNC-EMPTY-DELIVERY): a
+              legal answer from a peer that lacks the range, charged
+              nothing;
   :LOST       the transport went away (ETH-SYNC-TRANSPORT-LOSS-P): nothing
               the peer sent, charged nothing, as go-ethereum v1.17.6's
               fetchers_concurrent.go treats a peer that left;
@@ -484,6 +514,7 @@ charged (ETH-SYNC-PENALIZE):
 
 In every case the source takes no further part in this download."
   (cond ((typep condition 'eth-sync-malformed-delivery) :malformed)
+        ((typep condition 'eth-sync-empty-delivery) :empty)
         ((eth-sync-transport-loss-p condition) :lost)
         ((typep condition 'eth-peer-internal-error) :internal)
         (t :failed)))
@@ -518,6 +549,11 @@ In every case the source takes no further part in this download."
               (funcall (eth-sync-peer-source-fetch-headers source)
                        (eth-sync-delivery-origin delivery)
                        (eth-sync-delivery-amount delivery))))
+        (when (null headers)
+          (eth-sync-empty-delivery-fail
+           "peer returned no headers from ~D (~D requested)"
+           (eth-sync-delivery-origin delivery)
+           (eth-sync-delivery-amount delivery)))
         (handler-case
             (progn
               (unless (= (length headers) (eth-sync-delivery-amount delivery))
@@ -534,9 +570,13 @@ In every case the source takes no further part in this download."
         (eth-sync-state-stage-delivery state delivery :headers headers)
         (let ((bodies
                 (funcall (eth-sync-peer-source-fetch-bodies source) headers)))
+          (when (null bodies)
+            (eth-sync-empty-delivery-fail
+             "peer returned no bodies for ~D headers from ~D"
+             (length headers) (eth-sync-delivery-origin delivery)))
           (handler-case
               (progn
-                (when (or (null bodies) (> (length bodies) (length headers)))
+                (when (> (length bodies) (length headers))
                   (eth-sync-malformed "peer returned ~D bodies for ~D headers"
                                       (length bodies) (length headers)))
                 (loop for header in headers
@@ -561,6 +601,10 @@ In every case the source takes no further part in this download."
           (if fetch-receipts-p
               (multiple-value-bind (receipts incomplete-last-p)
                   (funcall (eth-sync-peer-source-fetch-receipts source) headers)
+                (when (null receipts)
+                  (eth-sync-empty-delivery-fail
+                   "peer returned no receipt groups for ~D headers from ~D"
+                   (length headers) (eth-sync-delivery-origin delivery)))
                 (let ((complete-receipts
                         (if incomplete-last-p
                             (butlast receipts)
@@ -740,7 +784,8 @@ deliveries are independently queued by origin, but IMPORT-BLOCK is called only
 in ascending block order. A timeout, request failure, or malformed delivery
 disables only its source and requeues the missing range; the source is charged
 for a timeout, a malformed delivery or a reply it could not accept, never for
-a lost transport or our own defect (ETH-SYNC-DELIVERY-FAILURE-KIND).
+an empty answer, a lost transport or our own defect
+(ETH-SYNC-DELIVERY-FAILURE-KIND).
 
 EXPECTED-PARENT-HASH anchors the first imported header to durable local state.
 EXPECTED-TARGET-HASH, when supplied by the consensus-driven caller, must name

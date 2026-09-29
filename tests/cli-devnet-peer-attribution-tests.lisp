@@ -1102,7 +1102,11 @@ does not have: the wire-level fault geth answers errInvalidBody."
                 (wait-for-test-condition
                  "session teardown after a contradicting downloaded body" 5d0
                  (lambda () (null (peer-attribution-entry client))))
+                ;; One charge: the downloader's. The session's end is not
+                ;; charged again (CHARGED-P); without it this reads -75.
                 (is (= -50 (ethereum-lisp.cli::devnet-peer-score table id-hex)))
+                (is (= 1 (count "peer.sync.source_penalty" (funcall logs)
+                                :key #'first :test #'string=)))
                 (is (= 1 (count "peer.session.invalid_delivery" (funcall logs)
                                 :key #'first :test #'string=))))))))
     (is (equal (list :disconnected
@@ -1405,6 +1409,99 @@ own source raising it, the way the importer's account and heal workers do."
                 (is (= 0 (ethereum-lisp.cli::devnet-peer-score
                           (ethereum-lisp.cli:devnet-node-peer-table client)
                           (ethereum-lisp.cli::devnet-peer-entry-id-hex entry))))
+                (is (null (find "peer.sync.source_penalty" (funcall logs)
+                                :key #'first :test #'string=)))))))
+      (setf *peer-attribution-number-request-hook* nil)))
+  #-sbcl
+  (is t))
+
+(deftest devnet-peer-download-charges-nothing-for-an-empty-headers-answer
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; The forward downloader (the coordinator's pass toward a CL target, the
+  ;; snap history backfill and the snap skeleton) charged a peer that
+  ;; answered GetBlockHeaders with no headers as MALFORMED, -50: two such
+  ;; answers banned it. On Hoodi (f8c882bc) all three
+  ;; peer.sync.source_penalty events were 'peer returned 0 headers for
+  ;; requested N'. An empty answer is legal (a peer that lacks the range
+  ;; sends it); go-ethereum v1.17.6 keeps no score. Here the peer holds block
+  ;; 1 and is asked for block 2: the download gives up with no other peer,
+  ;; the peer is charged nothing and keeps its session, as the hash gap
+  ;; fill's empty answer already did. Control on the same session: a
+  ;; protocol violation still ends it and costs 25. RED at 05bbd4c5: score
+  ;; -50.
+  #+sbcl
+  (call-with-peer-attribution-session
+   (lambda (genesis config)
+     (eth-sync-produce-empty-blocks genesis config 1))
+   (lambda (client entry logs)
+     (let ((outcome
+             (handler-case
+                 (eth-sync-download-blocks-multi
+                  (ethereum-lisp.cli::devnet-node-sync-peer-sources client)
+                  (lambda (block) (declare (ignore block)))
+                  :start-number 2 :target-number 2
+                  :fetch-receipts-p nil
+                  :request-timeout-seconds 10)
+               (serious-condition (condition) condition))))
+       (is (typep outcome 'ethereum-lisp.eth-sync:eth-sync-multi-peer-error))
+       ;; Give a torn-down session time to show it.
+       (sleep 0.5)
+       (is (peer-attribution-session-intact-p client entry))
+       (is (null (find "peer.sync.source_penalty" (funcall logs)
+                       :key #'first :test #'string=)))
+       (is (null (find "peer.dial.failed" (funcall logs)
+                       :key #'first :test #'string=)))
+       (is (peer-attribution-end-with-protocol-violation client entry)))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-peer-download-charges-an-undecodable-reply-once
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; sec5-peer-parity-2.txt, Not verified: a reply the downloader's fetch
+  ;; could not accept was charged twice. The fetch is a job on the session's
+  ;; writer; its condition goes to the downloader, which charged it :FAILED
+  ;; (-25), and is re-signalled into the session, whose end charged it again
+  ;; (-25). go-ethereum v1.17.6 disconnects such a peer once and keeps no
+  ;; score. Here the serving peer answers block 1's GetBlockHeaders with an
+  ;; empty RLP list where [request-id, headers] belongs. RED at 05bbd4c5:
+  ;; score -50.
+  #+sbcl
+  (let ((sent nil))
+    (unwind-protect
+         (progn
+           (setf *peer-attribution-number-request-hook*
+                 (lambda (origin peer)
+                   (when (and (= origin 1) (not sent))
+                     (setf sent t)
+                     (eth-peer-send
+                      peer ethereum-lisp.eth-wire:+eth-message-block-headers+
+                      (make-array 1 :element-type '(unsigned-byte 8)
+                                    :initial-element #xc0))
+                     (error "the serving peer sent an undecodable reply"))))
+           (call-with-peer-attribution-session
+            (lambda (genesis config)
+              (eth-sync-produce-empty-blocks genesis config 1))
+            (lambda (client entry logs)
+              (let ((table (ethereum-lisp.cli:devnet-node-peer-table client))
+                    (id-hex (ethereum-lisp.cli::devnet-peer-entry-id-hex entry))
+                    (outcome
+                      (handler-case
+                          (eth-sync-download-blocks-multi
+                           (ethereum-lisp.cli::devnet-node-sync-peer-sources
+                            client)
+                           (lambda (block) (declare (ignore block)))
+                           :start-number 1 :target-number 1
+                           :fetch-receipts-p nil
+                           :request-timeout-seconds 10)
+                        (serious-condition (condition) condition))))
+                (is sent)
+                (is (typep outcome
+                           'ethereum-lisp.eth-sync:eth-sync-multi-peer-error))
+                ;; The session ended on the reply, and was charged there.
+                (wait-for-test-condition
+                 "session teardown after the undecodable reply" 5d0
+                 (lambda () (null (peer-attribution-entry client))))
+                (is (= -25 (ethereum-lisp.cli::devnet-peer-score table id-hex)))
                 (is (null (find "peer.sync.source_penalty" (funcall logs)
                                 :key #'first :test #'string=)))))))
       (setf *peer-attribution-number-request-hook* nil)))

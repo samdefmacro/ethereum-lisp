@@ -1453,6 +1453,20 @@ no peer. Snap workers that all stop without a reported failure are a
 contained phase outcome. The record is
 `docs/evidence/sec5-peer-attribution.txt`.
 
+```sh
+cl-workbench validation run cold-unit \
+  --match ETH-SYNC-MULTI-PEER-CHARGES-NOTHING-FOR-AN-EMPTY-ANSWER
+cl-workbench validation run cold-integration \
+  --match DEVNET-PEER-DOWNLOAD-CHARGES
+```
+
+The forward downloader charges nothing for an answer with no headers, bodies
+or receipt groups (a legal answer from a peer that lacks the range): the
+source leaves that download and keeps its session (control: a header answer
+of the wrong size is still -50). A reply its fetch could not accept ends the
+session and is charged once, at the session's end (-25), not by the
+downloader as well. Same record, section 6.
+
 ### Peer parity: invalid snap answers, lost transports, stated reasons, our defects
 
 ```sh

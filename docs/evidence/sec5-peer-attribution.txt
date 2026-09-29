@@ -302,3 +302,125 @@ name once, no WARNING from /workspace/src):
 - A local program error that escapes a session is still scored like a peer
   fault (see section 3).
 - EEST was not run: no execution, gas, root or receipt code changed.
+
+================================================================================
+6. Follow-up (branch wave7-peer-scoring-parity, from 05bbd4c5)
+================================================================================
+
+Revision
+
+  578f4587  p2p: an empty sync answer costs nothing, and a refused reply is
+            charged once
+
+Two scoring leftovers of the multi-peer forward downloader
+(ETH-SYNC-DOWNLOAD-BLOCKS-MULTI: the coordinator's pass toward a CL target,
+DEVNET-NODE-MULTI-SYNC-PASS; the snap BLOCKHASH history backfill; the snap
+skeleton range). Both fixed; RED before GREEN. No execution, gas, state, root
+or receipt code changed, so EEST, ported_static, the Hoodi fixtures and the
+Hoodi replay were not run.
+
+F1. An empty answer cost -50.
+  Mechanism: ETH-SYNC-FETCH-DELIVERY raised ETH-SYNC-MALFORMED for a header
+  answer of any size other than the request ("peer returned 0 headers for
+  requested N"), and for an empty body or receipt answer, so the source was
+  charged :MALFORMED -50 and two such answers banned it. Live: all three
+  peer.sync.source_penalty events of f8c882bc (sec5-peer-parity-2.txt,
+  section 1). eth/66+ lets a peer answer with fewer items than asked for,
+  none included; a peer that lacks the range (behind us, past its history
+  window) answers exactly this.
+  geth v1.17.6 keeps no score. Bodies and receipts: queue.go deliver (line
+  650) marks every requested header as lacking for that peer (MarkLacking,
+  667-671) when zero results arrive and returns them to the task queue;
+  fetchers_concurrent.go hands the handler validityErrorOfRequest(err)
+  (342, 364), nil here, so the peer stays. Headers are the skeleton's:
+  skeleton.go executeTask (814) answers an empty BlockHeaders with
+  res.Done <- errors.New("no headers delivered") (876) and reschedules the
+  task; eth/protocols/eth/dispatcher.go dispatchResponse returns that error
+  (176) to handler.go Handle (177-184), and the peer is disconnected
+  (discReasonForError: DiscSubprotocolError).
+  Fix: ETH-SYNC-EMPTY-DELIVERY, raised for an empty header, body or receipt
+  answer before any size check; ETH-SYNC-DELIVERY-FAILURE-KIND :EMPTY; the
+  main loop charges only :FAILED and :MALFORMED. The source leaves that
+  download, uncharged, and keeps its session, as the hash gap fill's empty
+  answer already did (ETH-SYNC-COLLECT-BACKFILL-HEADERS, peer.sync.
+  gap_failed). A non-empty header answer of the wrong size is still -50.
+  Remaining divergence, not changed: for an empty HEADER answer geth's
+  skeleton disconnects the peer (uncharged); we keep it, here and in the
+  hash gap fill.
+
+F2. A reply the downloader's fetch could not accept was charged twice.
+  Mechanism: the devnet source's fetch is a job on the session's writer.
+  DEVNET-PEER-PENDING-REQUEST finishes the job with its condition (the
+  downloader's worker sees it: ETH-SYNC-DELIVERY-FAILURE-KIND :FAILED, -25
+  through the source's :PENALTY) and re-signals it into the session, which
+  ends and charges it again (DEVNET-PEER-SESSION-END-CHARGES-PEER-P, -25):
+  -50 for one message (sec5-peer-parity-2.txt, Not verified).
+  Fix: the devnet source's :PENALTY (DEVNET-PEER-ENTRY-SYNC-SOURCE) no longer
+  charges or logs :FAILED; the session's end is the one charge, and a
+  condition that end does not charge (a storage fault, our defect) now costs
+  nothing at all. A plain ETH-SYNC-PEER-SOURCE without a session still
+  records :FAILED -25.
+  The sibling DEVNET-PEER-SESSION-ENDS-ON-A-DOWNLOADED-BODY-THAT-CONTRADICTS-
+  ITS-HEADER is a different path (:MALFORMED -50 by the downloader, the
+  session ended with CHARGED-P T) and was already charged once; it passes
+  for the right reason: with CHARGED-P forced to NIL in the :REJECT callback
+  (temporary mutation, reverted) it fails its (= -50 score) assertion. It
+  now also asserts one peer.sync.source_penalty.
+
+Tests (new):
+  ETH-SYNC-MULTI-PEER-CHARGES-NOTHING-FOR-AN-EMPTY-ANSWER (unit): one source
+    answering headers, bodies or receipts with nothing: download fails, no
+    penalty, first fault event :EMPTY; controls: a two-header answer to a
+    one-header request is ((:MALFORMED -50)), a full answer imports.
+  DEVNET-PEER-DOWNLOAD-CHARGES-NOTHING-FOR-AN-EMPTY-HEADERS-ANSWER
+    (integration, loopback dialed session): the peer holds block 1 and is
+    asked for block 2; the download fails, the session is intact at score 0,
+    no peer.sync.source_penalty, no peer.dial.failed; control on the same
+    session: a protocol violation ends it and costs 25.
+  DEVNET-PEER-DOWNLOAD-CHARGES-AN-UNDECODABLE-REPLY-ONCE (integration,
+    loopback): the peer answers block 1's GetBlockHeaders with an empty RLP
+    list; the session ends, score -25, no peer.sync.source_penalty.
+Changed: ETH-SYNC-MULTI-PEER-REJECTS-THE-SOURCE-OF-A-BODY-THAT-CONTRADICTS-
+  ITS-HEADER's malformed-not-rejected control now sends a wrong-size header
+  answer instead of an empty one (which is no longer malformed).
+
+RED (warm image, the new tests over the 05bbd4c5 sync.lisp and dialer.lisp,
+touched, fresh image; `cl-workbench test NAME`, each EXIT=1; values from a
+temporary probe in the test, removed):
+  ...-CHARGES-NOTHING-FOR-AN-EMPTY-ANSWER    :HEADERS ((:MALFORMED -50))
+  ...-CHARGES-NOTHING-FOR-AN-EMPTY-HEADERS-ANSWER  score -50, session live
+  ...-CHARGES-AN-UNDECODABLE-REPLY-ONCE      score -50, one source_penalty
+GREEN (fresh warm image, 578f4587 source): the three, the changed
+  ETH-SYNC-MULTI-PEER-REJECTS-..., DEVNET-PEER-SESSION-ENDS-ON-A-DOWNLOADED-
+  BODY-..., -ON-A-GAP-FILL-BODY-..., DEVNET-PEER-DOWNLOAD-CHARGES-NOTHING-
+  FOR-A-PEER-THAT-HANGS-UP, ETH-SYNC-MULTI-PEER-CHARGES-NO-SOURCE-FOR-A-
+  LOST-TRANSPORT, DEVNET-PEER-SESSION-OUTLIVES-A-DOWNLOAD-ABORTED-...: each
+  EXIT=0.
+
+Cold, on the committed tree 578f4587 (logs redirected, no WARNING from
+/workspace/src, no "not ok"):
+  cl-workbench validation run cold-integration --match DEVNET-PEER
+    --match DEVNET-DIAL --match DEVNET-SNAP --match ETH-SYNC
+    --match DEVNET-SYNC-COORDINATOR
+      56 tests passed, EXIT=0 (both new integration tests by name).
+  cl-workbench validation run cold-unit --match ETH-SYNC --match PEER
+    --match DIAL --match SNAP --match RLPX --match ARCHITECTURE
+    --match PACKAGE
+      280 tests passed, EXIT=0 (the new unit test and
+      PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC by name).
+  cl-workbench validation run cold-integration --match DEVNET-MULTI
+    --match DEVNET-FORWARD --match DEVNET-GAP --match DEVNET-RESTART
+    --match DEVNET-COORDINATOR --match DEVNET-NODE --match DEVNET-ENGINE
+    --match DEVNET-SYNC --match DEVNET-RANGE
+      26 tests passed, EXIT=0 (the other downloader callers).
+  cl-workbench validation run cold-unit (same nine selectors)
+      10 tests passed, EXIT=0.
+
+Not verified:
+  - Live: nothing deployed. The next Hoodi run should show no
+    peer.sync.source_penalty with reason malformed for "0 headers".
+  - A NON-empty short header answer (a peer whose head lies inside the
+    range) is still MALFORMED -50; geth's skeleton rejects it too
+    ("not enough non-genesis headers delivered") and disconnects, uncharged.
+  - A receipt answer holding only one incomplete group is still MALFORMED.
+  - cold-all (fleet rule: the coordinator runs it).
