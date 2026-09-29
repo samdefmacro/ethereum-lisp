@@ -474,12 +474,23 @@ run_cold_container() {
     args+=(--mount "type=bind,source=$fixture_root,target=/fixtures/execution-spec-tests,readonly")
     args+=(--env ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=/fixtures/execution-spec-tests)
   fi
+  local replay_root="${ETHEREUM_LISP_HOODI_REPLAY_ROOT:-}"
+  if [ -n "$replay_root" ]; then
+    [ -d "$replay_root" ] || {
+      echo "ERROR: Hoodi replay corpus is not a directory: $replay_root" >&2
+      return 2
+    }
+    replay_root="$(cd "$replay_root" && pwd -P)"
+    args+=(--mount "type=bind,source=$replay_root,target=/fixtures/hoodi-replay,readonly")
+    args+=(--env ETHEREUM_LISP_HOODI_REPLAY_ROOT=/fixtures/hoodi-replay)
+  fi
   local selector
   for selector in \
     ETHEREUM_LISP_PHASE_A_STATE_TEST_SELECTORS \
     ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS \
     ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_SELECTORS \
-    ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS
+    ETHEREUM_LISP_PHASE_A_BLOCKCHAIN_REPLAY_FORKS \
+    ETHEREUM_LISP_HOODI_REPLAY_BLOCKS
   do
     if [ -n "${!selector:-}" ]; then
       args+=(--env "$selector=${!selector}")
