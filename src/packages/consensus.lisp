@@ -50,7 +50,6 @@
    #:validate-block-requests-hash-field
    #:block-header-amsterdam-fields-present-p
    #:validate-block-amsterdam-fields
-   #:validate-block-amsterdam-slot-number
    #:*ethash-seal-verifier*
    #:ethash-seal-verification-available-p
    #:verify-ethash-seal

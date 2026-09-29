@@ -596,7 +596,13 @@
                 :requests-hash (execution-requests-hash '()))
          config)))))
 
-(deftest amsterdam-header-slot-number-must-increase
+(deftest amsterdam-header-slot-number-is-required-but-not-ordered
+  ;; geth v1.17.6 consensus/beacon VerifyHeader requires an Amsterdam header
+  ;; to carry a slot number and says nothing about its parent's, and the
+  ;; tests-glamsterdam-devnet@v7.2.1 engine fixtures build VALID children whose
+  ;; slot number repeats (slotnum_mainnet: 0 after 0) or falls
+  ;; (slotnum_distinct_per_block: 0x2a after 0x64). The consensus layer owns
+  ;; slot progression; the execution layer only carries the value.
   (let* ((config (make-chain-config :london-block 0
                                     :shanghai-time 150
                                     :cancun-time 200
@@ -632,10 +638,13 @@
               :slot-number slot-number)))
       (is
         (validate-block-header-against-config parent (child 11) config))
-      (signals block-validation-error
+      (is
         (validate-block-header-against-config parent (child 10) config))
+      (is
+        (validate-block-header-against-config parent (child 9) config))
+      ;; The positive control: the field itself is still mandatory.
       (signals block-validation-error
-        (validate-block-header-against-config parent (child 9) config)))))
+        (validate-block-header-against-config parent (child nil) config)))))
 
 (deftest london-fork-block-validates-gas-limit-against-elastic-parent
   (let* ((parent (make-block-header :number 7
