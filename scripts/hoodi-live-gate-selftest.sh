@@ -49,12 +49,31 @@ real_date="$(command -v date)"
 
 head_rev=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
+# STUB_HISTORY models one line of commits, oldest first, and STUB_SIDE commits
+# known to the checkout but on another line.  Unset, every commit is known and
+# every ancestry holds.
 cat > "$bin/git" <<'STUB'
 #!/bin/sh
 [ "$1" = -C ] && shift 2
+pos() {
+    i=0
+    for r in ${STUB_HISTORY:-}; do
+        i=$((i + 1))
+        [ "$r" = "$1" ] && { echo "$i"; return; }
+    done
+    echo 0
+}
 case "$1" in
     rev-parse) echo "$STUB_HEAD" ;;
-    merge-base) true ;;
+    merge-base)
+        [ -n "${STUB_HISTORY:-}" ] || exit 0
+        a="$(pos "$3")"; b="$(pos "$4")"
+        [ "$a" -gt 0 ] && [ "$b" -gt 0 ] && [ "$a" -le "$b" ] ;;
+    cat-file)
+        [ -n "${STUB_HISTORY:-}" ] || exit 0
+        rev="${3%%^*}"
+        [ "$(pos "$rev")" -gt 0 ] && exit 0
+        case " ${STUB_SIDE:-} " in *" $rev "*) exit 0 ;; *) exit 1 ;; esac ;;
     diff) case " $* " in *" --quiet "*) true ;; *) printf '' ;; esac ;;
     status) true ;;
     *) echo "git stub: unexpected $*" >&2; exit 99 ;;
@@ -65,9 +84,16 @@ STUB
 # STUB_REMOTE_DATA set, every remote path argument under /data/ is moved below
 # that scratch directory, so a mutating action's remote side can create and
 # check real directories without touching /data.
+# STUB_SSH_HOOK runs (with sh -c) just before the STUB_SSH_HOOK_CALL-th ssh
+# call, to change remote state between two calls of one action.
 cat > "$bin/ssh" <<'STUB'
 #!/usr/bin/env bash
 echo "ssh $*" >> "$STUB_LOG"
+if [ -n "${STUB_SSH_HOOK:-}" ]; then
+    calls=$(( $(cat "$STUB_SSH_COUNT" 2>/dev/null || echo 0) + 1 ))
+    echo "$calls" > "$STUB_SSH_COUNT"
+    [ "$calls" != "${STUB_SSH_HOOK_CALL:-0}" ] || sh -c "$STUB_SSH_HOOK"
+fi
 shift
 if [ -n "${STUB_REMOTE_DATA:-}" ]; then
     args=()
@@ -370,6 +396,16 @@ has() {
     fi
 }
 
+# says TEXT: the last run printed TEXT somewhere (for long refusal lines).
+says() {
+    if grep -qF -- "$1" "$out"; then
+        record ok "says: $1"
+    else
+        echo "missing text: $1" >> "$out"
+        record fail "says: $1"
+    fi
+}
+
 lacks() {
     if grep -qF -- "$1" "$out"; then
         echo "unexpected text: $1" >> "$out"
@@ -486,7 +522,7 @@ fi
 # ================================================================================
 export STUB_MODE=lifecycle STUB_STATE="$work/state" HOODI_GATE_ALLOW_MUTATION=1
 remote_data="$work/remote-data"
-export STUB_REMOTE_DATA="$remote_data"
+export STUB_REMOTE_DATA="$remote_data" STUB_SSH_COUNT="$work/ssh-count"
 root="$remote_data/hoodi-sec5-20260814"
 nk="$root/nodekey"
 key="$nk/nodekey.hex"
@@ -503,13 +539,16 @@ lifecycle_log="$work/lifecycle.log"
 : > "$lifecycle_log"
 reset_world() {
     cat "$STUB_LOG" >> "$lifecycle_log"
-    rm -rf "$STUB_STATE" "$root/datadir-aaaaaaaa"
+    rm -rf "$STUB_STATE" "$root"/datadir-* "$STUB_SSH_COUNT"
     mkdir -p "$STUB_STATE/hoodi-lighthouse-public"
     echo true > "$STUB_STATE/hoodi-lighthouse-public/running"
     unset STUB_UID STUB_KEY_OWNER STUB_DIR_OWNER HOODI_GATE_PREVIOUS_CONTAINER \
         HOODI_GATE_PREVIOUS_REVISION HOODI_GATE_DATADIR STUB_STOP_OUTCOME \
         HOODI_GATE_STOP_TIMEOUT STUB_RUN_DIES HOODI_GATE_OLD_CONTAINER \
-        HOODI_GATE_OLD_REVISION
+        HOODI_GATE_OLD_REVISION HOODI_GATE_ALLOW_DOWNGRADE STUB_SSH_HOOK \
+        STUB_SSH_HOOK_CALL STUB_SIDE
+    # prev_rev is older than head_rev unless a test says otherwise.
+    export STUB_HISTORY="$prev_rev $head_rev"
     : > "$STUB_LOG"
 }
 
@@ -1063,6 +1102,187 @@ plant_exited "$new_container"
 touch "$STUB_STATE/$new_container/start-fails"
 run 1 "restart of a container the daemon will not start" -- "$broker" restart
 has "docker start failed for $new_container; it is not running"
+
+# --- the runtime revision marker and the downgrade refusal ------------------------
+# Every start writes DATADIR/RUNTIME-REVISION; start, upgrade and restart refuse
+# an image revision that is not the marker's revision or a descendant of it.
+newer_rev=cccccccccccccccccccccccccccccccccccccccc
+unknown_rev=dddddddddddddddddddddddddddddddddddddddd
+side_rev=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+local_a=/data/hoodi-sec5-20260814/datadir-aaaaaaaa
+local_b=/data/hoodi-sec5-20260814/datadir-bbbbbbbb
+marker_is() {  # DATADIR WANT DESCRIPTION
+    local got
+    got="$(cat "$1/RUNTIME-REVISION" 2>/dev/null || echo absent)"
+    if [ "$got" = "$2" ]; then
+        record ok "$3: the marker reads $2"
+    else
+        echo "the marker reads $got" > "$work/detail"
+        record fail "$3: the marker reads $2" "$work/detail"
+    fi
+}
+plant_marker() { mkdir -p "$1"; printf '%s\n' "$2" > "$1/RUNTIME-REVISION"; }
+plant_previous() {
+    plant_key 0600
+    plant_container "$prev_container" "$prev_rev" "$prev_datadir" "" "--hoodi --datadir /data"
+    upgrade_env
+}
+
+# start writes the marker of a fresh datadir ...
+reset_world
+plant_key 0600
+run 0 "start on a fresh datadir" -- "$broker" start
+has "runtime-order=first datadir=$local_a (no marker)"
+has "runtime-revision-marker=$head_rev written runtime=$head_rev"
+marker_is "$root/datadir-aaaaaaaa" "$head_rev" "start"
+
+# ... and refuses a datadir a newer runtime opened, with that reason rather
+# than merely as a datadir that is not empty.
+reset_world
+plant_key 0600
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev"
+plant_marker "$root/datadir-aaaaaaaa" "$newer_rev"
+run 1 "start on a datadir a newer runtime opened" -- "$broker" start
+says "FAIL: refusing to start $head_rev on $local_a: $head_rev is older than its last runtime revision $newer_rev ($local_a/RUNTIME-REVISION)"
+no_lifecycle_call "start on a newer datadir"
+marker_is "$root/datadir-aaaaaaaa" "$newer_rev" "refused start"
+
+# upgrade of a datadir without a marker is judged against the previous
+# container's revision label: accepted when it is older ...
+reset_world
+plant_previous
+run 0 "upgrade from an older previous without a marker" -- "$broker" upgrade
+has "runtime-order=newer revision=$head_rev last=$prev_rev source=the previous container's revision label, no marker yet"
+has "runtime-revision-marker=$head_rev written runtime=$head_rev"
+marker_is "$prev_datadir" "$head_rev" "upgrade"
+
+# ... refused when it is newer ...
+reset_world
+plant_previous
+export STUB_HISTORY="$head_rev $prev_rev"
+run 1 "upgrade to a revision older than the previous container" -- "$broker" upgrade
+says "FAIL: refusing to start $head_rev on $local_b: $head_rev is older than its last runtime revision $prev_rev (the previous container's revision label, no marker yet)"
+no_lifecycle_call "upgrade to an older revision"
+marker_is "$prev_datadir" absent "refused upgrade"
+
+# ... unless the downgrade is explicitly allowed, and then the marker keeps
+# the newer revision.
+reset_world
+plant_previous
+export STUB_HISTORY="$head_rev $prev_rev" HOODI_GATE_ALLOW_DOWNGRADE=1
+run 0 "an allowed downgrade" -- "$broker" upgrade
+says "runtime-order=downgrade-allowed reason=$head_rev is older than its last runtime revision $prev_rev"
+has "runtime-revision-marker=$prev_rev written runtime=$head_rev"
+marker_is "$prev_datadir" "$prev_rev" "allowed downgrade"
+
+run 1 "HOODI_GATE_ALLOW_DOWNGRADE=2" -- env HOODI_GATE_ALLOW_DOWNGRADE=2 "$broker" upgrade
+has "FAIL: downgrade allowance must be zero or one"
+
+# A marker newer than the image is refused; an older one is the control.
+reset_world
+plant_previous
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev"
+plant_marker "$prev_datadir" "$newer_rev"
+run 1 "upgrade of a datadir whose marker is newer" -- "$broker" upgrade
+says "FAIL: refusing to start $head_rev on $local_b: $head_rev is older than its last runtime revision $newer_rev ($local_b/RUNTIME-REVISION)"
+no_lifecycle_call "newer marker"
+marker_is "$prev_datadir" "$newer_rev" "refused upgrade over a newer marker"
+
+reset_world
+plant_previous
+plant_marker "$prev_datadir" "$prev_rev"
+run 0 "upgrade of a datadir whose marker is older" -- "$broker" upgrade
+has "runtime-order=newer revision=$head_rev last=$prev_rev source=$local_b/RUNTIME-REVISION"
+marker_is "$prev_datadir" "$head_rev" "upgrade over an older marker"
+
+# A marker this checkout cannot order is refused: unknown, on another line of
+# history, or malformed.
+for kind in unknown side malformed; do
+    reset_world
+    plant_previous
+    case "$kind" in
+        unknown)
+            plant_marker "$prev_datadir" "$unknown_rev"
+            want="its last runtime revision $unknown_rev ($local_b/RUNTIME-REVISION) is not a commit in this checkout" ;;
+        side)
+            export STUB_SIDE="$side_rev"
+            plant_marker "$prev_datadir" "$side_rev"
+            want="$head_rev does not descend from its last runtime revision $side_rev ($local_b/RUNTIME-REVISION)" ;;
+        malformed)
+            plant_marker "$prev_datadir" not-a-revision
+            want="its marker $local_b/RUNTIME-REVISION is malformed" ;;
+    esac
+    run 1 "upgrade over a marker that is $kind" -- "$broker" upgrade
+    says "$want"
+    no_lifecycle_call "$kind marker"
+done
+
+# The host re-reads the marker before anything starts: a marker written
+# between the control plane's read and the action is refused.  The same hook
+# before the read (call 1) is the control: then the ordinary refusal fires.
+reset_world
+plant_previous
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev" \
+    STUB_SSH_HOOK="printf '%s\n' $newer_rev > $prev_datadir/RUNTIME-REVISION" STUB_SSH_HOOK_CALL=2
+run 1 "a marker written between the read and the upgrade" -- "$broker" upgrade
+says "RUNTIME-REVISION in $prev_datadir changed since the control plane checked it: now $newer_rev, checked absent; nothing was started"
+no_lifecycle_call "marker changed under the upgrade"
+
+reset_world
+plant_previous
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev" \
+    STUB_SSH_HOOK="printf '%s\n' $newer_rev > $prev_datadir/RUNTIME-REVISION" STUB_SSH_HOOK_CALL=1
+run 1 "a marker written before the read" -- "$broker" upgrade
+says "is older than its last runtime revision $newer_rev ($local_b/RUNTIME-REVISION)"
+lacks "changed since the control plane checked it"
+
+# A rolled-back upgrade keeps the replacement's revision in the marker, so
+# restarting the previous container afterwards is a downgrade ...
+reset_world
+plant_previous
+export STUB_RUN_DIES=1
+run 1 "an upgrade that rolls back" -- "$broker" upgrade
+has "runtime-revision-marker=$head_rev kept (the replacement was started on this datadir)"
+has "rollback-previous-start=ok"
+marker_is "$prev_datadir" "$head_rev" "rolled-back upgrade"
+unset STUB_RUN_DIES
+cat "$STUB_LOG" >> "$lifecycle_log"
+: > "$STUB_LOG"
+# (the previous container restarted by the rollback, now with the node key)
+echo "$nk" > "$STUB_STATE/$prev_container/nodekey"
+echo "$with_key_args" > "$STUB_STATE/$prev_container/args"
+restart_previous() {
+    env HOODI_GATE_RUNTIME_REVISION="$prev_rev" HOODI_GATE_CONTAINER="$prev_container" \
+        HOODI_GATE_DATADIR="$local_b" "$broker" restart
+}
+run 1 "restart of the previous after a rolled-back upgrade" -- restart_previous
+says "FAIL: refusing to start $prev_rev on $local_b: $prev_rev is older than its last runtime revision $head_rev ($local_b/RUNTIME-REVISION)"
+no_lifecycle_call "restart of the rolled-back previous"
+
+# ... which the allowance permits, keeping the newer marker.
+export HOODI_GATE_ALLOW_DOWNGRADE=1
+run 0 "allowed restart of the previous after a rolled-back upgrade" -- restart_previous
+has "runtime-revision-marker=$head_rev written runtime=$prev_rev"
+marker_is "$prev_datadir" "$head_rev" "allowed restart of an older container"
+
+# restart of the same revision rewrites the same marker (the control) ...
+reset_world
+plant_key 0600
+plant_gate
+plant_marker "$datadir_a" "$head_rev"
+run 0 "restart over its own marker" -- "$broker" restart
+has "runtime-order=same revision=$head_rev source=$local_a/RUNTIME-REVISION"
+has "runtime-revision-marker=$head_rev written runtime=$head_rev"
+
+# ... and refuses a newer one.
+reset_world
+plant_key 0600
+plant_gate
+export STUB_HISTORY="$prev_rev $head_rev $newer_rev"
+plant_marker "$datadir_a" "$newer_rev"
+run 1 "restart over a newer marker" -- "$broker" restart
+says "FAIL: refusing to start $head_rev on $local_a: $head_rev is older than its last runtime revision $newer_rev ($local_a/RUNTIME-REVISION)"
+no_lifecycle_call "restart over a newer marker"
 
 cat "$STUB_LOG" >> "$lifecycle_log"
 : > "$out"
