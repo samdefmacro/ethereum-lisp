@@ -485,6 +485,107 @@
       (is (null
            (transaction-sender transaction :expected-chain-id 1))))))
 
+#+sbcl
+(defun transaction-sender-counted-recoveries (thunk)
+  "Call THUNK; return how many secp256k1 address recoveries it performed."
+  (let ((count 0))
+    (sb-int:encapsulate 'ethereum-lisp.crypto:secp256k1-recover-address
+                        'transaction-sender-count
+                        (lambda (original &rest arguments)
+                          (incf count)
+                          (apply original arguments)))
+    (unwind-protect (funcall thunk)
+      (sb-int:unencapsulate 'ethereum-lisp.crypto:secp256k1-recover-address
+                            'transaction-sender-count))
+    count))
+
+(deftest transaction-sender-is-recovered-once-for-every-expected-chain-id
+  (:layer :unit)
+  ;; The cache used to hold one sender per expected chain id: the txpool
+  ;; index asks with none and admission, reconciliation and building ask with
+  ;; the chain's, so each pooled transaction was recovered again whenever the
+  ;; two alternated (twice at admission, once more at its first
+  ;; forkchoiceUpdated). The gate is now applied on every call and only the
+  ;; ungated recovery is cached, so every mix of callers recovers once, and
+  ;; each answer is still the one the per-type function gives.
+  #-sbcl (skip-test "counting recoveries requires SBCL encapsulation")
+  #+sbcl
+  (let* ((protected
+           (make-legacy-transaction
+            :nonce 9 :gas-price 20000000000 :gas-limit 21000
+            :to (address-from-hex "0x3535353535353535353535353535353535353535")
+            :value 1000000000000000000 :v 37
+            :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+            :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+         ;; The same signature values as a pre-EIP-155 signature: it names no
+         ;; chain, so every expected chain id admits it.
+         (unprotected
+           (make-legacy-transaction
+            :nonce 9 :gas-price 20000000000 :gas-limit 21000
+            :to (address-from-hex "0x3535353535353535353535353535353535353535")
+            :value 1000000000000000000 :v 28
+            :r #x28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276
+            :s #x67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83))
+         (dynamic
+           (make-dynamic-fee-transaction
+            :chain-id 1 :nonce 1 :max-priority-fee-per-gas 0
+            :max-fee-per-gas #x0fa0 :gas-limit #x84d0
+            :to (address-from-hex "0x1111111111111111111111111111111111111111")
+            :value 0 :data #() :y-parity 1
+            :r #xb7dfab36232379bb3d1497a4f91c1966b1f932eae3ade107bf5d723b9cb474e0
+            :s #x6261c359a10f2132f126d250485b90cf20f30340801244a08ef6142ab33d1904))
+         (cases (list (cons protected #'legacy-transaction-sender)
+                      (cons unprotected #'legacy-transaction-sender)
+                      (cons dynamic #'dynamic-fee-transaction-sender)))
+         (chain-ids '(2 nil 1 nil 2 1)))
+    (flet ((same-sender-p (left right)
+             (if (and left right)
+                 (bytes= (address-bytes left) (address-bytes right))
+                 (and (null left) (null right))))
+           (expected (function transaction chain-id)
+             (funcall function transaction :expected-chain-id chain-id)))
+      (loop for (transaction . function) in cases
+            do (let* ((answers nil)
+                      (recoveries
+                        (transaction-sender-counted-recoveries
+                         (lambda ()
+                           (dolist (chain-id chain-ids)
+                             (push (transaction-sender
+                                    transaction :expected-chain-id chain-id)
+                                   answers))))))
+                 (is (= 1 recoveries))
+                 (loop for chain-id in chain-ids
+                       for answer in (reverse answers)
+                       do (is (same-sender-p
+                               answer
+                               (expected function transaction chain-id))))
+                 ;; Positive control: the counter sees every recovery the
+                 ;; uncached per-type function performs.
+                 (is (= 2 (transaction-sender-counted-recoveries
+                           (lambda ()
+                             (expected function transaction nil)
+                             (expected function transaction nil)))))))
+      ;; The protected and typed signatures really are gated.
+      (is (null (transaction-sender protected :expected-chain-id 2)))
+      (is (transaction-sender protected :expected-chain-id 1))
+      (is (transaction-sender unprotected :expected-chain-id 2))
+      (is (null (transaction-sender dynamic :expected-chain-id 2)))
+      ;; A mutation changes the encoding, which invalidates the sender with
+      ;; the hash (TRANSACTION-REFRESH-COMPUTATION-CACHE): the next call
+      ;; recovers once more and answers for the mutated transaction.
+      (let ((before (transaction-sender protected :expected-chain-id 1)))
+        (setf (legacy-transaction-nonce protected) 10)
+        (let ((after nil))
+          (is (= 1 (transaction-sender-counted-recoveries
+                    (lambda ()
+                      (setf after (transaction-sender
+                                   protected :expected-chain-id 1))
+                      (transaction-sender protected)))))
+          (is (same-sender-p after
+                             (legacy-transaction-sender
+                              protected :expected-chain-id 1)))
+          (is (not (same-sender-p before after))))))))
+
 (deftest blob-and-set-code-transaction-sender-recovery
   (labels ((uint (bytes) (bytes-to-integer bytes))
            (address (bytes) (make-address bytes))

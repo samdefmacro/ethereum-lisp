@@ -1,0 +1,230 @@
+Section 5: each pooled transaction's sender is recovered once, and the
+builder sorts precomputed keys
+
+Status
+
+Branch txpool-sender-cache, from 3c0cfeab. Follow-up (a) of
+sec5-fcu-canonical-cost.txt "Not verified": a pooled transaction was
+ecrecovered three times across gossip admission and its first
+forkchoiceUpdated, because the sender cache held one answer per expected
+chain id and its callers alternate between two. The cache now holds the
+ungated recovery and applies the chain-id gate on every call: each pooled
+transaction is recovered once, at admission, and the reconciliation and the
+payload build reuse it. The payload builder's two whole-pool orderings now
+read each key once. Measured locally in the warm image; not deployed, no
+live run. No cold-all: the coordinator runs it once at the end.
+
+Revision
+
+  a1577a56  txpool: a pooled transaction's sender is recovered once, and
+            the builder sorts precomputed keys
+
+================================================================================
+1. Mechanism
+================================================================================
+
+TRANSACTION-SENDER (src/protocol/transactions/transactions.lisp) cached its
+answer in the transaction's TRANSACTION-COMPUTATION-CACHE together with the
+EXPECTED-CHAIN-ID it was asked with, and returned the cached answer only
+when the next caller passed the same chain id (EQL). Any other chain id
+recomputed, which is a full secp256k1 recovery, and overwrote the one slot.
+
+On the gossip path the callers alternate:
+
+  - TXPOOL-ADMIT-TRANSACTIONS asks with the chain's id (recovery 1);
+  - the pool index asks with none (ENGINE-PENDING-TXPOOL-SENDER in
+    src/storage/txpool/index/keys.lisp, which keys the sender index, and
+    the conflict checks in conflicts.lisp): recovery 2, overwriting 1;
+  - the head's reconciliation at the first forkchoiceUpdated asks with the
+    chain's id again (recovery 3, overwriting 2);
+  - payload building asks with the chain's id and hits the slot the
+    reconciliation just refilled.
+
+The chain id is only a gate. LEGACY-TRANSACTION-SENDER and
+TYPED-TRANSACTION-SENDER recover the same address whatever EXPECTED-CHAIN-ID
+is; they return NIL, without recovering, when a protected signature names a
+different chain. The address depends only on fields the canonical encoding
+covers (for a legacy transaction the chain id is derived from V), so the
+cache can hold the ungated recovery and apply the gate on each call.
+
+The builder has two orderings of the whole pending pool
+(ENGINE-PAYLOAD-STORE-PENDING-MINING-TRANSACTIONS):
+
+  - without a base fee, SORT with ENGINE-MINING-TRANSACTION<, which asked
+    TRANSACTION-SENDER for both transactions and hex-encoded both senders on
+    every comparison, and re-derived both hashes on a sender/nonce tie
+    (about 2 n log n of each; every TRANSACTION-SENDER or TRANSACTION-HASH
+    call re-encodes the transaction to check it has not been mutated);
+  - with a base fee, ENGINE-MINING-INTERLEAVE-SENDER-GROUPS, which for every
+    transaction it emitted rescanned every sender group and recomputed each
+    group head's effective tip: O(transactions x senders), 107 ms of a
+    4,000-transaction build over 1,000 senders (section 2).
+
+ENGINE-PAYLOAD-STORE-POOLED-TRANSACTIONS sorted the whole pool with :KEY
+(hash32-to-hex (transaction-hash tx)), which SORT recomputes per comparison
+(the pattern sec5-fcu-canonical-cost.txt removed from the subpool views).
+The gas-price oracle sorted a block's transactions by a priority fee
+recomputed per comparison (arithmetic only).
+
+================================================================================
+2. Reproduction and measurement (warm image, SBCL 2.2.9 arm64)
+================================================================================
+
+A memory-store devnet node with a Shanghai genesis; SENDERS x 4 legacy
+transfers from pool senders admitted through the gossip batch path
+(TXPOOL-ADMIT-TRANSACTIONS with DEVNET-PEER-TXPOOL-POLICY); one 8-transaction
+block from four other senders through newPayload and forkchoiceUpdated; then
+one payload built on it through engine_forkchoiceUpdatedV2 with attributes
+and engine_getPayloadV2. Recoveries are counted by encapsulating
+SECP256K1-RECOVER-ADDRESS and keyed by the signature's S (the fixture signer
+reuses one nonce, so R is the same for every signature).
+
+Recoveries of pooled transactions (1,000 pooled; 4,000 pooled scales 4x):
+
+                          admission   first fcU   build   per pooled tx
+  before (3c0cfeab)          2,000       1,000        0          3
+  after                      1,000           0        0          1
+
+The first forkchoiceUpdated also recovers the installed block's own 8
+transactions, before and after (those are other objects than the pool's).
+
+Wall time, three runs each, uncounted, fresh node per run (ms):
+
+  pool    path          before (3c0cfeab)     after
+  1,000   admission     139  134  129         109  122  102
+  1,000   first fcU      48   46   46          17   17   16
+  1,000   build         150  159  141         133  136  127
+  4,000   admission     521  514  584         422  412  426
+  4,000   first fcU     199  189  204          61   63   63
+  4,000   build         364  381  415         264  263  276
+
+"build" is fcU with attributes plus getPayload; the 1,000 pool fits one block
+(1,000 transactions built), the 4,000 pool fills the 30 M gas limit (1,428
+built). The before and after rows are separate images: the pre-change files
+restored from 3c0cfeab (git checkout, which rewrites mtimes), then the change
+reapplied, each followed by repl stop/start.
+
+Attribution (encapsulated call timers, one run, overhead included):
+recoveries took about 25 us each (8,048 calls, 208 ms at 4,000 after; 16,056
+calls, 394 ms before), so the first-fcU saving is the 1,000 or 4,000 avoided
+recoveries. At 4,000 the interleave took 107 ms before and 1 ms after;
+ENGINE-PAYLOAD-STORE-PENDING-MINING-TRANSACTIONS 143 ms before, 20 ms after.
+What remains of the build is execution (EXECUTE-SIGNED-BLOCK-SELECTING about
+146 ms at 4,000) and TRANSACTION-LIST-ROOT (51 ms over 22 calls).
+
+================================================================================
+3. Fix
+================================================================================
+
+- TRANSACTION-COMPUTATION-CACHE (src/protocol/transactions/legacy.lisp)
+  drops SENDER-EXPECTED-CHAIN-ID and SENDER-CACHED-P. SENDER holds the
+  ungated recovery, NIL when the signature recovers to nothing, or
+  :UNRECOVERED. TRANSACTION-REFRESH-COMPUTATION-CACHE resets it to
+  :UNRECOVERED in the same place it resets HASH, so a mutation that changes
+  the encoding invalidates both. One slot, one write: a reader on another
+  thread sees either :UNRECOVERED or the answer.
+- TRANSACTION-SENDER applies the per-type gate first, then
+  TRANSACTION-RECOVERED-SENDER. The gates are those of the per-type
+  functions: typed transactions compare EXPECTED-CHAIN-ID with their
+  CHAIN-ID field; a legacy transaction passes when unprotected
+  (pre-EIP-155) or when its V-derived chain id matches
+  (LEGACY-TRANSACTION-SENDER-CHAIN-ID-ADMITS-P). A gated-out call does not
+  recover. The per-type functions are unchanged.
+- ENGINE-PAYLOAD-STORE-PENDING-MINING-TRANSACTIONS asks each transaction's
+  sender once (ENGINE-MINING-SENDER-KEYED-TRANSACTIONS) and hands the
+  (sender-key . transaction) pairs on. Without a base fee it sorts
+  precomputed (sender-key nonce hash-hex) keys; ENGINE-MINING-TRANSACTION<
+  is gone. With a base fee the interleave keeps a binary heap of sender
+  groups keyed by head tip (descending) and sender key (ascending), and
+  recomputes one tip per emitted transaction. That key is a total order, so
+  the result is the one the old scan produced.
+  ENGINE-MINING-SENDER-GROUPS keeps its exported signature.
+- ENGINE-PAYLOAD-STORE-POOLED-TRANSACTIONS and ETH-RPC-GAS-ORACLE-BLOCK-SAMPLES
+  sort (key . transaction) pairs. Both are SBCL list merge sorts, stable as
+  before, so ties keep their order.
+
+Not changed: RLP and every encoding byte, hashes, which transactions are
+admitted, removed, promoted or built, and every ordering. The remaining
+SORTs over transactions use :KEY #'TRANSACTION-NONCE, a slot read.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed (EXIT=0).
+
+New tests
+  TRANSACTION-SENDER-IS-RECOVERED-ONCE-FOR-EVERY-EXPECTED-CHAIN-ID
+    (unit, tests/core-transaction-tests.lisp). A protected legacy, an
+    unprotected legacy and an EIP-1559 transaction are asked for their
+    sender with the chain ids (2 nil 1 nil 2 1): one recovery each, and
+    every answer equals the uncached per-type function's for that chain id.
+    Positive control: two uncached calls count 2. Mutating the nonce
+    recovers once more and answers for the mutated transaction.
+    RED at 3c0cfeab: "Assertion failed: (= 1 RECOVERIES)".
+  DEVNET-TXPOOL-SENDER-IS-RECOVERED-ONCE-THROUGH-ADMISSION-FORKCHOICE-AND-BUILDING
+    (integration, tests/cli-devnet-live-persistence-tests.lisp). Section 2's
+    fixture at 1,000 pooled: 1,000 admitted, 1,000 built, admission
+    recoveries = 1,000, no pooled transaction recovered twice, building 0,
+    first fcU <= 8 (the block's own). Positive control: a second object
+    decoded from a pooled transaction's encoding is recovered again, and
+    the summary then reports that transaction twice.
+    RED at 3c0cfeab: "Assertion failed: (= POOL-SIZE (GETF SUMMARY
+    :ADMISSION-RECOVERIES))" (2,000).
+  TXPOOL-MINING-ORDER-READS-EACH-SORT-KEY-ONCE-IN-THE-PAIRWISE-ORDER
+    (unit, tests/txpool-mining-order-tests.lisp). 12 senders x 3 nonces,
+    tips repeated across senders, one sender priced out. Without a base
+    fee: at most 2 derived-value reads (TRANSACTION-REFRESH-COMPUTATION-
+    CACHE) per transaction, and the order equals a pairwise sort with the
+    old comparator. With a base fee: at most one effective-tip per eligible
+    transaction, and the order equals the old group scan (kept in the test
+    as the oracle). Positive control: the oracles themselves exceed both
+    bounds. RED at 3c0cfeab on the read bound.
+
+Cold (at a1577a56's tree, before the commit)
+  cl-workbench validation run cold-unit --match TXPOOL --match FORKCHOICE
+    --match PAYLOAD-BUILDING --match TRANSACTION --match SENDER --match RLP
+    --match MINING-ORDER --match GAS-ORACLE
+      272 tests passed, 0 "not ok", EXIT=0 (both new unit tests included)
+  cl-workbench validation run cold-integration --match TXPOOL
+    --match FORKCHOICE --match PAYLOAD-BUILDING --match DEVNET-NEW-PAYLOAD
+    --match MINING
+      37 tests passed, 0 "not ok", EXIT=0 (the new integration test and
+      DEVNET-FORKCHOICE-TXPOOL-RECONCILIATION-READS-EACH-POOLED-TRANSACTION-ONCE
+      included)
+
+EEST tests@v20.0.2 (sender recovery sits on the execution path)
+  At a1577a56, clean checkout. Corpus hard-linked from the main checkout's
+  .eest-fixtures-stable-v20.0.2; fixtures.tar.gz sha256
+  1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788 (matches
+  the pin). Selectors and commands as in sec5-591f700e-eest-v20.0.2.txt: one
+  retained container per gate (ethereum-lisp-cold-eest-w1-a1577a56-<slug>),
+  sequential, output redirected; 2026-09-29T15:30:39Z to 15:47:52Z. All
+  eight: "1 test passed.", 0 "not ok", command exit 0, container exit 0,
+  OOMKilled false. The six manifest lines are byte-identical (cmp) to the
+  b5161312 record's; sorted-set sha256
+  9c8f7010d2ec64d41c6564ffbed70f5d13e95f454f85f6f0d59547b96d2f4561. The
+  containers were removed afterwards.
+
+Not run: cold-all (the coordinator runs it once), the ported_static gate,
+the Hoodi fixture tests and the Hoodi differential replay. The brief marks
+this change consensus-neutral: no RLP, hash, gas, state or receipt code
+changed, and the per-type recovery functions execution calls are unchanged;
+EEST 8/8 was run as the check of that.
+
+================================================================================
+5. Not verified, and what is left
+================================================================================
+
+- The live effect. Nothing was deployed.
+- Every TRANSACTION-SENDER and TRANSACTION-HASH call still re-encodes the
+  transaction to detect mutation (TRANSACTION-REFRESH-COMPUTATION-CACHE):
+  about 12 encodings per pooled transaction at admission and 12 in one
+  build (encapsulation counts, section 2 fixture). That is now the largest
+  per-transaction cost on these paths after execution.
+- The first forkchoiceUpdated recovers the installed block's transactions
+  once more although newPayload recovered them: the reconciliation sees
+  other objects than the executed ones. Per block, not per pooled
+  transaction; not investigated.
+- ENGINE-RPC-IMPROVE-PREPARED-PAYLOAD computes TRANSACTION-LIST-ROOT over
+  all candidates on every improvement pass; not changed.

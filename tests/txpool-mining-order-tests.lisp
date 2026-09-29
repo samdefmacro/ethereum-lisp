@@ -99,6 +99,134 @@ transaction the effective tip is simply the gas price less the base fee."
                                                 :expected-chain-id 1)))
                          ordered))))))
 
+(defun mining-order-pairwise-key< (left right)
+  "The address/nonce/hash order as the builder's comparator used to compute
+it, from both transactions on every comparison: the oracle."
+  (let ((left-sender (address-to-hex (transaction-sender left)))
+        (right-sender (address-to-hex (transaction-sender right))))
+    (cond
+      ((string< left-sender right-sender) t)
+      ((string< right-sender left-sender) nil)
+      ((< (transaction-nonce left) (transaction-nonce right)) t)
+      ((< (transaction-nonce right) (transaction-nonce left)) nil)
+      (t (string< (hash32-to-hex (transaction-hash left))
+                  (hash32-to-hex (transaction-hash right)))))))
+
+(defun mining-order-scanned-interleave (transactions base-fee)
+  "The profitability interleave as it used to be computed, rescanning every
+sender group for each transaction it emits: the oracle."
+  (let ((groups '()))
+    (dolist (transaction transactions)
+      (let* ((key (address-to-hex (transaction-sender transaction)))
+             (group (assoc key groups :test #'string=)))
+        (if group
+            (push transaction (cdr group))
+            (push (list key transaction) groups))))
+    (dolist (group groups)
+      (setf (cdr group) (sort (cdr group) #'< :key #'transaction-nonce)))
+    (flet ((tip (transaction)
+             (ethereum-lisp.txpool:transaction-effective-tip
+              transaction base-fee)))
+      (loop while groups
+            for best = (reduce (lambda (best candidate)
+                                 (let ((best-tip (tip (second best)))
+                                       (candidate-tip (tip (second candidate))))
+                                   (if (or (> candidate-tip best-tip)
+                                           (and (= candidate-tip best-tip)
+                                                (string< (first candidate)
+                                                         (first best))))
+                                       candidate
+                                       best)))
+                               (rest groups)
+                               :initial-value (first groups))
+            collect (pop (cdr best))
+            do (when (null (cdr best))
+                 (setf groups (delete best groups :test #'eq)))))))
+
+#+sbcl
+(defun mining-order-counted-calls (functions thunk)
+  "Call THUNK with each of FUNCTIONS counted; return its value and the counts."
+  (let ((counts (make-list (length functions) :initial-element 0))
+        (value nil))
+    (loop for function in functions
+          for index from 0
+          do (let ((index index))
+               (sb-int:encapsulate function 'mining-order-count
+                                   (lambda (original &rest arguments)
+                                     (incf (nth index counts))
+                                     (apply original arguments)))))
+    (unwind-protect (setf value (funcall thunk))
+      (dolist (function functions)
+        (sb-int:unencapsulate function 'mining-order-count)))
+    (values value counts)))
+
+(deftest txpool-mining-order-reads-each-sort-key-once-in-the-pairwise-order
+  (:layer :unit :module :txpool)
+  ;; Payload building sorted the pool with a comparator that recovered both
+  ;; senders and re-encoded both hashes on every comparison (about 2 n log n
+  ;; of each), and the profitability interleave rescanned every sender group
+  ;; for each transaction it emitted (O(n x senders), 107 ms of a 4,000
+  ;; transaction build over 1,000 senders). Both now read each key once; the
+  ;; order must be exactly the one the pairwise computation gives, ties in
+  ;; tip broken by sender address included.
+  #-sbcl (skip-test "counting calls requires SBCL encapsulation")
+  #+sbcl
+  (let* ((base-fee 100)
+         (store (make-engine-payload-memory-store))
+         ;; Twelve senders, three nonces each; tips repeat across senders so
+         ;; the address tie-break decides, and one sender is priced out.
+         (transactions
+           (loop for key from 1 to 12
+                 append (loop for nonce below 3
+                              collect (mining-order-test-transaction
+                                       key nonce
+                                       (if (= key 12)
+                                           99
+                                           (+ 100 (* 10 (mod (* key (1+ nonce))
+                                                             4))))))))
+         (eligible (remove-if (lambda (transaction)
+                                (< (transaction-max-fee-per-gas transaction)
+                                   base-fee))
+                              transactions))
+         (size (length transactions))
+         ;; Every TRANSACTION-SENDER and TRANSACTION-HASH call refreshes the
+         ;; derived-value cache once, so this counts key reads.
+         (key-read 'ethereum-lisp.transactions::transaction-refresh-computation-cache))
+    (dolist (transaction transactions)
+      (ethereum-lisp.txpool:engine-payload-store-put-pending-transaction
+       store transaction))
+    (is (= 33 (length eligible)))
+    (multiple-value-bind (ordered counts)
+        (mining-order-counted-calls
+         (list key-read)
+         (lambda ()
+           (ethereum-lisp.txpool:engine-payload-store-pending-mining-transactions
+            store 1)))
+      ;; One sender and one hash per transaction.
+      (is (<= (first counts) (* 2 size)))
+      (is (equal (sort (copy-list transactions) #'mining-order-pairwise-key<)
+                 ordered)))
+    (multiple-value-bind (ordered counts)
+        (mining-order-counted-calls
+         '(ethereum-lisp.txpool:transaction-effective-tip)
+         (lambda ()
+           (ethereum-lisp.txpool:engine-payload-store-pending-mining-transactions
+            store 1 :base-fee base-fee)))
+      (is (<= (first counts) (length eligible)))
+      (is (equal (mining-order-scanned-interleave eligible base-fee)
+                 ordered)))
+    ;; Positive control: the counters see the per-comparison and per-scan
+    ;; reads when the oracles do them.
+    (multiple-value-bind (ordered counts)
+        (mining-order-counted-calls
+         (list key-read 'ethereum-lisp.txpool:transaction-effective-tip)
+         (lambda ()
+           (list (sort (copy-list transactions) #'mining-order-pairwise-key<)
+                 (mining-order-scanned-interleave eligible base-fee))))
+      (declare (ignore ordered))
+      (is (> (first counts) (* 4 size)))
+      (is (> (second counts) (* 2 (length eligible)))))))
+
 (deftest mining-order-filters-at-the-child-base-fee
   (:layer :unit :module :txpool)
   (let* ((store (make-engine-payload-memory-store))

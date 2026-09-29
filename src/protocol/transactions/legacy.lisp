@@ -13,12 +13,16 @@ The owning transaction structs are intentionally mutable for builders and test
 vectors.  Callers therefore compare ENCODING with the transaction's current
 canonical encoding before trusting HASH or SENDER; a field or byte-vector
 mutation invalidates both without requiring custom SETF methods for every
-envelope slot."
+envelope slot.
+
+SENDER is the address the signature recovers to with no chain-id gate, NIL
+when it recovers to none, or :UNRECOVERED before the first recovery.  The
+expected-chain-id gate of TRANSACTION-SENDER reads only fields the encoding
+already covers, so it is applied on every call and never keys the cache: a
+pooled transaction is recovered once whichever chain id its callers pass."
   encoding
   hash
-  sender-expected-chain-id
-  sender
-  sender-cached-p)
+  (sender :unrecovered))
 
 (defstruct (legacy-transaction (:constructor make-legacy-transaction
                                   (&key (nonce 0)

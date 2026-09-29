@@ -2516,3 +2516,182 @@ the order of FUNCTIONS."
                (transaction-hash transaction))))
         (is (>= encodings pool-size))
         (is (zerop nonce-reads))))))
+
+;;;; Sender recovery across admission, forkchoice reconciliation and building.
+
+#+sbcl
+(defun devnet-sender-recovery-call-with-counted-recoveries (table thunk)
+  "Call THUNK counting every secp256k1 address recovery into TABLE, keyed by
+the signature's S value: the fixture signer reuses one nonce, so every
+signature shares R, while S names the transaction it came from."
+  (sb-int:encapsulate 'ethereum-lisp.crypto:secp256k1-recover-address
+                      'devnet-sender-recovery-count
+                      (lambda (original hash v r s)
+                        (incf (gethash s table 0))
+                        (funcall original hash v r s)))
+  (unwind-protect (funcall thunk)
+    (sb-int:unencapsulate 'ethereum-lisp.crypto:secp256k1-recover-address
+                          'devnet-sender-recovery-count)))
+
+#+sbcl
+(defun devnet-sender-recovery-run (senders per-sender)
+  "Admit SENDERS x PER-SENDER legacy transactions into a devnet node's pool
+through the gossip path, install one block through newPayload and fcU, then
+build one payload on it through fcU with attributes and getPayload.
+
+Returns a plist: the pooled transactions, the number admitted, the
+recoveries counted in each of the three paths (hash tables keyed by
+signature S) and the built payload's transaction count."
+  (let* ((block-keys '(1 2 3 4))
+         (pool-keys (loop for index from 1 to senders collect (+ 2000 index)))
+         (genesis-json (devnet-np-latency-genesis-json
+                        (append block-keys pool-keys) 64))
+         (blocks (devnet-np-latency-build-blocks
+                  genesis-json block-keys 64 1))
+         (block (first blocks))
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json genesis-json :port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (config (ethereum-lisp.cli:devnet-node-config node))
+         (context (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+                   (ethereum-lisp.cli:devnet-node-service node)))
+         (pool (loop for key in pool-keys
+                     append (loop for nonce below per-sender
+                                  collect (fixture-sign-legacy-transaction
+                                           (make-legacy-transaction
+                                            :nonce nonce
+                                            :gas-price 2000000000
+                                            :gas-limit 21000
+                                            :to (devnet-np-latency-account 7)
+                                            :value 1)
+                                           key
+                                           (chain-config-chain-id config)))))
+         (admission (make-hash-table))
+         (forkchoice (make-hash-table))
+         (building (make-hash-table))
+         (admitted nil)
+         (payload-transactions nil))
+    (devnet-sender-recovery-call-with-counted-recoveries
+     admission
+     (lambda ()
+       (setf admitted
+             (ethereum-lisp.cli::txpool-admit-transactions
+              pool store config
+              (ethereum-lisp.cli::devnet-peer-txpool-policy node)
+              :admitted-at 1))))
+    (ethereum-lisp.rpc:rpc-handle-request
+     (engine-fixture-payload-request
+      1 (execution-payload-envelope-execution-payload
+         (block-to-executable-data block)))
+     context)
+    (devnet-sender-recovery-call-with-counted-recoveries
+     forkchoice
+     (lambda ()
+       (ethereum-lisp.rpc:rpc-handle-request
+        (engine-fixture-forkchoice-request 2 (block-hash block))
+        context)))
+    (is (hash32= (block-hash block)
+                 (block-hash (chain-store-head-block store))))
+    (devnet-sender-recovery-call-with-counted-recoveries
+     building
+     (lambda ()
+       (let* ((response
+                (ethereum-lisp.rpc:rpc-handle-request
+                 (devnet-cli-engine-forkchoice-v2-payload-attributes-request
+                  3 (block-hash block)
+                  (devnet-cli-payload-attributes-v2 block (zero-address)))
+                 context))
+              (payload-id
+                (fixture-object-field
+                 (fixture-object-field response "result") "payloadId"))
+              (payload-response
+                (ethereum-lisp.rpc:rpc-handle-request
+                 (list (cons "jsonrpc" "2.0")
+                       (cons "id" 4)
+                       (cons "method" "engine_getPayloadV2")
+                       (cons "params" (list payload-id)))
+                 context)))
+         (setf payload-transactions
+               (length
+                (fixture-object-field
+                 (fixture-object-field
+                  (fixture-object-field payload-response "result")
+                  "executionPayload")
+                 "transactions"))))))
+    (list :pool pool
+          :admitted admitted
+          :admission admission
+          :forkchoice forkchoice
+          :building building
+          :payload-transactions payload-transactions)))
+
+#+sbcl
+(defun devnet-sender-recovery-summary (run)
+  "The counts DEVNET-SENDER-RECOVERY-RUN collected, as a plist."
+  (flet ((total (table)
+           (loop for count being the hash-values of table sum count))
+         (signature-s (transaction)
+           (legacy-transaction-s transaction)))
+    (let ((pool (getf run :pool))
+          (combined (make-hash-table)))
+      (dolist (key '(:admission :forkchoice :building))
+        (maphash (lambda (s count) (incf (gethash s combined 0) count))
+                 (getf run key)))
+      (list :pool (length pool)
+            :admitted (getf run :admitted)
+            :admission-recoveries (total (getf run :admission))
+            :forkchoice-recoveries (total (getf run :forkchoice))
+            :building-recoveries (total (getf run :building))
+            :max-per-pooled-transaction
+            (loop for transaction in pool
+                  maximize (gethash (signature-s transaction) combined 0))
+            :pooled-transactions-recovered-more-than-once
+            (count-if (lambda (transaction)
+                        (> (gethash (signature-s transaction) combined 0) 1))
+                      pool)
+            :payload-transactions (getf run :payload-transactions)))))
+
+(deftest devnet-txpool-sender-is-recovered-once-through-admission-forkchoice-and-building
+  (:layer :integration)
+  ;; A pooled transaction's sender is a property of the object: once
+  ;; recovered it is reused by every later path, whatever chain id the caller
+  ;; passes. At 3c0cfeab the cache held one sender per expected chain id, and
+  ;; the pool index asks with none while admission and the head's
+  ;; reconciliation ask with the chain's, so 1,000 gossiped transactions cost
+  ;; 2,000 recoveries at admission and 1,000 more at the first
+  ;; forkchoiceUpdated (3 per transaction); building then hit the cache the
+  ;; reconciliation had just refilled. Now the three paths recover each
+  ;; pooled transaction exactly once, all of it at admission.
+  #-sbcl (skip-test "counting recoveries requires SBCL encapsulation")
+  #+sbcl
+  (let* ((run (devnet-sender-recovery-run 250 4))
+         (summary (devnet-sender-recovery-summary run))
+         (pool (getf run :pool))
+         (pool-size (length pool)))
+    (is (= 1000 pool-size))
+    (is (= pool-size (getf summary :admitted)))
+    ;; The build took the whole pool, so building read every sender.
+    (is (= pool-size (getf summary :payload-transactions)))
+    ;; Admission recovers each one: the counter is live.
+    (is (= pool-size (getf summary :admission-recoveries)))
+    ;; And no path recovers a pooled transaction a second time.
+    (is (= 1 (getf summary :max-per-pooled-transaction)))
+    (is (zerop (getf summary :pooled-transactions-recovered-more-than-once)))
+    (is (zerop (getf summary :building-recoveries)))
+    ;; The first forkchoiceUpdated may recover only the installed block's own
+    ;; transactions, which are other objects than the pool's.
+    (is (<= (getf summary :forkchoice-recoveries) 8))
+    ;; Positive control: a second object for the same transaction (as a peer
+    ;; re-sending it would be decoded) is recovered again, and the summary
+    ;; counts it against that pooled transaction.
+    (let* ((original (first pool))
+           (copy (transaction-from-encoding (transaction-encoding original))))
+      (devnet-sender-recovery-call-with-counted-recoveries
+       (getf run :building)
+       (lambda ()
+         (is (bytes= (address-bytes (transaction-sender copy))
+                     (address-bytes (transaction-sender original))))))
+      (let ((after (devnet-sender-recovery-summary run)))
+        (is (= 2 (getf after :max-per-pooled-transaction)))
+        (is (= 1 (getf after
+                       :pooled-transactions-recovered-more-than-once)))))))
