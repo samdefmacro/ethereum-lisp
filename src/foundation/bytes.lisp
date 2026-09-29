@@ -51,9 +51,33 @@
             finally (return (ensure-byte-vector octets)))))
 
 (defun bytes-to-integer (bytes)
-  (loop for byte across (ensure-byte-vector bytes)
-        for value = byte then (+ (ash value 8) byte)
-        finally (return (or value 0))))
+  "The unsigned big-endian integer BYTES encode, 0 for no bytes.
+
+Past eight bytes, seven at a time: a chunk is a fixnum, so a 32-byte word
+builds five intermediate integers rather than one per byte (every RLP
+quantity, storage value and EVM word read from bytes comes through here)."
+  (let* ((bytes (ensure-byte-vector bytes))
+         (length (length bytes)))
+    (declare (type byte-vector bytes))
+    (flet ((chunk (start end)
+             (let ((value 0))
+               (declare (type (unsigned-byte 56) value))
+               (loop for index from start below end
+                     do (setf value (logior (ash value 8)
+                                            (aref bytes index))))
+               value)))
+      (if (<= length 8)
+          (let ((value 0))
+            (declare (type (unsigned-byte 64) value))
+            (loop for byte across bytes
+                  do (setf value (logior (ash value 8) byte)))
+            value)
+          (let* ((head (mod length 7))
+                 (value (chunk 0 head)))
+            (loop for start from head below length by 7
+                  do (setf value (logior (ash value 56)
+                                         (chunk start (+ start 7)))))
+            value)))))
 
 (defun ascii-to-bytes (string)
   (check-type string string)
