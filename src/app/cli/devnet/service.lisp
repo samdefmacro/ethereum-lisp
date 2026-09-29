@@ -102,6 +102,10 @@
       (error (condition)
         (devnet-shutdown-request shutdown-controller)
         (error condition)))
+    ;; After the ready callback, like node.memory.budget: what the start-up
+    ;; txpool import dropped as stale, and how much it read.
+    (devnet-log-txpool-restore (devnet-node-telemetry-sink node)
+                               (devnet-node-startup-txpool-restore node))
     (setf memory-maintenance-thread
           (devnet-start-memory-maintenance-thread
            node

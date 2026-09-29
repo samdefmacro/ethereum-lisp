@@ -132,6 +132,7 @@
    #:node-store-export-forkchoice-to-kv
    #:node-store-export-to-kv
    #:node-store-import-txpool-records-from-kv
+   #:node-store-note-dropped-txpool-records
    #:node-store-import-txpool-blob-sidecars-from-kv
    #:node-store-discard-invalid-tipsets-from-kv
    #:node-store-import-bounded-invalid-tipsets-from-kv

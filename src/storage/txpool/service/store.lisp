@@ -26,6 +26,13 @@
   (engine-pending-txpool-database-dirty-transaction-hashes
    (engine-payload-store-txpool store)))
 
+(defun engine-payload-store-mark-txpool-database-dirty-transaction-hashes
+    (store hashes)
+  (engine-pending-txpool-mark-database-dirty-transaction-hashes
+   (engine-payload-store-txpool store)
+   hashes)
+  store)
+
 (defun engine-payload-store-clear-txpool-database-dirty-transaction-hashes
     (store &optional hashes)
   (engine-pending-txpool-clear-database-dirty-transaction-hashes

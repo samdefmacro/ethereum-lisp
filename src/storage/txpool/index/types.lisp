@@ -167,6 +167,22 @@ its before-image into the outer frame on success."
           collect key)
     #'string<)))
 
+(defun engine-pending-txpool-mark-database-dirty-transaction-hashes
+    (txpool hashes)
+  "Mark HASHES for the next durable txpool delta, which rewrites each record
+from the pool or deletes it when the pool does not hold the transaction.
+Unlike a pool mutation this records nothing in the change log: the pool itself
+did not change. Requires database change tracking."
+  (unless (engine-pending-txpool-database-change-tracking-enabled-p txpool)
+    (block-validation-fail
+     "Marking durable txpool records requires database change tracking"))
+  (dolist (hash hashes)
+    (engine-pending-txpool-journal-puthash
+     (engine-pending-txpool-database-dirty-transaction-keys txpool)
+     (hash32-to-hex hash)
+     t))
+  txpool)
+
 (defun engine-pending-txpool-clear-database-dirty-transaction-hashes
     (txpool &optional hashes)
   (if hashes
