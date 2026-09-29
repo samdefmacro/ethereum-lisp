@@ -1056,6 +1056,108 @@ REJECT-P, if given, is a predicate marking transactions the pool turns down."
     (is (= 1 accepted))
     (is (= 1 stored))))
 
+;;; eth/72 GetCells/Cells packet layouts across deployed geth releases: v1.17.5
+;;; nests the fields after the request id, v1.17.6 (38271784) and the devp2p
+;;; text do not (see eth-wire-tests.lisp for the byte vectors).
+
+(deftest eth-72-get-cells-is-answered-in-the-requesters-packet-layout
+  (:layer :unit :module :p2p)
+  ;; A geth v1.17.5 peer sends [id, [hashes, mask]] and decodes only
+  ;; [id, [hashes, cells, mask]]; a v1.17.6 peer uses the flat layout both
+  ;; ways.  Answering in the other layout makes that peer's handleCells return
+  ;; a decode error and drop the session from its side.
+  (let* ((hash (make-byte-vector 32 :initial-element #x11))
+         (mask (make-byte-vector 16 :initial-element #xff))
+         (cell (make-byte-vector 2048 :initial-element #xa5))
+         (backend (make-eth-serve-backend
+                   :blob-cells (lambda (hashes request-mask)
+                                 (values hashes (list (list cell))
+                                         request-mask))))
+         (sent '()))
+    (eth-gossip-test-call-with-function-overrides
+     (list (cons 'ethereum-lisp.eth-sync::eth-peer-send
+                 (lambda (peer eth-id payload)
+                   (declare (ignore peer))
+                   (push (cons eth-id payload) sent))))
+     (lambda ()
+       (dolist (dialect '(:nested :flat))
+         (let ((peer (ethereum-lisp.eth-sync::%make-eth-peer
+                      :serve-backend backend :eth-version 72)))
+           (setf sent '())
+           (is (ethereum-lisp.eth-sync::eth-peer-serve-message
+                peer ethereum-lisp.eth-wire:+eth-message-get-cells+
+                (ethereum-lisp.eth-wire:encode-eth-get-cells
+                 7 (list hash) mask :dialect dialect)))
+           (is (= 1 (length sent)))
+           (is (eql ethereum-lisp.eth-wire:+eth-message-cells+
+                    (car (first sent))))
+           (is (bytes= (ethereum-lisp.eth-wire:encode-eth-cells
+                        7 (list hash) (list (list cell)) mask
+                        :dialect dialect)
+                       (cdr (first sent))))
+           (is (eq dialect
+                   (ethereum-lisp.eth-sync::eth-peer-cells-dialect peer)))))))))
+
+(deftest eth-72-get-cells-request-uses-the-peers-packet-layout
+  (:layer :unit :module :p2p)
+  ;; Our GetCells to a geth v1.17.5 peer must be nested, or its handleGetCells
+  ;; returns a decode error and drops us.  The layout is the one the peer last
+  ;; used itself, else nested for a geth v1.17.5 client id, else flat.
+  (let* ((hash (make-byte-vector 32 :initial-element #x11))
+         (mask (make-byte-vector 16 :initial-element #xff))
+         (cell (make-byte-vector 2048 :initial-element #xa5))
+         (sent nil)
+         (reply nil))
+    (eth-gossip-test-call-with-function-overrides
+     (list (cons 'ethereum-lisp.eth-sync::eth-peer-send
+                 (lambda (peer eth-id payload)
+                   (declare (ignore peer eth-id))
+                   (setf sent payload)))
+           (cons 'ethereum-lisp.eth-sync::eth-peer-read
+                 (lambda (peer)
+                   (declare (ignore peer))
+                   (values ethereum-lisp.eth-wire:+eth-message-cells+ reply))))
+     (lambda ()
+       (loop for (client-id learned expected)
+               in '(("Geth/v1.17.5-stable-9621c6ad/linux-amd64/go1.24.5"
+                     nil :nested)
+                    ("Geth/hoodi-1/v1.17.5-stable-9621c6ad/linux-amd64/go1.24.5"
+                     nil :nested)
+                    ("Geth/v1.17.6-stable-3d84c6b2/linux-amd64/go1.24.5"
+                     nil :flat)
+                    ("Geth/v1.17.50-stable/linux-amd64/go1.24.5" nil :flat)
+                    ("Nethermind/v1.17.5/linux-x64/dotnet9" nil :flat)
+                    (nil nil :flat)
+                    ("Geth/v1.17.6-stable-3d84c6b2/linux-amd64/go1.24.5"
+                     :nested :nested)
+                    ("Geth/v1.17.5-stable-9621c6ad/linux-amd64/go1.24.5"
+                     :flat :flat))
+             do (let ((peer (ethereum-lisp.eth-sync::%make-eth-peer
+                             :eth-version 72
+                             :remote-hello
+                             (and client-id
+                                  (make-devp2p-hello :client-id client-id)))))
+                  (when learned
+                    (setf (ethereum-lisp.eth-sync::eth-peer-learned-cells-dialect
+                           peer)
+                          learned))
+                  (setf sent nil
+                        reply (ethereum-lisp.eth-wire:encode-eth-cells
+                               1 (list hash) (list (list cell)) mask
+                               :dialect expected))
+                  (multiple-value-bind (hashes groups)
+                      (ethereum-lisp.eth-sync:eth-peer-get-cells
+                       peer (list hash) mask :request-id 1)
+                    (is (bytes= hash (first hashes)))
+                    (is (bytes= cell (first (first groups)))))
+                  (is (and sent
+                           (bytes= (ethereum-lisp.eth-wire:encode-eth-get-cells
+                                    1 (list hash) mask :dialect expected)
+                                   sent)))
+                  (is (eq expected
+                          (ethereum-lisp.eth-sync::eth-peer-cells-dialect
+                           peer)))))))))
+
 (deftest eth-gossip-serves-only-the-pooled-transactions-it-has
   (:layer :unit :module :p2p)
   (let* ((held (eth-gossip-test-transaction 1))

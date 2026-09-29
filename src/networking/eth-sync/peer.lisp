@@ -45,6 +45,9 @@
   ;; omitted.  The message handler only queues these fragments; the top-level
   ;; session pump fetches their cells so synchronous waits never nest.
   pending-blob-cell-fetches
+  ;; The eth/72 GetCells/Cells packet layout (:FLAT or :NESTED, see
+  ;; eth-wire/messages.lisp) this peer last sent us, or NIL before it sent one.
+  learned-cells-dialect
   (request-counter 0))
 
 (define-condition eth-peer-protocol-error (simple-error) ()
@@ -87,6 +90,34 @@ the callback."
   "The peer's self-reported client id string, or NIL before the Hello is known."
   (let ((hello (eth-peer-remote-hello peer)))
     (when hello (devp2p-hello-client-id hello))))
+
+(defun eth-cells-dialect-for-client-id (client-id)
+  "The eth/72 GetCells/Cells layout a devp2p CLIENT-ID implies: :NESTED for geth
+v1.17.5, the one release that sends and accepts only the nested layout, and
+:FLAT (the devp2p text, geth v1.17.6 and later) for everything else.
+
+geth names itself Geth[/identity]/v<version>-<meta>[-<commit>]/<os-arch>/<go>
+(node.Config.NodeName), so the version is a whole slash-separated component."
+  (if (and (stringp client-id)
+           (let ((end (position #\/ client-id)))
+             (and end (string-equal "Geth" client-id :end2 end)))
+           (some (lambda (component)
+                   (or (string= component "v1.17.5")
+                       (and (> (length component) 8)
+                            (string= "v1.17.5-" component :end2 8))))
+                 (uiop:split-string client-id :separator "/")))
+      :nested
+      :flat))
+
+(defun eth-peer-cells-dialect (peer)
+  "The layout for PEER's next eth/72 GetCells or Cells: the one PEER last used
+itself, else the one its client id implies."
+  (or (eth-peer-learned-cells-dialect peer)
+      (eth-cells-dialect-for-client-id (eth-peer-remote-client-id peer))))
+
+(defun eth-peer-note-cells-dialect (peer dialect)
+  "Remember that PEER used DIALECT in a GetCells or Cells it sent."
+  (setf (eth-peer-learned-cells-dialect peer) dialect))
 
 (defun eth-peer-remote-capabilities (peer)
   "The capabilities the peer advertised, or NIL before the Hello is known."

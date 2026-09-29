@@ -695,40 +695,88 @@ The reply may be shorter than the request and in any order: a gap means the peer
       (error "~A custody mask must contain 16 bytes" context))
     mask))
 
-(defun encode-eth-get-cells (request-id hashes custody-mask)
+;;; GetCells and Cells have two packet layouts in deployed geth, and both
+;;; releases advertise eth/72.  geth v1.17.5 (9621c6ad) wraps the request id
+;;; around an embedded GetCellsRequest / CellsResponse struct, which geth's RLP
+;;; encodes as one nested list: [id, [hashes, mask]] and
+;;; [id, [hashes, cells, mask]].  geth 38271784 (#35428, first released in
+;;; v1.17.6) inlined those fields to the devp2p eth/72 layout,
+;;; [id, hashes, mask] and [id, hashes, cells, mask].  Each geth decodes only
+;;; its own layout and drops the peer on the other (handleGetCells and
+;;; handleCells return the decode error).  We read both, report which one we
+;;; read as :FLAT or :NESTED, and write either; a reply goes out in the layout
+;;; of its request.  :FLAT, the devp2p text, is the default.
+
+(defun eth-cells-dialect-check (dialect)
+  (unless (member dialect '(:flat :nested))
+    (error "eth/72 Cells packet layout must be :FLAT or :NESTED, not ~S"
+           dialect))
+  dialect)
+
+(defun eth-cells-packet-rlp-object (request-id fields dialect)
+  (if (eq (eth-cells-dialect-check dialect) :nested)
+      (make-rlp-list (integer-to-minimal-bytes request-id)
+                     (apply #'make-rlp-list fields))
+      (apply #'make-rlp-list (integer-to-minimal-bytes request-id) fields)))
+
+(defun eth-cells-packet-fields (value context field-count)
+  "Split a decoded GetCells or Cells packet into its request-id item, its
+FIELD-COUNT fields, and the layout it used, as (VALUES ID FIELDS DIALECT)."
+  (let ((items (eth-wire-list-items value context)))
+    (cond
+      ((= (length items) (1+ field-count))
+       (values (first items) (rest items) :flat))
+      ((and (= (length items) 2) (rlp-list-p (second items)))
+       (let ((fields (rlp-list-items (second items))))
+         (unless (= (length fields) field-count)
+           (error "~A nested field list (geth v1.17.5 layout) must contain ~
+                   exactly ~D items, not ~D"
+                  context field-count (length fields)))
+         (values (first items) fields :nested)))
+      (t
+       (error "~A must contain ~D items [request-id, fields...] or 2 items ~
+               [request-id, [fields...]] (geth v1.17.5 layout), not ~D"
+              context (1+ field-count) (length items))))))
+
+(defun encode-eth-get-cells (request-id hashes custody-mask
+                             &key (dialect :flat))
   (rlp-encode
-   (make-rlp-list
-    (integer-to-minimal-bytes request-id)
-    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes))
-    (eth-custody-mask custody-mask "GetCells"))))
+   (eth-cells-packet-rlp-object
+    request-id
+    (list (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes))
+          (eth-custody-mask custody-mask "GetCells"))
+    dialect)))
 
 (defun decode-eth-get-cells (bytes)
-  (let ((items
-          (eth-wire-list-items
-           (eth-wire-decode bytes) "eth/72 GetCells" :exact 3)))
-    (values (bytes-to-integer (ensure-byte-vector (first items)))
-            (eth-wire-hashes (second items) "GetCells")
-            (eth-custody-mask (third items) "GetCells"))))
+  "Decode GetCells into (VALUES REQUEST-ID HASHES MASK DIALECT)."
+  (multiple-value-bind (id fields dialect)
+      (eth-cells-packet-fields (eth-wire-decode bytes) "eth/72 GetCells" 2)
+    (values (bytes-to-integer (ensure-byte-vector id))
+            (eth-wire-hashes (first fields) "GetCells")
+            (eth-custody-mask (second fields) "GetCells")
+            dialect)))
 
-(defun encode-eth-cells (request-id hashes cell-groups custody-mask)
+(defun encode-eth-cells (request-id hashes cell-groups custody-mask
+                         &key (dialect :flat))
   (unless (= (length hashes) (length cell-groups))
     (error "eth/72 Cells hashes and cell groups must have equal lengths"))
   (rlp-encode
-   (make-rlp-list
-    (integer-to-minimal-bytes request-id)
-    (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes))
-    (apply #'make-rlp-list
-           (mapcar (lambda (group)
-                     (apply #'make-rlp-list
-                            (mapcar #'ensure-byte-vector group)))
-                   cell-groups))
-    (eth-custody-mask custody-mask "Cells"))))
+   (eth-cells-packet-rlp-object
+    request-id
+    (list (apply #'make-rlp-list (mapcar #'ensure-byte-vector hashes))
+          (apply #'make-rlp-list
+                 (mapcar (lambda (group)
+                           (apply #'make-rlp-list
+                                  (mapcar #'ensure-byte-vector group)))
+                         cell-groups))
+          (eth-custody-mask custody-mask "Cells"))
+    dialect)))
 
 (defun decode-eth-cells (bytes)
-  (let ((items
-          (eth-wire-list-items
-           (eth-wire-decode bytes) "eth/72 Cells" :exact 4)))
-    (let ((hashes (eth-wire-hashes (second items) "Cells"))
+  "Decode Cells into (VALUES REQUEST-ID HASHES CELL-GROUPS MASK DIALECT)."
+  (multiple-value-bind (id fields dialect)
+      (eth-cells-packet-fields (eth-wire-decode bytes) "eth/72 Cells" 3)
+    (let ((hashes (eth-wire-hashes (first fields) "Cells"))
           (groups
             (mapcar
              (lambda (group)
@@ -742,12 +790,13 @@ The reply may be shorter than the request and in any order: a gap means the peer
                  group "eth/72 Cells transaction group"
                  :maximum +eth-max-cells-per-transaction+)))
              (eth-wire-list-items
-              (third items) "eth/72 Cells groups"
+              (second fields) "eth/72 Cells groups"
               :maximum +eth-max-request-hashes+))))
       (unless (= (length hashes) (length groups))
         (error "eth/72 Cells hashes and cell groups must have equal lengths"))
-      (values (bytes-to-integer (ensure-byte-vector (first items)))
-              hashes groups (eth-custody-mask (fourth items) "Cells")))))
+      (values (bytes-to-integer (ensure-byte-vector id))
+              hashes groups (eth-custody-mask (third fields) "Cells")
+              dialect))))
 
 ;;; GetReceipts / Receipts. The reply carries one list of receipts per block
 ;;; whose hash was asked for; a block we do not have is left out rather than
