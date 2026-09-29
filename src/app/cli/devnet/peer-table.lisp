@@ -446,14 +446,18 @@ back to the guard rather than advertise a head that stopped following."
     "eth_getTransactionByBlockNumberAndIndex"
     "eth_getTransactionByBlockHashAndIndex" "eth_getRawTransactionByHash"
     "eth_getRawTransactionByBlockNumberAndIndex"
-    "eth_getRawTransactionByBlockHashAndIndex" "eth_getLogs")
+    "eth_getRawTransactionByBlockHashAndIndex" "eth_getLogs"
+    "eth_getBalance" "eth_getTransactionCount" "eth_getCode"
+    "eth_getStorageAt" "eth_call" "eth_estimateGas")
   "Public methods tried against the published read view before the guard.
 
-Each either needs no store at all or reads only canonical blocks, receipts and
-the head. A request the view cannot answer completely still takes the guard,
-so listing a method here can cost at most one wasted attempt, never a wrong
-answer. State reads (balance, code, storage, calls) are not listed: the view
-holds no state.")
+Each either needs no store at all, or reads only canonical blocks, receipts,
+the head, and the committed state of a window block. A request the view cannot
+answer completely still takes the guard, so listing a method here can cost at
+most one wasted attempt, never a wrong answer. State is answered only on a
+store with a guard-free reader (the RocksDB direct provider); on a memory store
+every state read misses and takes the guard. A pending nonce reads the txpool,
+which the view does not hold, and misses too.")
 
 (defun devnet-public-read-view-method-p (method)
   (and (member method *devnet-public-read-view-methods* :test #'string=) t))

@@ -441,7 +441,10 @@
    #:execute-atomic-block-commit
    #:commit-state-db-to-chain-store
    #:chain-store-state-db
+   #:chain-store-state-db-from-reader
+   #:chain-store-call-state-db
    #:chain-store-block-hashes-for-header
+   #:chain-store-call-block-hashes
    #:execute-and-commit-engine-payload
    #:execute-and-commit-block
    #:execute-and-commit-signed-block))

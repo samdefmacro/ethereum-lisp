@@ -157,6 +157,74 @@ block's traversal of the paths this block rewrote needs no point read."))
 (defmethod chain-store-forkchoice-cache-reset ((store t))
   store)
 
+;;; Guard-free state reads.
+;;;
+;;; The store guard serializes every writer, and every ordinary reader waits for
+;;; it too, because the memory tables and read-through caches are unsynchronized.
+;;; A provider whose durable state is content-addressed (trie nodes by Keccak
+;;; hash, code by code hash) can nevertheless answer reads of a state it has
+;;; already committed WITHOUT the guard: a committed node is never rewritten in
+;;; place, and a reader that names a state by its root touches nothing else.
+;;; Such a provider offers a CHAIN-STORE-GUARD-FREE-READER; the node's
+;;; published read view uses it for public state RPC (node-store/read-view).
+
+(defstruct (chain-store-guard-free-state-reader
+            (:constructor make-chain-store-guard-free-state-reader
+                (&key account-function storage-function code-function
+                      trie-node-function)))
+  "Closures reading a provider's committed, content-addressed state.
+
+Each is safe to call from any thread without the store guard, and none reads
+or fills the provider's unsynchronized memory tables:
+
+- ACCOUNT-FUNCTION (BLOCK-HASH ROOT ADDRESS) returns BALANCE, NONCE,
+  CODE-HASH, STORAGE-ROOT and ACCOUNT-PRESENT-P for ADDRESS in the account trie
+  ROOT, which is BLOCK-HASH's committed state root.
+- STORAGE-FUNCTION (STORAGE-ROOT SLOT) returns (VALUES VALUE PRESENT-P).
+- CODE-FUNCTION (CODE-HASH) returns (VALUES CODE PRESENT-P).
+- TRIE-NODE-FUNCTION (HASH) returns (VALUES ENCODED PRESENT-P).
+
+A missing trie node signals, as it does on the guarded path."
+  (account-function nil :read-only t)
+  (storage-function nil :read-only t)
+  (code-function nil :read-only t)
+  (trie-node-function nil :read-only t))
+
+(defgeneric chain-store-guard-free-reader (store)
+  (:documentation
+   "STORE's CHAIN-STORE-GUARD-FREE-STATE-READER, or NIL when STORE cannot read
+committed state without the store guard (memory and file oracles)."))
+
+(defmethod chain-store-guard-free-reader ((store t))
+  (declare (ignore store))
+  nil)
+
+(defgeneric chain-store-published-state (store block-hash)
+  (:documentation
+   "Return (VALUES ROOT READER) when STORE answers BLOCK-HASH's state through a
+CHAIN-STORE-GUARD-FREE-STATE-READER, else (VALUES NIL NIL).
+
+Ordinary stores return NIL and their callers read state the usual way. A
+published read view (node-store/read-view) returns the root it captured, and
+leaves the view when it has none."))
+
+(defmethod chain-store-published-state ((store t) block-hash)
+  (declare (ignore store block-hash))
+  (values nil nil))
+
+(defgeneric chain-store-recorded-block-hashes (store header)
+  (:documentation
+   "HEADER's BLOCKHASH window as a hash table of number to hash (or
+:UNAVAILABLE), when STORE holds it precomputed, else NIL.
+
+A published read view answers this from the canonical hashes it captured, so
+eth_call needs no block older than its window; ordinary stores return NIL and
+callers walk the parent chain (CHAIN-STORE-BLOCK-HASHES-FOR-HEADER)."))
+
+(defmethod chain-store-recorded-block-hashes ((store t) header)
+  (declare (ignore store header))
+  nil)
+
 (defun chain-store-release-durable-block-overlay (store block)
   "Drop BLOCK's immutable cache entries once the durable batch owns them."
   (setf store (chain-store-require-memory-store store))

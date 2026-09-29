@@ -667,6 +667,18 @@ execution pre-state does; a durable block's roots open from the database."
      (memory-chain-store-state-code-bodies store))
     (values nil nil)))
 
+(defun node-store-direct-durable-code (store identifier)
+  "IDENTIFIER's durable code record, checked against its content address.
+Reads the database only, never the pending code bodies."
+  (multiple-value-bind (code present-p)
+      (kv-get-chain-record
+       (database-chain-store-database store) :code identifier)
+    (when present-p
+      (unless (bytes= identifier (hash32-bytes (keccak-256-hash code)))
+        (storage-fail
+         "Durable code record does not hash to its content address")))
+    (values code present-p)))
+
 (defmethod chain-store-backing-code ((store database-chain-store) hash)
   (let ((identifier
           (if (hash32-p hash)
@@ -679,15 +691,81 @@ execution pre-state does; a durable block's roots open from the database."
         (node-store-direct-pending-code store identifier)
       (if pending-p
           (values pending t)
-          (multiple-value-bind (code present-p)
-              (kv-get-chain-record
-               (database-chain-store-database store) :code identifier)
-            (when present-p
-              (unless (bytes=
-                       identifier (hash32-bytes (keccak-256-hash code)))
-                (storage-fail
-                 "Durable code record does not hash to its content address")))
-            (values code present-p))))))
+          (node-store-direct-durable-code store identifier)))))
+
+;;; The guard-free reader (chain-store/service/memory.lisp).
+;;;
+;;; Everything below reads committed, content-addressed records: trie nodes
+;;; through the locked trie-node cache and the database, accounts through the
+;;; locked account cache (whose entries are only ever durable accounts, see
+;;; NODE-STORE-DIRECT-ACCOUNT), code through the database. None of it touches
+;;; the inherited memory tables, which only the guard owner may read. RocksDB
+;;; reads are thread-safe, and the memory database publishes each batch as a
+;;; new table, so a reader never sees half a batch; the file oracle updates its
+;;; table in place, so it offers no reader.
+
+(defun node-store-direct-root-account (store block-hash root address)
+  "ADDRESS in BLOCK-HASH's committed account trie ROOT: BALANCE, NONCE,
+CODE-HASH, STORAGE-ROOT and ACCOUNT-PRESENT-P."
+  (let ((key (node-store-direct-account-cache-key block-hash address)))
+    (multiple-value-bind (cached cached-p)
+        (node-store-direct-account-cache-lookup store key)
+      (let ((account
+              (if cached-p
+                  cached
+                  (let ((account
+                          (node-store-direct-account-from-trie
+                           (make-persisted-mpt
+                            root (node-store-direct-trie-node-loader store))
+                           nil
+                           address)))
+                    (node-store-direct-account-cache-put store key account)
+                    account))))
+        (if account
+            (values (state-account-balance account)
+                    (state-account-nonce account)
+                    (state-account-code-hash account)
+                    (state-account-storage-root account)
+                    t)
+            (values 0 0 nil nil nil))))))
+
+(defun node-store-direct-root-storage (store storage-root slot)
+  "SLOT in the committed storage trie STORAGE-ROOT: (VALUES VALUE PRESENT-P)."
+  (multiple-value-bind (encoded present-p)
+      (mpt-get (make-persisted-mpt
+                storage-root (node-store-direct-trie-node-loader store))
+               (keccak-256 (hash32-bytes slot)))
+    (if present-p
+        (let ((value
+                (handler-case
+                    (rlp-uint-field (rlp-decode-one encoded)
+                                    "Durable account storage value")
+                  (storage-error (condition) (error condition))
+                  (error (condition)
+                    (storage-fail
+                     "Durable account storage record is invalid: ~A"
+                     condition)))))
+          (unless (uint256-p value)
+            (storage-fail "Durable account storage value must be uint256"))
+          (values value t))
+        (values 0 nil))))
+
+(defmethod chain-store-guard-free-reader ((store database-chain-store))
+  (unless (typep (database-chain-store-database store)
+                 'file-key-value-database)
+    (make-chain-store-guard-free-state-reader
+     :account-function
+     (lambda (block-hash root address)
+       (node-store-direct-root-account store block-hash root address))
+     :storage-function
+     (lambda (storage-root slot)
+       (node-store-direct-root-storage store storage-root slot))
+     :code-function
+     (lambda (code-hash)
+       (node-store-direct-durable-code store (hash32-bytes code-hash)))
+     :trie-node-function
+     (lambda (hash)
+       (chain-store-backing-trie-node store hash)))))
 
 (defmethod chain-store-backing-blob-sidecar
     ((store database-chain-store) hash)

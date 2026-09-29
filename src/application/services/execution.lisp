@@ -226,6 +226,65 @@ so execution only fails if EVM code actually queries unavailable history."
                (chain-store-account-storage store block-hash address slot))
              #'load-all))))))
 
+(defun chain-store-state-db-from-reader (root reader)
+  "A lazy state over the committed account trie ROOT, read through READER, a
+CHAIN-STORE-GUARD-FREE-STATE-READER.
+
+The same shape as CHAIN-STORE-STATE-DB's direct-provider state with no pending
+tries: accounts, code and storage tries resolve on first access from committed,
+content-addressed records, so it is safe to build and use without the store
+guard. Writes go to the state object only."
+  (let* ((trie-node-function
+           (chain-store-guard-free-state-reader-trie-node-function reader))
+         (code-function
+           (chain-store-guard-free-state-reader-code-function reader))
+         (account-trie (make-persisted-mpt root trie-node-function)))
+    (make-lazy-state-db
+     (lambda (address)
+       (multiple-value-bind (account-record present-p)
+           (mpt-get account-trie (keccak-256 (address-bytes address)))
+         (if present-p
+             (let* ((account
+                      (handler-case (decode-state-account-rlp account-record)
+                        (storage-error (condition) (error condition))
+                        (error (condition)
+                          (storage-fail
+                           "Persisted account record is invalid: ~A"
+                           condition))))
+                    (code-hash (state-account-code-hash account))
+                    (code
+                      (if (hash32= code-hash +empty-code-hash+)
+                          (make-byte-vector 0)
+                          (multiple-value-bind (code code-present-p)
+                              (funcall code-function code-hash)
+                            (unless code-present-p
+                              (storage-fail "Persisted account code is missing"))
+                            code))))
+               (values account code t nil
+                       (make-persisted-mpt (state-account-storage-root account)
+                                           trie-node-function)))
+             (values nil nil nil))))
+     nil
+     nil
+     :trie account-trie
+     :cached-root root
+     :direct-trie-p t)))
+
+(defun chain-store-call-state-db (store block-hash)
+  "BLOCK-HASH's state for a call simulation: from STORE's published state when
+it has one (a read view, without the guard), else CHAIN-STORE-STATE-DB."
+  (multiple-value-bind (root reader)
+      (chain-store-published-state store block-hash)
+    (if root
+        (chain-store-state-db-from-reader root reader)
+        (chain-store-state-db store block-hash))))
+
+(defun chain-store-call-block-hashes (store header)
+  "HEADER's BLOCKHASH window for a call simulation: the one STORE recorded (a
+read view), else the parent-chain walk."
+  (or (chain-store-recorded-block-hashes store header)
+      (chain-store-block-hashes-for-header store header)))
+
 (defun execute-atomic-block-commit (store state thunk)
   (let ((state-snapshot (state-db-transaction-snapshot state))
         (completed-p nil))

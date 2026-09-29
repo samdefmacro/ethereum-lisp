@@ -325,7 +325,7 @@ move first, remove the original precompile, then apply ordinary account fields."
       (let* ((header (block-header block))
              (simulation-state
                (or state
-                   (ethereum-lisp.execution-service:chain-store-state-db
+                   (ethereum-lisp.execution-service:chain-store-call-state-db
                     store (block-hash block))))
              (simulate-v1-p (string= method "eth_simulateV1"))
              (block-number
@@ -461,7 +461,7 @@ move first, remove the original precompile, then apply ordinary account fields."
                     block-overrides "gasLimit" (block-header-gas-limit header))
                    :block-hashes
                    (or block-hashes
-                       (ethereum-lisp.execution-service:chain-store-block-hashes-for-header
+                       (ethereum-lisp.execution-service:chain-store-call-block-hashes
                         store header)))
                 (if simulate-v1-p
                     (multiple-value-bind (billed-gas max-used-gas)
