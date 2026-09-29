@@ -50,7 +50,8 @@
           (when block
             (eth-rpc-block-object
              block full-transactions-p
-             :expected-chain-id expected-chain-id))))))
+             :expected-chain-id expected-chain-id
+             :config config))))))
 
 (defun engine-rpc-handle-eth-get-block-by-hash (params store config)
   (let* ((full-transactions-p
@@ -61,7 +62,8 @@
     (when block
       (eth-rpc-block-object
        block full-transactions-p
-       :expected-chain-id (chain-config-chain-id config)))))
+       :expected-chain-id (chain-config-chain-id config)
+       :config config))))
 
 (defun eth-rpc-block-transaction-count (block)
   (when block

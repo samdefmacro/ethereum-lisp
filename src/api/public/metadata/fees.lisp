@@ -61,6 +61,9 @@
          (base-fee (or (block-header-base-fee-per-gas header) 0))
          (beneficiary (or (block-header-beneficiary header) (zero-address)))
          (expected-chain-id (chain-config-chain-id config))
+         ;; go-ethereum v1.17.6 eth/gasprice getBlockValues: the block's
+         ;; MakeSigner.
+         (rules (eth-rpc-signer-rules config header))
          (ordered
            ;; (TIP . TRANSACTION), so SORT reads each tip once.
            (sort (mapcar (lambda (transaction)
@@ -72,9 +75,10 @@
                  :key #'car)))
     (loop for (tip . transaction) in ordered
           for sender = (and (>= tip +eth-rpc-gas-oracle-ignore-under+)
-                            (transaction-sender
+                            (eth-rpc-transaction-sender-or-nil
                              transaction
-                             :expected-chain-id expected-chain-id))
+                             :expected-chain-id expected-chain-id
+                             :rules rules))
           when (and sender
                     (not (bytes= (address-bytes sender)
                                  (address-bytes beneficiary))))

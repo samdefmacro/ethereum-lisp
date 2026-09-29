@@ -56,7 +56,7 @@
               :receipts (list receipt-1 receipt-2)))
            (block-hash-hex (hash32-to-hex (block-hash block)))
            (tx-2-hash-hex (hash32-to-hex (transaction-hash tx-2)))
-           (config (make-chain-config)))
+           (config (make-chain-config :eip155-block 0)))
       (engine-payload-store-put-block store block :state-available-p t)
       (let* ((receipt-response
                (parse-json
@@ -298,7 +298,7 @@
               :transactions (list tx-1 tx-2)
               :receipts (list receipt-1 receipt-2)))
            (block-hash-hex (hash32-to-hex (block-hash block)))
-           (config (make-chain-config)))
+           (config (make-chain-config :eip155-block 0)))
       (engine-payload-store-put-block store block :state-available-p t)
       (let* ((latest-response
                (parse-json

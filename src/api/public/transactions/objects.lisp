@@ -1,6 +1,9 @@
 (in-package #:ethereum-lisp.public-api)
 
 ;;;; Transaction JSON object assembly and pending-transaction lookup helpers.
+;;;; A transaction's `from` is recovered with the signer of the block that
+;;;; holds it (ETH-RPC-SIGNER-RULES). A pooled transaction keeps the latest
+;;;; signer, the one the pool admitted it with.
 
 (defun eth-rpc-visible-pending-transactions (store expected-chain-id)
   (loop for transaction in (engine-payload-store-pending-transactions store)
@@ -18,7 +21,10 @@
 
 (defun eth-rpc-transaction-object
     (transaction block index
-     &key expected-chain-id (sender nil sender-supplied-p))
+     &key expected-chain-id rules (sender nil sender-supplied-p))
+  "TRANSACTION as an RPC object. Unless SENDER is supplied, `from` is
+recovered under the signer RULES select (ETH-RPC-SIGNER-RULES of BLOCK, or of
+the head for a pooled transaction; NIL is the latest signer)."
   (let ((header (when block
                   (block-header block))))
     (multiple-value-bind (nonce gas-limit to value data v r s)
@@ -39,7 +45,8 @@
                    sender
                    (eth-rpc-transaction-sender
                     transaction
-                    :expected-chain-id expected-chain-id))))
+                    :expected-chain-id expected-chain-id
+                    :rules rules))))
         (cons "gas" (quantity-to-hex gas-limit))
         (cons "gasPrice"
               (quantity-to-hex
@@ -58,25 +65,30 @@
         (cons "r" (quantity-to-hex r))
         (cons "s" (quantity-to-hex s)))))))
 
-(defun eth-rpc-transaction-by-index (block index &key expected-chain-id)
+(defun eth-rpc-transaction-by-index (block index &key expected-chain-id config)
   (when (and block (< index (length (block-transactions block))))
     (eth-rpc-transaction-object
      (nth index (block-transactions block)) block index
-     :expected-chain-id expected-chain-id)))
+     :expected-chain-id expected-chain-id
+     :rules (eth-rpc-block-signer-rules config block))))
 
-(defun eth-rpc-transaction-from-location (location &key expected-chain-id)
+(defun eth-rpc-transaction-from-location (location &key expected-chain-id config)
   (when location
-    (eth-rpc-transaction-object
-     (engine-transaction-location-transaction location)
-     (engine-transaction-location-block location)
-     (engine-transaction-location-index location)
-     :expected-chain-id expected-chain-id)))
+    (let ((block (engine-transaction-location-block location)))
+      (eth-rpc-transaction-object
+       (engine-transaction-location-transaction location)
+       block
+       (engine-transaction-location-index location)
+       :expected-chain-id expected-chain-id
+       :rules (eth-rpc-block-signer-rules config block)))))
 
-(defun eth-rpc-pending-transaction-object (transaction &key expected-chain-id)
+(defun eth-rpc-pending-transaction-object
+    (transaction &key expected-chain-id rules)
   (when transaction
     (eth-rpc-transaction-object
      transaction nil nil
-     :expected-chain-id expected-chain-id)))
+     :expected-chain-id expected-chain-id
+     :rules rules)))
 
 (defun eth-rpc-pending-transaction-objects
     (transactions &key expected-chain-id)

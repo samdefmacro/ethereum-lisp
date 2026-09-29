@@ -97,9 +97,43 @@
       (transaction-effective-gas-price
        transaction :base-fee (block-header-base-fee-per-gas header))))
 
-(defun eth-rpc-transaction-sender (transaction &key expected-chain-id)
-  (or (transaction-sender transaction
-                          :expected-chain-id expected-chain-id)
+(defun eth-rpc-signer-rules (config header)
+  "The chain rules whose signer recovers the senders of the transactions in
+the block HEADER heads, or NIL (the latest signer) without CONFIG or HEADER.
+
+go-ethereum v1.17.6 internal/ethapi/api.go newRPCTransaction recovers `from`
+with types.MakeSigner(config, blockNumber, blockTime), so a Frontier block's
+high-s signature (FrontierSigner, no EIP-2 bound) recovers where the latest
+signer refuses it.
+
+Pooled transactions stay on the latest signer. The pool admits them with it
+(as geth's txpool with types.LatestSigner), and the pool views list only a
+transaction whose sender recovers. geth's NewRPCPendingTransaction does
+recover with the head's signer, but it also lists a transaction that signer
+cannot recover (with a zero `from`). Under a pre-EIP-155 head, the head's
+signer would hide a protected transaction the pool holds and geth lists.
+That only happens before EIP-155; every public network's head is past it,
+where both signers agree."
+  (when (and config header)
+    (chain-config-rules config
+                        (block-header-number header)
+                        (block-header-timestamp header))))
+
+(defun eth-rpc-block-signer-rules (config block)
+  "ETH-RPC-SIGNER-RULES for the transactions of BLOCK."
+  (and block (eth-rpc-signer-rules config (block-header block))))
+
+(defun eth-rpc-transaction-sender-or-nil
+    (transaction &key expected-chain-id rules)
+  "TRANSACTION's sender under the signer RULES select
+(TRANSACTION-SENDER-FOR-RULES; NIL rules are the latest fork), or NIL."
+  (transaction-sender-for-rules transaction rules
+                                :expected-chain-id expected-chain-id))
+
+(defun eth-rpc-transaction-sender (transaction &key expected-chain-id rules)
+  (or (eth-rpc-transaction-sender-or-nil transaction
+                                         :expected-chain-id expected-chain-id
+                                         :rules rules)
       (block-validation-fail
        "eth transaction sender recovery failed")))
 

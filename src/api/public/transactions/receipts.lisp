@@ -68,9 +68,12 @@ gas under the active schedule.  Neither value is accepted from RPC input."
              (previous-receipt
                (when (plusp index)
                  (nth (1- index) (block-receipts block))))
+             ;; go-ethereum v1.17.6 GetBlockReceipts and MarshalReceipt
+             ;; recover it with the block's MakeSigner.
              (from (eth-rpc-transaction-sender
                     transaction
-                    :expected-chain-id expected-chain-id))
+                    :expected-chain-id expected-chain-id
+                    :rules (eth-rpc-signer-rules chain-config header)))
              (logs
                (loop for log in (receipt-logs receipt)
                      for log-index
