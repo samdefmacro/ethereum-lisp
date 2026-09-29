@@ -83,4 +83,9 @@
                         set-code-transaction))
       (error 'transaction-validation-error
              :message "Transaction list item must be a transaction"))
-    (validate-execution-transaction-fields tx rules blob-base-fee)))
+    ;; Senders are not recovered yet, so Amsterdam's sender-dependent
+    ;; intrinsic gas (EIP-2780) is checked at its self-transfer lower bound
+    ;; here; APPLY-MESSAGE checks it again, exactly, with the sender bound.
+    (let ((*transaction-sender* (or *transaction-sender*
+                                    :self-transfer-bound)))
+      (validate-execution-transaction-fields tx rules blob-base-fee))))

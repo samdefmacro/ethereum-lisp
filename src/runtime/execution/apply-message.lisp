@@ -20,6 +20,7 @@
   (let* ((effective-chain-rules
           (execution-chain-rules chain-rules chain-config block-number timestamp))
          (transaction-snapshot (state-db-snapshot state))
+         (*transaction-sender* sender)
          (*transaction-floor-gas*
            (transaction-effective-floor-gas tx effective-chain-rules))
          (*transaction-chain-rules* effective-chain-rules))

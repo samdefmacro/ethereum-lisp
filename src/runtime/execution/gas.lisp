@@ -42,8 +42,82 @@ name only their latest active fork, so a later flag also implies EIP-2028."
       (chain-rules-amsterdam-p rules)
       (chain-rules-ubt-p rules)))
 
+(defvar *transaction-sender* nil
+  "The sender of the transaction being priced, for EIP-2780.
+
+Amsterdam prices a self-transfer (tx.to is the sender) without the recipient's
+access and value charges, so its intrinsic and floor gas depend on the sender.
+APPLY-MESSAGE binds the recovered sender.  NIL means unknown and prices a call
+as a transfer to another account, the upper bound, which suits pool admission
+and RPC estimates.  :SELF-TRANSFER-BOUND prices every call as a self-transfer,
+the lower bound: the block-level list pre-check binds it because it runs before
+senders are recovered, and APPLY-MESSAGE repeats the check exactly.")
+
+(defun transaction-self-transfer-p (transaction sender)
+  (let ((to (transaction-to transaction)))
+    (and to
+         sender
+         (or (eq sender :self-transfer-bound)
+             (and (not (keywordp sender))
+                  (bytes= (address-bytes to) (address-bytes sender)))))))
+
+(defun transaction-base-gas-eip2780 (transaction sender)
+  "EIP-2780 intrinsic base: the sender's resources, then the recipient's.
+
+Mirrors geth v1.17.6 intrinsicBaseGasEIP2780. The recipient touch is charged
+at the cold rate whatever its warmth; a self-transfer pays neither the touch
+nor the value charges, because the sender's own write already covers them."
+  (let ((to (transaction-to transaction))
+        (self-p (transaction-self-transfer-p transaction sender))
+        (value-p (plusp (transaction-value transaction)))
+        (gas +transaction-base-gas-eip2780+))
+    (cond (self-p)
+          ((null to) (incf gas +create-access-amsterdam+))
+          (t (incf gas +cold-account-access-amsterdam+)))
+    (cond ((or self-p (not value-p)))
+          ((null to) (incf gas +transfer-log-gas-eip2780+))
+          (t (incf gas (+ +transfer-log-gas-eip2780+
+                          +transaction-value-gas-eip2780+))))
+    gas))
+
+(defun transaction-access-list-tokens-eip7981 (access-list)
+  "EIP-7981: every access-list address and key byte counts as a nonzero
+calldata byte, four floor tokens each."
+  (* +standard-token-cost-eip7623+
+     (+ (* 20 (length access-list))
+        (* 32 (access-list-storage-key-count access-list)))))
+
+(defun transaction-access-list-data-gas-eip7981 (access-list)
+  "EIP-7981's intrinsic surcharge: the access list's tokens at the EIP-7976
+floor price, on top of the per-entry access charges."
+  (* +total-cost-floor-per-token-eip7976+
+     (transaction-access-list-tokens-eip7981 access-list)))
+
+(defun transaction-intrinsic-gas-amsterdam (transaction sender eip3860-p)
+  "Amsterdam intrinsic gas: geth v1.17.6 IntrinsicGas under IsAmsterdam."
+  (let* ((data (ensure-byte-vector (transaction-data transaction)))
+         (access-list (transaction-access-list transaction))
+         (zero-bytes (count 0 data))
+         (gas (+ (transaction-base-gas-eip2780 transaction sender)
+                 (* +set-code-authorization-base-gas-amsterdam+
+                    (length (transaction-authorization-list transaction)))
+                 (* +transaction-data-zero-gas+ zero-bytes)
+                 (* +transaction-data-nonzero-gas-eip2028+
+                    (- (length data) zero-bytes))
+                 (* +access-list-address-gas-amsterdam+
+                    (length access-list))
+                 (* +access-list-storage-key-gas-amsterdam+
+                    (access-list-storage-key-count access-list))
+                 (transaction-access-list-data-gas-eip7981 access-list))))
+    (when (and eip3860-p (not (transaction-to transaction)))
+      (incf gas (* +initcode-word-gas+ (ceiling (length data) 32))))
+    gas))
+
 (defun transaction-intrinsic-gas
-    (transaction &key (eip3860-p t) chain-rules)
+    (transaction &key (eip3860-p t) chain-rules (sender *transaction-sender*))
+  (when (and chain-rules (chain-rules-amsterdam-p chain-rules))
+    (return-from transaction-intrinsic-gas
+      (transaction-intrinsic-gas-amsterdam transaction sender eip3860-p)))
   (let ((gas (if (transaction-to transaction)
                  +transaction-gas+
                  +contract-creation-transaction-gas+))
@@ -65,18 +139,8 @@ name only their latest active fork, so a later flag also implies EIP-2028."
                    (ceiling (length (ensure-byte-vector
                                      (transaction-data transaction)))
                             32))))
-    (incf gas
-          (* (if (and chain-rules
-                      (chain-rules-amsterdam-p chain-rules))
-                 +access-list-address-gas-amsterdam+
-                 2400)
-             (length access-list)))
-    (incf gas
-          (* (if (and chain-rules
-                      (chain-rules-amsterdam-p chain-rules))
-                 +access-list-storage-key-gas-amsterdam+
-                 1900)
-             (access-list-storage-key-count access-list)))
+    (incf gas (* 2400 (length access-list)))
+    (incf gas (* 1900 (access-list-storage-key-count access-list)))
     (incf gas (* +set-code-authorization-intrinsic-gas+
                  (length authorization-list)))
     gas))
@@ -113,11 +177,29 @@ name only their latest active fork, so a later flag also implies EIP-2028."
      (* +total-cost-floor-per-token-eip7623+
         (transaction-calldata-tokens transaction))))
 
-(defun transaction-effective-floor-gas (tx rules)
-  "The EIP-7623 calldata floor when active (Prague+); 0 otherwise."
-  (if (and rules (chain-rules-prague-p rules))
-      (transaction-floor-data-gas tx)
-      0))
+(defun transaction-floor-data-gas-eip7976 (transaction sender)
+  "Amsterdam floor: geth v1.17.6 FloorDataGas under IsAmsterdam.
+
+EIP-7976 bills every calldata byte, zero or not, as four tokens of 16 gas;
+EIP-7981 adds the access list's address and key bytes as tokens too; the floor
+is anchored to the EIP-2780 base rather than to 21000."
+  (let ((tokens (+ (* +standard-token-cost-eip7623+
+                      (length (ensure-byte-vector
+                               (transaction-data transaction))))
+                   (transaction-access-list-tokens-eip7981
+                    (transaction-access-list transaction)))))
+    (+ (transaction-base-gas-eip2780 transaction sender)
+       (* +total-cost-floor-per-token-eip7976+ tokens))))
+
+(defun transaction-effective-floor-gas
+    (tx rules &key (sender *transaction-sender*))
+  "The calldata floor when active (EIP-7623 from Prague, EIP-7976 from
+Amsterdam); 0 otherwise."
+  (cond ((and rules (chain-rules-amsterdam-p rules))
+         (transaction-floor-data-gas-eip7976 tx sender))
+        ((and rules (chain-rules-prague-p rules))
+         (transaction-floor-data-gas tx))
+        (t 0)))
 
 (defun transaction-evm-gas-used (tx result &optional rules)
   ;; Pre-floor execution gas. The EIP-7623 floor is applied after the refund

@@ -233,6 +233,8 @@
    #:+keccak256-word-gas+
    #:+access-list-address-gas-amsterdam+
    #:+access-list-storage-key-gas-amsterdam+
+   #:+cold-account-access-amsterdam+
+   #:+create-access-amsterdam+
    #:finalize-evm-selfdestructs
    #:mark-created-account
    #:execute-bytecode))
@@ -337,6 +339,8 @@
    #:+keccak256-word-gas+
    #:+access-list-address-gas-amsterdam+
    #:+access-list-storage-key-gas-amsterdam+
+   #:+cold-account-access-amsterdam+
+   #:+create-access-amsterdam+
    #:finalize-evm-selfdestructs
    #:mark-created-account
    #:execute-bytecode))

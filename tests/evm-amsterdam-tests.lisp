@@ -687,9 +687,98 @@
                    :address address :storage-keys (list slot))))))
     (is (= (+ 21000 2400 1900)
            (transaction-intrinsic-gas tx)))
-    (is (= (+ 21000 3000 3000)
+    ;; Amsterdam: the EIP-2780 base of a value-free call to another account,
+    ;; EIP-8038's 3000 per address and key, and EIP-7981's 20 and 32 bytes at
+    ;; the EIP-7976 price of 64 gas per byte.
+    (is (= (+ 12000 3000 3000 3000 (* 20 64) (* 32 64))
            (transaction-intrinsic-gas
             tx :chain-rules (amsterdam-transfer-test-rules))))))
+
+(defun amsterdam-intrinsic-test-transaction
+    (&key to (value 0) (data #()) access-list authorization-list)
+  (if authorization-list
+      (make-set-code-transaction
+       :chain-id 1 :nonce 0 :max-priority-fee-per-gas 1 :max-fee-per-gas 1
+       :gas-limit 1000000 :to to :value value :data data
+       :access-list access-list :authorization-list authorization-list
+       :y-parity 0 :r 1 :s 1)
+      (make-access-list-transaction
+       :chain-id 1 :nonce 0 :gas-price 1 :gas-limit 1000000
+       :to to :value value :data data :access-list access-list)))
+
+(deftest amsterdam-intrinsic-and-floor-gas-follow-eip2780-7976-7981
+  ;; Every number is geth v1.17.6 core/state_transition.go IntrinsicGas and
+  ;; FloorDataGas under IsAmsterdam, spelled out term by term.
+  (let* ((rules (amsterdam-transfer-test-rules))
+         (sender (address-from-hex
+                  "0x0000000000000000000000000000000000000011"))
+         (other (address-from-hex
+                 "0x0000000000000000000000000000000000000022"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000001")))
+    (flet ((intrinsic (tx &optional (from sender))
+             (transaction-intrinsic-gas tx :chain-rules rules :sender from))
+           (floor-gas (tx &optional (from sender))
+             (transaction-effective-floor-gas tx rules :sender from)))
+      ;; EIP-2780 base: 12000 for the sender, then the recipient's cold touch
+      ;; (3000) or the created account's access (11000), then the value's
+      ;; transfer log (1756) and recipient balance write (4244).
+      (is (= 21000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to other :value 1))))
+      (is (= 15000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to other))))
+      (is (= 12000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to sender :value 1))))
+      (is (= (+ 12000 11000 (* 32 16) 2)
+             (intrinsic (amsterdam-intrinsic-test-transaction
+                         :data (make-array 32 :element-type '(unsigned-byte 8)
+                                              :initial-element 1)))))
+      (is (= (+ 12000 11000 1756)
+             (intrinsic (amsterdam-intrinsic-test-transaction :value 1))))
+      ;; Calldata keeps its 4/16 intrinsic price.
+      (is (= (+ 15000 4 16)
+             (intrinsic (amsterdam-intrinsic-test-transaction
+                         :to other :data #(0 1)))))
+      ;; EIP-8037's per-authorization floor replaces Prague's 25000.
+      (is (= (+ 15000 (* 2 7816))
+             (intrinsic
+              (amsterdam-intrinsic-test-transaction
+               :to other
+               :authorization-list
+               (loop repeat 2
+                     collect (make-set-code-authorization
+                              :chain-id 1 :address other :nonce 0
+                              :y-parity 0 :r 1 :s 1))))))
+      ;; Unknown sender: NIL prices the call as a transfer to another
+      ;; account, :SELF-TRANSFER-BOUND as a self-transfer.
+      (is (= 21000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to sender :value 1)
+                              nil)))
+      (is (= 12000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to other :value 1)
+                              :self-transfer-bound)))
+      ;; EIP-7976 floor: every calldata byte is 4 tokens of 16 gas, zero or
+      ;; not, on the EIP-2780 base; EIP-7981 adds 80 tokens per address and
+      ;; 128 per key.
+      (is (= (+ 15000 (* 16 4 2))
+             (floor-gas (amsterdam-intrinsic-test-transaction
+                         :to other :data #(0 1)))))
+      (is (= (+ 12000 (* 16 4 3))
+             (floor-gas (amsterdam-intrinsic-test-transaction
+                         :to sender :value 1 :data #(0 0 7)))))
+      (is (= (+ 15000 (* 16 (+ 80 128)))
+             (floor-gas (amsterdam-intrinsic-test-transaction
+                         :to other
+                         :access-list
+                         (list (make-access-list-entry
+                                :address other :storage-keys (list slot)))))))
+      ;; Prague keeps EIP-7623: 21000 plus 10 per token, a zero byte 1 token.
+      (is (= (+ 21000 (* 10 (+ 1 4)))
+             (transaction-effective-floor-gas
+              (amsterdam-intrinsic-test-transaction :to other :data #(0 1))
+              (make-chain-rules :chain-id 1 :shanghai-p t :cancun-p t
+                                :prague-p t)
+              :sender sender))))))
 
 (deftest storage-only-account-is-empty-but-still-collides-on-create
   (let* ((state (make-state-db))
