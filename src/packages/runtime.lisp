@@ -235,6 +235,7 @@
    #:+access-list-storage-key-gas-amsterdam+
    #:+cold-account-access-amsterdam+
    #:+create-access-amsterdam+
+   #:+storage-set-state-gas+
    #:finalize-evm-selfdestructs
    #:mark-created-account
    #:execute-bytecode))
@@ -341,6 +342,7 @@
    #:+access-list-storage-key-gas-amsterdam+
    #:+cold-account-access-amsterdam+
    #:+create-access-amsterdam+
+   #:+storage-set-state-gas+
    #:finalize-evm-selfdestructs
    #:mark-created-account
    #:execute-bytecode))

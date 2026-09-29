@@ -818,3 +818,35 @@
       (is (= 0 (first (evm-result-stack result)))))
     (is (ethereum-lisp.evm.internal::contract-address-collision-p
          state address))))
+
+(deftest amsterdam-protocol-system-call-has-a-state-reservoir
+  ;; geth v1.17.6 systemCallGasBudget: an Amsterdam protocol call runs with its
+  ;; 30M regular gas plus a state reservoir of SYSTEM_MAX_SSTORES_PER_CALL (16)
+  ;; new storage slots. Without the reservoir a slot's 97,920 state gas spills
+  ;; into the regular budget; here that budget is 30,000, so the call would
+  ;; run out of gas (tests-glamsterdam-devnet@v7.2.1 eip8282
+  ;; system_contract_reaches_gas_limit expects the block to stay VALID).
+  (let ((target (address-from-hex
+                 "0x0000000000000000000000000000000000000abc"))
+        (header (make-block-header :number 1 :timestamp 1 :gas-limit 30000000)))
+    ;; PUSH1 1, PUSH1 0, SSTORE, STOP: one new slot. Prague is the control
+    ;; that the call itself fits 30,000 gas there.
+    (dolist (rules (list (amsterdam-transfer-test-rules)
+                         (make-chain-rules :chain-id 1 :berlin-p t :london-p t
+                                           :shanghai-p t :cancun-p t
+                                           :prague-p t)))
+      (let ((state (make-state-db)))
+        (state-db-set-code state target (hex-to-bytes "0x600160005500"))
+        (ethereum-lisp.execution::execute-protocol-system-call
+         state target #() header rules
+         :gas-limit 30000 :require-success-p t)
+        (is (= 1 (state-db-get-storage state target (zero-hash32))))))
+    (is (= (* 16 64 1530)
+           (evm-gas-budget-state
+            (ethereum-lisp.execution::protocol-system-call-gas-budget
+             30000 (amsterdam-transfer-test-rules)))))
+    (is (= 0
+           (evm-gas-budget-state
+            (ethereum-lisp.execution::protocol-system-call-gas-budget
+             30000 (make-chain-rules :chain-id 1 :shanghai-p t :cancun-p t
+                                     :prague-p t)))))))
