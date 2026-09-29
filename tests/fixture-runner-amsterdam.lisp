@@ -19,15 +19,24 @@
 ;;;;   false; this runner calls the handler below that capability gate, so the
 ;;;;   gate stays closed for every real client while its execution is measured.
 ;;;;
-;;;; blockchain_tests carries the same test ids as blockchain_tests_engine in
-;;;; block-RLP form and is not executed a second time here.
+;;;; The engine family also runs the BPO2-to-Amsterdam transition network
+;;;; (for_bpo2toamsterdamattime15k), reported as
+;;;; `blockchain_tests_engine@BPO2ToAmsterdamAtTime15k'. blockchain_tests
+;;;; carries the same test ids as blockchain_tests_engine in block-RLP form and
+;;;; is not executed a second time here.
 ;;;;
-;;;; Selection, both optional, comma-separated EIP directory names:
+;;;; Selection, all optional and comma-separated:
+;;;;   ETHEREUM_LISP_AMSTERDAM_EEST_TREES        feature trees under each
+;;;;                                             network directory (default
+;;;;                                             `amsterdam'; `all' is every
+;;;;                                             tree, e.g. prague/ re-filled
+;;;;                                             at Amsterdam)
 ;;;;   ETHEREUM_LISP_AMSTERDAM_EEST_DIRECTORIES  run only these directories
 ;;;;   ETHEREUM_LISP_AMSTERDAM_EEST_REQUIRED     these must have cases and no
 ;;;;                                             failure in every family run
-;;;; Without the fixture root, or with a root that has no Amsterdam tree (the
-;;;; stable v20.0.2 corpus has none), the test is a counted skip.
+;;;; A directory outside the `amsterdam' tree is named TREE/DIRECTORY. Without
+;;;; the fixture root, or with a root that has no Amsterdam tree (the stable
+;;;; v20.0.2 corpus has none), the test is a counted skip.
 
 (defconstant +amsterdam-eest-directories-env+
   "ETHEREUM_LISP_AMSTERDAM_EEST_DIRECTORIES")
@@ -35,8 +44,15 @@
 (defconstant +amsterdam-eest-required-env+
   "ETHEREUM_LISP_AMSTERDAM_EEST_REQUIRED")
 
+(defconstant +amsterdam-eest-trees-env+
+  "ETHEREUM_LISP_AMSTERDAM_EEST_TREES")
+
+;;; (FAMILY NETWORK-DIRECTORY LABEL)
 (defparameter +amsterdam-eest-families+
-  '("state_tests" "blockchain_tests_engine"))
+  '(("state_tests" "for_amsterdam" "state_tests")
+    ("blockchain_tests_engine" "for_amsterdam" "blockchain_tests_engine")
+    ("blockchain_tests_engine" "for_bpo2toamsterdamattime15k"
+     "blockchain_tests_engine@BPO2ToAmsterdamAtTime15k")))
 
 (defparameter +amsterdam-eest-family-roots+
   '("" "fixtures/"))
@@ -51,19 +67,40 @@
                  (mapcar #'eest-fixture-trim-string
                          (eest-fixture-split-string value #\,))))))
 
-(defun amsterdam-eest-family-directory (root family)
-  "ROOT's `FAMILY/for_amsterdam/amsterdam/' tree, or NIL when it is absent."
+(defun amsterdam-eest-network-directory (root family network)
+  "ROOT's `FAMILY/NETWORK/' directory, or NIL when it is absent."
   (loop for prefix in +amsterdam-eest-family-roots+
         for candidate = (probe-file
                          (merge-pathnames
-                          (format nil "~A~A/for_amsterdam/amsterdam/"
-                                  prefix family)
+                          (format nil "~A~A/~A/" prefix family network)
                           (pathname root)))
         when candidate
           return candidate))
 
+(defun amsterdam-eest-family-directory
+    (root family &key (network "for_amsterdam") (tree "amsterdam"))
+  "ROOT's `FAMILY/NETWORK/TREE/' directory, or NIL when it is absent."
+  (let ((network-directory
+          (amsterdam-eest-network-directory root family network)))
+    (and network-directory
+         (probe-file (merge-pathnames
+                      (make-pathname :directory (list :relative tree))
+                      network-directory)))))
+
+(defun amsterdam-eest-selected-trees (network-directory)
+  (let ((trees (or (amsterdam-eest-env-list +amsterdam-eest-trees-env+)
+                   '("amsterdam"))))
+    (if (member "all" trees :test #'string-equal)
+        (amsterdam-eest-eip-directories network-directory)
+        trees)))
+
+(defun amsterdam-eest-directory-label (tree directory)
+  (if (string= tree "amsterdam")
+      directory
+      (format nil "~A/~A" tree directory)))
+
 (defun amsterdam-eest-eip-directories (family-directory)
-  "The EIP directory names under FAMILY-DIRECTORY, sorted."
+  "The directory names directly under FAMILY-DIRECTORY, sorted."
   (sort (mapcar (lambda (path)
                   (car (last (pathname-directory path))))
                 (directory
@@ -278,8 +315,10 @@ RPC-HANDLE-REQUEST-WITHOUT-GUARD."
       (load-eest-state-test-root-file-cases root path)
       (load-eest-blockchain-test-root-file-cases root path)))
 
-(defun amsterdam-eest-score-directory (family family-directory directory)
-  (let ((tally (make-amsterdam-eest-tally family directory))
+(defun amsterdam-eest-score-directory
+    (family family-directory directory &key (label family)
+                                            (directory-label directory))
+  (let ((tally (make-amsterdam-eest-tally label directory-label))
         (runner (amsterdam-eest-family-runner family))
         (eip-root (merge-pathnames
                    (make-pathname :directory (list :relative directory))
@@ -304,19 +343,36 @@ RPC-HANDLE-REQUEST-WITHOUT-GUARD."
 Returns the tallies, in family then directory order, and prints one report line
 per tally plus its first failure messages."
   (let ((tallies '()))
-    (dolist (family +amsterdam-eest-families+)
-      (let ((family-directory (amsterdam-eest-family-directory root family)))
-        (when family-directory
-          (dolist (directory (amsterdam-eest-eip-directories family-directory))
-            (when (or (null directories)
-                      (member directory directories :test #'string=))
-              (let ((tally (amsterdam-eest-score-directory
-                            family family-directory directory)))
-                (format t "~&~A~%" (amsterdam-eest-report-line tally))
-                (dolist (sample (reverse (amsterdam-eest-tally-samples tally)))
-                  (format t "~&AMSTERDAM-EEST   first-failure ~A~%" sample))
-                (finish-output)
-                (push tally tallies)))))))
+    (loop
+      for (family network label) in +amsterdam-eest-families+
+      for network-directory = (amsterdam-eest-network-directory
+                               root family network)
+      when network-directory
+        do (dolist (tree (amsterdam-eest-selected-trees network-directory))
+             (let ((family-directory
+                     (amsterdam-eest-family-directory
+                      root family :network network :tree tree)))
+               (when family-directory
+                 (dolist (directory
+                          (amsterdam-eest-eip-directories family-directory))
+                   (let ((directory-label
+                           (amsterdam-eest-directory-label tree directory)))
+                     (when (or (null directories)
+                               (member directory-label directories
+                                       :test #'string=))
+                       (let ((tally (amsterdam-eest-score-directory
+                                     family family-directory directory
+                                     :label label
+                                     :directory-label directory-label)))
+                         (format t "~&~A~%"
+                                 (amsterdam-eest-report-line tally))
+                         (dolist (sample
+                                  (reverse
+                                   (amsterdam-eest-tally-samples tally)))
+                           (format t "~&AMSTERDAM-EEST   first-failure ~A~%"
+                                   sample))
+                         (finish-output)
+                         (push tally tallies)))))))))
     (nreverse tallies)))
 
 (defun amsterdam-eest-required-failures (tallies required)
@@ -339,8 +395,8 @@ per tally plus its first failure messages."
 (deftest optional-amsterdam-eest-feature-burn-down
   (:layer :integration :module :eest)
   (with-execution-spec-tests-fixture-root (root)
-    (unless (some (lambda (family)
-                    (amsterdam-eest-family-directory root family))
+    (unless (some (lambda (spec)
+                    (amsterdam-eest-family-directory root (first spec)))
                   +amsterdam-eest-families+)
       (skip-test "The EEST fixture root has no for_amsterdam/amsterdam tree"))
     (call-with-eest-cryptographic-backends
