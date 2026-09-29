@@ -60,6 +60,12 @@
 (defparameter *amsterdam-eest-failure-samples* 3
   "How many failure messages each directory reports verbatim.")
 
+(defparameter *amsterdam-eest-max-file-bytes* (* 40 1024 1024)
+  "Fixture files above this size are counted, not parsed. The whole file is
+read into one JSON tree, and the corpus's blob and block-size fixtures reach
+165 MB, which exhausts the test image's heap. The largest file in the
+amsterdam tree is 38 MB.")
+
 (defun amsterdam-eest-env-list (name)
   (let ((value (funcall *fixture-root-environment-reader* name)))
     (unless (blank-string-p value)
@@ -272,7 +278,7 @@ RPC-HANDLE-REQUEST-WITHOUT-GUARD."
 
 (defstruct (amsterdam-eest-tally (:constructor make-amsterdam-eest-tally
                                      (family directory)))
-  family directory (passed 0) (failed 0) (samples '()))
+  family directory (passed 0) (failed 0) (oversize-files 0) (samples '()))
 
 (defun amsterdam-eest-condition-summary (condition)
   "CONDITION's report on one line, runs of whitespace collapsed, bounded."
@@ -324,18 +330,22 @@ RPC-HANDLE-REQUEST-WITHOUT-GUARD."
                    (make-pathname :directory (list :relative directory))
                    family-directory)))
     (dolist (path (execution-spec-tests-json-paths eip-root))
-      (dolist (case (amsterdam-eest-load-file-cases family eip-root path))
-        (amsterdam-eest-score-case tally runner case)))
+      (if (> (eest-fixture-file-byte-size path) *amsterdam-eest-max-file-bytes*)
+          (incf (amsterdam-eest-tally-oversize-files tally))
+          (dolist (case (amsterdam-eest-load-file-cases family eip-root path))
+            (amsterdam-eest-score-case tally runner case))))
     tally))
 
 (defun amsterdam-eest-report-line (tally)
-  (format nil "AMSTERDAM-EEST ~A ~A: cases=~D passed=~D failed=~D"
+  (format nil "AMSTERDAM-EEST ~A ~A: cases=~D passed=~D failed=~D~@[ oversizeFilesSkipped=~D~]"
           (amsterdam-eest-tally-family tally)
           (amsterdam-eest-tally-directory tally)
           (+ (amsterdam-eest-tally-passed tally)
              (amsterdam-eest-tally-failed tally))
           (amsterdam-eest-tally-passed tally)
-          (amsterdam-eest-tally-failed tally)))
+          (amsterdam-eest-tally-failed tally)
+          (let ((skipped (amsterdam-eest-tally-oversize-files tally)))
+            (and (plusp skipped) skipped))))
 
 (defun amsterdam-eest-burn-down (root &key directories)
   "Score every selected Amsterdam EIP directory of every family under ROOT.
@@ -389,6 +399,7 @@ per tally plus its first failure messages."
           (t
            (loop for tally in own
                  unless (and (zerop (amsterdam-eest-tally-failed tally))
+                             (zerop (amsterdam-eest-tally-oversize-files tally))
                              (plusp (amsterdam-eest-tally-passed tally)))
                    collect (amsterdam-eest-report-line tally))))))
 
