@@ -302,40 +302,62 @@ through the flat loader or through each account's storage trie."
       (dolist (lazy (list flat trie))
         (is (equal (rest memory) (rest lazy)))))))
 
-;;; The live block itself, when its fixture is present (it is 1.3 MB of
-;;; contract code, so it is fetched rather than committed; the commands are in
-;;; docs/evidence/sec5-hoodi-gas-mismatch.txt).  PRESTATE.JSON is the merged
-;;; go-ethereum prestateTracer output of the block's eleven transactions and
-;;; TRANSACTIONS.TXT their signed envelopes, one hex string per line.
+;;; The live blocks themselves, when their fixtures are present (they hold
+;;; megabytes of contract code, so they are fetched rather than committed; the
+;;; commands are in docs/evidence/sec5-hoodi-gas-mismatch.txt and
+;;; docs/evidence/sec5-hoodi-gas-3685491.txt).  In each fixture directory
+;;; PRESTATE.JSON is the merged go-ethereum prestateTracer output of the
+;;; block's transactions and TRANSACTIONS.TXT their signed envelopes, one hex
+;;; string per line.
 
 (defparameter +hoodi-3684027-fixture-directory+
   ".eest-fixtures-hoodi-3684027/")
 
-(defun hoodi-3684027-fixture-path (name)
-  (repository-relative-pathname
-   (concatenate 'string +hoodi-3684027-fixture-directory+ name)))
+(defparameter +hoodi-3685491-fixture-directory+
+  ".eest-fixtures-hoodi-3685491/")
 
-(defun hoodi-3684027-quantity (value)
+(defun hoodi-fixture-path (directory name)
+  (repository-relative-pathname (concatenate 'string directory name)))
+
+(defun hoodi-fixture-quantity (value)
   (cond ((null value) 0)
         ((integerp value) value)
         (t (hex-to-quantity value))))
 
-(defun hoodi-3684027-trie-backed-prestate ()
-  "The block's pre-state served the way the durable node store serves it:
-accounts from a loader, storage through each account's own storage trie."
+(defun hoodi-fixture-transactions (directory)
+  "The signed transactions of the block whose fixture is in DIRECTORY."
+  (with-open-file (in (hoodi-fixture-path directory "transactions.txt"))
+    (loop for line = (read-line in nil nil)
+          while line
+          unless (blank-string-p line)
+            collect (transaction-from-encoding
+                     (hex-to-bytes (string-trim " " line))))))
+
+(defun hoodi-fixture-per-transaction-gas (receipts)
+  "The gas each of RECEIPTS used, from their cumulative counters."
+  (let ((previous 0))
+    (loop for receipt in receipts
+          for cumulative = (receipt-cumulative-gas-used receipt)
+          collect (- cumulative previous)
+          do (setf previous cumulative))))
+
+(defun hoodi-fixture-trie-backed-prestate (directory)
+  "The pre-state of the block whose fixture is in DIRECTORY, served the way
+the durable node store serves it: accounts from a loader, storage through
+each account's own storage trie."
   (let ((accounts (make-hash-table :test 'equal)))
     (dolist (entry (ethereum-lisp.json:json-object-entries
                     (ethereum-lisp.json:parse-json
                      (fixture-file-string
-                      (hoodi-3684027-fixture-path "prestate.json")))
-                    "Hoodi 3684027 prestate"))
+                      (hoodi-fixture-path directory "prestate.json")))
+                    "Hoodi prestate"))
       (let* ((account (cdr entry))
              (code (hex-to-bytes (or (fixture-object-field account "code") "0x")))
              (trie (make-mpt)))
         (let ((storage (fixture-object-field account "storage")))
           (when storage
             (dolist (slot (ethereum-lisp.json:json-object-entries
-                           storage "Hoodi 3684027 storage"))
+                           storage "Hoodi storage"))
               (let ((value (hex-to-quantity (cdr slot))))
                 (unless (zerop value)
                   (mpt-put trie
@@ -344,9 +366,9 @@ accounts from a loader, storage through each account's own storage trie."
                            (rlp-encode value)))))))
         (setf (gethash (string-downcase (car entry)) accounts)
               (list (make-state-account
-                     :nonce (hoodi-3684027-quantity
+                     :nonce (hoodi-fixture-quantity
                              (fixture-object-field account "nonce"))
-                     :balance (hoodi-3684027-quantity
+                     :balance (hoodi-fixture-quantity
                                (fixture-object-field account "balance"))
                      :storage-root (make-hash32 (mpt-root-hash trie))
                      :code-hash (keccak-256-hash code))
@@ -365,19 +387,15 @@ accounts from a loader, storage through each account's own storage trie."
 
 (deftest hoodi-3684027-gas-used-matches-its-header-on-a-backed-state
   (:layer :integration)
-  (unless (probe-file (hoodi-3684027-fixture-path "prestate.json"))
+  (unless (probe-file (hoodi-fixture-path +hoodi-3684027-fixture-directory+
+                                           "prestate.json"))
     (skip-test "Hoodi block 3684027 fixture is not present"))
   (let* ((config (ethereum-lisp.genesis::hoodi-chain-config))
          (number 3684027)
          (timestamp #x6ab47d6c)
          (rules (chain-config-rules config number timestamp))
          (transactions
-           (with-open-file (in (hoodi-3684027-fixture-path "transactions.txt"))
-             (loop for line = (read-line in nil nil)
-                   while line
-                   unless (blank-string-p line)
-                     collect (transaction-from-encoding
-                              (hex-to-bytes (string-trim " " line)))))))
+           (hoodi-fixture-transactions +hoodi-3684027-fixture-directory+)))
     (is (= 11 (length transactions)))
     ;; The block is past BPO2 on Hoodi's schedule, as go-ethereum has it.
     (is (chain-rules-osaka-p rules))
@@ -387,7 +405,8 @@ accounts from a loader, storage through each account's own storage trie."
       (declare (ignore target max))
       (multiple-value-bind (receipts gas-used)
           (apply-signed-message-list
-           (hoodi-3684027-trie-backed-prestate) transactions
+           (hoodi-fixture-trie-backed-prestate +hoodi-3684027-fixture-directory+)
+           transactions
            :expected-chain-id 560048
            :chain-rules rules
            :base-fee #x3dfcfbc5
@@ -407,3 +426,59 @@ accounts from a loader, storage through each account's own storage trie."
         (is (= 342412 (- (receipt-cumulative-gas-used (nth 9 receipts))
                          (receipt-cumulative-gas-used (nth 8 receipts)))))
         (is (= #x4259c8 gas-used))))))
+
+;;; Hoodi block 3685491 (0x154fcffe..., 2026-09-24): the node computed
+;;; 58,730,301 gas against the header's 58,730,304.  All three are in the
+;;; eighth transaction (0xe47dfc85..., an ERC-4337 handleOps whose account
+;;; deployment runs an initializer): a LOG3 with no data at offset 0x80 grew
+;;; memory from three words to four without charging for it, so the MSTORE
+;;; to 0x80 that followed paid one word of expansion where go-ethereum
+;;; charges two.
+
+(deftest hoodi-3685491-gas-used-matches-its-header-on-a-backed-state
+  (:layer :integration)
+  (unless (probe-file (hoodi-fixture-path +hoodi-3685491-fixture-directory+
+                                          "prestate.json"))
+    (skip-test "Hoodi block 3685491 fixture is not present"))
+  (let* ((config (ethereum-lisp.genesis::hoodi-chain-config))
+         (number 3685491)
+         (timestamp #x6ab4c8f0)
+         (rules (chain-config-rules config number timestamp))
+         (transactions
+           (hoodi-fixture-transactions +hoodi-3685491-fixture-directory+))
+         ;; go-ethereum's receipts (eth_getTransactionReceipt), in block order.
+         (receipt-gas
+           (append '(34494 34494 21000 21000 21000 21000 21000 785936
+                     21000 21000)
+                   (make-list 23 :initial-element 2491039)
+                   '(299388 107285 27810))))
+    (is (= 36 (length transactions)))
+    (is (chain-rules-osaka-p rules))
+    (is (chain-rules-bpo2-p rules))
+    (multiple-value-bind (target max update-fraction)
+        (chain-rules-blob-schedule rules)
+      (declare (ignore target max))
+      (multiple-value-bind (receipts gas-used)
+          (apply-signed-message-list
+           (hoodi-fixture-trie-backed-prestate
+            +hoodi-3685491-fixture-directory+)
+           transactions
+           :expected-chain-id 560048
+           :chain-rules rules
+           :base-fee #x3721b7ca
+           :blob-base-fee (blob-base-fee #xc7c9894
+                                         :update-fraction update-fraction)
+           :coinbase (address-from-hex
+                      "0x09a43fd8ff63b79035f3c3bbe2e95c943fc0ed48")
+           :block-number number
+           :timestamp timestamp
+           :prev-randao
+           (hash32-from-hex
+            "0x53769235ade8c440a023a9e4f54a4d9cce024f98630f9b8722fbe8238bb958ed")
+           :context-gas-limit #x3938700)
+        (is (every (lambda (receipt) (= 1 (receipt-status receipt))) receipts))
+        ;; 1a7b9059 computed 785,933 for the eighth and 58,730,301 in all,
+        ;; exactly the live rejection.
+        (is (= 785936 (nth 7 (hoodi-fixture-per-transaction-gas receipts))))
+        (is (equal receipt-gas (hoodi-fixture-per-transaction-gas receipts)))
+        (is (= #x3802740 gas-used))))))

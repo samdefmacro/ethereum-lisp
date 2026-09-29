@@ -90,9 +90,7 @@
             (+ (memory-expansion-gas memory memory-offset size)
                (* topic-count +log-topic-gas+)
                (* size +log-data-gas+)))
-           (setf memory
-                 (ensure-memory-size memory
-                                     (+ memory-offset size)))
+           (setf memory (ensure-memory-region memory memory-offset size))
            (let ((topics '()))
              (loop repeat topic-count
                    do (push (word-to-hash32 (evm-stack-pop machine)) topics))

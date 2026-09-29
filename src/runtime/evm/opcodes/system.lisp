@@ -19,7 +19,7 @@
              size
              :rules (evm-context-chain-rules context)))
            (evm-machine-charge-memory-gas machine offset size)
-           (setf memory (ensure-memory-size memory (+ offset size)))
+           (setf memory (ensure-memory-region memory offset size))
            (let* ((state (evm-context-state context))
                   (creator (evm-context-address context))
                   (creator-account (account-or-empty state creator))
@@ -61,7 +61,7 @@
                :create2-p t
                :rules (evm-context-chain-rules context)))
              (evm-machine-charge-memory-gas machine offset size)
-             (setf memory (ensure-memory-size memory (+ offset size)))
+             (setf memory (ensure-memory-region memory offset size))
              (let* ((state (evm-context-state context))
                     (creator (evm-context-address context))
                     (initcode (memory-slice memory offset size))
