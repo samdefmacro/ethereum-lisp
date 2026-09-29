@@ -2158,7 +2158,20 @@ transfer that leaves the contract untouched."
             callback
             (ethereum-lisp.snap-sync::make-snap-sync-storage-closure-profile
              :outcome :too-wide :nodes-visited 7000 :multi-gets 9 :levels 4
-             :elapsed-ms 12)))
+             :elapsed-ms 12))
+           ;; A walk still reading reports progress the same way, again
+           ;; without counting as a page.
+           (funcall
+            callback
+            (ethereum-lisp.snap-sync::make-snap-sync-storage-closure-progress
+             :nodes-visited 4096 :multi-gets 3 :levels 2 :elapsed-ms 10000)))
+         ;; A stopping generation that waits for a lane says so.
+         (let ((stop (getf arguments :on-generation-stop)))
+           (is (functionp stop))
+           (funcall
+            stop
+            (ethereum-lisp.snap-sync::make-snap-sync-generation-stop-profile
+             :live-threads 3 :elapsed-ms 10000 :joined-p nil)))
          (apply import-function arguments))))
      (lambda ()
        (is
@@ -2260,6 +2273,30 @@ transfer that leaves the contract untouched."
             (is (= 9 (field record "multiGets")))
             (is (= 4 (field record "levels")))
             (is (= 12 (field record "elapsedMs")))))
+        (let ((progress-logs
+                (remove-if-not
+                 (lambda (record)
+                   (string= "peer.snap.storage_closure_progress"
+                            (first record)))
+                 logs))
+              (stop-logs
+                (remove-if-not
+                 (lambda (record)
+                   (string= "peer.snap.generation_stop" (first record)))
+                 logs)))
+          (is (= 1 (length progress-logs)))
+          (let ((record (first progress-logs)))
+            (is (null (field record "peer")))
+            (is (= 4096 (field record "nodesVisited")))
+            (is (= 3 (field record "multiGets")))
+            (is (= 2 (field record "levels")))
+            (is (= 10000 (field record "elapsedMs"))))
+          (is (= 1 (length stop-logs)))
+          (let ((record (first stop-logs)))
+            (is (= (block-header-number pivot-header) (field record "pivot")))
+            (is (= 3 (field record "liveThreads")))
+            (is (null (field record "joined")))
+            (is (= 10000 (field record "elapsedMs")))))
         ;; The shared source/target database makes this a reuse-only healing
         ;; pass. Its terminal snapshot still reaches the operator log.
         (is (= 1 (length heal-logs)))

@@ -80,6 +80,7 @@ record names no fix.
 - Hunting a false completion behind "Persisted trie node ... is missing": the cause is the forward batch importer's storage overlay → [sec5-false-completion-hunt.txt](sec5-false-completion-hunt.txt) → branch pending-storage-overlay (merged at 8e95b990)
 - Acceptance plan for the 8e95b990 live run (a plan, prepared and not run) → [sec5-8e95b990-acceptance-plan.txt](sec5-8e95b990-acceptance-plan.txt) → —
 - The closed-writer density test went red at 04a3aff4: the snap server's one-second budget cut a small contract in the flat-state fixture, which then counted as chunked; the writer and I1 were not at fault → [sec5-snap-closure-regression.txt](sec5-snap-closure-regression.txt) → 36954cd1 (test)
+- The a18b84e2 fresh-datadir run went silent for hours in the range phase: a stale-pivot yield's join waited on StorageRanges lanes stranded in the dependency pool (a retired peer woke one waiter of many, and nothing re-read the live peers); the join and the closure walk now report while they wait → [sec5-snap-range-silence.txt](sec5-snap-range-silence.txt) → d6ae24ba
 
 ### Section 5: Engine API, forward sync and head following
 

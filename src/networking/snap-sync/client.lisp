@@ -6018,7 +6018,24 @@ multi-gets issued."
                (funcall function group-values group-present start)))
     calls))
 
-(defun snap-sync-storage-root-closure-walk (database storage-root)
+(defparameter *snap-sync-storage-closure-progress-seconds* 10
+  "Least interval between progress reports of one storage-root closure walk.")
+
+(defstruct (snap-sync-storage-closure-progress
+            (:constructor make-snap-sync-storage-closure-progress
+                (&key nodes-visited multi-gets levels elapsed-ms)))
+  "Progress of one storage-root closure walk still running.
+
+The walk is bounded by *SNAP-SYNC-STORAGE-ROOT-CLOSURE-MAX-NODES* but can read
+for minutes on a store under compaction (43,657 ms for 66,470 nodes on Hoodi at
+a18b84e2), on the owning account page's thread and with nothing else logged."
+  (nodes-visited 0)
+  (multi-gets 0)
+  (levels 0)
+  (elapsed-ms 0))
+
+(defun snap-sync-storage-root-closure-walk
+    (database storage-root &key progress)
   "Walk STORAGE-ROOT's local trie down to its range-derived subtree proofs.
 
 Return the hash of every visited node and :CLOSED; or NIL and the reason the
@@ -6051,17 +6068,43 @@ but either is a refusal that publishes nothing.
 Only this client's own :STORAGE subtree proofs stop the descent.  Marker
 absence is not trusted here: an unmarked node is descended like a marked one,
 so the result never rests on the negative-marker bookkeeping it replaces.
-Inline children are shorter than a hash and so name no further node."
-  (let ((seen (make-hash-table :test #'equalp))
-        (visited '())
-        (count 0)
-        (calls 0)
-        (levels 0)
-        (frontier (list (hash32-bytes storage-root))))
+Inline children are shorter than a hash and so name no further node.
+
+PROGRESS, when present, receives a SNAP-SYNC-STORAGE-CLOSURE-PROGRESS after a
+multi-get whenever *SNAP-SYNC-STORAGE-CLOSURE-PROGRESS-SECONDS* have passed
+since the walk began or last reported; a walk shorter than that reports
+nothing."
+  (let* ((seen (make-hash-table :test #'equalp))
+         (visited '())
+         (visited-count 0)
+         (count 0)
+         (calls 0)
+         (level-groups 0)
+         (levels 0)
+         (started-at (get-internal-real-time))
+         (reported-at started-at)
+         (frontier (list (hash32-bytes storage-root))))
     (setf (gethash (first frontier) seen) t)
     (flet ((refuse (reason)
              (return-from snap-sync-storage-root-closure-walk
-               (values nil reason calls levels (length visited)))))
+               (values nil reason calls levels (length visited))))
+           (group-read ()
+             ;; Called once per multi-get group, after it was issued.
+             (incf level-groups)
+             (when progress
+               (let ((now (get-internal-real-time)))
+                 (when (>= (- now reported-at)
+                           (* *snap-sync-storage-closure-progress-seconds*
+                              internal-time-units-per-second))
+                   (setf reported-at now)
+                   (funcall
+                    progress
+                    (make-snap-sync-storage-closure-progress
+                     :nodes-visited visited-count
+                     :multi-gets (+ calls level-groups)
+                     :levels levels
+                     :elapsed-ms (snap-sync-elapsed-milliseconds
+                                  started-at now))))))))
       (loop while frontier
             do (incf levels)
                (let* ((hashes (coerce frontier 'vector))
@@ -6077,6 +6120,7 @@ Inline children are shorter than a hash and so name no further node."
                                 hash :storage))
                              hashes)
                         (lambda (proof-values proved start)
+                          (group-read)
                           (dotimes (index (length proved))
                             (if (= 1 (aref proved index))
                                 (unless (bytes= (aref proof-values index)
@@ -6085,7 +6129,8 @@ Inline children are shorter than a hash and so name no further node."
                                    "Persisted snap healed-subtree proof has an unknown version"))
                                 (push (aref hashes (+ start index))
                                       unproved))))))
-                 (setf unproved (coerce (nreverse unproved) 'vector))
+                 (setf level-groups 0
+                       unproved (coerce (nreverse unproved) 'vector))
                  (when (> (+ count (length unproved))
                           *snap-sync-storage-root-closure-max-nodes*)
                    (refuse :too-wide))
@@ -6094,6 +6139,7 @@ Inline children are shorter than a hash and so name no further node."
                        (snap-sync-storage-closure-read-groups
                         database :trie-node unproved
                         (lambda (nodes present start)
+                          (group-read)
                           (dotimes (index (length present))
                             (let ((hash (aref unproved (+ start index)))
                                   (encoded (aref nodes index)))
@@ -6102,6 +6148,7 @@ Inline children are shorter than a hash and so name no further node."
                               (unless (bytes= hash (keccak-256 encoded))
                                 (refuse :invalid-node))
                               (push hash visited)
+                              (incf visited-count)
                               (let ((items
                                       (handler-case
                                           (rlp-list-items
@@ -6144,7 +6191,8 @@ Inline children are shorter than a hash and so name no further node."
                                            (reference (second items)))))
                                     (otherwise
                                      (refuse :invalid-node))))))))))
-                 (setf frontier (nreverse next)))))
+                 (setf level-groups 0
+                       frontier (nreverse next)))))
     (values (nreverse visited) :closed calls levels count)))
 
 (defstruct (snap-sync-storage-closure-profile
@@ -6163,7 +6211,7 @@ zero when the attempt stopped before walking."
   (elapsed-ms 0))
 
 (defun snap-sync-publish-storage-root-closure
-    (database state-root account-hash storage-root &key write-lock)
+    (database state-root account-hash storage-root &key write-lock progress)
   "Publish STORAGE-ROOT's whole-root closure proof once its ranges are all in.
 
 This is geth's rule for a chunked contract, which clears needHeal only when
@@ -6188,7 +6236,8 @@ markers stay and the healer walks the trie as before.
 Only a store under the current closure contract takes this path; a legacy
 store keeps its behaviour.  Return :CLOSED, :ALREADY-CLOSED, :LEGACY-STORE,
 :NO-CURSOR-SET, :CURSORS-OPEN, or a reason from the walk; and, as a second
-value, a SNAP-SYNC-STORAGE-CLOSURE-PROFILE of the attempt."
+value, a SNAP-SYNC-STORAGE-CLOSURE-PROFILE of the attempt.  PROGRESS is
+handed to the walk (see SNAP-SYNC-STORAGE-ROOT-CLOSURE-WALK)."
   (let ((started-at (get-internal-real-time))
         (multi-gets 0)
         (nodes-visited 0)
@@ -6223,7 +6272,7 @@ value, a SNAP-SYNC-STORAGE-CLOSURE-PROFILE of the attempt."
                       (multiple-value-bind
                             (visited reason walk-gets walk-levels walk-nodes)
                           (snap-sync-storage-root-closure-walk
-                           database storage-root)
+                           database storage-root :progress progress)
                         (incf multi-gets walk-gets)
                         (setf levels walk-levels
                               nodes-visited walk-nodes)
@@ -8984,15 +9033,18 @@ for RocksDB compaction or a preceding batch write."
     ;; Before the owning account page resumes, so the closed account writer
     ;; reads this root's proof when it judges the account leaf.
     (when (eq terminal :completed)
-      (let ((profile
-              (nth-value
-               1
-               (snap-sync-publish-storage-root-closure
-                database state-root account-hash storage-root
-                :write-lock
-                (snap-sync-multi-runtime-database-write-lock runtime))))
-            (callback
-              (snap-sync-multi-runtime-storage-profile-callback runtime)))
+      (let* ((callback
+               (snap-sync-multi-runtime-storage-profile-callback runtime))
+             (profile
+               (nth-value
+                1
+                (snap-sync-publish-storage-root-closure
+                 database state-root account-hash storage-root
+                 :write-lock
+                 (snap-sync-multi-runtime-database-write-lock runtime)
+                 ;; A long walk reports through the same callback, as a
+                 ;; SNAP-SYNC-STORAGE-CLOSURE-PROGRESS, while it runs.
+                 :progress callback))))
         ;; One observational record per closure attempt, through the storage
         ;; profile callback.  The attempt runs on the owning page's thread, so
         ;; its cost is page latency: on Hoodi at aac5f762 it made every
@@ -9416,13 +9468,67 @@ range-derived subtree proofs."
             (snap-sync-multi-runtime-pages runtime))
       t)))
 
+(defparameter *snap-sync-generation-stop-report-seconds* 10
+  "Interval between reports while a stopping range generation joins its lanes.")
+
+(defstruct (snap-sync-generation-stop-profile
+            (:constructor make-snap-sync-generation-stop-profile
+                (&key live-threads elapsed-ms joined-p)))
+  "Observational state of a range generation that is joining its threads.
+
+A stopping generation waits for every account, dependency, ByteCodes and
+StorageRanges lane and for the storage committer.  Nothing else is logged
+while it waits, so a lane that never returns is an otherwise silent stall
+(Hoodi, a18b84e2: docs/evidence/sec5-snap-range-silence.txt).  LIVE-THREADS
+counts the lanes still running, ELAPSED-MS the time since the stop, and
+JOINED-P is true on the one report made after a slow join completes."
+  (live-threads 0)
+  (elapsed-ms 0)
+  (joined-p nil))
+
+#+sbcl
+(defun snap-sync-join-generation-threads (threads report)
+  "Join every thread of THREADS, reporting through REPORT while any is slow.
+
+REPORT, when present, receives a SNAP-SYNC-GENERATION-STOP-PROFILE each
+*SNAP-SYNC-GENERATION-STOP-REPORT-SECONDS* a join has not finished, and once
+more after the last join if it reported at all.  The join itself stays
+unbounded: a lane still running may yet publish a batch, so it is never
+abandoned.  A thread that ended by an unhandled condition is joined once more
+without a default, which signals as the plain join did."
+  (let ((started-at (get-internal-real-time))
+        (reported-p nil))
+    (flet ((report (joined-p)
+             (when report
+               (setf reported-p t)
+               (funcall
+                report
+                (make-snap-sync-generation-stop-profile
+                 :live-threads (count-if #'sb-thread:thread-alive-p threads)
+                 :elapsed-ms (snap-sync-elapsed-milliseconds
+                              started-at (get-internal-real-time))
+                 :joined-p joined-p)))))
+      (dolist (thread threads)
+        (loop
+          (multiple-value-bind (value status)
+              (sb-thread:join-thread
+               thread :default nil
+               :timeout *snap-sync-generation-stop-report-seconds*)
+            (declare (ignore value))
+            (cond
+              ((sb-thread:thread-alive-p thread) (report nil))
+              ((eq status :abort) (sb-thread:join-thread thread) (return))
+              (t (return))))))
+      (when reported-p
+        (report t)))))
+
 #+sbcl
 (defun snap-sync-import-state-multi
     (database sources
      &key pivot-hash pivot-number state-root chain-id genesis-hash authority-id
           target-hash (byte-limit +snap-sync-request-bytes+)
           on-progress on-page-profile on-storage-profile on-source-error
-          on-heal-progress
+          on-heal-progress on-generation-stop
           heal-source-provider range-yield-p heal-yield-p max-pages)
   "Import one pivot through disjoint durable ranges shared across SOURCES.
 
@@ -9445,7 +9551,10 @@ content-addressed traversal. Newly connected sources join the range phase up to
 the task concurrency bound; a failed source identity is never started twice in
 one import. RANGE-YIELD-P runs only after a verified account page and its
 cursor are durable; a true result stops the current pivot without discarding
-those cursors. HEAL-YIELD-P is forwarded to final healing."
+those cursors. HEAL-YIELD-P is forwarded to final healing. When the generation
+stops, ON-GENERATION-STOP receives a SNAP-SYNC-GENERATION-STOP-PROFILE each
+time its lanes have not all joined for *SNAP-SYNC-GENERATION-STOP-REPORT-SECONDS*,
+and once more when such a slow join completes."
   (unless (typep database 'key-value-database)
     (error "Snap state import requires a key-value database"))
   (setf sources (remove-duplicates (copy-list sources) :test #'eq))
@@ -9762,16 +9871,11 @@ those cursors. HEAL-YIELD-P is forwarded to final healing."
         (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
           (setf (snap-sync-multi-runtime-stopped-p runtime) t)
           (snap-sync-multi-notify runtime))
-        (dolist (thread threads)
-          (sb-thread:join-thread thread))
-        (dolist (thread dependency-threads)
-          (sb-thread:join-thread thread))
-        (dolist (thread code-threads)
-          (sb-thread:join-thread thread))
-        (dolist (thread storage-threads)
-          (sb-thread:join-thread thread))
+        (snap-sync-join-generation-threads
+         (append threads dependency-threads code-threads storage-threads
+                 (and storage-commit-thread (list storage-commit-thread)))
+         on-generation-stop)
         (when storage-commit-thread
-          (sb-thread:join-thread storage-commit-thread)
           (sb-thread:with-mutex ((snap-sync-multi-runtime-lock runtime))
             (setf
              (snap-sync-multi-runtime-storage-committer-active-p runtime) nil)

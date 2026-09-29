@@ -1451,6 +1451,8 @@ for event in \
     peer.snap.page_profile \
     peer.snap.storage_profile \
     peer.snap.storage_closure \
+    peer.snap.storage_closure_progress \
+    peer.snap.generation_stop \
     peer.snap.heal_progress \
     peer.snap.sources_refreshed \
     peer.snap.dependency_failed \
@@ -1474,7 +1476,9 @@ for event in \
     peer.dial.refused \
     peer.dial.failed
 do
-    count="$(grep -F -c "$event" "$el_log" || true)"
+    # Match the quoted name: peer.snap.storage_closure is a prefix of
+    # peer.snap.storage_closure_progress.
+    count="$(grep -F -c "\"$event\"" "$el_log" || true)"
     printf 'el-event=%s count=%s\n' "$event" "$count"
 done
 stale_lines="$(grep -F 'peer.snap.target_stale' "$el_log" || true)"
