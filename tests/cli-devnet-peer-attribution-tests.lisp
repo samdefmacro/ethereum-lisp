@@ -257,8 +257,19 @@ and ignored. Returns how the loop ended."
                          queue))
                     (is (= -25
                            (ethereum-lisp.cli::devnet-peer-score table id-hex)))
-                    (is (find "peer.dial.failed" logs
-                              :key #'first :test #'string=))))))
+                    ;; The dial thread logs after the session's own teardown,
+                    ;; so the entry can be gone before the line is: wait for
+                    ;; it as the sibling tests do (flaked once under a loaded
+                    ;; cold-all at ff264c42).
+                    (wait-for-test-condition
+                     "peer.dial.failed after the teardown" 5d0
+                     (lambda ()
+                       (sb-thread:with-mutex (logs-lock)
+                         (find "peer.dial.failed" logs
+                               :key #'first :test #'string=))))
+                    (is (sb-thread:with-mutex (logs-lock)
+                          (find "peer.dial.failed" logs
+                                :key #'first :test #'string=)))))))
           (ethereum-lisp.cli:devnet-shutdown-request controller)
           (when dial-thread
             (sb-thread:join-thread dial-thread :timeout 15 :default :timeout))
