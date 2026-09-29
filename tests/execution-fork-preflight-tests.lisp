@@ -357,6 +357,43 @@
     (is (= 1 (state-account-balance
               (state-db-get-account state recipient))))))
 
+(deftest amsterdam-block-access-list-lists-a-zero-tip-coinbase
+  ;; geth credits the coinbase even a zero priority fee, and EIP-7928 then
+  ;; lists it with no change: tests-glamsterdam-devnet@v7.2.1
+  ;; bal_coinbase_zero_tip, and every engine fixture whose gas price equals
+  ;; its base fee. Gas price 1 over base fee 1 is a zero tip here.
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 10))
+         (header (make-block-header :timestamp 10
+                                    :beneficiary coinbase
+                                    :gas-limit 250000
+                                    :base-fee-per-gas 1))
+         (transaction (make-legacy-transaction :nonce 0
+                                               :gas-price 1
+                                               :gas-limit 250000
+                                               :to recipient
+                                               :value 1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 500000))
+    (let* ((block (execute-legacy-block state sender (list transaction)
+                                        :header header
+                                        :chain-config config))
+           (entry (find (address-bytes coinbase)
+                        (block-block-access-list block)
+                        :key (lambda (account)
+                               (address-bytes
+                                (block-access-account-address account)))
+                        :test #'equalp)))
+      (is entry)
+      (is (null (block-access-account-balance-changes entry)))
+      (is (null (block-access-account-nonce-changes entry)))
+      ;; The coinbase gained nothing, so the state has no account for it.
+      (is (null (state-db-get-account state coinbase))))))
+
 (deftest block-execution-preflights-block-access-list-item-gas-limit
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
