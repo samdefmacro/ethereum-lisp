@@ -1535,6 +1535,12 @@
    #:execute-and-commit-block
    #:execute-and-commit-signed-block)
   (#:ethereum-lisp.block-import
+   #:block-execution-internal-error
+   #:block-execution-internal-error-block-number
+   #:block-execution-internal-error-block-hash
+   #:block-execution-internal-error-cause
+   #:block-execution-internal-storage-error
+   #:block-execution-internal-condition-p
    #:build-private-block-candidate
    #:import-executable-payload
    #:import-block-candidate

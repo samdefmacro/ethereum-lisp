@@ -1,0 +1,353 @@
+Section 5: EVM memory-region and internal-error audit against go-ethereum v1.17.6
+
+Status
+
+Branch evm-edge-audit, from a6d2b58b (a6d2b58bb86d0d44ea1e7c1a73c6b0b20e45d5d9
+per `git rev-parse a6d2b58b`). Two questions, after three consensus divergences
+reached Hoodi in a week outside EEST coverage (3684027, sec5-hoodi-gas-
+mismatch.txt; 3685491, sec5-hoodi-gas-3685491.txt):
+
+1. Does any other opcode that takes a memory region diverge from go-ethereum
+   the way the zero-length LOG of 3685491 did?  No.  Every memory rule below
+   matches v1.17.6 (the local reference tree, references/go-ethereum,
+   version/version.go 1.17.6); 3685491's fix d7a28c6c was the last divergence.
+   The rules are now pinned by five tests with seven mutation controls.
+2. What happens when a non-EVM condition escapes block execution?  At
+   a6d2b58b it never became INVALID, but on the sync paths it stopped the
+   node, and on the Engine path nothing was logged.  Fixed: it is now a typed
+   internal-error outcome, logged loudly, never a verdict, never an exit.
+
+Not deployed; no live run.
+
+Revision
+
+  331f2a82  test(evm): pin every memory region rule against go-ethereum v1.17.6
+  af15da12  block-import: an internal execution failure is no verdict and does
+            not stop the node
+  (the commit adding this record follows them)
+
+================================================================================
+1. Memory regions: go-ethereum v1.17.6 against ours
+================================================================================
+
+Rules common to every region (go-ethereum):
+
+  G1 core/vm/common.go calcMemSize64 / calcMemSize64WithUint: a size that does
+     not fit 64 bits, or an offset that does not, or offset + size wrapping
+     2^64, is an overflow (ErrGasUintOverflow); a size of ZERO is memory size 0
+     "regardless of offset", even 2^256 - 1.
+  G2 core/vm/interpreter.go: memorySize = toWordSize(size) * 32 (overflow ->
+     ErrGasUintOverflow); dynamic gas is charged first; memory is resized only
+     "if memorySize > 0".
+  G3 core/vm/gas_table.go memoryGasCost: a size above 0x1FFFFFFFE0 is
+     ErrGasUintOverflow; otherwise words = ceil(size / 32), total = 3 * words
+     + floor(words^2 / 512), and the charge is the difference from the last
+     total (only when memory grows).
+  G4 Every one of those errors is an exceptional halt: evm.Call keeps no gas
+     for any error but ErrExecutionReverted.
+
+Ours (src/runtime/evm/memory.lisp): MEMORY-EXPANSION-GAS is 0 for a zero size
+and otherwise prices ceil((offset + size) / 32) words with MEMORY-TOTAL-GAS
+(3 * words + floor(words^2 / 512)) against the current length, in integers
+without a 64-bit bound; ENSURE-MEMORY-REGION, MEMORY-SLICE, COPY-INTO-MEMORY,
+COPY-MEMORY-REGION and MEMORY-REGIONS-HIGH-WATER all skip a zero size.  Every
+handler charges before it resizes.  Where geth reports an overflow, our price
+is at least 3 * 2^59 gas (2^64 bytes); no frame holds that (a transaction is
+capped at 2^24 gas under Osaka, EIP-7825), so the charge fails as out of gas:
+the same exceptional halt (G4).  Verified by the halt test below: no host
+error is reachable on a metered path.
+
+  opcode             geth (v1.17.6)                         ours                          verdict
+  -----------------  -------------------------------------  ----------------------------  -------
+  MLOAD, MSTORE,     memoryMLoad/MStore/MStore8:             charge (offset, 32|1), then   same
+  MSTORE8            calcMemSize64WithUint(off, 32|1)        resize; never zero size
+  KECCAK256          memoryKeccak256 (off, size); gas 30 +   same; zero size free since    same
+                     6 * words + memory                      d7a28c6c
+  CALLDATACOPY,      memoryCallDataCopy/CodeCopy (memOff,    charge copy (3 * words) +     same
+  CODECOPY           size); getData pads, a source offset    memory, then PADDED-DATA-
+                     past 2^64 reads as MaxUint64 (zeros)    SLICE (zeros past the end)
+  EXTCODECOPY        memoryExtCodeCopy; gasExtCodeCopy-      100 + 2,500 cold, then copy   same
+                     EIP2929: 100 + 2,500 cold + copy +      + memory
+                     memory
+  RETURNDATACOPY     memoryReturnDataCopy; opReturnData-     charge, then BOUNDED-DATA-    same
+                     Copy: offset past 2^64, or offset +     SLICE: offset + size > len
+                     size past 2^64 or past len(return-      halts, for a zero size too
+                     Data) -> ErrReturnDataOutOfBounds,
+                     for a zero size too
+  MCOPY              memoryMcopy: max(dst, src), size        MEMORY-REGIONS-HIGH-WATER of  same
+                                                             both regions (the same max)
+  RETURN, REVERT     memoryReturn/Revert (off, size)         charge, MEMORY-SLICE (empty   same
+                                                             for size 0, no resize)
+  LOG0-LOG4          memoryLog; gasLog: 375 + 375 * topics   same; zero size free since    same
+                     + 8 * size + memory                     d7a28c6c
+  CREATE, CREATE2    memoryCreate/Create2 (off, size);       initcode size check and       same
+                     gasCreateEip3860: size past             words first, then memory;
+                     MaxInitCodeSize halts; 2 words (+6      each failure halts; zero size
+                     for CREATE2) + memory                   free since d7a28c6c
+  CALL, CALLCODE,    memoryCall/DelegateCall/StaticCall:     MEMORY-REGIONS-HIGH-WATER     same
+  DELEGATECALL,      max of the args and return regions,     (zero size -> 0), charged
+  STATICCALL         each through calcMemSize64; the         before the call
+                     EIP-150 cap is taken after memory,
+                     value, new-account, cold and 7702
+                     charges (makeCallVariantGasCallEIP2929,
+                     makeCallVariantGasCallEIP7702)
+  CALL return data   opCall: "if err == nil || err ==        COPY-CHILD-RETURN-DATA-TO-    same
+                     ErrExecutionReverted" Memory.Set(ret-   MEMORY with CALL-OUTPUT-DATA-
+                     Offset, retSize, ret), which copies     SLICE (min); a failed child's
+                     min(retSize, len(ret)) into memory      data is empty; RETURNDATA-
+                     already resized to the paid region;     BUFFER is the child's data
+                     returnData = ret (nil on other errors)
+
+Osaka adds CLZ (no memory); Amsterdam's DUPN, SWAPN and EXCHANGE take no
+memory (and Amsterdam execution is gated off).  The dispatcher has no EOF
+opcodes.  Precompiles read only the CALL arguments region as their input and
+touch no memory of their own; their arithmetic was not in scope (EEST covers
+it).
+
+One path diverges and is not consensus: EXECUTE-BYTECODE without :GAS-LIMIT
+(gasless diagnostic tooling) charges nothing it can refuse, so a huge nonzero
+region there raises a host TYPE-ERROR.  Every consensus and RPC path passes a
+gas limit (APPLY-MESSAGE, APPLY-CONTRACT, system calls, call simulation).
+
+Tests (unit, tests/evm-memory-region-audit-tests.lisp, 331f2a82), metered
+under Osaka rules, gas derived by hand from geth's schedule:
+
+  EVM-MEMORY-AUDIT-ZERO-LENGTH-REGIONS-ARE-FREE-AT-OFFSET-TWO-TO-THE-256
+    every region opcode with size 0 at 2^256 - 1: success, exact gas (37, 382,
+    13, 13, 12, 2,613, 13, 32,009, 32,011, 2,619, 2,619, 2,617, 2,617; RETURN
+    and REVERT 5), MSIZE 0 after.
+  EVM-MEMORY-AUDIT-UNPAYABLE-REGIONS-HALT-AND-NEVER-SIGNAL-A-HOST-ERROR
+    17 region shapes at offsets 2^256 - 1, 2^64 - 1 (crossing 2^64) and 2^32,
+    and seven size-driven shapes with size 2^256 - 1: each an EVM-ERROR; a
+    host condition would escape the test.  Payable positive controls succeed.
+  EVM-MEMORY-AUDIT-CALL-COPIES-AT-MOST-THE-RETURN-DATA-INTO-A-PAID-REGION
+    4 bytes into a 32-byte region of ff (28 ff kept, gas 2,652), into a
+    2-byte region, from a reverting callee (copied, success 0), from an
+    INVALID callee (nothing copied, RETURNDATASIZE 0); a (64, 32) region from
+    empty memory is paid and sized in full (MSIZE 96, gas 2,646).
+  EVM-MEMORY-AUDIT-RETURNDATACOPY-PAST-THE-BUFFER-HALTS-EVEN-WHEN-EMPTY
+    (0,4) and (4,0) succeed; (1,4), (0,5), (5,0), (2^256 - 1, 0) halt.
+  EVM-MEMORY-AUDIT-EXPANSION-PRICE-ROUNDS-WORDS-UP-AND-THE-SQUARE-DOWN
+    MSTORE8 at 31 and 32 (1 and 2 words); 128 -> 129 -> 130 words costs +3
+    then +4 (16,641 / 512 = 32.5 rounds down); 1,024 words is 5,120.
+
+All five pass on a6d2b58b (warm image, `cl-workbench test NAME`, EXIT=0 each):
+there is no divergence to show RED.  Mutation controls, each installed with
+SETF FDEFINITION in a temporary probe test (deleted before commit), each
+turned its test red, and each test passed again after the restore:
+
+  mutant                                              red test / failure
+  MEMORY-REGIONS-HIGH-WATER without the zero skip     zero-length: "EVM out of gas" (CALL)
+  CALL-OUTPUT-DATA-SLICE padded to retSize            CALL copy: the 28 ff bytes
+  BOUNDED-DATA-SLICE passing any zero size            RETURNDATACOPY: (5, 0) did not halt
+  MEMORY-TOTAL-GAS with CEILING                       price: 13 at MSTORE8 31
+  COPY-INTO-MEMORY without the zero skip              zero-length: host TYPE-ERROR
+  MEMORY-EXPANSION-GAS 0 past 2^64                    halt test: host TYPE-ERROR
+  ENSURE-MEMORY-REGION unconditional (pre-d7a28c6c)   zero-length: host TYPE-ERROR
+
+================================================================================
+2. A condition that escapes block execution
+================================================================================
+
+Classification at a6d2b58b.  Block execution ends VALID or in a condition.
+BLOCK-VALIDATION-ERROR and TRANSACTION-VALIDATION-ERROR are verdicts (INVALID,
+cached in the process); STATE-UNAVAILABLE-ERROR is SYNCING.  Everything else
+-- a host TYPE-ERROR (3685491 before d7a28c6c, offset 2^256 - 1), an
+arithmetic error, a storage read, a missing BLS/KZG backend -- was re-signalled
+unchanged:
+
+  path                                  at a6d2b58b                       after af15da12
+  ------------------------------------  --------------------------------  ---------------------------------
+  Engine newPayload                     no verdict; JSON-RPC -32603        the same answer, plus
+  (IMPORT-EXECUTABLE-PAYLOAD,           "Internal error"; the RPC router   engine.execution.internal_error
+  ENGINE-NEW-PAYLOAD-MEMORY-STATUS      drops the condition: nothing       (:error) with source engine,
+  "(error (condition) (error            logged                             block, hash, condition, error
+  condition))")
+  Coordinator pass: forward download,   no verdict; the condition escapes  contained: logged as above
+  its batch importer, the Engine        DEVNET-NODE-SYNC-COORDINATOR-PASS  (source p2p) and as
+  target import, gap fill with a live   to the coordinator's outer         peer.sync.execution_internal_error;
+  peer, the snap tail                   serious-condition boundary, which  the hold rolls back, the pass
+                                        STOPS THE NODE                     returns NIL, the next pass
+                                                                           executes the block again
+  Gap fill / gossiped block on a peer   no verdict; the session            unchanged, but typed and logged
+  session thread                        supervisor logs peer.dial.failed   (not tested)
+                                        and ends that peer's session
+  Staged import (IMPORT-BLOCK-          raw condition to the caller        typed condition to the caller
+  CANDIDATE :STAGED)                                                       (no devnet executor: not logged)
+
+A storage failure while READING state inside execution was a STORAGE-ERROR,
+which the coordinator treats as fatal (sec5-sync-outcomes-nonfatal.txt, K6).
+It is now BLOCK-EXECUTION-INTERNAL-STORAGE-ERROR: still a STORAGE-ERROR to
+every storage-aware caller and test, and contained by the coordinator like the
+rest.  Storage failures outside execution (durable exporters, batches) are
+untouched and stay fatal.
+
+References.  go-ethereum v1.17.6 is not the model here: eth/catalyst/api.go
+newPayload marks the block INVALID (invalidBlocksHits, invalidTipsets) for ANY
+error from InsertBlockWithoutSetHead, internal or not.  Nethermind
+(references/nethermind, Nethermind.Merge.Plugin/Handlers/NewPayloadHandler.cs,
+GetProcessingQueueOnBlockRemoved): ProcessingResult.Exception completes the
+wait with an exception, so the request fails with an RPC error and
+TryCacheResult never caches it; only ProcessingError is INVALID.  We follow
+Nethermind: -32603 for the request, no verdict.
+
+Fix (af15da12).
+  src/application/services/block-import.lisp
+    BLOCK-EXECUTION-INTERNAL-ERROR (block number, hash, cause) and
+    BLOCK-EXECUTION-INTERNAL-STORAGE-ERROR; BLOCK-EXECUTION-INTERNAL-
+    CONDITION-P (an ERROR that is not a verdict, not SYNCING, not already
+    typed); CALL-WITH-BLOCK-EXECUTION-INTERNAL-ERRORS, a HANDLER-BIND around
+    the executor call in BLOCK-IMPORT-EXECUTE-PREVALIDATED-CANDIDATE, the one
+    place Engine, P2P and staged imports execute.  Verdicts and SYNCING pass
+    through untouched to their classifiers; the new condition escapes the
+    atomic commit, so the import rolls back and no verdict is cached.
+  src/app/cli/devnet/node.lisp
+    DEVNET-BLOCK-EXECUTOR: the executor for Engine (:engine), public (:public)
+    and P2P (:p2p) ingress; it logs engine.execution.internal_error to the
+    node's sink before the service classifies the condition (a failing sink
+    cannot replace the condition).
+  src/app/cli/devnet/peer-sync.lisp
+    the P2P import passes that executor.
+  src/app/cli/devnet/dialer.lisp
+    DEVNET-NODE-SYNC-COORDINATOR-PASS contains BLOCK-EXECUTION-INTERNAL-ERROR
+    as peer.sync.execution_internal_error.
+
+Tests.
+  BLOCK-IMPORT-INTERNAL-EXECUTION-ERROR-IS-NO-VERDICT-AND-NAMES-THE-BLOCK
+    (unit, tests/core-block-import-service-tests.lisp): an executor that
+    signals the TYPE-ERROR 3685491 raised, through the P2P and the Engine
+    entry points: an error, not a verdict, naming the block's hash and the
+    host condition; no cached verdict, nothing admitted; the typed readers;
+    a storage failure is both a STORAGE-ERROR and the internal error; the
+    same block then imports VALID.
+  BLOCK-IMPORT-VERDICTS-AND-SYNC-OUTCOMES-ARE-NOT-INTERNAL-ERRORS (unit):
+    positive control: STATE-UNAVAILABLE is still SYNCING, a
+    BLOCK-VALIDATION-ERROR from execution is still INVALID and cached.
+  DEVNET-SNAP-TAIL-INTERNAL-EXECUTION-ERROR-IS-NO-VERDICT-AND-NO-EXIT
+    (integration, tests/cli-devnet-snap-tail-tests.lisp): RocksDB node, the
+    shipped coordinator pass and snap tail; block 22's execution signals the
+    TYPE-ERROR once.  The pass returns NIL; block 21 executed, 22 not; no
+    verdict in memory, no :invalid-tipset record, no invalid_ancestor; one
+    engine.execution.internal_error at :error naming p2p, block 22, its hash
+    and the type; one peer.sync.execution_internal_error; the next pass
+    completes the target (3).
+  DEVNET-ENGINE-NEW-PAYLOAD-INTERNAL-EXECUTION-ERROR-IS-AN-RPC-ERROR
+    (integration): newPayload of block 1 through the node's shipped Engine
+    RPC context with the TYPE-ERROR injected: a JSON-RPC error -32603 and no
+    result, no verdict, one engine.execution.internal_error (engine, block 1,
+    hash, type); the retry answers VALID.
+
+RED at a6d2b58b (tests added to the base tree, warm image restarted,
+`cl-workbench test NAME`):
+  BLOCK-IMPORT-INTERNAL-...                 EXIT=1 "Assertion failed: (SEARCH
+                                            (HASH32-TO-HEX HASH) ...)" (the raw
+                                            TYPE-ERROR names no block)
+  BLOCK-IMPORT-VERDICTS-AND-SYNC-...        EXIT=0 (positive control)
+  DEVNET-SNAP-TAIL-INTERNAL-...             EXIT=1 "The coordinator pass let an
+                                            internal execution error escape: The
+                                            value 1157...9936 ..."
+  DEVNET-ENGINE-NEW-PAYLOAD-INTERNAL-...    EXIT=1 "Assertion failed: (= 1
+                                            (LENGTH EVENTS))" -- -32603 and no
+                                            verdict already held; the log did not
+GREEN at af15da12 (warm image): all four EXIT=0, and the neighbours
+ENGINE-NEW-PAYLOAD-REFUSES-WHEN-A-PRECOMPILE-BACKEND-IS-UNAVAILABLE,
+BLOCK-IMPORT-P2P-LOCAL-STATE-CORRUPTION-IS-NOT-AN-INVALID-VERDICT and
+BLOCK-IMPORT-P2P-DURABLE-CANONICAL-INDEX-CORRUPTION-IS-NOT-INVALID EXIT=0.
+Mutation controls (temporary probe, SETF FDEFINITION, deleted before commit;
+each test passed again after the restore):
+  CALL-WITH-BLOCK-EXECUTION-INTERNAL-ERRORS as a plain FUNCALL
+      unit test red (no hash); snap tail red (TYPE-ERROR escaped the pass)
+  the same wrapper signalling an untyped SIMPLE-ERROR that names the block
+      snap tail red (escaped): the coordinator contains the TYPE, not the text
+  DEVNET-LOG-EXECUTION-INTERNAL-ERROR as a no-op
+      Engine test red and snap tail red (= 1 (LENGTH EVENTS))
+  BLOCK-EXECUTION-OUTCOME-CONDITION-P without the verdict types
+      verdict control red: a gas-mismatch became an internal error
+
+A first draft asserted the phrase "is not of type" in the condition text; it
+failed only inside our report, because SBCL prints a TYPE-ERROR in a
+fill-mode logical block and breaks lines at its spaces when it starts mid-line.
+The tests search the type's bound 4611686018427387901 instead.
+
+================================================================================
+3. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0 (before the first run).
+
+Cold, on af15da12 (tree clean but for this record; logs redirected to files):
+  cl-workbench validation run cold-unit --match EVM --match GAS --match OPCODE
+    --match MEMORY --match PRECOMPILE --match STATE
+      392 tests passed, 1 skipped (PINNED-V5.4.0-LATE-FORK-STATE-TEST-FAMILIES-
+      EXECUTE: no corpus root in this lane), 0 not ok, EXIT=0; includes the
+      five EVM-MEMORY-AUDIT-* tests
+  cl-workbench validation run cold-integration --match EVM --match FIXTURE
+    --match NEW-PAYLOAD --match HOODI
+      32 tests passed, 0 skipped, EXIT=0; HOODI-3684027- and HOODI-3685491-GAS-
+      USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE both "ok" with their fixtures
+      hard-linked (cp -al) from the main checkout; includes DEVNET-ENGINE-NEW-
+      PAYLOAD-INTERNAL-EXECUTION-ERROR-IS-AN-RPC-ERROR
+  cl-workbench validation run cold-unit --match BLOCK-IMPORT --match
+    ARCHITECTURE --match PACKAGE --match DEVNET-PEER-RANGE --match NEW-PAYLOAD
+    --match ENGINE --match DEVNET-SYNC-COORDINATOR --match HTTP-SERVICE
+    --match DEVNET-NODE
+      218 tests passed, EXIT=0; includes both BLOCK-IMPORT-* tests above and
+      PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC / -INCLUDES-SOURCE-REFERENCES
+  cl-workbench validation run cold-integration --match DEVNET-SNAP --match
+    DEVNET-ENGINE --match DEVNET-SYNC-COORDINATOR --match RESTART-BEHIND
+    --match FORWARD --match DEVNET-PEER --match BLOCK-IMPORT --match INVALID
+      63 tests passed, EXIT=0; includes every DEVNET-SNAP-TAIL-* test
+  cl-workbench validation run cold-e2e --match DEVNET-SMOKE-GATE --match
+    RESTART --match ENGINE
+      5 + 11 tests passed, EXIT=0
+
+EEST tests@v20.0.2 (the executor call on the consensus path is wrapped; no gas
+or state code changed).  docs/evidence/gates.md, row af15da12.
+fixtures.tar.gz re-hashed on the control plane before the run:
+1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788 (= the pin);
+the tree hard-linked (cp -al) from <main checkout>/.eest-fixtures-stable-v20.0.2
+into <worktree>/.eest-fixtures-h1.  Selectors, commands and container shape as
+in sec5-b5161312-eest-v20.0.2.txt: one retained cold container per gate
+(COLD_TEST_CONTAINER=ethereum-lisp-cold-eest-h1-af15da12-<slug>), sequential,
+stdin from /dev/null, stdout+stderr redirected to a file, 2026-09-29T03:58:01Z
+to 04:14:33Z, HEAD af15da12d3a374e7bc6c1ff3097283f84d68edc3 and `git status
+--porcelain` empty before and after:
+
+  slug                 cmd  container  OOM    wall  result
+  state-manifest       0    0          false   98s  1 test passed
+  blockchain-manifest  0    0          false  103s  1 test passed
+  rlp-manifest         0    0          false  116s  1 test passed
+  state                0    0          false  132s  1 test passed
+  blockchain           0    0          false  120s  1 test passed
+  engine-late          0    0          false  147s  1 test passed
+  engine-reject        0    0          false  100s  1 test passed
+  rlp                  0    0          false  176s  1 test passed
+
+8/8, zero "not ok"; the only lines matching "skip" are the manifest lines'
+"skipped=" fields.  The six EEST-CONFORMANCE manifest lines are byte-identical
+(sorted, diff) to those in sec5-b5161312-eest-v20.0.2.txt: 15,393 state,
+11,382 Engine replay, 10,257 RLP replay, unexpectedSkipped=0 in each.  A first
+attempt stopped after the first gate (passed) because the runner loop's stdin
+was consumed by the first command; it was rerun whole with stdin closed.  All
+nine retained containers were removed after their exit codes were read.
+
+================================================================================
+Not verified
+================================================================================
+
+- Nothing deployed; no live block has exercised the internal-error path.
+- A gap fill or gossiped block that fails internally on a PEER SESSION thread
+  still ends that peer's session (peer.dial.failed, as for any session
+  error): our defect is charged to the peer that delivered the block.  Not
+  tested and not changed.
+- The Engine path's prepared-payload shortcut (a newPayload that reuses this
+  node's own build) executes through EXECUTE-AND-COMMIT-BLOCK inside the
+  classified wrapper, so it is typed, but the devnet executor's log does not
+  run for it.
+- Staged import gets the typed condition but no log line.
+- A persistent internal failure (a corrupt database read, say) is now retried
+  on every sync pass with a loud log line each time, instead of stopping the
+  node.  No back-off was added.
+- The memory audit covers the rules in section 1; precompile arithmetic,
+  access-list warmth and EIP-7702 delegation costs were not re-audited.
+- cold-all was not run (fleet rule; the coordinator runs it once).

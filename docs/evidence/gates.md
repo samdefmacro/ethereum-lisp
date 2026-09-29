@@ -71,6 +71,7 @@ upstream `abbe05777ab83fb94ce18c425daaa7ab79e779c1`); Hive
 | 70409b12 | 2026-09-24 | — | 8/8 | — | — | — | — | hoodi-gas-mismatch branch (X) on 04a3aff4: lazy-state slot lost on revert (Hoodi 3684027) and persisted INVALID verdicts; record sec5-hoodi-gas-mismatch.txt |
 | 3c58f4a5 | 2026-09-29 | — | 8/8 | — | — | — | — | hoodi-gas-3685491 branch (G1) on 1a7b9059: a zero-length LOG/KECCAK256/CREATE/CREATE2 grew memory uncharged (Hoodi 3685491, 3 gas short); manifest lines identical to b5161312; record sec5-hoodi-gas-3685491.txt |
 | 1a7b9059 | 2026-09-29 | — | — | — | — | — | offline differential replay, 322 blocks: 316 match every header commitment (state root included), 4 diverge (3685491, 3685492, 3685546, 3685584: EntryPoint handleOps 3 gas short), 2 unreplayable (witness gap) | replay gate added on hoodi-differential-replay (879f7454, tests only, src identical); record sec5-hoodi-differential-replay.txt |
+| af15da12 | 2026-09-29 | — | 8/8 | — | — | — | — | evm-edge-audit branch (H1) on a6d2b58b: memory-region audit (no divergence) and internal execution failures typed, logged, never INVALID, contained by the sync pass; manifest lines identical to b5161312; record sec5-evm-edge-audit.txt |
 
 ## Revisions and source records
 
@@ -119,6 +120,7 @@ one with
 | 70409b12 | `70409b12184b5577da44e158d5d819c5d533183d` | sec5-hoodi-gas-mismatch.txt |
 | 3c58f4a5 | `3c58f4a5be7328302631ae37fe003f3d7c60c0b6` | sec5-hoodi-gas-3685491.txt |
 | 1a7b9059 | `1a7b9059fef8ab705e6b0b56db831c7e6adef911` | sec5-hoodi-differential-replay.txt |
+| af15da12 | `af15da12d3a374e7bc6c1ff3097283f84d68edc3` | sec5-evm-edge-audit.txt |
 
 Full revisions that the records give only in short form (d203fee6, aee866f7,
 880319df, b5161312) were resolved with `git rev-parse` on this repository.

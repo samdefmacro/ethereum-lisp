@@ -3070,9 +3070,14 @@ A phase outcome is a result of the sync itself: a verdict (an INVALID peer
 range), a phase that ended short of completion (the snap tail, the snap state
 import), or a finite live-peer snapshot that ran out of sources.  Each is
 logged and the pass returns NIL; durable progress is intact and the next pass
-takes a new live-peer snapshot inside DEVNET-NODE-MULTI-SYNC-PASS.  Local
-storage, merge, and unexpected program failures deliberately escape to the
-coordinator's outer serious-condition boundary, which stops the node."
+takes a new live-peer snapshot inside DEVNET-NODE-MULTI-SYNC-PASS.  A block
+whose execution failed internally (BLOCK-EXECUTION-INTERNAL-ERROR: a defect in
+this node, already logged as engine.execution.internal_error, no verdict
+cached, a storage read inside execution included) is contained the same way,
+and the next pass executes it again.  Local storage failures outside block
+execution (durable exporters, batches), merge, and other unexpected program
+failures deliberately escape to the coordinator's outer serious-condition
+boundary, which stops the node."
   (handler-case
       (call-with-devnet-sync-claim
        node (lambda () (devnet-node-multi-sync-pass node)))
@@ -3084,6 +3089,17 @@ coordinator's outer serious-condition boundary, which stops the node."
       ;; listeners torn down by the coordinator supervisor.
       (devnet-peer-manager-log
        node "peer.sync.invalid_ancestor" "error" condition)
+      nil)
+    (block-execution-internal-error (condition)
+      ;; Our defect, not the block's: the import rolled back and cached no
+      ;; verdict, so the next pass executes the block again. Stopping the node
+      ;; here would take the Engine API down with it.
+      (devnet-peer-manager-log
+       node "peer.sync.execution_internal_error"
+       "block" (block-execution-internal-error-block-number condition)
+       "hash" (hash32-to-hex
+               (block-execution-internal-error-block-hash condition))
+       "error" (block-execution-internal-error-cause condition))
       nil)
     (devnet-snap-state-incomplete (condition)
       ;; A phase outcome: the import resumes from its durable cursors on the

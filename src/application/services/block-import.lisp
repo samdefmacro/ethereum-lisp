@@ -12,6 +12,76 @@
   '(:engine :p2p :staged :local :dev-period :direct)
   "Ingress sources accepted by the candidate import service.")
 
+;;;; Internal execution failures.
+;;;;
+;;;; Executing a block ends in a VALID result or in one of three outcomes the
+;;;; callers classify: a consensus verdict (BLOCK-VALIDATION-ERROR or
+;;;; TRANSACTION-VALIDATION-ERROR, cached as INVALID), or missing state
+;;;; (STATE-UNAVAILABLE-ERROR, SYNCING).  Any other error that escapes the
+;;;; executor -- a host TYPE-ERROR, an arithmetic error, a storage read, a
+;;;; missing crypto backend -- says nothing about the block: before d7a28c6c a
+;;;; zero-length LOG at offset 2^256 - 1 raised one on a valid Hoodi block.  It
+;;;; becomes a BLOCK-EXECUTION-INTERNAL-ERROR naming the block, so no caller
+;;;; can mistake it for a verdict and the sync callers can contain it and try
+;;;; the block again.  Nethermind (NewPayloadHandler, ProcessingResult.Exception)
+;;;; answers such a failure with an RPC error and caches nothing; go-ethereum
+;;;; v1.17.6 newPayload caches INVALID for any InsertBlockWithoutSetHead error.
+
+(define-condition block-execution-internal-error (error)
+  ((block-number :initarg :block-number
+                 :reader block-execution-internal-error-block-number)
+   (block-hash :initarg :block-hash
+               :reader block-execution-internal-error-block-hash)
+   (cause :initarg :cause
+          :reader block-execution-internal-error-cause))
+  (:report
+   (lambda (condition stream)
+     (format stream
+             "Block ~D ~A could not be executed because of an internal error, ~
+which is no verdict on the block: ~A"
+             (block-execution-internal-error-block-number condition)
+             (hash32-to-hex (block-execution-internal-error-block-hash condition))
+             (block-execution-internal-error-cause condition)))))
+
+(define-condition block-execution-internal-storage-error
+    (block-execution-internal-error storage-error)
+  ()
+  (:documentation
+   "An internal execution failure whose cause was a STORAGE-ERROR: still a
+storage error to the callers that handle one, and still no verdict."))
+
+(defun block-execution-outcome-condition-p (condition)
+  "Whether CONDITION is a result of executing a block rather than a failure."
+  (typep condition
+         '(or block-validation-error
+              ethereum-lisp.execution:transaction-validation-error
+              state-unavailable-error
+              block-execution-internal-error)))
+
+(defun block-execution-internal-condition-p (condition)
+  "Whether CONDITION, escaping a block's executor, is an internal failure."
+  (and (typep condition 'error)
+       (not (block-execution-outcome-condition-p condition))))
+
+(defun call-with-block-execution-internal-errors (block thunk)
+  "Call THUNK, the execution of BLOCK, signalling any internal failure that
+escapes it as a BLOCK-EXECUTION-INTERNAL-ERROR.  The handler declines every
+outcome condition, so verdicts and SYNCING reach their classifiers unchanged."
+  (handler-bind
+      ((error
+         (lambda (condition)
+           (when (block-execution-internal-condition-p condition)
+             (apply #'error
+                    (if (typep condition 'storage-error)
+                        'block-execution-internal-storage-error
+                        'block-execution-internal-error)
+                    :block-number (block-header-number (block-header block))
+                    :block-hash (block-hash block)
+                    :cause condition
+                    (when (typep condition 'storage-error)
+                      (list :message (princ-to-string condition))))))))
+    (funcall thunk)))
+
 (defun block-import-ensure-function (function label)
   (when (and function (not (functionp function)))
     (block-validation-fail "~A must be a function or NIL" label))
@@ -233,10 +303,13 @@ validated SIDECAR."
             ;; by the public wrapper so a prior response-loss is idempotent.
             (values known (chain-store-block-receipts store hash))
             (multiple-value-bind (imported receipts)
-                (funcall
-                 (or import-function
-                     #'ethereum-lisp.execution-service:execute-and-commit-engine-payload)
-                 store block config)
+                (call-with-block-execution-internal-errors
+                 block
+                 (lambda ()
+                   (funcall
+                    (or import-function
+                        #'ethereum-lisp.execution-service:execute-and-commit-engine-payload)
+                    store block config)))
               (block-import-require-executor-publication
                store block imported)
               (values imported receipts)))
