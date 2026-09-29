@@ -189,6 +189,7 @@ record names no fix.
 ### Section 7: public RPC hardening
 
 - Public reads under the store guard, no response work budgets, WebSocket limits unenforced → [sec5-rpc-hardening.txt](sec5-rpc-hardening.txt) → 6043c88b, 75a07323, 6d0dbad7, 0ec0eb5c
+- The leftovers: state reads and WebSocket polls still took the guard, debug_traceBlock* replayed each prefix (quadratic) with CALLCODE/DELEGATECALL labelled CALL and no CREATE frames, the --rpc.* budget flags were refused → [sec5-rpc-section7-leftovers.txt](sec5-rpc-section7-leftovers.txt) → d8f27d6b, 4b9f20b2, 3ad547c9
 
 ### Section 10: operations, observability and packaging
 

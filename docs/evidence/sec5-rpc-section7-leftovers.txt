@@ -1,0 +1,302 @@
+Section 7 leftovers: state reads off the store guard, linear block tracing,
+WebSocket polls off the guard, and the --rpc.* budgets
+
+Status
+
+IMPLEMENTED, each part with a RED control against the previous commit and an
+in-budget or positive control, verified in cold targeted lanes and, because
+the tracer hooks and the EVM deadline touch the interpreter and the
+transaction applier, by the consensus gates (section 4). Nothing was deployed
+or run live. cold-all was NOT run on this branch (the coordinator runs it).
+
+Revision: branch rpc-section7-leftovers over 3c0cfeab
+(3c0cfeabbf80f3b9e951572856e179f570986df4, sec5-public-bootstrap-sync):
+d8f27d6b (state reads), 4b9f20b2 (tracing), 3ad547c9 (WebSocket and budgets;
+3ad547c9f207e57d9460c605f81f40c0e1196129), and the commit adding this file.
+Reference client: go-ethereum 38271784 (1.17.6-unstable,
+references/go-ethereum); reference trace: reth v2.6.0-73a3a00 at
+https://rpc.hoodi.ethpandaops.io (callTracer).
+
+This closes the three "Not done" items of docs/evidence/sec5-rpc-hardening.txt
+and the tracing item of docs/gap-analysis/public-testnet-readiness-plan.md
+section 7.
+
+================================================================================
+1. State reads answer from the published read view
+================================================================================
+
+Mechanism. The read view (src/storage/node-store/read-view.lisp, published at
+every store-guard release) held no state, so eth_getBalance,
+eth_getTransactionCount, eth_getCode, eth_getStorageAt, eth_call and
+eth_estimateGas waited for the guard: on a busy node, behind block execution,
+forward batches and Engine requests. The live store cannot be read off the
+guard (unsynchronized memory tables, read-through caches, pending tries the
+guard owner mutates).
+
+Fix (d8f27d6b).
+- A provider whose committed state is content-addressed offers a
+  CHAIN-STORE-GUARD-FREE-READER (src/storage/chain-store/service/memory.lisp):
+  closures that read an account by (block, root), a storage slot by storage
+  root, code by code hash and a trie node by hash, touching only the locked
+  trie-node and account caches and the database. The RocksDB direct provider
+  implements it (src/storage/node-store/persistence/direct-store.lisp); the
+  memory and file oracles do not (the file database updates its table in
+  place), so on them every state read still misses and takes the guard.
+- Publication records, for each window block within the provider's state
+  retention (min(window 128, retention depth 128)), its durable state root,
+  :PENDING while its trie is still the guard owner's (looked at again at the
+  next publication) or :ABSENT. It also records the canonical hashes of the
+  window plus 256 ancestors, walked by parent hash exactly as
+  CHAIN-STORE-BLOCK-HASHES-FOR-HEADER walks them and reused across
+  publications, so eth_call's BLOCKHASH window needs no block outside the view.
+- The five account readers are now generic (default methods unchanged); the
+  view answers them, CHAIN-STORE-STATE-AVAILABLE-P, CHAIN-STORE-PUBLISHED-STATE
+  and CHAIN-STORE-RECORDED-BLOCK-HASHES. eth_call/eth_estimateGas build their
+  lazy state from the reader (CHAIN-STORE-CALL-STATE-DB) and their BLOCKHASH
+  table from the recorded hashes (CHAIN-STORE-CALL-BLOCK-HASHES); the
+  consensus path's CHAIN-STORE-STATE-DB is untouched.
+- The six methods join *DEVNET-PUBLIC-READ-VIEW-METHODS*. A pending nonce reads
+  the txpool, which the view does not hold, and misses.
+
+RED/GREEN (tests/rpc-read-view-tests.lisp, integration, RocksDB node, three
+imported transfer blocks, a genesis contract returning its slot 0):
+- READ-VIEW-ANSWERS-STATE-READS-WHILE-THE-STORE-GUARD-IS-HELD: RED on 3c0cfeab
+  (eth_getBalance "waited for the guard"); GREEN: ten reads (balance and nonce
+  at latest and at 0x1, code, storage, eth_call at latest and at 0x1,
+  eth_estimateGas) answer during a held guard, each equal to the guarded live
+  answer, and the view's BLOCKHASH table equals the live walk for blocks 1-3.
+- READ-VIEW-STATE-READS-HIDE-A-WRITE-IN-PROGRESS (positive control): RED on
+  3c0cfeab (the read timed out behind the hold); GREEN: a hold that imported
+  block 3 and made it the head is invisible to the view's eth_getBalance until
+  released, and visible after.
+- READS-OUTSIDE-THE-VIEW-STILL-WAIT-FOR-THE-GUARD-AND-THEN-ANSWER still holds on
+  the memory store (state reads miss there).
+
+================================================================================
+2. debug_traceBlockBy* in one execution; call and create frame labels
+================================================================================
+
+Mechanism. debug_traceBlock* traced each transaction by replaying its prefix
+(APPLY-SIGNED-MESSAGE-LIST over transactions 0..i-1) and then the transaction
+through the call-simulation path: n(n-1)/2 applications for n transactions,
+without the block's pre-execution system calls. Frames were labelled CALL for
+CALLCODE and DELEGATECALL (a CALL inside a static frame was STATICCALL), a
+DELEGATECALL named the contract's own caller as FROM, and CREATE/CREATE2 made
+no frame (their children attached to the parent).
+
+Fix (4b9f20b2).
+- ETH-RPC-TRACE-BLOCK-FRAMES runs the block once through
+  EXECUTE-BLOCK-WITH-MESSAGE-APPLIER (the executor import uses, pre-execution
+  system calls included, as geth's traceBlock runs core.PreExecution) with an
+  applier that applies one transaction at a time with a fresh tracer bound, and
+  leaves once the last wanted transaction ran. debug_traceTransaction applies
+  its prefix untraced and stops after it.
+- The top frame follows geth's callTracer: CALL or CREATE (created address),
+  gas limit, the receipt's gasUsed (OnTxEnd), output and error from the
+  top-level execution, which the applier notes on the bound tracer
+  (EVM-CALL-TRACER-NOTE-TOP-LEVEL; one special read per transaction when
+  untraced).
+- Call frames take the opcode as type and the executing contract as FROM
+  (geth core/vm/evm.go Call/CallCode/DelegateCall/StaticCall), DELEGATECALL
+  carries the frame's value, STATICCALL none; CREATE/CREATE2 are frames (to =
+  new address, output = deployed code, to dropped on failure); an empty output
+  and a nil value are omitted (callFrame omitempty); a non-revert failure is
+  named in geth's words where it is one geth names (out of gas, max call depth
+  exceeded, insufficient balance for transfer, invalid jump destination, write
+  protection, contract creation code storage out of gas), else our message.
+  The hooks run only when a tracer is bound.
+
+RED/GREEN (tests/debug-tracing-tests.lisp):
+- DEBUG-TRACE-BLOCK-EXECUTES-EACH-TRANSACTION-ONCE (counting encapsulation of
+  APPLY-MESSAGE, a block of four transfers): RED on d8f27d6b (the count was
+  not 4: the prefix replay applies 0+1+2+3 = 6, and the traced transaction
+  itself went through the call-simulation path);
+  GREEN: 4, each result carries its txHash, CALL, gasUsed 0x5208 and no output,
+  and equals debug_traceTransaction for the same transaction.
+- DEBUG-TRACE-CALL-LABELS-EVERY-CALL-AND-CREATE-FRAME (synthetic contract
+  CALLCODE, DELEGATECALL, STATICCALL, CREATE, CREATE2): RED on d8f27d6b;
+  GREEN: the five types in order, FROM the contract for all, CALLCODE value
+  0x0, DELEGATECALL value 0x5 (inherited), STATICCALL no value, creations
+  output 0x2a with distinct created addresses.
+- HOODI-REPLAY-CALL-TRACES-MATCH-THE-REFERENCE (integration, corpus-gated):
+  ten Hoodi blocks from .hoodi-replay (3671328, 3685491, 3685497, 3685512,
+  3685538, 3685577, 3685589, 3685597, 3697828, 3704328) traced from their
+  witness-backed parent state, every frame compared field by field (type,
+  from, to, value, gas, gasUsed, input, output, error, child count) with the
+  reference callTracer fetched by the new scripts/fetch-hoodi-call-traces.sh
+  (calltrace.json plus calltrace.manifest.json with its sha256, the block
+  manifest untouched): 2,085 frames (CALL 833, STATICCALL 866, DELEGATECALL
+  379, CREATE 6, CREATE2 1), 0 differences. Its comparator's positive control
+  HOODI-REPLAY-CALL-FRAME-COMPARATOR-FINDS-EACH-DIFFERENCE runs without a
+  corpus. CALLCODE occurs in none of the sampled Hoodi blocks; it is covered
+  by the synthetic test only.
+
+================================================================================
+3. WebSocket polls off the guard; the --rpc.* budgets
+================================================================================
+
+Mechanism. Every WebSocket connection's notification poll took the store guard
+once a second, so a newHeads connection stalled behind each import. The five
+--rpc.* budget flags (gascap, evmtimeout, txfeecap, batch-request-limit,
+batch-response-max-size) were refused as "not configurable": the node ran on
+fixed defaults, eth_call had no time bound and eth_sendRawTransaction no fee
+cap.
+
+Fix (3ad547c9).
+- The poll splits: newHeads and logs read the published view (which now
+  records the forkchoice head, CHAIN-STORE-HEAD-BLOCK on the view); only a view
+  miss (none published, a cursor older than the window) asks the live store,
+  and only if the guard is free (CALL-WITH-DEVNET-NODE-STORE-GUARD-IF-FREE). A
+  newPendingTransactions subscription reads the txpool under the guard, taken
+  only if free. Every store read in the chain poll precedes the cursor update,
+  so a miss leaves the cursor as it was.
+- The flags parse (0 = no limit, as in geth; txfeecap is decimal ether, exact
+  in wei; evmtimeout takes s/m/h/d units) into an RPC-BUDGETS carried by the
+  Engine, public and every WebSocket connection's context and bound per request
+  (CALL-WITH-RPC-CONTEXT-BUDGETS). The gas cap lowers a call's gas before it
+  runs (eth_call, eth_createAccessList and debug_traceCall default to it;
+  eth_estimateGas and eth_simulateV1 are capped; geth CallDefaults and
+  DoEstimateGas). The EVM deadline (CALL-WITH-EVM-DEADLINE) checks the clock
+  every 1,024 instructions of an RPC execution through the existing step
+  budget and ends eth_call and eth_simulateV1 with geth's -32000 "execution
+  aborted (timeout = Ns)"; block execution binds no budget and pays nothing.
+  The fee cap refuses eth_sendRawTransaction before the pool with geth's
+  checkTxFee message (max fee per gas, or gas price, times gas). The batch
+  limits come from the listener.
+
+RED/GREEN:
+- WEBSOCKET-NOTIFICATION-POLL-ANSWERS-WHILE-THE-STORE-GUARD-IS-HELD
+  (tests/websocket-hardening-tests.lisp): RED on 4b9f20b2 (the poll waited out
+  the hold); GREEN: the poll answers during the hold with nothing (the held
+  head is not reported), and reports block 4 once released.
+- The flags: RED on 4b9f20b2, each of the five refused with "is not
+  configurable in this client" (a temporary probe, deleted);
+  RPC-BUDGET-FLAGS-ARE-PARSED-AND-REACH-EVERY-LISTENER GREEN (parsed values,
+  no flag = no budgets, a malformed txfeecap refused, the same RPC-BUDGETS on
+  the Engine, public and a WebSocket connection context).
+- RPC-GAS-CAP-BUDGET-LOWERS-THE-GAS-A-CALL-GETS (a contract returning GAS):
+  default cap 50,000,000 - 21,002; cap 100,000 gives 78,998 with and without a
+  larger request, 60,000 stays 60,000; cap 0 lets a call take 100,000,000.
+- RPC-EVM-TIMEOUT-BUDGET-STOPS-A-CALL-THAT-RUNS-TOO-LONG: a JUMP loop with ten
+  billion gas and no cap ends at the 1 s deadline with -32000 "execution
+  aborted (timeout = 1s)"; control: a 200,000-gas call ends on its own, not as
+  a timeout.
+- RPC-TX-FEE-CAP-BUDGET-REFUSES-BEFORE-THE-POOL: a 2.1 ether fee is refused at
+  the default cap ("tx fee (2.10 ether) exceeds the configured cap (1.00
+  ether)") and at 0.1 ether, and the pool stays empty; controls: cap 0 and cap
+  3 ether admit it.
+- RPC-BATCH-BUDGETS-COME-FROM-THE-LISTENER-CONTEXT and
+  WEBSOCKET-BATCH-HONOURS-THE-RPC-BATCH-REQUEST-LIMIT (a live connection):
+  limits from the context, 0 = unlimited (1,001 items run past the 1,000
+  default), each with its at-limit control.
+- Two tests that pinned the old refusal were updated:
+  DEVNET-CLI-MAIN-REJECTS-INERT-GETH-STYLE-RPC-LIMIT-FLAGS is now
+  DEVNET-CLI-MAIN-ACCEPTS-GETH-STYLE-RPC-LIMIT-FLAGS (the five flags start a
+  --no-serve node; a malformed txfeecap is refused by name), and
+  DEVNET-CLI-REJECTS-UNIMPLEMENTED-IPC-AND-RPC-LIMIT-OPTIONS is now
+  DEVNET-CLI-REJECTS-UNIMPLEMENTED-IPC-OPTIONS.
+
+BEHAVIOUR CHANGES. eth_sendRawTransaction now refuses a fee above 1 ether by
+default, eth_call and eth_simulateV1 stop after 5 s, debug_traceCall's gas is
+capped at 50,000,000: geth's defaults, all configurable. The WebSocket
+listener has no budget flag of its own (geth's --ws.* flags are address, port,
+api, origins and prefix, all wired since 0ec0eb5c); it honours the --rpc.*
+budgets. Its connection and subscription caps (128, 256) stay our policy.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+Warm image (cl-workbench repl, restarted after each struct or generic change;
+temporary probe tests, deleted before each commit): every test named above,
+RED on the parent commit and GREEN on its own, plus the existing read-view,
+debug-tracing and batch-budget tests and the package-graph tests
+(PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC, ...-INCLUDES-SOURCE-REFERENCES).
+The RED runs restored the parent's src/ (git checkout), restarted the image,
+and re-applied the change afterwards.
+
+Cold, targeted (cl-workbench validation run, fresh image, output redirected to
+files in the agent scratchpad, never piped):
+- cold-unit --match RPC READ-VIEW TRACE WS WEBSOCKET: 302 passed, EXIT=0, no
+  compiler warning (at 13ac7e55, src identical to 3ad547c9).
+- cold-unit --match RPC READ-VIEW TRACE WS WEBSOCKET HOODI-REPLAY PACKAGE
+  BOUNDARY ARCHITECTURE SUBSCRI SIMULATE ESTIMATE SEND-RAW CALL EVM EXECUTION
+  TXPOOL OPTION DEVNET-CLI: 649 passed, 2 skipped (the optional EEST trie
+  vectors without a corpus), EXIT=0, no compiler warning (at 14558826, src
+  identical to 3ad547c9).
+- cold-integration --match RPC READ-VIEW DEBUG-TRACE WS
+  DEVNET-HEALTH-AND-METRICS WEBSOCKET SMOKE LIVE-PERSISTENCE DEVNET-CLI OPTION
+  HOODI-REPLAY: 111 passed, 10 skipped (every optional corpus test without its
+  corpus), EXIT=0 (at 3ad547c9). An earlier run of the same selection at
+  14558826 hung at DEVNET-CLI-MAIN-REJECTS-INERT-GETH-STYLE-RPC-LIMIT-FLAGS:
+  with the flag accepted, that test's `main` started a serving node and never
+  returned. That test and the IPC one were rewritten (above) and the rerun is
+  the record; the hung container was left running (see "Not verified").
+- cold-e2e --match RPC WS DEVNET-CLI-REJECTS: 2 + 2 passed, EXIT=0 (at
+  3ad547c9).
+
+Consensus gates, because 4b9f20b2 and 3ad547c9 change files on the execution
+path (the tracer hooks in the call, create and transaction-applier code, the
+interpreter's step-budget check). Revision 3ad547c9 with an empty `git status
+--porcelain` before and after; one retained cold container per EEST gate
+(COLD_TEST_CONTAINER=ethereum-lisp-cold-w4-3ad547c9-<slug>), sequential,
+2026-09-29T16:33:31Z to 17:05:38Z, each removed after its exit code and
+OOMKilled flag were read:
+- tests@v20.0.2 (archive sha256
+  1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788, re-hashed
+  before the run; a hard link of the main checkout's corpus), selectors as in
+  docs/evidence/sec5-b5161312-eest-v20.0.2.txt: all eight gates "1 test
+  passed.", command and container exit 0, OOMKilled false. The six manifest
+  lines are byte-identical to the b5161312 record (sorted set sha256
+  9c8f7010d2ec64d41c6564ffbed70f5d13e95f454f85f6f0d59547b96d2f4561, as at
+  c6197bf7).
+- OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE: Cancun 7,059/7,060, Prague
+  7,059/7,060 (one paidMemoryAboveHarnessHeap skip each), Osaka 6,581/6,581, 0
+  failed; its manifest companion passed. Unchanged from sec5-ported-static.txt.
+- HOODI-3684027-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE and
+  HOODI-3685491-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE: 2 passed.
+- HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT over .hoodi-replay (a hard
+  link of the main checkout's corpus plus the ten calltrace.json files):
+  selected 322, replayed 320, match 320, diverges 0, unreplayable 2 (3679328,
+  3685509: the known witness gaps), EXIT=1 by design.
+- HOODI-REPLAY-CALL-TRACES-MATCH-THE-REFERENCE: 10 blocks, 2,085 frames, 0
+  differences, 1 passed, EXIT=0.
+- OPTIONAL-AMSTERDAM-EEST-FEATURE-BURN-DOWN (tests-glamsterdam-devnet v7.2.1,
+  every tree, all fourteen directories required): state 15,627/15,627, engine
+  21,067/21,067, transition 96/96, EXIT=0.
+Run summary: scratchpad w4/gates/summary.txt, sha256
+60895d0f1a0033dd31f4383f5985c946ec9597607e7ace729658893c8a18844a.
+
+================================================================================
+5. Not verified
+================================================================================
+
+- cold-all (left to the coordinator), Hive rpc-compat, engine and devp2p on
+  this branch. The rpc-compat suite (234) is the external oracle for the
+  changed defaults (gas cap unchanged at 50,000,000; the 1 ether fee cap and
+  the 5 s deadline are geth's); it was not run here.
+- Any live run: whether view-answered state reads and polls stay fast on
+  Hoodi, and what the publication costs on a busy node (per new head: one
+  state-root lookup per new window block and one parent step of the hash walk;
+  a first publication or a reorg deeper than the window walks up to 384
+  blocks, under the guard).
+- The reference trace is reth v2.6.0's callTracer, not geth's; geth's
+  semantics were compared by reading source (38271784). CALLCODE occurs in none
+  of the ten Hoodi blocks, and no sampled frame failed other than one revert,
+  so the mapped error strings (out of gas and the rest) are checked against
+  geth's source only. An Amsterdam CREATE/CREATE2 frame that fails reports a
+  generic error.
+- The EVM deadline is checked every 1,024 instructions; a precompile call is
+  not interrupted (gas bounds it). eth_estimateGas has no deadline, as in geth.
+  --rpc.evmtimeout takes whole seconds (s/m/h/d), not geth's millisecond
+  durations.
+- A newPendingTransactions poll skips a turn while the guard is busy, so a
+  transaction that enters and leaves the pool within a busy period can go
+  unannounced (as it could between two one-second polls before).
+- A window block whose state had not been written when the view first saw it
+  (:ABSENT) is not looked at again; such reads miss and take the guard.
+- Memory and file stores answer no state from the view (no guard-free reader).
+- The hung container of the abandoned integration run (docker name
+  loving_poitras, idle) could not be stopped from this session; the
+  coordinator should stop it.
+

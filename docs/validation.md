@@ -1417,6 +1417,37 @@ and slot it starts at. The unit controls check the comparator and the
 zero-replay refusal without a corpus. The record is
 `docs/evidence/sec5-hoodi-differential-replay.txt`.
 
+### Public reads, block tracing and RPC budgets
+
+```sh
+# State reads from the published read view (RocksDB node), WebSocket polls
+# off the store guard, the --rpc.* budgets, linear block tracing and frame
+# labels.
+cl-workbench validation run cold-unit --match READ-VIEW --match TRACE \
+  --match WEBSOCKET --match RPC
+cl-workbench validation run cold-integration --match READ-VIEW \
+  --match WEBSOCKET --match RPC
+# Call traces of corpus blocks against the server's callTracer (bash, curl
+# and jq on the control plane; writes calltrace.json and its own
+# calltrace.manifest.json beside the block, leaving manifest.json alone):
+scripts/fetch-hoodi-call-traces.sh 3685491 3671328
+ETHEREUM_LISP_HOODI_REPLAY_ROOT=.hoodi-replay \
+  cl-workbench validation run cold-integration \
+  --match HOODI-REPLAY-CALL-TRACES-MATCH-THE-REFERENCE
+```
+
+The read-view tests hold the store guard on another thread and require the
+state reads (balance, nonce, code, storage, eth_call, eth_estimateGas) to answer
+during the hold with the guarded answer, a held import to stay invisible until
+it is released, and the view's BLOCKHASH table to equal the live walk. The
+tracing tests count transaction applications (one per transaction) and check
+CALLCODE, DELEGATECALL, STATICCALL, CREATE and CREATE2 frames against geth's
+callTracer rules; the corpus test traces each block that has a
+`calltrace.json` from its witness state and compares every frame field by
+field, and skips without the variable. The budget tests exercise each
+`--rpc.*` flag with an in-budget or no-limit control. The record is
+`docs/evidence/sec5-rpc-section7-leftovers.txt`.
+
 ### EVM memory regions and internal execution failures
 
 ```sh
