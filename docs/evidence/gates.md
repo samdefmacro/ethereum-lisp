@@ -69,6 +69,7 @@ upstream `abbe05777ab83fb94ce18c425daaa7ab79e779c1`); Hive
 | 04a3aff4 | 2026-09-24 | f192550ac742 + smoke PASS (SBOM, provenance, SHA256SUMS exported) | 8/8 | — | — | — | upgrade on datadir-b5161312 (12 GiB): forward sync refused at 3684027 (persisted INVALID), pivot rebased to 3684866, healed from retained state in ~90 s, tail 3684877-3684908 at ~0.7 s/block, RSS 788 MB; exit 1 at 05:00:49Z on "tail block 3684909 returned SYNCING" | wave 1 + F fcu-canonical-cost + N peer-session-holds; records sec5-b5161312-hoodi-run.txt (addenda), sec5-snap-tail-syncing.txt |
 | cbfe2c63 | 2026-09-24 | — | 8/8 | — | — | — | — | evm-throughput branch (P2) on 886afd05: manifest lines identical to b5161312; merged as 5fee5219 |
 | 70409b12 | 2026-09-24 | — | 8/8 | — | — | — | — | hoodi-gas-mismatch branch (X) on 04a3aff4: lazy-state slot lost on revert (Hoodi 3684027) and persisted INVALID verdicts; record sec5-hoodi-gas-mismatch.txt |
+| c072361d | 2026-09-29 | — | 8/8 | — | — | — | — | amsterdam-inventory branch (G6) on 1a7b9059: Amsterdam intrinsic/floor, authorization and recipient runtime charges, BAL coinbase and factory entries, system-call reservoir, header slot rule, no 8246 burn log; JUMPDEST analysis no longer skips 0xe6..0xe8 immediates in any fork (5029383e); six manifest lines identical to b5161312 (also 8/8 at 8e460d49); the branch head differs only in docs and one docstring; Amsterdam burn-down in docs/gap-analysis/amsterdam-inventory.md |
 
 ## Revisions and source records
 
@@ -115,6 +116,7 @@ one with
 | 04a3aff4 | `04a3aff4f1bf6e68856131e641e9ddcedeb3f6fa` | coordinator run logs (scratchpad eest-04a3aff4, r5b-runtime-*.log, r5b-gate-upgrade2.log); sec5-b5161312-hoodi-run.txt addendum 2 |
 | cbfe2c63 | `cbfe2c633129d644b020e43cbdde0f9e52134296` | sec5-evm-throughput.txt |
 | 70409b12 | `70409b12184b5577da44e158d5d819c5d533183d` | sec5-hoodi-gas-mismatch.txt |
+| c072361d | `c072361d7a5a86fa7b811f240b532238d120c0a8` | agent run logs (scratchpad g6/eest: gates.log sha256 `5eb515ae57173779a813738388d8d8f2810ef497faac9f9c3c42763ee9b99090`, one retained container per gate, removed afterwards); docs/gap-analysis/amsterdam-inventory.md |
 
 Full revisions that the records give only in short form (d203fee6, aee866f7,
 880319df, b5161312) were resolved with `git rev-parse` on this repository.
