@@ -232,7 +232,9 @@ handler because those faults are properties of the committed block itself."
          (block-header parent)
          block
          config
-         :ancestor-blocks (rest ancestors)))
+         :ancestor-blocks (rest ancestors)
+         :parent-total-difficulty
+         (chain-store-block-total-difficulty store parent-hash)))
       (engine-new-payload-require-transaction-senders block config)
       (block-import-validate-sidecar block sidecar)
       parent)))
@@ -828,8 +830,7 @@ never converted into INVALID payload verdicts."
   (case authority
     (:engine-forkchoice t)
     (:local-dev
-     (when (and (chain-config-post-merge-p
-                 config (block-header-number (block-header block)))
+     (when (and (block-header-post-merge-block-p config (block-header block))
                 (not local-dev-authorized-p))
        (block-validation-fail
         "Post-Merge local publication requires explicit dev-mode authority"))

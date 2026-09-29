@@ -76,9 +76,19 @@ candidate's block and state batch is staged, then consumed by forkchoice."
         record-label kind)))))
 
 (defun node-store-put-immutable-block-records
-    (database batch block record-label &key allow-missing-committed-p)
+    (database batch block record-label
+     &key allow-missing-committed-p total-difficulty)
+  "Write BLOCK's body, header and receipt records, and TOTAL-DIFFICULTY's
+record when the caller's store knows it. Every one is immutable: a different
+existing value is a conflict, never overwritten."
   (let ((identifier (hash32-bytes (block-hash block)))
         (changed-p nil))
+    (when (and total-difficulty
+               (node-store-put-immutable-record
+                database batch :total-difficulty identifier
+                (chain-store-total-difficulty-record total-difficulty)
+                record-label))
+      (setf changed-p t))
     (when (node-store-put-immutable-block-body-record
            database batch :block block record-label
            :allow-missing-committed-p allow-missing-committed-p)
@@ -732,7 +742,9 @@ cursors and pivot publication have distinct durability obligations."
                      :test (lambda (left right)
                              (hash32= (block-hash left) (block-hash right))))
             (when (node-store-put-immutable-block-records
-                   database batch current "Payload candidate")
+                   database batch current "Payload candidate"
+                   :total-difficulty
+                   (chain-store-block-total-difficulty chain-store hash))
               (setf changed-p t
                     current-changed-p t))
             (when (node-store-populate-blob-sidecars-for-transactions-batch
@@ -1004,7 +1016,9 @@ ACCEPTED payloads; it publishes no executable or canonical chain records."
                "Forkchoice transition installed block is not canonical"))
             (unless block-records-staged-p
               (when (node-store-put-immutable-block-records
-                     database batch block "Forkchoice transition")
+                     database batch block "Forkchoice transition"
+                     :total-difficulty
+                     (chain-store-block-total-difficulty chain-store hash))
                 (setf changed-p t
                       durability-seam-required-p t)))
             (when (node-store-populate-blob-sidecars-for-transactions-batch

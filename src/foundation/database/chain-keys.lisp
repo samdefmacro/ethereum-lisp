@@ -37,7 +37,11 @@ records so a version bump is all-or-nothing.")
     (:state-history . #x1b)
     (:schema-version . #x1c)
     (:ordered-state-history . #x1d)
-    (:peer-sync-progress . #x1e)))
+    (:peer-sync-progress . #x1e)
+    ;; Block hash -> RLP of the block's cumulative difficulty from genesis:
+    ;; the value go-ethereum kept under headerTDSuffix, which v1.17.6
+    ;; core/rawdb/schema.go marks deprecated.
+    (:total-difficulty . #x1f)))
 
 (defparameter +kv-chain-checkpoint-labels+
   '((:head . "head")

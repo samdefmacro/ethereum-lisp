@@ -2,6 +2,30 @@
 
 ;;;; In-memory block storage and forkchoice checkpoint updates.
 
+(defun memory-chain-store-record-total-difficulty (store block key)
+  "Journal BLOCK's cumulative difficulty under KEY when it can be derived.
+
+Genesis carries its own difficulty (go-ethereum writes the same for its
+genesis); any other block adds its difficulty to its parent's, and has none
+when its parent's is unknown. Returns the total, or NIL."
+  (let* ((header (block-header block))
+         (number (block-header-number header))
+         (difficulty (block-header-difficulty header))
+         (total
+           (when (and (integerp number) (integerp difficulty))
+             (if (zerop number)
+                 difficulty
+                 (let* ((parent-hash (block-header-parent-hash header))
+                        (parent-total
+                          (and (hash32-p parent-hash)
+                               (chain-store-block-total-difficulty
+                                store parent-hash))))
+                   (and parent-total (+ parent-total difficulty)))))))
+    (when total
+      (chain-store-journal-puthash
+       (memory-chain-store-total-difficulties store) key total))
+    total))
+
 (defun memory-chain-store-put-block
     (store block &key (state-available-p nil) (canonicalize-p t))
   (setf store (chain-store-require-memory-store store))
@@ -18,6 +42,7 @@
     ;; it inside the authorized, durable forkchoice transaction.
     (chain-store-journal-puthash (memory-chain-store-blocks store) key
                                  stored-block)
+    (memory-chain-store-record-total-difficulty store stored-block key)
     (engine-payload-store-prune-prepared-payloads-for-block store key)
     (let ((number (block-header-number (block-header stored-block))))
       (when (and (integerp number) (not (minusp number)))

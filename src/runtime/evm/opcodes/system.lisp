@@ -275,7 +275,9 @@
                         beneficiary
                         rules
                         :clear-self-balance-p
-                        burn-self-balance-p)))
+                        burn-self-balance-p
+                        :create-beneficiary-p
+                        (not (context-eip158-p context)))))
                  (when transfer-log
                    (push transfer-log logs)))
                ;; EIP-8246 (geth v1.17.6 StateDB.finaliseAmsterdam): at the

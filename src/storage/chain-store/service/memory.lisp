@@ -118,6 +118,15 @@ block's traversal of the paths this block rewrote needs no point read."))
   (declare (ignore store hash))
   (values nil nil))
 
+(defgeneric chain-store-backing-total-difficulty (store hash)
+  (:documentation
+   "Return (VALUES TOTAL-DIFFICULTY PRESENT-P) for block HASH from durable
+backing."))
+
+(defmethod chain-store-backing-total-difficulty ((store t) hash)
+  (declare (ignore store hash))
+  (values nil nil))
+
 (defgeneric chain-store-durable-state-provider-p (store)
   (:documentation
    "True when STORE can resolve account/storage tries and code durably."))
@@ -243,6 +252,10 @@ callers walk the parent chain (CHAIN-STORE-BLOCK-HASHES-FOR-HEADER)."))
       ;; public RPC can then reuse the decoded header without another KV read.
       (chain-store-backing-block-cache-put store hash block)
       (chain-store-journal-remhash (memory-chain-store-blocks store) key)
+      ;; The same durable batch wrote its total-difficulty record, if any;
+      ;; CHAIN-STORE-BLOCK-TOTAL-DIFFICULTY point-reads it from here on.
+      (chain-store-journal-remhash
+       (memory-chain-store-total-difficulties store) key)
       (when (and number-block (hash32= hash (block-hash number-block)))
         (chain-store-journal-remhash
          (memory-chain-store-number-blocks store) number))
@@ -281,6 +294,22 @@ callers walk the parent chain (CHAIN-STORE-BLOCK-HASHES-FOR-HEADER)."))
   (engine-payload-store-known-block
    (chain-store-require-memory-store store)
    hash))
+
+(defun chain-store-block-total-difficulty (store hash)
+  "HASH's cumulative difficulty from genesis, or NIL when STORE cannot know it.
+
+A block's total difficulty is recorded when it is put, from its parent's; a
+block entered without its ancestry (a snap or checkpoint pivot) has none, and
+neither has any descendant of it. See MEMORY-CHAIN-STORE-PUT-BLOCK."
+  (let ((store (chain-store-require-memory-store store)))
+    (multiple-value-bind (total present-p)
+        (gethash (engine-payload-store-key hash)
+                 (memory-chain-store-total-difficulties store))
+      (if present-p
+          total
+          (multiple-value-bind (durable durable-p)
+              (chain-store-backing-total-difficulty store hash)
+            (and durable-p durable))))))
 
 (defgeneric chain-store-block-by-number (store number))
 

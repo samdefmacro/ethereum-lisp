@@ -315,11 +315,10 @@ the one frame at LAST-INDEX, as geth's traceTransaction replays its prefix."
       (block-validation-fail "debug_setHead block not found"))
     (let ((current (chain-store-latest-block store)))
       (when (or (and current
-                     (chain-config-post-merge-p
-                      config
-                      (block-header-number (block-header current))))
-                (chain-config-post-merge-p
-                 config (block-header-number (block-header block))))
+                     (block-header-post-merge-block-p
+                      config (block-header current)))
+                (block-header-post-merge-block-p
+                 config (block-header block)))
       (block-validation-fail
        "debug_setHead cannot mutate a post-Merge canonical view; use Engine forkchoiceUpdated")))
     (ethereum-lisp.canonical-chain:chain-store-set-canonical-head

@@ -226,7 +226,9 @@
               (validate-block-against-config
                (block-header parent-block)
                block
-               config)
+               config
+               :parent-total-difficulty
+               (chain-store-block-total-difficulty store parent-hash))
             (block-validation-error (condition)
               (engine-payload-store-mark-invalid store block)
               (return-from engine-new-payload-memory-status

@@ -142,6 +142,14 @@ frame's EVM context."
       (when (and context (eq outcome :success))
         (finalize-evm-selfdestructs state context)))))
 
+(defun create-message-recipient-before-eip158 (state recipient rules)
+  "Before EIP-158 a message call makes an absent RECIPIENT, whatever the value
+(go-ethereum v1.17.6 EVM.Call); from EIP-158 a zero-value call to one does
+not, and a transfer creates it by crediting it."
+  (unless (or (transaction-eip158-active-p rules)
+              (state-db-get-account state recipient))
+    (state-db-set-account state recipient (make-state-account))))
+
 (defun apply-message
     (state sender tx
      &key (base-fee 0)
@@ -228,9 +236,12 @@ frame's EVM context."
               (precompile-p
                (let* ((snapshot (state-db-snapshot state))
                       (transfer-log
-                        (transfer-value
-                         state sender recipient (transaction-value tx)
-                         effective-chain-rules)))
+                        (progn
+                          (create-message-recipient-before-eip158
+                           state recipient effective-chain-rules)
+                          (transfer-value
+                           state sender recipient (transaction-value tx)
+                           effective-chain-rules))))
                  (handler-case
                      (multiple-value-bind
                            (output precompile-gas-used active-p)
@@ -278,9 +289,12 @@ frame's EVM context."
                       :refund-counter refund-counter)))))
               ((zerop (length code))
                (let ((transfer-log
-                       (transfer-value
-                        state sender recipient (transaction-value tx)
-                        effective-chain-rules)))
+                       (progn
+                         (create-message-recipient-before-eip158
+                          state recipient effective-chain-rules)
+                         (transfer-value
+                          state sender recipient (transaction-value tx)
+                          effective-chain-rules))))
                  (finalize-transaction-receipt
                   state sender coinbase tx
                   (make-receipt

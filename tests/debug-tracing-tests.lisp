@@ -358,15 +358,18 @@ initcode that deploys the one-byte code 0x2a, then STOP."
     (let* ((store (make-engine-payload-memory-store))
            (config (make-chain-config :chain-id 1 :london-block 0
                                       :terminal-total-difficulty 100))
+           ;; Proof-of-work blocks: a positive difficulty is what makes a
+           ;; block pre-Merge under a TTD configuration.
            (genesis
              (make-block
-              :header (make-block-header :number 0 :timestamp 1)))
+              :header (make-block-header :number 0 :timestamp 1
+                                         :difficulty #x20000)))
            (child
              (make-block
               :header
               (make-block-header
                :parent-hash (block-hash genesis)
-               :number 1 :timestamp 2))))
+               :number 1 :timestamp 2 :difficulty #x20000))))
       (chain-store-put-block store genesis :state-available-p t)
       (chain-store-put-block store child :state-available-p t)
       (chain-store-set-canonical-head

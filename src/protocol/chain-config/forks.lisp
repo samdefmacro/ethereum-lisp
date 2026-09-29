@@ -31,6 +31,24 @@ transition metadata (or TTD zero), it is treated as post-Merge."
               (or (null terminal-total-difficulty)
                   (zerop terminal-total-difficulty)))))))
 
+(defun chain-config-merge-by-total-difficulty-p (config block-number)
+  "Whether total difficulty, not CONFIG alone, decides the Merge at BLOCK-NUMBER.
+
+EIP-3675 places the transition at the terminal total difficulty: the first
+proof-of-stake block is the child of the first proof-of-work block whose total
+difficulty reaches it. A configuration fixes the answer only where
+CHAIN-CONFIG-POST-MERGE-P is true -- at or after a Merge netsplit block, or
+with a TTD of zero, none at all, or declared passed. Below that, a positive
+TTD leaves it to the chain's total difficulty: mainnet names no netsplit
+block, and Sepolia's (1735371) is a fork-id marker placed after its TTD was
+reached, not the transition itself."
+  (and (not (chain-config-post-merge-p config block-number))
+       (not (chain-config-terminal-total-difficulty-passed config))
+       (let ((terminal-total-difficulty
+               (chain-config-terminal-total-difficulty config)))
+         (and terminal-total-difficulty
+              (plusp terminal-total-difficulty)))))
+
 (defun chain-config-eip150-p (config block-number)
   (fork-block-active-p (chain-config-eip150-block config) block-number))
 

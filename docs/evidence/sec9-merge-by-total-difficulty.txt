@@ -1,0 +1,109 @@
+Section 9: mainnet proof-of-stake headers were held to the Ethash rules
+
+Status
+  Fixed on branch mainnet-merge-transition, commit b6c095a1 ("consensus: the
+  Merge follows total difficulty, and the chain store keeps it"), base
+  3c0cfeab. Mainnet stays explicitly experimental; the inventory for the
+  slice is docs/gap-analysis/mainnet-inventory.md.
+
+Mechanism
+  Header validation (validate-block-header-against-config) asked
+  CHAIN-CONFIG-POST-MERGE-P, a function of the configuration and the block
+  number alone, whether a header is past the Merge. That function answers
+  from the netsplit block when there is one, and otherwise from the TTD
+  metadata: TTD-passed, or a TTD of zero or none, means post-Merge. A
+  configuration with a positive TTD, no netsplit block and no TTD-passed flag
+  therefore got NIL at every height. That is the mainnet preset
+  (src/protocol/genesis/presets.lisp: TTD 58,750,000,000,000,000,000,000,
+  no merge-netsplit-block), as in go-ethereum v1.17.6 params/config.go
+  MainnetChainConfig. Every mainnet proof-of-stake header was then held to
+  validate-ethash-header, whose expected difficulty for a child of a
+  zero-difficulty parent at those heights is 2^54 + 131,072, and refused:
+
+    Invalid Ethash difficulty: have 0, want 18014398509613056
+
+  Sepolia names a netsplit block (1735371) that postdates its merge, so its
+  proof-of-stake blocks below 1735371 failed the same way. Hoodi (netsplit 0)
+  and Holesky (TTD 0) were never affected.
+  Two authority checks asked the same function: local-dev publication
+  (block-import-authorize-publication) and debug_setHead treat a
+  proof-of-stake block as needing Engine authority, and under such a
+  configuration they saw every block as proof-of-work.
+  Why it was not seen: every public-network run so far is Hoodi, every EEST
+  gate configures its forks without a positive TTD, and the one test that
+  combined a positive TTD with proof-of-stake headers
+  (CONFIGURED-POST-MERGE-STATUS-DOES-NOT-TRUST-HEADER-DIFFICULTY) asserted
+  the refusal as intended behaviour. The chain kept no total difficulty, so
+  EIP-3675's rule could not be applied even had it been wanted.
+  go-ethereum v1.17.6 decides by the header's difficulty
+  (consensus/beacon/consensus.go VerifyHeader: difficulty zero is
+  proof-of-stake, and a positive difficulty after a zero one is refused) and
+  no longer keeps total difficulty (core/rawdb/schema.go headerTDSuffix,
+  "deprecated").
+
+Reproduction (RED before GREEN)
+  At 3c0cfeab, with the new tests in tests/core-merge-transition-tests.lisp
+  and the two updated tests:
+
+    cl-workbench validation run cold-unit --match MERGE-TRANSITION \
+      --match PUBLIC-PRESET-POST-MERGE --match POST-MERGE-AUTHORITY \
+      --match TOTAL-DIFFICULTY-SURVIVES --match CONFIGURED-POST-MERGE-STATUS \
+      --match DEBUG-SET-HEAD            EXIT=1, 3 passed, 7 failed
+
+  PUBLIC-PRESET-POST-MERGE-HEADERS-VALIDATE-AS-PROOF-OF-STAKE failed with the
+  message above for a mainnet header pair at 17,000,000/17,000,001;
+  MERGE-TRANSITION-FOLLOWS-THE-TERMINAL-TOTAL-DIFFICULTY and
+  MERGE-TRANSITION-WITHOUT-TOTAL-DIFFICULTY-FOLLOWS-THE-PARENT with "Invalid
+  Ethash difficulty: have 0, want 131072"; MERGE-TRANSITION-REFUSES-A-
+  TERMINAL-BLOCK-PAST-THE-TTD because a proof-of-work block after the TTD was
+  accepted; POST-MERGE-AUTHORITY-READS-THE-BLOCK-UNDER-A-TTD-CONFIGURATION
+  because local-dev publication of a proof-of-stake block succeeded without
+  authorization; TOTAL-DIFFICULTY-SURVIVES-EXPORT-REOPEN-AND-DIRECT-READS on
+  the missing record kind; CONFIGURED-POST-MERGE-STATUS on the new keyword.
+
+Fix (b6c095a1)
+  - The chain store records each block's cumulative difficulty when it is
+    put, journaled, and every export writes it as an immutable
+    :total-difficulty record (prefix 0x1f, the RLP of the integer). The
+    direct RocksDB provider point-reads it and drops its overlay entry with
+    the block's; a full import restores the records and derives the rest in
+    height order.
+  - CHAIN-CONFIG-MERGE-BY-TOTAL-DIFFICULTY-P names the configurations that
+    leave the transition to the chain; BLOCK-HEADER-MERGE-RULES-P applies
+    EIP-3675 with the parent's total (below the TTD: proof-of-work, and a
+    zero difficulty is refused; at or above: the parent must be terminal and
+    the child proof-of-stake). Without a total, a proof-of-stake parent makes
+    the child proof-of-stake (the geth rule); a proof-of-stake child of a
+    proof-of-work parent is refused as unverifiable.
+  - Candidate admission and Engine newPayload pass the parent's total; the
+    two authority checks read the admitted block's own difficulty
+    (BLOCK-HEADER-POST-MERGE-BLOCK-P).
+  - Two tests that pinned the old answer changed: the pre-Merge
+    debug_setHead fixture now has proof-of-work difficulties, and the
+    does-not-trust-header-difficulty test supplies the parent's total below
+    the TTD.
+
+Verification of record
+  cold-unit, the ten selected tests above at b6c095a1: EXIT=0, 10 passed.
+  cold-unit, full layer at b6c095a1: EXIT=0, 1,556 passed, 3 skipped; at
+    6e405bf9: EXIT=0, 1,561 passed, 3 skipped.
+  Mutation control: with the forkchoice export's total-difficulty argument
+    forced to NIL, TOTAL-DIFFICULTY-SURVIVES-EXPORT-REOPEN-AND-DIRECT-READS
+    fails (warm image).
+  Every pre-Paris case of the legacy v5.4.0 and tests@v20.0.2 corpora
+    validates through the total-difficulty path (TTD MaxInt64, as
+    go-ethereum's BlockTest.Run sets it): 5,466/5,466 and 21,260/21,260 at
+    6e405bf9 (OPTIONAL-LEGACY-EEST-PRE-MERGE-BLOCKCHAIN-BURN-DOWN, EXIT=0).
+  COMMON5 gates at 6e405bf9/7ad834c7: see docs/evidence/gates.md, row
+    7ad834c7.
+
+Not verified
+  - No pinned fixture corpus contains a TTD transition network (geth
+    tests/init.go ArrowGlacierToParisAtDiffC0000 is not filled in v5.4.0 or
+    tests@v20.0.2); the terminal rule rests on unit tests over a synthetic
+    chain.
+  - No mainnet or Sepolia block was imported: the preset checks are header
+    pairs at mainnet and Sepolia heights. No Hive transition test was run.
+  - A node entered at a proof-of-work pivot cannot cross the Merge without
+    totals; nothing in the plan's mainnet path takes a proof-of-work pivot.
+  - eth/68 Status still reports the configured TTD, not the head's total.

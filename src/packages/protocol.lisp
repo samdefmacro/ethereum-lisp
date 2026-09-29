@@ -74,6 +74,7 @@
    #:chain-config-homestead-p
    #:chain-config-dao-fork-p
    #:chain-config-post-merge-p
+   #:chain-config-merge-by-total-difficulty-p
    #:chain-config-eip150-p
    #:chain-config-eip155-p
    #:chain-config-eip158-p

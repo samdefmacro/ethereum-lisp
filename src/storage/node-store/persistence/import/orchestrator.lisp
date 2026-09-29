@@ -33,6 +33,7 @@ already marked for deletion by the next txpool delta."
       (engine-payload-store-enable-durable-cache-change-tracking staging))
     (chain-store-import-block-records-from-kv staging database)
     (chain-store-import-header-records-from-kv staging database)
+    (chain-store-import-total-difficulty-records-from-kv staging database)
     (chain-store-import-canonical-indexes-from-kv staging database)
     (chain-store-import-receipt-records-from-kv staging database)
     (chain-store-import-state-records-from-kv staging database)

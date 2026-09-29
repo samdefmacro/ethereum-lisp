@@ -68,6 +68,7 @@
            "tests/evm-precompile-tests.lisp"
            "tests/evm-call-family-tests.lisp"
            "tests/evm-create-tests.lisp"
+           "tests/evm-pre-spurious-dragon-tests.lisp"
            "tests/evm-osaka-tests.lisp"
            "tests/evm-amsterdam-tests.lisp"
            "tests/evm-bls12381-tests.lisp"))

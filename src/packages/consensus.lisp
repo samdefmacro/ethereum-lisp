@@ -57,6 +57,8 @@
    #:validate-ethash-header
    #:validate-block-dao-extra-data
    #:validate-block-merge-fields
+   #:block-header-merge-rules-p
+   #:block-header-post-merge-block-p
    #:validate-block-header-field-shapes
    #:validate-block-header-basics
    #:validate-block-header-against-config

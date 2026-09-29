@@ -270,7 +270,36 @@ canonical body-only representation."
                   collect (transaction-receipt-encoding
                            transaction receipt))))))
 
-(defun chain-store-export-block-record-to-kv (batch block)
+(defun chain-store-total-difficulty-record (total-difficulty)
+  "The durable :TOTAL-DIFFICULTY record for TOTAL-DIFFICULTY: its RLP."
+  (unless (and (integerp total-difficulty)
+               (<= 0 total-difficulty)
+               (< total-difficulty (ash 1 256)))
+    (block-validation-fail
+     "Total difficulty record requires a uint256, got ~S" total-difficulty))
+  (rlp-encode total-difficulty))
+
+(defun chain-store-total-difficulty-from-record (record record-label)
+  "Decode a :TOTAL-DIFFICULTY RECORD; a non-canonical one is a storage fault."
+  (let ((decoded
+          (handler-case (rlp-decode-one record)
+            (error (condition)
+              (storage-fail "~A total difficulty record is not RLP: ~A"
+                            record-label condition)))))
+    (unless (and (byte-vector-p decoded)
+                 (<= (length decoded) 32)
+                 (or (zerop (length decoded))
+                     (plusp (aref decoded 0))))
+      (storage-fail "~A total difficulty record is not a canonical uint256"
+                    record-label))
+    (bytes-to-integer decoded)))
+
+(defun chain-store-export-block-record-to-kv
+    (batch block &optional total-difficulty)
+  (when total-difficulty
+    (kv-batch-put-chain-record
+     batch :total-difficulty (hash32-bytes (block-hash block))
+     (chain-store-total-difficulty-record total-difficulty)))
   (let* ((identifier (hash32-bytes (block-hash block)))
          (ordered-identifier
            (kv-chain-height-hash-identifier
@@ -297,8 +326,9 @@ canonical body-only representation."
   (setf store (chain-store-require-memory-store store))
   (maphash
    (lambda (key block)
-     (declare (ignore key))
-     (chain-store-export-block-record-to-kv batch block))
+     (chain-store-export-block-record-to-kv
+      batch block
+      (values (gethash key (memory-chain-store-total-difficulties store)))))
    (memory-chain-store-blocks store))
   ;; Publishing this marker in the same batch makes v1 -> v2 migration
   ;; all-or-nothing. Legacy hash keys remain readable during rollout. The

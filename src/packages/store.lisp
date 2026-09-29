@@ -73,6 +73,7 @@
    #:memory-chain-store-blocks
    #:memory-chain-store-number-blocks
    #:memory-chain-store-canonical-hashes
+   #:memory-chain-store-total-difficulties
    #:memory-chain-store-transaction-locations
    #:memory-chain-store-account-balances
    #:memory-chain-store-account-nonces
@@ -165,6 +166,7 @@
    #:engine-payload-store-copy-transaction-location-table
    #:copy-memory-chain-store
    #:chain-store-backing-block
+   #:chain-store-backing-total-difficulty
    #:chain-store-backing-canonical-hash
    #:chain-store-backing-transaction-location
    #:chain-store-backing-state-root
@@ -260,6 +262,7 @@
    #:engine-payload-store-enable-durable-cache-change-tracking
    #:engine-payload-store-durable-cache-change-tracking-enabled-p
    #:memory-chain-store-put-block
+   #:memory-chain-store-record-total-difficulty
    #:engine-payload-store-known-block
    #:engine-payload-store-checkpoint-number
    #:engine-payload-store-head-number
@@ -314,6 +317,7 @@
    #:engine-payload-store-transaction-location
    #:chain-store-put-block
    #:chain-store-known-block
+   #:chain-store-block-total-difficulty
    #:chain-store-block-by-number
    #:chain-store-canonical-hash
    #:chain-store-canonical-block-p

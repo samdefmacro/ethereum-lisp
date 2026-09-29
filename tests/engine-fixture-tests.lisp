@@ -20,5 +20,6 @@
            "tests/engine-fixture-receipt-tests.lisp"
            "tests/engine-fixture-canonical-tests.lisp"
            "tests/fixture-runner-amsterdam.lisp"
-           "tests/fixture-runner-ported-static.lisp"))
+           "tests/fixture-runner-ported-static.lisp"
+           "tests/fixture-runner-pre-merge.lisp"))
   (load-engine-fixture-test-file relative-path))

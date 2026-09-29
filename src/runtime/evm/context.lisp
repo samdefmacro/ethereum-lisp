@@ -37,6 +37,9 @@ historical gas selection."
     (or (null rules)
         (>= (chain-rules-fork-level rules) level))))
 
+(defun context-homestead-p (context)
+  (context-at-least-fork-level-p context 3))
+
 (defun context-eip150-p (context)
   (context-at-least-fork-level-p context 4))
 
