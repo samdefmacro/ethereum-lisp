@@ -28,7 +28,13 @@
 # docker stop (both timeout bounds and the clean stop are the controls), and a
 # clean stop is told apart from a SIGKILLed, OOM-killed or faulted one by exit
 # code, OOMKilled, the RocksDB "Shutdown complete" count and the fault lines;
-# restart and upgrade stop through the same helper and grace.
+# restart and upgrade stop through the same helper and grace.  A container
+# that stopped on a start-up defect (STUB: dies-on-start, start-fails) is
+# recorded by upgrade, start and restart from Docker and its last log line and
+# never started to be read; each rollback outcome is checked.  A modelled Git
+# history (STUB_HISTORY, STUB_SIDE) drives the RUNTIME-REVISION marker: every
+# downgrade refusal is paired with an accepted case or the allowance, and an
+# ssh hook changes the marker between the control plane's read and the action.
 #
 # Run it from the tests (tests/control-plane-broker-tests.lisp) in the
 # project container; it prints one line per check and exits non-zero on any

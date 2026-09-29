@@ -133,8 +133,9 @@ request. Anything else exits 1 with the reasons (`exit-137`, `oom-killed`,
 never removes the container or touches the datadir. `restart` stops through
 the same check and grace (it still starts the node after an unclean stop,
 then exits 1), and `start` and `upgrade` use it for the container they
-replace (`old-stop-` and `previous-stop-` lines, reported but not fatal: the
-store recovers on its next open).
+replace when that container is running (`old-stop-` and `previous-stop-`
+lines, reported but not fatal: the store recovers on its next open). One that
+is not running is never started or stopped (see Upgrade).
 
 What the node does with SIGTERM, in order, and the budgets involved:
 
@@ -190,6 +191,95 @@ Restart on the same datadir (`scripts/hoodi-live-gate.sh restart`, or
   Hoodi) with `peer.snap.pivot_rebased` / `peer.snap.target_completed` pairs.
 - A forward download resumes from its durable peer cursor; a payload build or
   a reorg that was cut is simply redone when the CL repeats forkchoiceUpdated.
+
+`restart` of a crash-stopped container records its state from Docker instead
+of asking an RPC port that cannot answer:
+
+```
+before-state=exited exit=1 finished=<UTC> last-log=<the last log line>
+before-block=unavailable (not running)
+```
+
+The last log line is cut to 240 characters, and IPv4 addresses, enode URLs
+and hex runs of 40 or more digits in it are replaced by `<ip>`, `<enode>` and
+`<hex>`. If the daemon refuses the start, `restart` exits 1 with `docker start
+failed for <container>`.
+
+## Upgrade
+
+`upgrade` replaces the previous container on the same datadir with a new
+runtime revision (docs/validation.md has the command). What it does with the
+previous container depends on whether it is running:
+
+- Running: it waits for the previous RPC, records `before-block` and
+  `before-syncing` over RPC, stops it through the Stop check, and starts the
+  new container.
+- Not running (a crash, or an interrupted operation): it is **not** started.
+  The before-state comes from Docker and the datadir instead:
+
+  ```
+  previous-state=exited exit=1 finished=<UTC> last-log=<the last log line>
+  previous-oom-killed=false
+  before-block=unavailable (previous not running; its store is not opened)
+  previous-stop=skipped (not running)
+  ```
+
+  On 2026-09-29 the broker started the stopped previous container to read its
+  block number; it died 7 s later on a start-up defect and the upgrade failed
+  ("previous public RPC did not return within 600s") although the datadir was
+  healthy and the new image would have started. The block number is not
+  readable without starting the old runtime, so it is reported unavailable.
+
+If the new container fails to start, attach, or answer RPC, the broker stops
+it and puts the previous container back the way it found it:
+`rollback-previous-start=ok`, `skipped (it was not running before the
+upgrade)`, or `failed (reported; the upgrade had already failed)`. A failed
+start of the previous is never what the upgrade exits on. `start` does the
+same with the container it replaces (`old-state=`, `old-stop=skipped`,
+`rollback-old-start=`): the Lighthouse alias cutover never depends on the old
+container being alive.
+
+## Runtime revision marker
+
+Every start the broker performs (`start`, `upgrade`, `restart`) writes
+`<datadir>/RUNTIME-REVISION`, one line holding the full 40-hex revision, just
+before the runtime starts (through a rename, so it is never torn). Before
+starting anything, the control plane reads it and requires the image revision
+to be that revision or a Git descendant of it:
+
+```
+runtime-order=first datadir=<datadir> (no marker)
+runtime-order=same revision=<rev> source=<datadir>/RUNTIME-REVISION
+runtime-order=newer revision=<rev> last=<marker> source=<datadir>/RUNTIME-REVISION
+runtime-revision-marker=<rev> written runtime=<rev>
+```
+
+A newer runtime may have written state an older one cannot read (a closure
+epoch, a new namespace), so these are refused before any container is
+stopped: a marker naming a descendant of the image revision, a revision this
+checkout does not have, a revision on another line of history, or a malformed
+marker. The refusal names the reason:
+
+```
+FAIL: refusing to start <rev> on <datadir>: <rev> is older than its last runtime revision <marker> (<datadir>/RUNTIME-REVISION); ...
+```
+
+A datadir created before the marker existed has none; `upgrade` then judges
+the image against the previous container's revision label. The host re-reads
+the marker before it stops anything and refuses if it changed since the
+control plane read it.
+
+Set `HOODI_GATE_ALLOW_DOWNGRADE=1` only after checking that the older
+runtime reads what the newer one wrote. The start then proceeds
+(`runtime-order=downgrade-allowed reason=...`), and the marker keeps the newer
+revision, so every later start is still judged against it. A rolled-back
+upgrade also keeps the replacement's revision
+(`runtime-revision-marker=<rev> kept (the replacement was started on this
+datadir)`): restarting the previous container afterwards needs the allowance.
+
+`status` prints `runtime-revision-marker=<rev|absent|malformed>
+container-revision=<label>` before any RPC, so it shows even when the node is
+down.
 
 ## Node identity
 
@@ -286,6 +376,8 @@ From the d203fee6 fresh-datadir run (2026-09-23, Hoodi, 8 vCPU, 15 GiB host,
 | exit 137 with OOMKilled=false after `docker stop` | the stop outlasted the grace period (SIGKILL); the RocksDB `LOG` has no `Shutdown complete` | look for a long Engine request or join in the last log lines; see Stop. The store recovers on restart |
 | exit 137 with OOMKilled=true | the container memory limit (b5161312 at 02:25:29Z: 7.9 GiB of retained arena pages plus a Lisp heap growing at the head) | read the last `node.memory.sample` lines (see Memory) to tell native retention from Lisp heap growth; raise the limit (12 GiB is the tested value) |
 | `CORRUPTION WARNING` or `Memory fault` on stderr, even with exit 0 | a memory fault; SBCL can exit 0 after one | treat as a failure and keep the log |
+| `upgrade` fails with `previous public RPC did not return within 600s` after the previous container died a few seconds into its start | a broker before 2026-09-30 started a stopped previous container to read its before-state (2026-09-29) | a current broker never starts a stopped previous container (see Upgrade) |
+| `FAIL: refusing to start <rev> on <datadir>: ... older than its last runtime revision ...` | the datadir's RUNTIME-REVISION marker names a newer runtime | use a revision that descends from the marker; override with `HOODI_GATE_ALLOW_DOWNGRADE=1` only after checking the older runtime reads the newer one's data (see Runtime revision marker) |
 
 ## Metrics
 
@@ -431,7 +523,7 @@ curl -s http://127.0.0.1:$METRICS_PORT/health/ready
 Against the live gate (read-only unless noted; see scripts/hoodi-live-gate.sh):
 
 ```
-scripts/hoodi-live-gate.sh status     # container state, eth_syncing, eth_blockNumber, peers, disk
+scripts/hoodi-live-gate.sh status     # container state, runtime revision marker, eth_syncing, eth_blockNumber, peers, disk
 scripts/hoodi-live-gate.sh logs       # recent log window with the snap/engine/guard signals
 scripts/hoodi-fleet-status.sh         # live, Hive and shadow gates, host memory and /data, in one call
 scripts/hoodi-live-gate.sh complete   # the Section 5 completion check; exit 0 = complete
