@@ -174,3 +174,129 @@
            (is (zerop (hash-table-count
                        (ethereum-lisp.cli::devnet-node-execution-retries
                         node))))))))))
+
+(defun internal-error-engine-request (node method params)
+  "Answer one Engine request through NODE's own Engine service context, and
+return the response object."
+  (ethereum-lisp.rpc:rpc-handle-request
+   (list (cons "jsonrpc" "2.0")
+         (cons "id" 1)
+         (cons "method" method)
+         (cons "params" params))
+   (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+    (ethereum-lisp.cli::devnet-node-service node))))
+
+(defun internal-error-field (object name)
+  (cdr (assoc name object :test #'string=)))
+
+(deftest devnet-engine-prepared-payload-internal-error-is-logged
+  (:layer :unit :module :engine)
+  ;; A newPayload of the block this node itself built publishes the build's
+  ;; retained post-state instead of executing (the prepared-payload
+  ;; shortcut). An internal failure there already answered -32603 and cached
+  ;; nothing, but no line was logged: the node's logging executor never ran.
+  ;; RED at c677bdf0: no engine.execution.internal_error event.
+  (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+         (sender (address-to-hex (fixture-private-key-address 1)))
+         (funded "0x0000000000000000000000000000000000001001")
+         (genesis-json
+           ;; The Paris genesis, funding the sender of the one transaction
+           ;; below: a pre-Cancun build keeps its post-state (the shortcut's
+           ;; subject) only when it executes something.
+           (let ((at (search funded *eth-sync-paris-genesis-json*)))
+             (concatenate 'string
+                          (subseq *eth-sync-paris-genesis-json* 0 at)
+                          sender
+                          (subseq *eth-sync-paris-genesis-json*
+                                  (+ at (length funded))))))
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json genesis-json
+                :port 0 :public-port 0 :telemetry-sink sink))
+         (genesis (ethereum-lisp.cli::devnet-node-genesis-block node))
+         (admitted
+           (ethereum-lisp.rpc:rpc-handle-request
+            (list (cons "jsonrpc" "2.0")
+                  (cons "id" 1)
+                  (cons "method" "eth_sendRawTransaction")
+                  (cons "params"
+                        (list
+                         (bytes-to-hex
+                          (transaction-encoding
+                           (fixture-sign-legacy-transaction
+                            (make-legacy-transaction
+                             :nonce 1 :gas-price 2000000000 :gas-limit 21000
+                             :to (make-address
+                                  (make-byte-vector 20 :initial-element 7))
+                             :value 1)
+                            1 1337))))))
+            (ethereum-lisp.rpc-http:engine-rpc-http-service-rpc-context
+             (ethereum-lisp.cli::devnet-node-public-service node))))
+         (prepared
+           (internal-error-engine-request
+            node "engine_forkchoiceUpdatedV1"
+            (list (list (cons "headBlockHash"
+                              (hash32-to-hex (block-hash genesis)))
+                        (cons "safeBlockHash"
+                              (hash32-to-hex (zero-hash32)))
+                        (cons "finalizedBlockHash"
+                              (hash32-to-hex (zero-hash32))))
+                  (list (cons "timestamp"
+                              (format nil "0x~X"
+                                      (+ 12 (block-header-timestamp
+                                             (block-header genesis)))))
+                        (cons "prevRandao" (hash32-to-hex (zero-hash32)))
+                        (cons "suggestedFeeRecipient"
+                              (address-to-hex (zero-address)))))))
+         (payload-id
+           (internal-error-field (internal-error-field prepared "result")
+                                 "payloadId"))
+         (payload
+           (internal-error-field
+            (internal-error-engine-request
+             node "engine_getPayloadV1" (list payload-id))
+            "result"))
+         (executions 0))
+    (is (stringp (internal-error-field admitted "result")))
+    (is (stringp payload-id))
+    (is (= 1 (length (internal-error-field payload "transactions"))))
+    (let* ((original
+             (fdefinition
+              'ethereum-lisp.execution-service:execute-and-commit-engine-payload))
+           (response
+             (devnet-peer-sync-call-with-function-overrides
+              (list
+               ;; Counts executions: the shortcut must not execute.
+               (cons 'ethereum-lisp.execution-service:execute-and-commit-engine-payload
+                     (lambda (&rest arguments)
+                       (incf executions)
+                       (apply original arguments)))
+               ;; The shortcut's publication of the retained post-state.
+               (cons 'ethereum-lisp.execution-service:execute-and-commit-block
+                     (lambda (&rest arguments)
+                       (declare (ignore arguments))
+                       (error 'type-error :datum (expt 2 256)
+                                          :expected-type
+                                          '(mod 4611686018427387901)))))
+              (lambda ()
+                (internal-error-engine-request
+                 node "engine_newPayloadV1" (list payload))))))
+      (is (= 0 executions))
+      (is (null (internal-error-field response "result")))
+      (is (eql -32603 (internal-error-field
+                       (internal-error-field response "error") "code")))
+      (let ((events (snap-tail-internal-error-events sink)))
+        (is (= 1 (length events)))
+        (is (eq :error (ethereum-lisp.telemetry:telemetry-event-value
+                        (first events))))
+        (is (equal "engine" (snap-tail-event-field (first events) "source")))
+        (is (equal "1" (snap-tail-event-field (first events) "block")))
+        (is (search "4611686018427387901"
+                    (snap-tail-event-field (first events) "error")))))
+    ;; No verdict was cached: the retry publishes the build and is VALID.
+    (is (string= +payload-status-valid+
+                 (internal-error-field
+                  (internal-error-field
+                   (internal-error-engine-request
+                    node "engine_newPayloadV1" (list payload))
+                   "result")
+                  "status")))))

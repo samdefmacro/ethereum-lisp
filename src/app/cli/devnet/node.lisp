@@ -1,38 +1,27 @@
 (in-package #:ethereum-lisp.cli)
 
-(defun devnet-log-execution-internal-error (sink source block condition)
-  "Log CONDITION, which escaped the execution of BLOCK, as
-engine.execution.internal_error at :ERROR level.
+(defun devnet-block-executor (store block config)
+  "The executor the node's Engine and public services run blocks with.
 
-It is a defect in this node, never a verdict on the block: the import service
-turns it into a BLOCK-EXECUTION-INTERNAL-ERROR, caches nothing, and the Engine
-request answers a JSON-RPC error while a sync pass ends and retries.  A failing
-sink must not replace the condition being reported, so its errors are dropped."
-  (handler-case
-      (telemetry-log
-       :error "engine.execution.internal_error"
-       :fields (list (cons "source" (string-downcase (symbol-name source)))
-                     (cons "block"
-                           (princ-to-string
-                            (block-header-number (block-header block))))
-                     (cons "hash" (hash32-to-hex (block-hash block)))
-                     (cons "condition" (princ-to-string (type-of condition)))
-                     (cons "error" (princ-to-string condition)))
-       :sink sink)
-    (error () nil)))
+A call through the symbol rather than the function object, so a test's
+override of EXECUTE-AND-COMMIT-ENGINE-PAYLOAD reaches a service built before
+it. An internal failure that escapes it is logged by the import service
+(BLOCK-EXECUTION-LOG-INTERNAL-ERROR), whose line reaches the node's sink
+because the service's request guard binds it (DEVNET-SINK-BOUND-GUARD)."
+  (execute-and-commit-engine-payload store block config))
 
-(defun devnet-block-executor (sink source)
-  "The executor the node's SOURCE ingress (:ENGINE, :PUBLIC or :P2P) runs
-blocks with: EXECUTE-AND-COMMIT-ENGINE-PAYLOAD, logging to SINK any internal
-failure that escapes it before the import service classifies it."
-  (lambda (store block config)
-    (handler-bind
-        ((error
-           (lambda (condition)
-             (when (block-execution-internal-condition-p condition)
-               (devnet-log-execution-internal-error
-                sink source block condition)))))
-      (execute-and-commit-engine-payload store block config))))
+(defun devnet-sink-bound-guard (sink guard)
+  "GUARD, a request-guard function of one thunk, with *TELEMETRY-SINK* bound
+to SINK while the thunk runs.
+
+A guarded request (newPayload among them) runs on the thread that calls the
+guard, so every line the request logs through the default sink -- the import
+service's engine.execution.internal_error, for this node's own prepared build
+as for any other payload -- reaches the node's sink rather than the process
+default."
+  (lambda (thunk)
+    (let ((ethereum-lisp.telemetry:*telemetry-sink* sink))
+      (funcall guard thunk))))
 
 (defun make-devnet-node
     (&key
@@ -302,14 +291,16 @@ failure that escapes it before the import service classifies it."
             :config config
             :network-id effective-network-id
             :coinbase coinbase
-            :import-function (devnet-block-executor telemetry-sink :engine)
+            :import-function #'devnet-block-executor
             :new-payload-persistence-function
             new-payload-persistence-function
             :forkchoice-persistence-function forkchoice-persistence-function
             :payload-improvement-notification-function
             payload-improvement-notification-function
             :gas-limit-target miner-gas-limit
-            :request-guard-function store-guard-priority-function
+            :request-guard-function
+            (devnet-sink-bound-guard
+             telemetry-sink store-guard-priority-function)
             :request-guard-predicate
             (lambda (method)
               ;; Every Engine call is the consensus client's heartbeat for
@@ -339,14 +330,15 @@ failure that escapes it before the import service classifies it."
             :config config
             :network-id effective-network-id
             :coinbase coinbase
-            :import-function (devnet-block-executor telemetry-sink :public)
+            :import-function #'devnet-block-executor
             :new-payload-persistence-function
             new-payload-persistence-function
             :forkchoice-persistence-function forkchoice-persistence-function
             :payload-improvement-notification-function
             payload-improvement-notification-function
             :gas-limit-target miner-gas-limit
-            :request-guard-function store-guard-function
+            :request-guard-function
+            (devnet-sink-bound-guard telemetry-sink store-guard-function)
             :request-guard-predicate
             (lambda (method)
               (not (member method '("eth_syncing" "engine_getBlobsV3")

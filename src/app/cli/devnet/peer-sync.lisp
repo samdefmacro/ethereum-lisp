@@ -640,16 +640,19 @@ bodies were never admitted after the downloader stopped at the bad block."
                  (block-header-number (block-header block))
                  :last-hash (block-hash block)))))
          (multiple-value-bind (status candidate receipts)
-             (apply
-              #'import-p2p-block-candidate
-              store block config
-              (append
-               (list :durability-function durability-function
-                     :invalid-head-hash invalid-head-hash
-                     :import-function
-                     (devnet-block-executor
-                      (devnet-node-telemetry-sink node) :p2p))
-               (when progress (list :progress progress))))
+             ;; The import service logs an internal execution failure
+             ;; (engine.execution.internal_error) to the default sink; this
+             ;; thread's import is the node's, so is the line.
+             (let ((ethereum-lisp.telemetry:*telemetry-sink*
+                     (devnet-node-telemetry-sink node)))
+               (apply
+                #'import-p2p-block-candidate
+                store block config
+                (append
+                 (list :durability-function durability-function
+                       :invalid-head-hash invalid-head-hash
+                       :import-function #'devnet-block-executor)
+                 (when progress (list :progress progress)))))
            (when (and require-valid-p
                       (string= +payload-status-invalid+
                                (payload-status-status status)))
