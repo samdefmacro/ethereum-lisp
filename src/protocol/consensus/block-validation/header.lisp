@@ -161,10 +161,10 @@
      header :withdrawals-enabled-p withdrawals-enabled-p)
     (validate-block-requests-hash-field
      header :requests-enabled-p requests-enabled-p)
+    ;; Presence only: like geth v1.17.6 VerifyHeader, the execution layer does
+    ;; not order an Amsterdam slot number against its parent's.
     (validate-block-amsterdam-fields
      header :amsterdam-enabled-p amsterdam-enabled-p)
-    (when amsterdam-enabled-p
-      (validate-block-amsterdam-slot-number parent-header header))
     (when validate-base-fee-p
       (validate-block-base-fee parent-header header
                                :london-parent-p london-parent-p)))

@@ -357,6 +357,43 @@
     (is (= 1 (state-account-balance
               (state-db-get-account state recipient))))))
 
+(deftest amsterdam-block-access-list-lists-a-zero-tip-coinbase
+  ;; geth credits the coinbase even a zero priority fee, and EIP-7928 then
+  ;; lists it with no change: tests-glamsterdam-devnet@v7.2.1
+  ;; bal_coinbase_zero_tip, and every engine fixture whose gas price equals
+  ;; its base fee. Gas price 1 over base fee 1 is a zero tip here.
+  (let* ((state (make-state-db))
+         (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
+         (recipient (address-from-hex "0x0000000000000000000000000000000000000002"))
+         (coinbase (address-from-hex "0x00000000000000000000000000000000000000cb"))
+         (config (make-chain-config :london-block 0
+                                    :amsterdam-time 10))
+         (header (make-block-header :timestamp 10
+                                    :beneficiary coinbase
+                                    :gas-limit 250000
+                                    :base-fee-per-gas 1))
+         (transaction (make-legacy-transaction :nonce 0
+                                               :gas-price 1
+                                               :gas-limit 250000
+                                               :to recipient
+                                               :value 1)))
+    (state-db-set-account state sender
+                          (make-state-account :balance 500000))
+    (let* ((block (execute-legacy-block state sender (list transaction)
+                                        :header header
+                                        :chain-config config))
+           (entry (find (address-bytes coinbase)
+                        (block-block-access-list block)
+                        :key (lambda (account)
+                               (address-bytes
+                                (block-access-account-address account)))
+                        :test #'equalp)))
+      (is entry)
+      (is (null (block-access-account-balance-changes entry)))
+      (is (null (block-access-account-nonce-changes entry)))
+      ;; The coinbase gained nothing, so the state has no account for it.
+      (is (null (state-db-get-account state coinbase))))))
+
 (deftest block-execution-preflights-block-access-list-item-gas-limit
   (let* ((state (make-state-db))
          (sender (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -829,6 +866,64 @@
                         (bytes= (address-bytes left)
                                 (address-bytes right)))
                 :key #'block-access-account-address)))))
+
+(deftest amsterdam-transition-leaves-an-installed-factory-out-of-the-access-list
+  ;; geth v1.17.6 ApplyEIP7997 returns at once when the factory's code hash
+  ;; already matches, and that check is no access the block access list
+  ;; records: tests-glamsterdam-devnet@v7.2.1 BPO2ToAmsterdamAtTime15k fixtures
+  ;; whose pre-state holds the factory list no factory entry at the activation
+  ;; block. The companion test above is the control: a missing factory is
+  ;; installed and listed.
+  (let* ((state (make-state-db))
+         (queue-specs
+           '("0x00000961ef480eb55e80d19ad83579a64c007002"
+             "0x0000bbddc7ce488642fb579f8b00f3a590007251"
+             "0x0000bff46984e3725691fa540a8c7589300d8282"
+             "0x000064d678505ad48f8ccb093bc65613800e8282"))
+         (factory
+           (address-from-hex
+            "0x4e59b44847b379578588920ca78fbf26c0b4956c"))
+         (config (make-chain-config :london-block 0
+                                    :shanghai-time 0
+                                    :prague-time 0
+                                    :amsterdam-time 10))
+         (parent-header
+           (make-block-header :number 0
+                              :timestamp 9
+                              :gas-limit 200000
+                              :base-fee-per-gas 0))
+         (header
+           (make-block-header
+            :parent-hash (block-header-hash parent-header)
+            :number 1
+            :timestamp 10
+            :gas-limit 200000
+            :base-fee-per-gas 0
+            :withdrawals-root (withdrawal-list-root '())
+            :requests-hash (execution-requests-hash '())
+            :slot-number 1)))
+    (dolist (address queue-specs)
+      (state-db-set-code state (address-from-hex address)
+                         (eip7685-test-return-code (make-byte-vector 0))))
+    (state-db-set-code state factory
+                       ethereum-lisp.execution::+deterministic-factory-code+)
+    (state-db-set-account state factory
+                          (make-state-account
+                           :nonce 1
+                           :code-hash (state-account-code-hash
+                                       (state-db-get-account state factory))))
+    (let ((block (execute-legacy-block state (zero-address) '()
+                                       :header header
+                                       :parent-header parent-header
+                                       :chain-config config
+                                       :withdrawals '())))
+      (is (block-block-access-list-present-p block))
+      (is (null (find factory
+                      (block-block-access-list block)
+                      :test (lambda (left right)
+                              (bytes= (address-bytes left)
+                                      (address-bytes right)))
+                      :key #'block-access-account-address))))))
 
 (deftest prague-request-system-contracts-are-mandatory
   (let* ((state (make-state-db))

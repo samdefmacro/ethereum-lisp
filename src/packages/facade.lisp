@@ -252,7 +252,6 @@
    #:validate-block-requests-hash-field
    #:block-header-amsterdam-fields-present-p
    #:validate-block-amsterdam-fields
-   #:validate-block-amsterdam-slot-number
    #:*ethash-seal-verifier*
    #:ethash-seal-verification-available-p
    #:verify-ethash-seal
@@ -1300,7 +1299,6 @@
    #:log-entry-data
    #:log-entry-rlp-object
    #:make-eth-transfer-log-entry
-   #:make-eth-burn-log-entry
    #:make-eth-trace-transfer-log-entry
    #:bloom
    #:make-bloom

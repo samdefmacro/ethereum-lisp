@@ -1644,13 +1644,28 @@ three when they are set. State-test auto-discovery defaults to London and
 Shanghai; set `ETHEREUM_LISP_PHASE_A_STATE_TEST_FORKS` to a comma-separated
 fork list such as `Cancun,Prague,Osaka` to opt into later-fork vectors.
 
-What the pinned corpus cannot cover: EEST `v5.4.0` contains no `amsterdam/`
-directory, and its Osaka vectors predate Amsterdam activation, so they carry
-Prague post-state rules. Amsterdam execution is therefore pinned only by the
-in-tree fork matrix and unit tests, not by fixtures anyone else wrote. Nothing
-in this tree has been checked against a running reference client either; every
-parity claim rests on source comparison against the versions named in
-`docs/reference-map.md`.
+What the pinned gate corpora cannot cover: neither EEST `v5.4.0` nor
+`tests@v20.0.2` contains a `for_amsterdam` tree, so the gates above never
+execute Amsterdam. Amsterdam is measured separately, as a burn-down rather than
+a gate, against the pinned feature corpus `tests-glamsterdam-devnet@v7.2.1`:
+
+```sh
+scripts/dev.sh eest-fixtures amsterdam-v7.2.1 .eest-fixtures-amsterdam
+ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$PWD/.eest-fixtures-amsterdam/tests-glamsterdam-devnet-v7.2.1 \
+  cl-workbench validation run cold-integration \
+  --match OPTIONAL-AMSTERDAM-EEST-FEATURE-BURN-DOWN > amsterdam.log 2>&1
+```
+
+It prints one `AMSTERDAM-EEST` line per family and EIP directory and fails only
+for directories named in `ETHEREUM_LISP_AMSTERDAM_EEST_REQUIRED`;
+`ETHEREUM_LISP_AMSTERDAM_EEST_DIRECTORIES` and
+`ETHEREUM_LISP_AMSTERDAM_EEST_TREES` narrow or widen the walk. The Engine
+fixtures are replayed below the method router, so
+`amsterdam-execution-available-p` stays false while they run. The inventory, the
+measured counts and what still fails are in
+`docs/gap-analysis/amsterdam-inventory.md`. Nothing in this tree has been
+checked against a running reference client either; every parity claim rests on
+source comparison against the versions named in `docs/reference-map.md`.
 
 `DOCKER_TEST_IMAGE_PREBUILT=1` runs the layers against an existing image instead
 of rebuilding it. CI sets it because it builds the image with buildx against a

@@ -1564,6 +1564,8 @@ the source record listed at `docs/evidence/gates.md`, row 6e3e9b1d.
 - Run every Amsterdam state/blockchain fixture plus pinned Hive Engine tests,
   with independent negative capability tests for KZG point/blob/cell and BLS
   facilities.
+- The inventory, the burn-down runner and the measured counts per EIP are in
+  `docs/gap-analysis/amsterdam-inventory.md`.
 - Re-open `amsterdam-execution-available-p` only when all counts are nonzero,
   all fixtures/Hive pass, and adversarial maximum-gas execution stays within the
   documented resource budget. Track the forthcoming stable `tests@v21` release;

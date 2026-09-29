@@ -268,13 +268,7 @@
                         beneficiary
                         rules
                         :clear-self-balance-p
-                        burn-self-balance-p
-                        :burn-log-p
-                        (and created-p
-                             rules
-                             (chain-rules-amsterdam-p rules)
-                             (bytes= (address-bytes address)
-                                     (address-bytes beneficiary))))))
+                        burn-self-balance-p)))
                  (when transfer-log
                    (push transfer-log logs)))
                (when delete-p

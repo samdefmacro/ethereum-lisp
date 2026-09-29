@@ -28,10 +28,11 @@
 (defun amsterdam-execution-available-p ()
   "Return whether every consensus-critical Amsterdam EVM rule is implemented.
 
-Amsterdam execution is NOT yet available: EIP-2780, EIP-7778, EIP-7976, and
-EIP-7981 are unimplemented, the EIP-8037/EIP-8038 system-call gas accounting is
-still stale, and EIP-8246 is incomplete.  Until all of those land on the
-execution path this must stay NIL.
+Amsterdam execution is NOT yet available: the tests-glamsterdam-devnet@v7.2.1
+burn-down (docs/gap-analysis/amsterdam-inventory.md) still fails in EIP-2780,
+EIP-7708, EIP-7928, EIP-8037, EIP-8038 and EIP-8246, most of it EIP-8037
+state-gas refill accounting in the interpreter.  Until every directory there
+passes this must stay NIL.
 
 This is purely a capability boundary the Engine API consults to advertise and
 dispatch the Amsterdam payload methods; refusing them is safer than executing a

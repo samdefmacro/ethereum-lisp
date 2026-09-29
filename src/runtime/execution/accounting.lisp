@@ -43,11 +43,20 @@
              :message "Insufficient sender balance"))
     (transfer-value state sender recipient value rules :trace-p trace-p)))
 
+(defvar *transaction-chain-rules* nil)
+
 (defun pay-priority-fee (state coinbase tx receipt base-fee)
   (let ((fee (* (receipt-cumulative-gas-used receipt)
                 (transaction-priority-fee-per-gas tx :base-fee base-fee))))
-    (when (plusp fee)
-      (state-db-add-balance state coinbase fee)))
+    (cond ((plusp fee)
+           (state-db-add-balance state coinbase fee))
+          ((and *transaction-chain-rules*
+                (chain-rules-amsterdam-p *transaction-chain-rules*))
+           ;; geth credits the coinbase even a zero tip, and under EIP-7928
+           ;; that access puts the coinbase in the block access list with no
+           ;; change (tests-glamsterdam-devnet@v7.2.1 bal_coinbase_zero_tip).
+           ;; A read records the same access without touching the state.
+           (state-db-get-account state coinbase))))
   receipt)
 
 (defun refund-unused-gas (state sender tx gas-used base-fee)
@@ -56,8 +65,6 @@
          (gas-price (transaction-effective-gas-price tx :base-fee base-fee)))
     (when (plusp unused-gas)
       (state-db-add-balance state sender (* unused-gas gas-price)))))
-
-(defvar *transaction-chain-rules* nil)
 
 (defun execution-london-or-later-p (rules)
   (or (null rules)

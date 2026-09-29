@@ -18,6 +18,17 @@
 (defconstant +total-cost-floor-per-token-eip7623+ 10)
 (defconstant +initcode-word-gas+ 2)
 (defconstant +set-code-authorization-intrinsic-gas+ 25000)
+;; Amsterdam intrinsic pricing (geth v1.17.6 params/protocol_params.go).
+;; EIP-2780 decomposes the 21000 base into the sender's resources plus the
+;; recipient's; EIP-8037 makes an authorization's state-independent floor
+;; 7816; EIP-7976 prices every calldata byte at four floor tokens of 16 gas.
+(defconstant +transaction-base-gas-eip2780+ 12000)
+(defconstant +transaction-value-gas-eip2780+ 4244)
+(defconstant +transfer-log-gas-eip2780+ 1756)
+(defconstant +set-code-authorization-base-gas-amsterdam+ 7816)
+;; EIP-8037: an authorization's 23-byte delegation indicator as state gas.
+(defconstant +authorization-creation-state-gas+ (* 23 +cost-per-state-byte+))
+(defconstant +total-cost-floor-per-token-eip7976+ 16)
 
 (defconstant +create-data-gas+ 200)
 (defconstant +max-contract-code-size+

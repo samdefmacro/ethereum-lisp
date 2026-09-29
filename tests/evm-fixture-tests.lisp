@@ -861,6 +861,23 @@ TXBYTES, so callers retain a reconstruction fallback for those fixtures only."
         (eest-state-test-expected-exception-tokens expected-exception)))
 
 (defun eest-state-test-chain-rules (fork)
+  ;; Amsterdam is scored only by the section 8 burn-down runner
+  ;; (tests/fixture-runner-amsterdam.lisp); the current-fork gates never name
+  ;; it. It follows BPO2 in the EEST fork order and inherits its blob schedule.
+  (when (string= fork "Amsterdam")
+    (let ((rules (eest-state-test-chain-rules "Osaka")))
+      (setf (chain-rules-bpo1-p rules) t
+            (chain-rules-bpo2-p rules) t
+            (chain-rules-amsterdam-p rules) t)
+      (multiple-value-bind (target-gas max-gas update-fraction)
+          (progn
+            (setf (chain-rules-blob-schedule-target-gas rules) nil)
+            (chain-rules-blob-schedule rules))
+        (setf (chain-rules-blob-schedule-target-gas rules) target-gas
+              (chain-rules-blob-schedule-max-gas rules) max-gas
+              (chain-rules-blob-schedule-update-fraction rules)
+              update-fraction))
+      (return-from eest-state-test-chain-rules rules)))
   (unless (member fork '("London" "Shanghai" "Cancun" "Prague" "Osaka")
                   :test #'string=)
     (error "Unsupported EEST state test fork ~A" fork))
@@ -1012,7 +1029,12 @@ protocol-visible 256-block window with that deterministic test-only provider.
                          :context-gas-limit
                          (hex-to-quantity
                           (fixture-required-field env "currentGasLimit"))
-                         :block-hashes (eest-state-test-block-hashes env)))
+                         :block-hashes (eest-state-test-block-hashes env)
+                         ;; EIP-7843 (Amsterdam) environments carry the slot
+                         ;; number SLOTNUM reads; earlier forks omit it.
+                         :slot-number
+                         (hex-to-quantity
+                          (or (fixture-object-field env "slotNumber") "0x0"))))
                  (receipt
                    (if signed-tx
                        (apply #'apply-signed-message state signed-tx

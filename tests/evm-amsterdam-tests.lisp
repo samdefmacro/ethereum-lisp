@@ -63,10 +63,27 @@
        :context (amsterdam-test-context :amsterdam-p nil))))
   (signals evm-error
     (execute-bytecode #(#xe8 #x5b 0)
-                      :context (amsterdam-test-context)))
-  ;; The immediate byte is data, even when it is JUMPDEST.
+                      :context (amsterdam-test-context))))
+
+(deftest eip8024-immediate-byte-stays-a-jump-destination
+  ;; Only PUSH data is excluded from JUMPDEST analysis (geth v1.17.6
+  ;; core/vm/analysis_legacy.go codeBitmap). A 0x5b immediate of DUPN, SWAPN
+  ;; or EXCHANGE is a valid jump target: tests-glamsterdam-devnet@v7.2.1
+  ;; dupn_jump_to_immediate_byte_0x5b_succeeds and
+  ;; exchange_jump_to_immediate_byte expect the jump to succeed. Before
+  ;; Amsterdam 0xe6..0xe8 are undefined opcodes, so the byte after one was
+  ;; always code. PUSH1 4, JUMP lands on the 0x5b at pc 4 and stops.
+  (dolist (opcode '(#xe6 #xe7 #xe8))
+    (dolist (amsterdam-p '(t nil))
+      (let ((result (execute-bytecode
+                     (vector #x60 4 #x56 opcode #x5b 0)
+                     :context (amsterdam-test-context
+                               :amsterdam-p amsterdam-p))))
+        (is (eq :stopped (evm-result-status result))))))
+  ;; The control: PUSH data is still excluded, so a 0x5b pushed as data is
+  ;; not a jump target.
   (signals evm-error
-    (execute-bytecode #(#x60 4 #x56 #xe6 #x5b 0)
+    (execute-bytecode #(#x60 4 #x56 #x60 #x5b 0)
                       :context (amsterdam-test-context))))
 
 (deftest amsterdam-contract-code-limit-is-eip7954-value
@@ -367,11 +384,14 @@
           (account nil))
       (setf account (state-db-get-account state contract))
       (is (= 1 (receipt-status receipt)))
-      (is (= 2 (length (receipt-logs receipt))))
+      ;; Only the creation's EIP-7708 transfer log: EIP-8246 removes the
+      ;; burn, so there is no burn to log (geth v1.17.6 opSelfdestruct6780;
+      ;; tests-glamsterdam-devnet@v7.2.1 create_transaction_initcode_selfdestruct).
+      (is (= 1 (length (receipt-logs receipt))))
       (is (string=
-           "0xcc16f5dbb4873280815c1ee09dbd06736cffcc184412cf7a71a0fdb75d397ca5"
+           "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
            (hash32-to-hex
-            (first (log-entry-topics (second (receipt-logs receipt)))))))
+            (first (log-entry-topics (first (receipt-logs receipt)))))))
       (is account)
       (is (= 7 (state-account-balance account)))
       (is (= 0 (state-account-nonce account)))
@@ -687,9 +707,98 @@
                    :address address :storage-keys (list slot))))))
     (is (= (+ 21000 2400 1900)
            (transaction-intrinsic-gas tx)))
-    (is (= (+ 21000 3000 3000)
+    ;; Amsterdam: the EIP-2780 base of a value-free call to another account,
+    ;; EIP-8038's 3000 per address and key, and EIP-7981's 20 and 32 bytes at
+    ;; the EIP-7976 price of 64 gas per byte.
+    (is (= (+ 12000 3000 3000 3000 (* 20 64) (* 32 64))
            (transaction-intrinsic-gas
             tx :chain-rules (amsterdam-transfer-test-rules))))))
+
+(defun amsterdam-intrinsic-test-transaction
+    (&key to (value 0) (data #()) access-list authorization-list)
+  (if authorization-list
+      (make-set-code-transaction
+       :chain-id 1 :nonce 0 :max-priority-fee-per-gas 1 :max-fee-per-gas 1
+       :gas-limit 1000000 :to to :value value :data data
+       :access-list access-list :authorization-list authorization-list
+       :y-parity 0 :r 1 :s 1)
+      (make-access-list-transaction
+       :chain-id 1 :nonce 0 :gas-price 1 :gas-limit 1000000
+       :to to :value value :data data :access-list access-list)))
+
+(deftest amsterdam-intrinsic-and-floor-gas-follow-eip2780-7976-7981
+  ;; Every number is geth v1.17.6 core/state_transition.go IntrinsicGas and
+  ;; FloorDataGas under IsAmsterdam, spelled out term by term.
+  (let* ((rules (amsterdam-transfer-test-rules))
+         (sender (address-from-hex
+                  "0x0000000000000000000000000000000000000011"))
+         (other (address-from-hex
+                 "0x0000000000000000000000000000000000000022"))
+         (slot (hash32-from-hex
+                "0x0000000000000000000000000000000000000000000000000000000000000001")))
+    (flet ((intrinsic (tx &optional (from sender))
+             (transaction-intrinsic-gas tx :chain-rules rules :sender from))
+           (floor-gas (tx &optional (from sender))
+             (transaction-effective-floor-gas tx rules :sender from)))
+      ;; EIP-2780 base: 12000 for the sender, then the recipient's cold touch
+      ;; (3000) or the created account's access (11000), then the value's
+      ;; transfer log (1756) and recipient balance write (4244).
+      (is (= 21000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to other :value 1))))
+      (is (= 15000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to other))))
+      (is (= 12000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to sender :value 1))))
+      (is (= (+ 12000 11000 (* 32 16) 2)
+             (intrinsic (amsterdam-intrinsic-test-transaction
+                         :data (make-array 32 :element-type '(unsigned-byte 8)
+                                              :initial-element 1)))))
+      (is (= (+ 12000 11000 1756)
+             (intrinsic (amsterdam-intrinsic-test-transaction :value 1))))
+      ;; Calldata keeps its 4/16 intrinsic price.
+      (is (= (+ 15000 4 16)
+             (intrinsic (amsterdam-intrinsic-test-transaction
+                         :to other :data #(0 1)))))
+      ;; EIP-8037's per-authorization floor replaces Prague's 25000.
+      (is (= (+ 15000 (* 2 7816))
+             (intrinsic
+              (amsterdam-intrinsic-test-transaction
+               :to other
+               :authorization-list
+               (loop repeat 2
+                     collect (make-set-code-authorization
+                              :chain-id 1 :address other :nonce 0
+                              :y-parity 0 :r 1 :s 1))))))
+      ;; Unknown sender: NIL prices the call as a transfer to another
+      ;; account, :SELF-TRANSFER-BOUND as a self-transfer.
+      (is (= 21000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to sender :value 1)
+                              nil)))
+      (is (= 12000 (intrinsic (amsterdam-intrinsic-test-transaction
+                               :to other :value 1)
+                              :self-transfer-bound)))
+      ;; EIP-7976 floor: every calldata byte is 4 tokens of 16 gas, zero or
+      ;; not, on the EIP-2780 base; EIP-7981 adds 80 tokens per address and
+      ;; 128 per key.
+      (is (= (+ 15000 (* 16 4 2))
+             (floor-gas (amsterdam-intrinsic-test-transaction
+                         :to other :data #(0 1)))))
+      (is (= (+ 12000 (* 16 4 3))
+             (floor-gas (amsterdam-intrinsic-test-transaction
+                         :to sender :value 1 :data #(0 0 7)))))
+      (is (= (+ 15000 (* 16 (+ 80 128)))
+             (floor-gas (amsterdam-intrinsic-test-transaction
+                         :to other
+                         :access-list
+                         (list (make-access-list-entry
+                                :address other :storage-keys (list slot)))))))
+      ;; Prague keeps EIP-7623: 21000 plus 10 per token, a zero byte 1 token.
+      (is (= (+ 21000 (* 10 (+ 1 4)))
+             (transaction-effective-floor-gas
+              (amsterdam-intrinsic-test-transaction :to other :data #(0 1))
+              (make-chain-rules :chain-id 1 :shanghai-p t :cancun-p t
+                                :prague-p t)
+              :sender sender))))))
 
 (deftest storage-only-account-is-empty-but-still-collides-on-create
   (let* ((state (make-state-db))
@@ -712,3 +821,175 @@
       (is (= 0 (first (evm-result-stack result)))))
     (is (ethereum-lisp.evm.internal::contract-address-collision-p
          state address))))
+
+(deftest amsterdam-protocol-system-call-has-a-state-reservoir
+  ;; geth v1.17.6 systemCallGasBudget: an Amsterdam protocol call runs with its
+  ;; 30M regular gas plus a state reservoir of SYSTEM_MAX_SSTORES_PER_CALL (16)
+  ;; new storage slots. Without the reservoir a slot's 97,920 state gas spills
+  ;; into the regular budget; here that budget is 30,000, so the call would
+  ;; run out of gas (tests-glamsterdam-devnet@v7.2.1 eip8282
+  ;; system_contract_reaches_gas_limit expects the block to stay VALID).
+  (let ((target (address-from-hex
+                 "0x0000000000000000000000000000000000000abc"))
+        (header (make-block-header :number 1 :timestamp 1 :gas-limit 30000000)))
+    ;; PUSH1 1, PUSH1 0, SSTORE, STOP: one new slot. Prague is the control
+    ;; that the call itself fits 30,000 gas there.
+    (dolist (rules (list (amsterdam-transfer-test-rules)
+                         (make-chain-rules :chain-id 1 :berlin-p t :london-p t
+                                           :shanghai-p t :cancun-p t
+                                           :prague-p t)))
+      (let ((state (make-state-db)))
+        (state-db-set-code state target (hex-to-bytes "0x600160005500"))
+        (ethereum-lisp.execution::execute-protocol-system-call
+         state target #() header rules
+         :gas-limit 30000 :require-success-p t)
+        (is (= 1 (state-db-get-storage state target (zero-hash32))))))
+    (is (= (* 16 64 1530)
+           (evm-gas-budget-state
+            (ethereum-lisp.execution::protocol-system-call-gas-budget
+             30000 (amsterdam-transfer-test-rules)))))
+    (is (= 0
+           (evm-gas-budget-state
+            (ethereum-lisp.execution::protocol-system-call-gas-budget
+             30000 (make-chain-rules :chain-id 1 :shanghai-p t :cancun-p t
+                                     :prague-p t)))))))
+
+;;; EIP-2780 / EIP-8037 runtime charges before the top frame (geth v1.17.6
+;;; core/state_transition.go executeCall, applyAuthorization and
+;;; chargeCallRecipientEIP2780). The authorization below is signed for chain
+;;; 1337 by 0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f (the same vectors as
+;;; tests/execution-set-code-tests.lisp).
+
+(defun amsterdam-set-code-test-rules ()
+  (make-chain-rules :chain-id 1337 :berlin-p t :london-p t :shanghai-p t
+                    :cancun-p t :prague-p t :osaka-p t :amsterdam-p t))
+
+(defun amsterdam-test-authorizations ()
+  (list
+   (make-set-code-authorization
+    :chain-id 1337
+    :address (address-from-hex "0x000000000000000000000000000000000000bbbb")
+    :nonce 0
+    :y-parity 0
+    :r #x4e87877b1ceac0f507bd190e5635ceaaf9c8ead07a83a6fc17ebf0b2eca77b2a
+    :s #x513a91f278ece01d0ae0adf08d2b035cdcf06d4524177c93a88ab5e0f17be886)
+   (make-set-code-authorization
+    :chain-id 1337
+    :address (address-from-hex "0x000000000000000000000000000000000000cccc")
+    :nonce 1
+    :y-parity 1
+    :r #xb2c581c09af7db2163ec3947a2fbcae978069374873e262d155857e6460a10f0
+    :s #x1e21e98a465c88d201a5b9f582bfdc58145eca358dee2e7bb15f335375b3a28c)))
+
+(defun apply-amsterdam-set-code-test-transaction (gas-limit)
+  "Two authorizations by one fresh authority, sent to an empty account."
+  (let* ((state (make-state-db))
+         (sender (address-from-hex
+                  "0x71562b71999873db5b286df957af199ec94617f7"))
+         (recipient (address-from-hex
+                     "0x00000000000000000000000000000000000000f2"))
+         (transaction
+           (make-set-code-transaction
+            :chain-id 1337 :nonce 0
+            :max-priority-fee-per-gas 0 :max-fee-per-gas 1
+            :gas-limit gas-limit :to recipient
+            :authorization-list (amsterdam-test-authorizations))))
+    (state-db-set-account state sender
+                          (make-state-account :nonce 0 :balance 1000000))
+    (values (apply-message state sender transaction
+                           :chain-id 1337
+                           :chain-rules (amsterdam-set-code-test-rules))
+            state)))
+
+(deftest amsterdam-authorizations-pay-their-runtime-charges
+  ;; Intrinsic: 12000 + 3000 (a call to another account, no value) + 2 * 7816.
+  ;; The first authorization writes a fresh authority: ACCOUNT_WRITE (8000)
+  ;; regular, plus its new account (120 * 1530) and delegation indicator
+  ;; (23 * 1530) as state gas. The second authorization of the same authority
+  ;; pays nothing more: the write is paid, the account exists, and the
+  ;; indicator is already charged. No refund: Prague's 12500 for an existing
+  ;; authority does not apply.
+  (multiple-value-bind (receipt state)
+      (apply-amsterdam-set-code-test-transaction 300000)
+    (let ((authority (address-from-hex
+                      "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f")))
+      (is (= 1 (receipt-status receipt)))
+      (is (= (+ 12000 3000 (* 2 7816) 8000) (receipt-regular-gas-used receipt)))
+      (is (= (* (+ 120 23) 1530) (receipt-state-gas-used receipt)))
+      (is (= (+ 12000 3000 (* 2 7816) 8000 (* (+ 120 23) 1530))
+             (receipt-cumulative-gas-used receipt)))
+      (is (= 2 (state-account-nonce (state-db-get-account state authority))))
+      (is (bytes= (set-code-delegation-code
+                   (address-from-hex
+                    "0x000000000000000000000000000000000000cccc"))
+                  (state-db-get-code state authority))))))
+
+(deftest amsterdam-authorization-charge-out-of-gas-halts-the-transaction
+  ;; 100,000 gas covers the intrinsic 30,632 and the 8,000 write but not the
+  ;; 218,790 state gas, which spills into the regular budget: the top frame
+  ;; halts, every authorization is rolled back, and the whole gas limit is
+  ;; spent. The sender's nonce still moves.
+  (multiple-value-bind (receipt state)
+      (apply-amsterdam-set-code-test-transaction 100000)
+    (let ((authority (address-from-hex
+                      "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"))
+          (sender (address-from-hex
+                   "0x71562b71999873db5b286df957af199ec94617f7")))
+      (is (= 0 (receipt-status receipt)))
+      (is (= 100000 (receipt-cumulative-gas-used receipt)))
+      (is (null (state-db-get-account state authority)))
+      (is (= 1 (state-account-nonce (state-db-get-account state sender)))))))
+
+(deftest amsterdam-call-to-a-delegated-account-pays-the-target-access
+  ;; chargeCallRecipientEIP2780: resolving the recipient's delegation costs a
+  ;; cold account access (3000), or a warm one (100) when the target is
+  ;; already in the access list; 7981 prices that access-list entry at
+  ;; 3000 + 20 * 64.
+  (let* ((sender (address-from-hex
+                  "0x0000000000000000000000000000000000000011"))
+         (recipient (address-from-hex
+                     "0x0000000000000000000000000000000000000022"))
+         (target (address-from-hex
+                  "0x0000000000000000000000000000000000000033")))
+    (dolist (case (list (list '() (+ 15000 3000))
+                        (list (list (make-access-list-entry :address target))
+                              (+ 15000 3000 (* 20 64) 100))))
+      (destructuring-bind (access-list expected) case
+        (let ((state (make-state-db)))
+          (state-db-set-account state sender
+                                (make-state-account :balance 1000000))
+          (state-db-set-code state recipient
+                             (set-code-delegation-code target))
+          (let ((receipt
+                  (apply-message
+                   state sender
+                   (make-access-list-transaction
+                    :chain-id 1337 :nonce 0 :gas-price 1 :gas-limit 100000
+                    :to recipient :access-list access-list)
+                   :chain-id 1337
+                   :chain-rules (amsterdam-set-code-test-rules))))
+            (is (= 1 (receipt-status receipt)))
+            (is (= expected (receipt-cumulative-gas-used receipt)))))))))
+
+(deftest amsterdam-exceptional-halt-spends-at-most-the-gas-limit
+  ;; A halted top frame burns its regular gas and returns the untouched state
+  ;; reservoir (geth v1.17.6 GasBudget.ExitHalt): the receipt spends the gas
+  ;; limit, or 2^24 when the limit is larger and the rest is reservoir.
+  (dolist (case '((100000 100000) (20000000 16777216)))
+    (destructuring-bind (gas-limit expected) case
+      (let ((state (make-state-db))
+            (sender (address-from-hex
+                     "0x0000000000000000000000000000000000000011"))
+            (contract (address-from-hex
+                       "0x0000000000000000000000000000000000000044")))
+        (state-db-set-account state sender
+                              (make-state-account :balance 100000000))
+        (state-db-set-code state contract (hex-to-bytes "0xfe"))
+        (let ((receipt
+                (apply-message
+                 state sender
+                 (make-legacy-transaction :nonce 0 :gas-price 1
+                                          :gas-limit gas-limit :to contract)
+                 :chain-rules (amsterdam-transfer-test-rules))))
+          (is (= 0 (receipt-status receipt)))
+          (is (= expected (receipt-cumulative-gas-used receipt))))))))

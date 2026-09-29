@@ -353,27 +353,35 @@
          (oversized-initcode
            (make-byte-vector
             (1+ ethereum-lisp.execution::+amsterdam-max-initcode-size+)))
+         ;; EIP-7976 bills every initcode byte, zero or not, at 64 floor gas,
+         ;; so both limits clear the Amsterdam calldata floor (about 3.2M and
+         ;; 6.3M gas): the oversized transaction must fail on its size, not on
+         ;; its gas.
          (allowed-tx (make-legacy-transaction :nonce 0
                                               :gas-price 1
-                                              :gas-limit 500000
+                                              :gas-limit 4000000
                                               :to nil
                                               :data allowed-initcode))
          (oversized-tx (make-legacy-transaction :nonce 1
                                                 :gas-price 1
-                                                :gas-limit 1000000
+                                                :gas-limit 8000000
                                                 :to nil
                                                 :data oversized-initcode)))
     (state-db-set-account state sender
-                          (make-state-account :balance 2000000))
+                          (make-state-account :balance 10000000))
     (let ((receipt (apply-message state sender allowed-tx
                                   :chain-config config
                                   :timestamp 0)))
       (is (= 1 (receipt-status receipt)))
       (is (= 1 (state-account-nonce (state-db-get-account state sender)))))
-    (signals transaction-validation-error
-      (apply-message state sender oversized-tx
-                     :chain-config config
-                     :timestamp 0))
+    (is (search "initcode exceeds"
+                (handler-case
+                    (progn (apply-message state sender oversized-tx
+                                          :chain-config config
+                                          :timestamp 0)
+                           "no error")
+                  (transaction-validation-error (condition)
+                    (princ-to-string condition)))))
     (is (= 1 (state-account-nonce (state-db-get-account state sender))))))
 
 (deftest legacy-message-contract-creation-allows-oversized-initcode-before-shanghai

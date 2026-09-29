@@ -20,6 +20,22 @@
 
 (defconstant +protocol-system-call-gas-limit+ 30000000)
 
+;; EIP-8037 SYSTEM_MAX_SSTORES_PER_CALL: the new storage slots one Amsterdam
+;; protocol call is budgeted to create, paid from a state reservoir beside the
+;; regular 30M (geth v1.17.6 core/state_processor.go systemCallGasBudget).
+(defconstant +protocol-system-call-max-sstores-amsterdam+ 16)
+
+(defun protocol-system-call-gas-budget (gas-limit chain-rules)
+  "The gas budget a protocol call runs with: GAS-LIMIT of regular gas, and
+under Amsterdam a state reservoir for sixteen new storage slots, so the call's
+state charges do not spill into its regular gas."
+  (make-evm-gas-budget
+   :regular gas-limit
+   :state (if (and chain-rules (chain-rules-amsterdam-p chain-rules))
+              (* +protocol-system-call-max-sstores-amsterdam+
+                 +storage-set-state-gas+)
+              0)))
+
 (defun apply-eip7997-transition (state)
   "Install the canonical deterministic deployment factory.
 
@@ -27,8 +43,12 @@ Matching geth, preserve an existing balance, storage, and nonzero nonce. A
 pre-existing canonical code hash makes the transition idempotent."
   (let ((expected-code-hash
           (keccak-256-hash +deterministic-factory-code+)))
-    (unless (hash32= (state-db-get-code-hash
-                      state +deterministic-factory-address+)
+    ;; The already-installed check is not an access the EIP-7928 block access
+    ;; list records: an activation block over an installed factory lists no
+    ;; factory entry (tests-glamsterdam-devnet@v7.2.1 BPO2ToAmsterdamAtTime15k).
+    (unless (hash32= (let ((*state-access-recorder* nil))
+                       (state-db-get-code-hash
+                        state +deterministic-factory-address+))
                      expected-code-hash)
       (state-db-set-code state
                          +deterministic-factory-address+
@@ -147,9 +167,13 @@ rejects execution failure for protocol calls whose EIPs mandate both."
                              :status :stopped
                              :return-data output
                              :gas-used gas-used))
-                          (execute-bytecode code
-                                            :context context
-                                            :gas-limit gas-limit))))
+                          (execute-bytecode
+                           code
+                           :context context
+                           :gas-limit gas-limit
+                           :gas-budget
+                           (protocol-system-call-gas-budget
+                            gas-limit chain-rules)))))
                 (if (eq (evm-result-status result) :reverted)
                     (rollback-failed-call result)
                     (finalize-evm-selfdestructs state context))
