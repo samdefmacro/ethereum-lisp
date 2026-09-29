@@ -298,7 +298,19 @@ batch is admitted in chunks of +DEVNET-TX-ADMISSION-CHUNK+, one hold each."
          ;; validation, execution, and durable candidate path.  In particular,
          ;; this does not publish a peer tip as canonical.
          (let ((*telemetry-activity-label* "peer-block-import"))
-           (devnet-peer-sync-import-block node block)))))))
+           (handler-case (devnet-peer-sync-import-block node block)
+             (block-execution-internal-error (condition)
+               ;; Our defect, on the peer's session thread: escaping would end
+               ;; the session and charge the peer for it. The import rolled
+               ;; back and cached nothing, so the block can arrive again.
+               (devnet-peer-manager-log
+                node "peer.sync.execution_internal_error"
+                "source" "gossip"
+                "block" (block-execution-internal-error-block-number condition)
+                "hash" (hash32-to-hex
+                        (block-execution-internal-error-block-hash condition))
+                "error" (block-execution-internal-error-cause condition))
+               nil))))))))
 
 (defun devnet-node-snap-state-provider (node)
   "Return a root-indexed resolver for NODE's retained canonical states.
@@ -628,16 +640,19 @@ bodies were never admitted after the downloader stopped at the bad block."
                  (block-header-number (block-header block))
                  :last-hash (block-hash block)))))
          (multiple-value-bind (status candidate receipts)
-             (apply
-              #'import-p2p-block-candidate
-              store block config
-              (append
-               (list :durability-function durability-function
-                     :invalid-head-hash invalid-head-hash
-                     :import-function
-                     (devnet-block-executor
-                      (devnet-node-telemetry-sink node) :p2p))
-               (when progress (list :progress progress))))
+             ;; The import service logs an internal execution failure
+             ;; (engine.execution.internal_error) to the default sink; this
+             ;; thread's import is the node's, so is the line.
+             (let ((ethereum-lisp.telemetry:*telemetry-sink*
+                     (devnet-node-telemetry-sink node)))
+               (apply
+                #'import-p2p-block-candidate
+                store block config
+                (append
+                 (list :durability-function durability-function
+                       :invalid-head-hash invalid-head-hash
+                       :import-function #'devnet-block-executor)
+                 (when progress (list :progress progress)))))
            (when (and require-valid-p
                       (string= +payload-status-invalid+
                                (payload-status-status status)))

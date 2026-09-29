@@ -1248,6 +1248,11 @@ for event in \
     peer.snap.storage_failed \
     peer.snap.import_failed \
     peer.snap.target_completed \
+    engine.execution.internal_error \
+    peer.sync.execution_internal_error \
+    peer.sync.execution_recovered \
+    peer.sync.gap_invalid_body \
+    peer.session.invalid_delivery \
     peer.discovery.crawl \
     peer.dial.connected \
     peer.dial.refused \

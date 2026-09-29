@@ -525,6 +525,78 @@ as reported while preserving this condition's type."))
   (devnet-peer-request-queue-submit-job
    queue (make-devnet-peer-request-job function)))
 
+(define-condition devnet-peer-request-abandoned (error) ()
+  (:report
+   (lambda (condition stream)
+     (declare (ignore condition))
+     (write-string "peer request abandoned by its submitter" stream)))
+  (:documentation
+   "Handed to a waiter whose request its submitter no longer wants. The peer
+session is not involved: a request not yet started never runs, and a reply
+to one in progress is read and discarded by the session as usual."))
+
+#+sbcl
+(defun devnet-peer-request-queue-abandon (queue job)
+  "Stop waiting for JOB, a request submitted to QUEUE, and leave the session
+alone. A job still queued is withdrawn; one the session is serving finishes
+there and its result is dropped. The waiter is woken with a
+DEVNET-PEER-REQUEST-ABANDONED."
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (setf (devnet-peer-request-queue-pending queue)
+          (delete job (devnet-peer-request-queue-pending queue)
+                  :test #'eq :count 1)))
+  (devnet-peer-request-job-finish
+   job nil (make-condition 'devnet-peer-request-abandoned)))
+
+(define-condition devnet-peer-invalid-delivery (eth-peer-protocol-error)
+  ((charged-p :initarg :charged-p :initform nil
+              :reader devnet-peer-invalid-delivery-charged-p))
+  (:documentation
+   "The peer answered a request with data that contradicts what it answers
+for: a block body or receipt list that does not match its header, a snap
+dependency whose proof fails. go-ethereum v1.17.6 disconnects the peer for
+each (errInvalidBody / errInvalidReceipt, eth/downloader/
+fetchers_concurrent.go validityErrorOfRequest; a snap handler's returned
+error, eth/protocols/snap/handler.go HandleMessage), so the peer's own session
+signals this to end itself: a devp2p Disconnect (subprotocol error) and
+teardown. CHARGED-P says the requester already scored the fault, so the
+session's end does not score it again."))
+
+#+sbcl
+(defun devnet-peer-request-queue-post (queue function)
+  "Queue FUNCTION to run on the queue's session writer and return at once,
+true when it was queued and NIL when the session has already ended."
+  (unless (functionp function)
+    (error "Peer request job must be a function"))
+  (sb-thread:with-mutex ((devnet-peer-request-queue-lock queue))
+    (unless (devnet-peer-request-queue-closed-p queue)
+      (setf (devnet-peer-request-queue-pending queue)
+            (nconc (devnet-peer-request-queue-pending queue)
+                   (list (make-devnet-peer-request-job function))))
+      t)))
+
+#+sbcl
+(defun devnet-peer-end-session-for-invalid-delivery
+    (node entry reason &key charged-p)
+  "End ENTRY's session because the peer delivered data REASON (a condition)
+says contradicts its request, as go-ethereum does.
+
+Runs on any thread: the ending is posted to the session's own writer, which
+alone may write the Disconnect, and happens after any request it is already
+serving. Returns true when the session was still there to end."
+  (let ((queue (devnet-peer-entry-request-queue entry)))
+    (devnet-peer-manager-log
+     node "peer.session.invalid_delivery"
+     "peer" (devnet-peer-entry-id-hex entry) "error" reason)
+    (and queue
+         (devnet-peer-request-queue-post
+          queue
+          (lambda ()
+            (error 'devnet-peer-invalid-delivery
+                   :charged-p charged-p
+                   :format-control "peer delivered invalid data: ~A"
+                   :format-arguments (list reason)))))))
+
 #+sbcl
 (define-condition devnet-snap-request-timeout
     (ethereum-lisp.snap-sync:snap-sync-request-timeout)
@@ -790,26 +862,29 @@ routed back to their waiting worker by message type plus request id."
               (devnet-peer-request-job-finish job nil condition)
               ;; A mid-frame fault makes the stream unusable. Wake the
               ;; coordinator, then propagate so session teardown closes it.
-              ;; An INVALID verdict is the exception: it judges a block the
-              ;; job executed after the exchange completed, the stream is
-              ;; intact, and the verdict may be our own bug (Hoodi 3685491).
-              (unless (devnet-peer-request-verdict-p condition)
+              ;; The outcome of executing a block the job received is the
+              ;; exception: the exchange completed, the stream is intact, and
+              ;; the outcome may be our own bug (Hoodi 3685491).
+              (unless (devnet-peer-request-block-outcome-p condition)
                 (error condition)))))))))
 
-(defun devnet-peer-request-verdict-p (condition)
-  "Whether CONDITION, raised by a session job, is a verdict on block content
-rather than a fault of the peer's session.
+(defun devnet-peer-request-block-outcome-p (condition)
+  "Whether CONDITION, raised by a session job, is the outcome of executing a
+block the peer delivered rather than a fault of the peer's session.
 
-Only a deterministic INVALID from executing a block the peer delivered
-qualifies. geth v1.17.6 never disconnects for one: importBlockResults
-(eth/downloader/downloader.go) reports it through the badBlock callback and
-aborts the sync cycle with errInvalidChain, while fetchers_concurrent.go hands
-only errInvalidBody / errInvalidReceipt back to the peer's handler
-(validityErrorOfRequest), and the beacon backfiller only logs the failed cycle
-(beaconsync.go resume). A body that does not match its header is the peer's
-doing; it is refused before execution (ETH-SYNC-VALIDATE-BODY) and never
-reaches this predicate."
-  (typep condition 'devnet-peer-sync-invalid))
+Two outcomes qualify: a deterministic INVALID verdict (DEVNET-PEER-SYNC-
+INVALID), and an internal failure of our own execution (BLOCK-EXECUTION-
+INTERNAL-ERROR, a defect in this node that says nothing about the block, let
+alone about the peer). geth v1.17.6 never disconnects for either:
+importBlockResults (eth/downloader/downloader.go) reports any InsertChain
+error through the badBlock callback and aborts the sync cycle with
+errInvalidChain, while fetchers_concurrent.go hands only errInvalidBody /
+errInvalidReceipt back to the peer's handler (validityErrorOfRequest), and the beacon backfiller only
+logs the failed cycle (beaconsync.go resume). A body that does not match its
+header is the peer's doing; it is refused before execution
+(ETH-SYNC-VALIDATE-BODY) and never reaches this predicate."
+  (typep condition '(or devnet-peer-sync-invalid
+                        block-execution-internal-error)))
 
 (defun devnet-peer-session-end-charges-peer-p (condition)
   "Whether CONDITION, which ended an admitted session, lowers the peer's score.
@@ -818,7 +893,9 @@ The session ends either way; the score is what bans a peer (at
 +DEVNET-PEER-BAN-SCORE+, four charges) for the rest of the process. A peer is
 not charged for leaving: a devp2p Disconnect it sent (any reason, including
 too-many-peers, or a protocol error WE caused), a reset, broken pipe, EOF or
-timeout on the connection, or a local storage fault. geth v1.17.6 keeps no
+timeout on the connection, or a local storage fault. Nor for a block it
+delivered that our own execution failed on (BLOCK-EXECUTION-INTERNAL-ERROR),
+should one ever end a session. geth v1.17.6 keeps no
 score at all and handles each of these as an ordinary disconnect (p2p/peer.go
 run). On Hoodi (1a7b9059, 33 minutes) the unconditional charge banned nine
 SNAP-capable peers for broken pipes, remote Disconnects, our own INVALID
@@ -831,13 +908,17 @@ peer message from a local program error, and both stay charged."
               (ethereum-lisp.eth-sync:eth-sync-peer-transport-error-cause
                condition)
               condition)))
-    (not (typep cause
-                '(or rlpx-disconnect
-                  stream-error
-                  #+sbcl sb-bsd-sockets:socket-error
-                  #+sbcl sb-ext:timeout
-                  storage-error
-                  devnet-peer-request-queue-closed)))))
+    (not (or (typep cause
+                    '(or rlpx-disconnect
+                      stream-error
+                      #+sbcl sb-bsd-sockets:socket-error
+                      #+sbcl sb-ext:timeout
+                      storage-error
+                      block-execution-internal-error
+                      devnet-peer-request-queue-closed))
+             ;; Already charged by the requester that found it.
+             (and (typep cause 'devnet-peer-invalid-delivery)
+                  (devnet-peer-invalid-delivery-charged-p cause))))))
 
 (defun devnet-peer-manager-log (node event &rest fields)
   (telemetry-log :info event

@@ -966,12 +966,17 @@ Non-obvious properties the implementation relies on:
 - **A peer is charged only for what it sent.** A session ends on any failure,
   but only a peer message we could not accept lowers the peer's score (four
   charges ban it for the process). A remote Disconnect, a reset or broken pipe,
-  a timeout, a local storage fault, an INVALID verdict on a block the peer
-  delivered, and a SNAP pool with no live peer left charge nobody; an INVALID
-  verdict raised inside a session job does not end that session either. geth
-  v1.17.6 keeps no score and disconnects only for wire-level faults
-  (`importBlockResults` reports an execution failure as a bad block). The
-  record is `docs/evidence/sec5-peer-attribution.txt`.
+  a timeout, a local storage fault, an INVALID verdict or an internal
+  execution failure on a block the peer delivered, and a SNAP pool with no
+  live peer left charge nobody; neither outcome raised inside a session job
+  ends that session, and an aborted multi-peer download abandons its requests
+  in flight rather than closing their streams. Data that contradicts its
+  request -- a body or receipt list not matching its header, a snap
+  dependency that fails verification -- ends the session with a Disconnect,
+  as it does in geth v1.17.6, which keeps no score and disconnects only for
+  such wire-level faults (`importBlockResults` reports an execution failure
+  as a bad block). The records are `docs/evidence/sec5-peer-attribution.txt`
+  and `docs/evidence/sec5-robustness-followups.txt`.
 - **Peer progress names durable candidate state.** A persistent node records a
   peer's identity, persistence authority, chain ID, genesis hash, last completed
   number, and last hash in a strict versioned RLP record. The executed candidate,

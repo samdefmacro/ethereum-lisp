@@ -12,6 +12,7 @@
            "tests/cli-devnet-peer-attribution-tests.lisp"
            "tests/cli-devnet-restart-behind-tests.lisp"
            "tests/cli-devnet-snap-tail-tests.lisp"
+           "tests/cli-devnet-internal-error-tests.lisp"
            "tests/cli-devnet-live-persistence-tests.lisp"
            "tests/cli-devnet-engine-availability-tests.lisp"
            "tests/cli-devnet-snap-serve-tests.lisp"

@@ -1218,6 +1218,80 @@
         (is (string= +payload-status-valid+ (payload-status-status status)))
         (is (hash32= hash (block-hash candidate)))))))
 
+(deftest block-import-internal-execution-error-is-logged-for-every-source
+  ;; sec5-evm-edge-audit.txt, Not verified: the node's executor logged
+  ;; engine.execution.internal_error, but Engine's prepared-payload shortcut
+  ;; and staged import execute without it, so their failures were silent.
+  ;; The one place every ingress executes now logs it, once, naming the
+  ;; ingress. RED at c677bdf0: no source logged anything.
+  (multiple-value-bind (store config parent child)
+      (block-import-test-fixture)
+    (declare (ignore parent))
+    (let ((hash (block-hash child)))
+      (dolist (case
+               (list
+                (list "p2p"
+                      (lambda (executor)
+                        (import-p2p-block-candidate
+                         store child config :import-function executor)))
+                (list "engine"
+                      (lambda (executor)
+                        (import-executable-payload
+                         store 2 (block-import-test-payload child) config
+                         :import-function executor)))
+                ;; What the staged execution stage calls
+                ;; (NODE-STORE-STAGED-IMPORT-PUT-EXECUTION), with the
+                ;; service's default executor raising the failure.
+                (list "staged"
+                      (lambda (executor)
+                        (let* ((symbol
+                                 'ethereum-lisp.execution-service:execute-and-commit-engine-payload)
+                               (original (fdefinition symbol)))
+                          (unwind-protect
+                               (progn
+                                 (setf (fdefinition symbol) executor)
+                                 (import-block-candidate
+                                  store child config :source :staged))
+                            (setf (fdefinition symbol) original)))))))
+        (destructuring-bind (source admit) case
+          (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+                 (condition
+                   (let ((ethereum-lisp.telemetry:*telemetry-sink* sink))
+                     (block-import-test-capture-error
+                      (lambda ()
+                        (funcall admit
+                                 #'block-import-test-type-error-executor)))))
+                 (events
+                   (remove "engine.execution.internal_error"
+                           (ethereum-lisp.telemetry:telemetry-events sink)
+                           :key #'ethereum-lisp.telemetry:telemetry-event-name
+                           :test-not #'string=)))
+            (is (typep condition 'block-execution-internal-error))
+            (is (= 1 (length events)))
+            (flet ((field (name)
+                     (cdr (assoc name
+                                 (ethereum-lisp.telemetry:telemetry-event-fields
+                                  (first events))
+                                 :test #'string=))))
+              (is (eq :error (ethereum-lisp.telemetry:telemetry-event-value
+                              (first events))))
+              (is (equal source (field "source")))
+              (is (equal "1" (field "block")))
+              (is (equal (hash32-to-hex hash) (field "hash")))
+              (is (equal "TYPE-ERROR" (field "condition")))
+              (is (search "4611686018427387901" (field "error")))))))
+      ;; A verdict is no internal error and logs nothing.
+      (let ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink)))
+        (let ((ethereum-lisp.telemetry:*telemetry-sink* sink))
+          (import-p2p-block-candidate
+           store child config
+           :import-function
+           (lambda (executor-store block executor-config)
+             (declare (ignore executor-store block executor-config))
+             (ethereum-lisp.validation:block-validation-fail
+              "Injected gas used mismatch"))))
+        (is (null (ethereum-lisp.telemetry:telemetry-events sink)))))))
+
 (deftest block-import-verdicts-and-sync-outcomes-are-not-internal-errors
   ;; Positive control for the classification above: a consensus verdict from
   ;; execution is still INVALID and cached, and a missing state is SYNCING.

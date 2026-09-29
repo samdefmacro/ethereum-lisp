@@ -63,14 +63,39 @@ storage error to the callers that handle one, and still no verdict."))
   (and (typep condition 'error)
        (not (block-execution-outcome-condition-p condition))))
 
-(defun call-with-block-execution-internal-errors (block thunk)
-  "Call THUNK, the execution of BLOCK, signalling any internal failure that
-escapes it as a BLOCK-EXECUTION-INTERNAL-ERROR.  The handler declines every
-outcome condition, so verdicts and SYNCING reach their classifiers unchanged."
+(defun block-execution-log-internal-error (source block condition)
+  "Log CONDITION, which escaped the execution of BLOCK arriving from SOURCE,
+as engine.execution.internal_error at :ERROR level, to the current
+*TELEMETRY-SINK*.
+
+This is the one place every ingress executes a block (Engine newPayload, this
+node's own prepared build included, P2P, staged import), so each failure is
+logged once whatever the path; a caller that wants the line in its own sink
+binds the special around the import on the importing thread.  A failing sink
+must not replace the condition being reported, so its errors are dropped."
+  (handler-case
+      (ethereum-lisp.telemetry:telemetry-log
+       :error "engine.execution.internal_error"
+       :fields (list (cons "source" (string-downcase (symbol-name source)))
+                     (cons "block"
+                           (princ-to-string
+                            (block-header-number (block-header block))))
+                     (cons "hash" (hash32-to-hex (block-hash block)))
+                     (cons "condition" (princ-to-string (type-of condition)))
+                     (cons "error" (princ-to-string condition))))
+    (error () nil)))
+
+(defun call-with-block-execution-internal-errors
+    (block thunk &key (source :direct))
+  "Call THUNK, the execution of BLOCK arriving from SOURCE, logging and
+signalling any internal failure that escapes it as a
+BLOCK-EXECUTION-INTERNAL-ERROR.  The handler declines every outcome
+condition, so verdicts and SYNCING reach their classifiers unchanged."
   (handler-bind
       ((error
          (lambda (condition)
            (when (block-execution-internal-condition-p condition)
+             (block-execution-log-internal-error source block condition)
              (apply #'error
                     (if (typep condition 'storage-error)
                         'block-execution-internal-storage-error
@@ -286,14 +311,14 @@ an optional process-local post-state which a matching newPayload may reuse."
   candidate)
 
 (defun block-import-execute-prevalidated-candidate
-    (store block config &key sidecar import-function)
+    (store block config &key sidecar import-function (source :direct))
   "Execute a candidate already validated in the current atomic call chain.
 
 This private seam owns execution, executor-publication checks, and sidecar
 publication only.  It must be called immediately after the same BLOCK passed
 the complete candidate validator, or from Engine admission after that layer
 performed the equivalent parent/block/sender checks and its outer service
-validated SIDECAR."
+validated SIDECAR.  SOURCE names the ingress in an internal-failure log line."
   (let* ((hash (block-hash block))
          (known (chain-store-known-block store hash)))
     (multiple-value-bind (candidate receipts)
@@ -309,7 +334,8 @@ validated SIDECAR."
                    (funcall
                     (or import-function
                         #'ethereum-lisp.execution-service:execute-and-commit-engine-payload)
-                    store block config)))
+                    store block config))
+                 :source source)
               (block-import-require-executor-publication
                store block imported)
               (values imported receipts)))
@@ -325,7 +351,7 @@ validated SIDECAR."
 
 (defun block-import-execute-candidate
     (store block config
-     &key sidecar import-function (validate-sidecar-p t))
+     &key sidecar import-function (validate-sidecar-p t) (source :direct))
   "Validate and execute BLOCK as a hash-addressed, noncanonical candidate.
 
 This is intentionally internal: every public entry point supplies the outer
@@ -333,7 +359,8 @@ rollback boundary and calls durability only after this function has completed."
   (block-import-validate-candidate
    store block config :sidecar (and validate-sidecar-p sidecar))
   (block-import-execute-prevalidated-candidate
-   store block config :sidecar sidecar :import-function import-function))
+   store block config :sidecar sidecar :import-function import-function
+                      :source source))
 
 (defun block-import-call-candidate-durability
     (function store candidate source candidate-kind payload-status
@@ -374,7 +401,8 @@ the legacy two arguments (STORE CANDIDATE).  PROGRESS opts into :SOURCE,
    store
    (lambda ()
      (multiple-value-bind (candidate receipts)
-         (block-import-execute-candidate store block config :sidecar sidecar)
+         (block-import-execute-candidate store block config :sidecar sidecar
+                                                            :source source)
        (block-import-call-candidate-durability
         durability-function store candidate source :executed nil
         progress progress-supplied-p)
@@ -602,7 +630,8 @@ Returns PAYLOAD-STATUS, candidate block, and receipts."
                              (block-import-execute-candidate
                               store block config :sidecar sidecar
                               :validate-sidecar-p nil
-                              :import-function import-function)
+                              :import-function import-function
+                              :source :p2p)
                            (values
                             (block-import-make-valid-status executed)
                             executed receipts))))
@@ -699,7 +728,8 @@ never converted into INVALID payload verdicts."
                         (block-import-execute-prevalidated-candidate
                          candidate-store candidate candidate-config
                          :sidecar sidecar
-                         :import-function import-function)
+                         :import-function import-function
+                         :source source)
                       (setf imported-receipts receipts)
                       (values imported receipts))
                   (setf kernel-ran-p t))))
@@ -1004,7 +1034,7 @@ both the installed candidate and its canonical indexes in one batch."
              (values block-or-builder nil))
        (multiple-value-bind (candidate receipts)
            (block-import-execute-candidate
-            store built-block config :sidecar sidecar)
+            store built-block config :sidecar sidecar :source source)
          (multiple-value-bind (head transition)
              (block-import-publish-canonical
               store candidate config authority forkchoice-state

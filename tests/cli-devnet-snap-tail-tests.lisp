@@ -539,7 +539,8 @@ TYPE-ERROR for BLOCK-HASH while (CAR ARMED) is true, counting each one in
           (lambda ()
             (is (null
                  (handler-case
-                     (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node)
+                     (ethereum-lisp.cli::devnet-node-sync-coordinator-pass
+                      node :now 1000)
                    (serious-condition (condition)
                      (error "The coordinator pass let an internal execution ~
 error escape: ~A" condition)))))
@@ -569,10 +570,16 @@ error escape: ~A" condition)))))
                             (snap-tail-event-field event "error")))))
             (is (= 1 (snap-tail-log-count
                       logs "peer.sync.execution_internal_error")))
-            ;; The next pass executes block 22 again and completes the target.
             (setf (car armed) nil)
+            ;; A pass inside the block's two-second retry wait does no sync
+            ;; work (sec5-robustness-followups.txt).
+            (is (null (ethereum-lisp.cli::devnet-node-sync-coordinator-pass
+                       node :now 1001)))
+            (is (not (chain-store-state-available-p store (block-hash broken))))
+            ;; The first pass after it executes block 22 again and completes
+            ;; the target.
             (is (eql 3 (ethereum-lisp.cli::devnet-node-sync-coordinator-pass
-                        node)))
+                        node :now 1002)))
             (is (= 1 (snap-tail-log-count logs "peer.snap.target_completed")))
             (is (chain-store-state-available-p store target-hash))))))
      :telemetry-sink sink)))

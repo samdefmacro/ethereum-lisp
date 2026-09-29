@@ -560,10 +560,17 @@ are one recovery session and must agree."
   "Wrap ENTRY's writer queue as one production multi-peer source."
   (let ((peer (devnet-peer-entry-peer entry))
         (queue (devnet-peer-entry-request-queue entry))
-        (id (devnet-peer-entry-id-hex entry)))
+        (id (devnet-peer-entry-id-hex entry))
+        ;; One downloader worker drives this source, so at most one of its
+        ;; jobs is in flight; :ABANDON below needs that job.
+        (in-flight (list nil)))
     (when (and peer queue)
       (flet ((submit (function)
-               (devnet-peer-request-queue-submit queue function)))
+               (let ((job (make-devnet-peer-request-job function)))
+                 (setf (car in-flight) job)
+                 (unwind-protect
+                      (devnet-peer-request-queue-submit-job queue job)
+                   (setf (car in-flight) nil)))))
         (make-eth-sync-peer-source
          peer
          :id id
@@ -605,6 +612,19 @@ are one recovery session and must agree."
             (lambda ()
               (devnet-peer-note-score
                (devnet-node-peer-table node) id score))))
+         :reject
+         (lambda (condition)
+           ;; A body or receipt list that contradicts its header: geth drops
+           ;; the peer. :PENALTY above has already scored it as malformed.
+           (devnet-peer-end-session-for-invalid-delivery
+            node entry condition :charged-p t))
+         :abandon
+         (lambda ()
+           ;; The download ended with this request in flight. Stop waiting
+           ;; for it and keep the session: the peer did nothing wrong.
+           (let ((job (car in-flight)))
+             (when job
+               (devnet-peer-request-queue-abandon queue job))))
          :cancel
          (lambda ()
            (ignore-errors
@@ -1309,6 +1329,14 @@ the transport which supplied it."
            "peer" (devnet-peer-entry-id-hex entry)
            "type" label
            "error" transport-condition)
+          (when (typep transport-condition
+                       'ethereum-lisp.snap-sync:snap-sync-invalid-response)
+            ;; A proof that fails, an unrequested code: geth returns the error
+            ;; from its snap handler and the peer is disconnected. The pool
+            ;; already retired it for this request; its session ends too, and
+            ;; that end is the charge.
+            (devnet-peer-end-session-for-invalid-delivery
+             (devnet-snap-source-pool-node pool) entry transport-condition))
           (when (and
                  (typep
                   transport-condition
@@ -2847,9 +2875,11 @@ buffered a block it could not execute, and nothing went to fetch the ancestors
 that would let it. Each gap is filled by walking back from the buffered block's
 PARENT until we reach a block we hold, then executing forward.
 
-A peer-specific backfill refusal is logged and the next target is tried. Local
-storage, capability, validation, and unknown program failures propagate to the
-session supervisor instead of being misclassified as a peer branch miss."
+A peer-specific backfill refusal is logged and the next target is tried, except
+a body that does not match its header: that propagates, ending this peer's
+session as geth's errInvalidBody does. Local storage, capability, validation,
+and unknown program failures propagate to the session supervisor instead of
+being misclassified as a peer branch miss."
   (let ((store (devnet-node-store node))
         (imported 0)
         (*telemetry-activity-label* "sync-gap-fill"))
@@ -2882,6 +2912,14 @@ session supervisor instead of being misclassified as a peer branch miss."
                                        "target" (hash32-to-hex
                                                  (block-hash target)))
               (incf imported (1+ filled)))
+          (eth-sync-backfill-invalid-body (condition)
+            ;; The peer paired a header with a body it does not commit to.
+            ;; geth drops such a peer (errInvalidBody): this job's error ends
+            ;; the session, and the coordinator asks another peer.
+            (devnet-peer-manager-log node "peer.sync.gap_invalid_body"
+                                     "target" (hash32-to-hex (block-hash target))
+                                     "error" condition)
+            (error condition))
           (eth-sync-backfill-peer-error (condition)
             (devnet-peer-manager-log node "peer.sync.gap_failed"
                                      "target" (hash32-to-hex (block-hash target))
@@ -2908,6 +2946,11 @@ session supervisor instead of being misclassified as a peer branch miss."
                                        "blocks" filled
                                        "target" (hash32-to-hex target))
               (incf imported filled)))
+        (eth-sync-backfill-invalid-body (condition)
+          (devnet-peer-manager-log node "peer.sync.gap_invalid_body"
+                                   "target" (hash32-to-hex target)
+                                   "error" condition)
+          (error condition))
         (eth-sync-backfill-peer-error (condition)
           (devnet-peer-manager-log node "peer.sync.head_failed"
                                    "target" (hash32-to-hex target)
@@ -3063,7 +3106,37 @@ property of how the node is configured, not an assumption about the test corpus.
        (lambda ()
          (call-with-devnet-mutex sessions-lock (lambda () (copy-list sessions))))))))
 
-(defun devnet-node-sync-coordinator-pass (node)
+(defun devnet-node-execution-retry-target (node)
+  "The CL-authorized hash a sync pass works toward, or NIL: the first unknown
+forkchoice head, else the newest buffered Engine block above the head. A
+failed block's retry wait applies only while this stays the same."
+  (or (first (devnet-node-forkchoice-sync-targets node))
+      (nth-value 3 (devnet-node-consensus-forward-target node))))
+
+(defun devnet-node-note-executed-retries (node)
+  "Drop the retry entries of blocks that have since been executed, logging
+peer.sync.execution_recovered for each."
+  (let ((retries (devnet-node-execution-retries node)))
+    (when (plusp (hash-table-count retries))
+      (dolist (entry
+               (call-with-devnet-node-store-guard
+                node
+                (lambda ()
+                  (devnet-execution-retry-remove-executed
+                   retries
+                   (lambda (hash)
+                     (chain-store-state-available-p
+                      (devnet-node-store node) hash))))))
+        (devnet-peer-manager-log
+         node "peer.sync.execution_recovered"
+         "block" (devnet-execution-retry-number entry)
+         "hash" (hash32-to-hex (devnet-execution-retry-hash entry))
+         "failures" (devnet-execution-retry-failures entry)
+         "firstAt" (devnet-execution-retry-first-at entry)
+         "lastAt" (devnet-execution-retry-last-at entry)
+         "deferredPasses" (devnet-execution-retry-deferred-passes entry))))))
+
+(defun devnet-node-sync-coordinator-pass (node &key now)
   "Run one sync pass, containing only its typed phase outcomes.
 
 A phase outcome is a result of the sync itself: a verdict (an INVALID peer
@@ -3074,10 +3147,25 @@ takes a new live-peer snapshot inside DEVNET-NODE-MULTI-SYNC-PASS.  A block
 whose execution failed internally (BLOCK-EXECUTION-INTERNAL-ERROR: a defect in
 this node, already logged as engine.execution.internal_error, no verdict
 cached, a storage read inside execution included) is contained the same way,
-and the next pass executes it again.  Local storage failures outside block
-execution (durable exporters, batches), merge, and other unexpected program
-failures deliberately escape to the coordinator's outer serious-condition
-boundary, which stops the node."
+and a later pass executes it again: not the next one, but after the block's
+retry wait (execution-retry.lisp), which doubles with every failure and ends
+early only when the sync target changes.  While it waits, the pass returns NIL
+before any sync work, without logging.  NOW, when given, is the Unix time
+every wait is measured against (a test clock); otherwise the wall clock is
+read when the wait is checked and again when a failure is recorded, since a
+pass can run for minutes.  Local storage failures outside block execution
+(durable exporters, batches), merge, and other unexpected program failures
+deliberately escape to the coordinator's outer serious-condition boundary,
+which stops the node."
+  (let ((retries (devnet-node-execution-retries node)))
+    (devnet-node-note-executed-retries node)
+    (when (plusp (hash-table-count retries))
+      (let ((waiting (devnet-execution-retry-waiting
+                      retries (devnet-node-execution-retry-target node)
+                      (or now (unix-time)))))
+        (when waiting
+          (incf (devnet-execution-retry-deferred-passes waiting))
+          (return-from devnet-node-sync-coordinator-pass nil)))))
   (handler-case
       (call-with-devnet-sync-claim
        node (lambda () (devnet-node-multi-sync-pass node)))
@@ -3092,14 +3180,28 @@ boundary, which stops the node."
       nil)
     (block-execution-internal-error (condition)
       ;; Our defect, not the block's: the import rolled back and cached no
-      ;; verdict, so the next pass executes the block again. Stopping the node
-      ;; here would take the Engine API down with it.
-      (devnet-peer-manager-log
-       node "peer.sync.execution_internal_error"
-       "block" (block-execution-internal-error-block-number condition)
-       "hash" (hash32-to-hex
-               (block-execution-internal-error-block-hash condition))
-       "error" (block-execution-internal-error-cause condition))
+      ;; verdict, so a later pass executes the block again. Stopping the node
+      ;; here would take the Engine API down with it. The retry wait bounds how
+      ;; often a deterministic defect re-runs (and re-logs) the same block.
+      (let* ((failed-at (or now (unix-time)))
+             (entry
+               (devnet-execution-retry-note-failure
+                (devnet-node-execution-retries node)
+                (block-execution-internal-error-block-hash condition)
+                (block-execution-internal-error-block-number condition)
+                (devnet-node-execution-retry-target node)
+                failed-at)))
+        (devnet-peer-manager-log
+         node "peer.sync.execution_internal_error"
+         "block" (block-execution-internal-error-block-number condition)
+         "hash" (hash32-to-hex
+                 (block-execution-internal-error-block-hash condition))
+         "error" (block-execution-internal-error-cause condition)
+         "failures" (devnet-execution-retry-failures entry)
+         "firstAt" (devnet-execution-retry-first-at entry)
+         "lastAt" (devnet-execution-retry-last-at entry)
+         "retryInSeconds" (- (devnet-execution-retry-next-at entry) failed-at)
+         "deferredPasses" (devnet-execution-retry-deferred-passes entry)))
       nil)
     (devnet-snap-state-incomplete (condition)
       ;; A phase outcome: the import resumes from its durable cursors on the
