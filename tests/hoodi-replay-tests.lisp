@@ -806,11 +806,32 @@ commitment, then the pre-state."
           (commitments (first commitments))
           (t (first prestate)))))
 
+;;; Cost.  Each block reports the calling thread's CPU time and the bytes
+;;; consed by the strict run (the block exactly as the Engine import executes
+;;; it: header checks, sender recovery, the EVM, the roots) and by the whole
+;;; replay (the corpus reads and both runs), so interpreter work is measured
+;;; on real Hoodi traffic by the same test that proves the results unchanged.
+;;; The numbers are costs only, no block data.  GET-BYTES-CONSED advances by
+;;; allocation region, so a small figure is an upper bound in region units.
+
+(defmacro hoodi-replay-measure ((plist cpu-key bytes-key) &body body)
+  "Evaluate BODY, record its thread CPU microseconds and bytes consed under
+CPU-KEY and BYTES-KEY of PLIST (a place), and return BODY's values."
+  (let ((cpu (gensym "CPU")) (bytes (gensym "BYTES")))
+    `(let ((,cpu (ethereum-lisp.telemetry:telemetry-thread-cpu-microseconds))
+           (,bytes (sb-ext:get-bytes-consed)))
+       (multiple-value-prog1 (progn ,@body)
+         (setf (getf ,plist ,bytes-key) (- (sb-ext:get-bytes-consed) ,bytes)
+               (getf ,plist ,cpu-key)
+               (- (ethereum-lisp.telemetry:telemetry-thread-cpu-microseconds)
+                  ,cpu))))))
+
 (defun hoodi-replay-block (directory)
   "Replay the block in DIRECTORY.  Returns a plist: :number :verdict (:match,
 :diverges, :comparator, :prestate or :unreplayable), :strict, :first (text of
 the first difference), :receipts :commitments :state (differences) and the
-counts :transactions :accounts :slots :prestate-slots."
+counts :transactions :accounts :slots :prestate-slots, and the strict run's
+cost, :strict-cpu (thread CPU microseconds) and :strict-bytes."
   (let* ((manifest (hoodi-replay-json directory "manifest.json"))
          (number (hoodi-replay-quantity (hoodi-replay-field manifest "number")))
          (hash (hash32-from-hex (hoodi-replay-field manifest "hash")))
@@ -867,7 +888,8 @@ counts :transactions :accounts :slots :prestate-slots."
                           ethereum-lisp.execution::+history-storage-address+)))
                 (setf (getf result :prestate-slots) prestate-slots)
                 (multiple-value-bind (strict strict-report)
-                    (hoodi-replay-strict raw witness parent hashes config)
+                    (hoodi-replay-measure (result :strict-cpu :strict-bytes)
+                      (hoodi-replay-strict raw witness parent hashes config))
                   (setf (getf result :strict)
                         (if (eq strict :ok) "ok" strict-report))
                   (multiple-value-bind (executed receipts readings)
@@ -947,14 +969,45 @@ commitmentDiffs=~D~@[ strict=~S~]~@[ first=~S~]~%"
           do (format stream "~&HOODI-REPLAY   ~(~A~) ~A~%"
                      kind (hoodi-replay-difference-text difference)))))
 
+(defun hoodi-replay-cost-report (result stream)
+  (format stream "~&HOODI-REPLAY-COST block=~D strictCpuUs=~D strictBytes=~D ~
+blockCpuUs=~D blockBytes=~D~%"
+          (getf result :number)
+          (or (getf result :strict-cpu) 0)
+          (or (getf result :strict-bytes) 0)
+          (or (getf result :block-cpu) 0)
+          (or (getf result :block-bytes) 0)))
+
+(defun hoodi-replay-cost-summary (results stream)
+  "One line of totals, and the median strict run, over RESULTS."
+  (flet ((total (key)
+           (loop for result in results sum (or (getf result key) 0))))
+    (let ((strict (sort (loop for result in results
+                              for cpu = (getf result :strict-cpu)
+                              when cpu collect cpu)
+                        #'<)))
+      (format stream "~&HOODI-REPLAY-COST summary: blocks=~D strictCpuMs=~D ~
+strictMB=~D medianStrictCpuUs=~D blockCpuMs=~D blockMB=~D~%"
+              (length results)
+              (round (total :strict-cpu) 1000)
+              (round (total :strict-bytes) 1000000)
+              (if strict (nth (floor (length strict) 2) strict) 0)
+              (round (total :block-cpu) 1000)
+              (round (total :block-bytes) 1000000)))))
+
 (defun hoodi-replay-corpus (root &optional selection (stream *standard-output*))
   "Replay every block of the corpus at ROOT (restricted to SELECTION), report
-each on STREAM, and return the results."
+each and its cost on STREAM, and return the results."
   (let ((results '()))
     (dolist (number (hoodi-replay-corpus-blocks root selection))
-      (let ((result (hoodi-replay-block
-                     (merge-pathnames (format nil "~D/" number) root))))
+      (let* ((cost '())
+             (result (append
+                      (hoodi-replay-measure (cost :block-cpu :block-bytes)
+                        (hoodi-replay-block
+                         (merge-pathnames (format nil "~D/" number) root)))
+                      cost)))
         (hoodi-replay-report result stream)
+        (hoodi-replay-cost-report result stream)
         (force-output stream)
         (push result results)))
     (nreverse results)))
@@ -1003,6 +1056,7 @@ diverges=~D comparator=~D prestate=~D unreplayable=~D~%"
               (hoodi-replay-count results :comparator)
               (hoodi-replay-count results :prestate)
               (hoodi-replay-count results :unreplayable))
+      (hoodi-replay-cost-summary results *standard-output*)
       (when failures
         (error "Hoodi replay: ~D failure~:P~{~%  ~A~}"
                (length failures) failures)))))
@@ -1129,3 +1183,19 @@ diverges=~D comparator=~D prestate=~D unreplayable=~D~%"
   (is (null (hoodi-replay-parse-selection "")))
   (signals hoodi-replay-corpus-error
     (hoodi-replay-parse-selection "3685380,x")))
+
+(deftest hoodi-replay-cost-lines-carry-only-numbers
+  (let ((results (list (list :number 5 :verdict :match
+                             :strict-cpu 3000 :strict-bytes 2000000
+                             :block-cpu 9000 :block-bytes 7000000)
+                       (list :number 6 :verdict :match
+                             :strict-cpu 1000 :strict-bytes 1000000
+                             :block-cpu 4000 :block-bytes 3000000))))
+    (is (equal (format nil "HOODI-REPLAY-COST block=5 strictCpuUs=3000 ~
+strictBytes=2000000 blockCpuUs=9000 blockBytes=7000000~%")
+               (with-output-to-string (stream)
+                 (hoodi-replay-cost-report (first results) stream))))
+    (is (equal (format nil "HOODI-REPLAY-COST summary: blocks=2 strictCpuMs=4 ~
+strictMB=3 medianStrictCpuUs=3000 blockCpuMs=13 blockMB=10~%")
+               (with-output-to-string (stream)
+                 (hoodi-replay-cost-summary results stream))))))
