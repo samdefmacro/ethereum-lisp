@@ -43,8 +43,12 @@ Matching geth, preserve an existing balance, storage, and nonzero nonce. A
 pre-existing canonical code hash makes the transition idempotent."
   (let ((expected-code-hash
           (keccak-256-hash +deterministic-factory-code+)))
-    (unless (hash32= (state-db-get-code-hash
-                      state +deterministic-factory-address+)
+    ;; The already-installed check is not an access the EIP-7928 block access
+    ;; list records: an activation block over an installed factory lists no
+    ;; factory entry (tests-glamsterdam-devnet@v7.2.1 BPO2ToAmsterdamAtTime15k).
+    (unless (hash32= (let ((*state-access-recorder* nil))
+                       (state-db-get-code-hash
+                        state +deterministic-factory-address+))
                      expected-code-hash)
       (state-db-set-code state
                          +deterministic-factory-address+
