@@ -1389,3 +1389,160 @@ strictBytes=2000000 blockCpuUs=9000 blockBytes=7000000~%")
 strictMB=3 medianStrictCpuUs=3000 blockCpuMs=13 blockMB=10~%")
                (with-output-to-string (stream)
                  (hoodi-replay-cost-summary results stream))))))
+
+;;; Transaction identity.  A transaction's canonical encoding, hash and sender
+;;; are properties of the object: the import derives each once per
+;;; transaction, however many consumers ask (the transactions root, receipts
+;;; and logs, sender checks, the access-list and BAL paths).  This replays one
+;;; block's strict run (the Engine import's execution) with the per-type
+;;; canonical encoders and sender recoveries counted and timed.
+
+(defparameter +hoodi-replay-identity-block+ 3685538
+  "The corpus block the identity count replays by default: 84 transactions,
+74 EIP-1559 and 10 blob transactions.")
+
+(defparameter +hoodi-replay-transaction-encoders+
+  '(ethereum-lisp.transactions::legacy-transaction-rlp
+    ethereum-lisp.transactions::access-list-transaction-encoding
+    ethereum-lisp.transactions::dynamic-fee-transaction-encoding
+    ethereum-lisp.transactions::blob-transaction-encoding
+    ethereum-lisp.transactions::set-code-transaction-encoding)
+  "The per-type canonical encoders: every transaction hash, transactions root
+and size check derives from one of them.")
+
+(defparameter +hoodi-replay-sender-recoveries+
+  '(ethereum-lisp.transactions:legacy-transaction-sender
+    ethereum-lisp.transactions:access-list-transaction-sender
+    ethereum-lisp.transactions:dynamic-fee-transaction-sender
+    ethereum-lisp.transactions:blob-transaction-sender
+    ethereum-lisp.transactions:set-code-transaction-sender)
+  "The uncached per-type sender recoveries: signing payload, its hash and the
+secp256k1 recovery.")
+
+#+sbcl
+(defun hoodi-replay-call-with-identity-counts (thunk)
+  "Call THUNK with the transaction encoders and sender recoveries counted and
+timed (thread CPU microseconds, encapsulation overhead included), and the
+TRANSACTION-HASH, TRANSACTION-SENDER and TRANSACTION-SENDER-FOR-RULES calls
+counted.  Returns THUNK's first value and the counts as a plist."
+  (let ((counts (list :encodings 0 :encoding-cpu-us 0
+                      :sender-recoveries 0 :recovery-cpu-us 0
+                      :hash-calls 0 :sender-calls 0 :for-rules-calls 0))
+        (wrapped '()))
+    (labels ((now ()
+               (ethereum-lisp.telemetry:telemetry-thread-cpu-microseconds))
+             (wrap (function count-key &optional cpu-key)
+               (sb-int:encapsulate
+                function 'hoodi-replay-identity
+                (lambda (original &rest arguments)
+                  (incf (getf counts count-key))
+                  (if cpu-key
+                      (let ((start (now)))
+                        (multiple-value-prog1 (apply original arguments)
+                          (incf (getf counts cpu-key) (- (now) start))))
+                      (apply original arguments))))
+               (push function wrapped)))
+      (unwind-protect
+           (progn
+             (dolist (function +hoodi-replay-transaction-encoders+)
+               (wrap function :encodings :encoding-cpu-us))
+             (dolist (function +hoodi-replay-sender-recoveries+)
+               (wrap function :sender-recoveries :recovery-cpu-us))
+             (wrap 'ethereum-lisp.transactions:transaction-hash :hash-calls)
+             (wrap 'ethereum-lisp.transactions:transaction-sender :sender-calls)
+             (wrap 'ethereum-lisp.transactions:transaction-sender-for-rules
+                   :for-rules-calls)
+             (values (funcall thunk) counts))
+        (dolist (function wrapped)
+          (sb-int:unencapsulate function 'hoodi-replay-identity))))))
+
+(defun hoodi-replay-strict-inputs (directory)
+  "The strict run's inputs for the block in DIRECTORY: the raw block, the
+witness (with the traces' code), the BLOCKHASH table, the parent header and
+the chain config."
+  (let* ((raw (hex-to-bytes (hoodi-replay-json directory "raw-block.json")))
+         (witness (hoodi-replay-read-witness directory)))
+    (hoodi-replay-add-trace-codes
+     witness (hoodi-replay-json directory "prestate.json") nil)
+    (hoodi-replay-add-trace-codes
+     witness (hoodi-replay-json directory "diff.json") t)
+    (multiple-value-bind (hashes parent)
+        (hoodi-replay-block-hashes (block-from-rlp raw) witness)
+      (values raw witness hashes parent
+              (ethereum-lisp.genesis::hoodi-chain-config)))))
+
+(deftest hoodi-replay-import-derives-each-transaction-identity-once
+  (:layer :integration)
+  ;; A sampled Hoodi import paid about twelve canonical RLP encodings per
+  ;; transaction: every TRANSACTION-HASH and TRANSACTION-SENDER call
+  ;; re-encoded the transaction to check that it had not been mutated since
+  ;; its cache was filled.  Transactions are immutable values now, and the
+  ;; encoding, hash and sender are derived once per object.  The strict run
+  ;; of one real block must encode each transaction at most once and recover
+  ;; each sender at most once.
+  #-sbcl (skip-test "counting calls requires SBCL encapsulation")
+  #+sbcl
+  (let ((root (hoodi-replay-corpus-root)))
+    (unless root
+      (skip-test
+       (format nil "Set ~A to a corpus fetched by scripts/fetch-hoodi-replay-corpus.sh to run this test"
+               +hoodi-replay-root-env+)))
+    (let* ((selection-text (funcall *fixture-root-environment-reader*
+                                    +hoodi-replay-blocks-env+))
+           (blocks (hoodi-replay-corpus-blocks
+                    root
+                    (unless (blank-string-p selection-text)
+                      (hoodi-replay-parse-selection selection-text))))
+           (number (if (blank-string-p selection-text)
+                       (or (find +hoodi-replay-identity-block+ blocks)
+                           (first blocks))
+                       (first blocks)))
+           (directory (and number
+                           (merge-pathnames (format nil "~D/" number) root))))
+      (unless number
+        (error "Hoodi replay: the corpus selects no block"))
+      (multiple-value-bind (raw witness hashes parent config)
+          (hoodi-replay-strict-inputs directory)
+        (let* ((transactions (block-transactions (block-from-rlp raw)))
+               (size (length transactions))
+               (cost '())
+               (uncounted
+                 (hoodi-replay-measure (cost :strict-cpu :strict-bytes)
+                   (hoodi-replay-strict raw witness parent hashes config))))
+          (multiple-value-bind (verdict counts)
+              (hoodi-replay-call-with-identity-counts
+               (lambda ()
+                 (hoodi-replay-strict raw witness parent hashes config)))
+            (format t "~&HOODI-REPLAY-IDENTITY block=~D txs=~D encodings=~D ~
+encodingCpuUs=~D senderRecoveries=~D recoveryCpuUs=~D hashCalls=~D ~
+senderCalls=~D forRulesCalls=~D strictCpuUs=~D~%"
+                    number size
+                    (getf counts :encodings) (getf counts :encoding-cpu-us)
+                    (getf counts :sender-recoveries)
+                    (getf counts :recovery-cpu-us)
+                    (getf counts :hash-calls) (getf counts :sender-calls)
+                    (getf counts :for-rules-calls) (getf cost :strict-cpu))
+            (is (eq :ok uncounted))
+            (is (eq :ok verdict))
+            (is (plusp size))
+            ;; The run asks for identities: the counters would see a
+            ;; per-call derivation.
+            (is (>= (+ (getf counts :hash-calls)
+                       (getf counts :sender-calls)
+                       (getf counts :for-rules-calls))
+                    (* 2 size)))
+            (is (<= (getf counts :encodings) size))
+            (is (<= (getf counts :sender-recoveries) size)))
+          ;; Positive control: new objects decoded from the same block are
+          ;; encoded and recovered again, once each, and counted.
+          (multiple-value-bind (decoded counts)
+              (hoodi-replay-call-with-identity-counts
+               (lambda ()
+                 (let ((copies (block-transactions (block-from-rlp raw))))
+                   (dolist (transaction copies)
+                     (transaction-hash transaction)
+                     (transaction-sender transaction))
+                   copies)))
+            (is (= size (length decoded)))
+            (is (>= (getf counts :encodings) size))
+            (is (>= (getf counts :sender-recoveries) size))))))))
