@@ -24,7 +24,6 @@
 (defun step-evm-machine (machine)
   "Fetch and execute one opcode, enforcing tree-wide step and frame gas limits."
   (declare (type evm-machine machine))
-  (incf (evm-machine-steps machine))
   (let ((budget (evm-machine-step-budget machine)))
     (when budget
       (incf (evm-step-budget-steps budget))
@@ -57,8 +56,10 @@
 ;;; are first stored back into the machine (the regular gas charged since the
 ;;; last store is added to USED-REGULAR and GAS-USED then), so the handler sees
 ;;; exactly the frame STEP-EVM-MACHINE would have left it, and they are loaded
-;;; again after it returns.  Registers are also stored before any failure and,
-;;; through UNWIND-PROTECT, on any other exit while they are live.
+;;; again after it returns.  Registers are also stored before any failure the
+;;; loop signals and when the code runs out.  A host error inside the loop
+;;; itself (heap exhaustion growing the stack) leaves the machine behind its
+;;; registers; nothing reads a machine a host error abandoned.
 ;;;
 ;;; Frames the loop does not run: gasless tooling frames (no gas limit), frames
 ;;; under a diagnostic step budget, and a regular gas budget above the fixnum
@@ -87,12 +88,10 @@ the rest of the frame."
            (sp (evm-machine-sp machine))
            (stack (evm-machine-stack machine))
            (gas (evm-gas-budget-regular budget))
-           (charged 0)
-           (steps 0)
-           (registers-p t))
+           (charged 0))
       (declare (type byte-vector code)
                (type simple-bit-vector jump-destinations)
-               (type (and fixnum unsigned-byte) code-length pc charged steps)
+               (type (and fixnum unsigned-byte) code-length pc charged)
                (type (integer 0 #.+stack-limit+) sp)
                (type simple-vector stack)
                (type evm-small-gas gas))
@@ -104,10 +103,7 @@ the rest of the frame."
                       (evm-gas-budget-regular budget) gas)
                 (incf (evm-gas-budget-used-regular budget) charged)
                 (incf (evm-machine-gas-used machine) charged)
-                (incf (evm-machine-steps machine) steps)
-                (setf charged 0
-                      steps 0
-                      registers-p nil)))
+                (setf charged 0)))
            (fail-stored (&rest arguments)
              `(progn (store-registers) (fail ,@arguments)))
            (pop-word ()
@@ -153,79 +149,79 @@ the rest of the frame."
                   (setf pc (evm-machine-pc machine)
                         sp (evm-machine-sp machine)
                         stack (evm-machine-stack machine)
-                        gas regular
-                        registers-p t)))))
-        (unwind-protect
-             (loop
-               (when (>= pc code-length)
-                 (return t))
-               (incf steps)
-               (let* ((op (aref code pc))
-                      (base (svref *opcode-base-gas-table* op)))
-                 (if (null base)
-                     ;; The fork decides this opcode's base gas.
-                     (out-of-line
-                      (%evm-machine-charge-gas
-                       machine (opcode-base-gas op context))
-                      (execute-opcode machine op))
-                     (let ((base base))
-                       (declare (type evm-small-gas base))
-                       (when (> base gas)
-                         (fail-stored
-                          "EVM out of gas (regular dimension) at pc ~D" pc))
-                       (setf gas (- gas base)
-                             charged (+ charged base))
-                       (cond
-                         ((<= #x60 op #x66)
-                          (let ((size (- op #x5f)))
-                            (push-word
-                             (read-small-push-immediate code pc size))
-                            (setf pc (+ pc 1 size))))
-                         ((<= #x80 op #x8f)
-                          (let ((depth (- op #x7f)))
-                            (when (< sp depth)
-                              (fail-stored "EVM stack underflow on DUP~D" depth))
-                            (push-word (svref stack (- sp depth)))
-                            (incf pc)))
-                         ((<= #x90 op #x9f)
-                          (let ((depth (- op #x8f)))
-                            (when (< sp (1+ depth))
-                              (fail-stored "EVM stack underflow on SWAP~D"
-                                           depth))
-                            (rotatef (svref stack (- sp 1))
-                                     (svref stack (- sp 1 depth)))
-                            (incf pc)))
-                         ((= op #x5b) (incf pc))
-                         ((= op #x57)
-                          (let* ((destination (pop-word))
-                                 (condition (pop-word)))
-                            (if (eql condition 0)
-                                (incf pc)
-                                (jump-to destination))))
-                         ((= op #x56) (jump-to (pop-word)))
-                         ((= op #x50) (pop-word) (incf pc))
-                         ((and (= op #x5f) push0-p) (push-word 0) (incf pc))
-                         ((<= #x67 op #x7f)
-                          (let ((size (- op #x5f)))
-                            (push-word (read-push-immediate code pc size))
-                            (setf pc (+ pc 1 size))))
-                         ((= op #x01) (word-operation word-add))
-                         ((= op #x03) (word-operation word-sub))
-                         ((= op #x10) (word-operation word-lt))
-                         ((= op #x11) (word-operation word-gt))
-                         ((= op #x14) (word-operation word-eq))
-                         ((= op #x15)
-                          (push-word (word-iszero (pop-word)))
-                          (incf pc))
-                         ((= op #x16) (word-operation word-and))
-                         ((= op #x17) (word-operation word-or))
-                         ((= op #x18) (word-operation word-xor))
-                         ((= op #x5a) (push-word gas) (incf pc))
-                         ((= op #x58) (push-word pc) (incf pc))
-                         (t
-                          (out-of-line (execute-opcode machine op))))))))
-          (when registers-p
-            (store-registers)))))))
+                        gas regular)))))
+        ;; No UNWIND-PROTECT: a variable its cleanup reads lives in the stack
+        ;; frame, not a register (the burner ran 25% slower that way).  Every
+        ;; exit stores the registers itself: failures through FAIL-STORED,
+        ;; handlers after storing, the end of the code here.
+        (loop
+          (when (>= pc code-length)
+            (store-registers)
+            (return t))
+          (let* ((op (aref code pc))
+                 (base (svref *opcode-base-gas-table* op)))
+            (if (null base)
+                ;; The fork decides this opcode's base gas.
+                (out-of-line
+                 (%evm-machine-charge-gas
+                  machine (opcode-base-gas op context))
+                 (execute-opcode machine op))
+                (let ((base base))
+                  (declare (type evm-small-gas base))
+                  (when (> base gas)
+                    (fail-stored
+                     "EVM out of gas (regular dimension) at pc ~D" pc))
+                  (setf gas (- gas base)
+                        charged (+ charged base))
+                  (cond
+                    ((<= #x60 op #x66)
+                     (let ((size (- op #x5f)))
+                       (push-word
+                        (read-small-push-immediate code pc size))
+                       (setf pc (+ pc 1 size))))
+                    ((<= #x80 op #x8f)
+                     (let ((depth (- op #x7f)))
+                       (when (< sp depth)
+                         (fail-stored "EVM stack underflow on DUP~D" depth))
+                       (push-word (svref stack (- sp depth)))
+                       (incf pc)))
+                    ((<= #x90 op #x9f)
+                     (let ((depth (- op #x8f)))
+                       (when (< sp (1+ depth))
+                         (fail-stored "EVM stack underflow on SWAP~D"
+                                      depth))
+                       (rotatef (svref stack (- sp 1))
+                                (svref stack (- sp 1 depth)))
+                       (incf pc)))
+                    ((= op #x5b) (incf pc))
+                    ((= op #x57)
+                     (let* ((destination (pop-word))
+                            (condition (pop-word)))
+                       (if (eql condition 0)
+                           (incf pc)
+                           (jump-to destination))))
+                    ((= op #x56) (jump-to (pop-word)))
+                    ((= op #x50) (pop-word) (incf pc))
+                    ((and (= op #x5f) push0-p) (push-word 0) (incf pc))
+                    ((<= #x67 op #x7f)
+                     (let ((size (- op #x5f)))
+                       (push-word (read-push-immediate code pc size))
+                       (setf pc (+ pc 1 size))))
+                    ((= op #x01) (word-operation word-add))
+                    ((= op #x03) (word-operation word-sub))
+                    ((= op #x10) (word-operation word-lt))
+                    ((= op #x11) (word-operation word-gt))
+                    ((= op #x14) (word-operation word-eq))
+                    ((= op #x15)
+                     (push-word (word-iszero (pop-word)))
+                     (incf pc))
+                    ((= op #x16) (word-operation word-and))
+                    ((= op #x17) (word-operation word-or))
+                    ((= op #x18) (word-operation word-xor))
+                    ((= op #x5a) (push-word gas) (incf pc))
+                    ((= op #x58) (push-word pc) (incf pc))
+                    (t
+                     (out-of-line (execute-opcode machine op))))))))))))
 
 (defun run-evm-machine (machine)
   "Execute MACHINE's frame until it halts or its PC leaves the code."

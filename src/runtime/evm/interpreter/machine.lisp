@@ -26,11 +26,10 @@ hiding them in one large lexical scope."
   gas-budget
   step-budget
   ;; PC only ever holds a code offset (a jump target is checked against the
-  ;; code length before it is stored) and STEPS counts executed instructions,
-  ;; so both are fixnums and their per-instruction updates are word
-  ;; arithmetic.
+  ;; code length before it is stored), so it is a fixnum and its
+  ;; per-instruction updates are word arithmetic.  (A per-frame instruction
+  ;; count nothing read was dropped; the tree-wide STEP-BUDGET counts steps.)
   (pc 0 :type (and fixnum unsigned-byte))
-  (steps 0 :type (and fixnum unsigned-byte))
   (gas-used 0 :type (integer 0 *))
   ;; The operand stack: words in STACK[0..SP), the top at SP-1.  The vector
   ;; starts small and doubles up to +STACK-LIMIT+, so a push or pop is an
@@ -260,7 +259,7 @@ zero; GAS-USED, a diagnostic scalar, stops at zero."
 (defmacro with-evm-machine-state ((machine) &body body)
   "Bind the mutable frame fields used by an opcode handler."
   `(with-slots (code jump-destinations context gas-limit gas-budget step-budget
-                pc steps gas-used memory
+                pc gas-used memory
                 return-data return-data-buffer frame-snapshot
                 original-storage-values cleared-storage-slots logs
                 refund-counter status halted-p)
