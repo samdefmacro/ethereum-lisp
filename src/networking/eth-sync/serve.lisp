@@ -229,7 +229,8 @@ large-receipt response: FIRST-BLOCK-RECEIPT-INDEX skips an already received
 prefix, and a single response remains below the 10 MiB ETH message cap."
   (unless (and (integerp first-block-receipt-index)
                (not (minusp first-block-receipt-index)))
-    (error "first block receipt index must be a non-negative integer"))
+    (eth-peer-protocol-fail
+     "first block receipt index must be a non-negative integer"))
   (let ((blocks '())
         (bytes 0)
         (examined 0))
@@ -263,8 +264,9 @@ prefix, and a single response remains below the 10 MiB ETH message cap."
                                     +eth-receipts-envelope-reserve+
                                     bytes))))
                 (when (> start count)
-                  (error "receipt start index ~D exceeds block receipt count ~D"
-                         start count))
+                  (eth-peer-protocol-fail
+                   "receipt start index ~D exceeds block receipt count ~D"
+                   start count))
                 (loop repeat (- count start)
                       for transaction in (nthcdr start transactions)
                       for receipt in (nthcdr start receipts)
@@ -297,75 +299,91 @@ prefix, and a single response remains below the 10 MiB ETH message cap."
   "Answer PEER's message when it is a request we serve, and return T if so.
 
 Returns NIL for anything else — including every message when the peer has no
-serve backend — so the caller can handle it."
+serve backend — so the caller can handle it.
+
+Each answer has three parts, kept apart because they fail for different
+parties: decoding the request is the peer's (a plain ERROR there is a message
+we could not accept), building the response from our chain is ours (run as
+local work, so an untyped failure is an ETH-PEER-INTERNAL-ERROR), and the
+send is the transport's."
   (let ((backend (eth-peer-serve-backend peer)))
-    (when backend
-      (cond
-        ((= eth-id +eth-message-get-block-headers+)
-         (let ((request (decode-eth-get-block-headers payload)))
-           (eth-peer-send peer +eth-message-block-headers+
-                          (encode-eth-block-headers
-                           (eth-get-block-headers-request-id request)
-                           (eth-serve-headers backend request))))
-         t)
-        ((= eth-id +eth-message-get-block-bodies+)
-         (multiple-value-bind (request-id hashes)
-             (decode-eth-get-block-bodies payload)
-           (eth-peer-send peer +eth-message-block-bodies+
-                          (encode-eth-block-bodies
-                           request-id (eth-serve-bodies backend hashes))))
-         t)
-        ((= eth-id +eth-message-get-receipts+)
-         (let ((version (eth-peer-eth-version peer)))
-           (multiple-value-bind (request-id hashes first-index)
-               (decode-eth-get-receipts payload version)
-             (multiple-value-bind (blocks incomplete end-index)
-                 (eth-serve-receipt-blocks
-                  backend hashes version
-                  :first-block-receipt-index first-index)
-               (eth-peer-send peer +eth-message-receipts+
-                              (encode-eth-receipts
-                               request-id blocks version
-                               :first-block-receipt-index first-index
-                               :last-block-incomplete incomplete
-                               :last-block-receipt-end-index end-index)))))
-         t)
-        ((= eth-id +eth-message-get-block-access-lists+)
-         (when (< (eth-peer-eth-version peer) +eth-protocol-version-71+)
-           (error "GetBlockAccessLists requires eth/71 or later"))
-         (multiple-value-bind (request-id hashes)
-             (decode-eth-get-block-access-lists payload)
-           (let ((reader (eth-serve-backend-block-access-list backend)))
-             (eth-peer-send
-              peer +eth-message-block-access-lists+
-              (encode-eth-block-access-lists
-               request-id
-               (mapcar (lambda (hash)
-                         (or (and reader (funcall reader hash))
-                             (make-byte-vector 0)))
-                       hashes)))))
-         t)
-        ((= eth-id +eth-message-get-cells+)
-         (when (< (eth-peer-eth-version peer) +eth-protocol-version-72+)
-           (error "GetCells requires eth/72"))
-         ;; geth v1.17.5 and v1.17.6 lay GetCells out differently and each
-         ;; decodes only its own Cells layout, so answer in the request's.
-         (multiple-value-bind (request-id hashes mask dialect)
-             (decode-eth-get-cells payload)
-           (eth-peer-note-cells-dialect peer dialect)
-           (let ((reader (eth-serve-backend-blob-cells backend)))
-             (multiple-value-bind (response-hashes groups response-mask)
-                 (if reader
-                     (funcall reader hashes mask)
-                     (values nil nil mask))
-               (unless (bytes= response-mask mask)
-                 (error "eth/72 Cells backend changed the requested custody mask"))
-               (eth-peer-send
-                peer +eth-message-cells+
-                (encode-eth-cells request-id response-hashes groups
-                                  response-mask :dialect dialect)))))
-         t)
-        (t nil)))))
+    (flet ((answer (operation response-id build)
+             (eth-peer-send peer response-id
+                            (call-with-eth-peer-local-work operation build))))
+      (when backend
+        (cond
+          ((= eth-id +eth-message-get-block-headers+)
+           (let ((request (decode-eth-get-block-headers payload)))
+             (answer "serving GetBlockHeaders" +eth-message-block-headers+
+                     (lambda ()
+                       (encode-eth-block-headers
+                        (eth-get-block-headers-request-id request)
+                        (eth-serve-headers backend request)))))
+           t)
+          ((= eth-id +eth-message-get-block-bodies+)
+           (multiple-value-bind (request-id hashes)
+               (decode-eth-get-block-bodies payload)
+             (answer "serving GetBlockBodies" +eth-message-block-bodies+
+                     (lambda ()
+                       (encode-eth-block-bodies
+                        request-id (eth-serve-bodies backend hashes)))))
+           t)
+          ((= eth-id +eth-message-get-receipts+)
+           (let ((version (eth-peer-eth-version peer)))
+             (multiple-value-bind (request-id hashes first-index)
+                 (decode-eth-get-receipts payload version)
+               (answer "serving GetReceipts" +eth-message-receipts+
+                       (lambda ()
+                         (multiple-value-bind (blocks incomplete end-index)
+                             (eth-serve-receipt-blocks
+                              backend hashes version
+                              :first-block-receipt-index first-index)
+                           (encode-eth-receipts
+                            request-id blocks version
+                            :first-block-receipt-index first-index
+                            :last-block-incomplete incomplete
+                            :last-block-receipt-end-index end-index))))))
+           t)
+          ((= eth-id +eth-message-get-block-access-lists+)
+           (when (< (eth-peer-eth-version peer) +eth-protocol-version-71+)
+             (error "GetBlockAccessLists requires eth/71 or later"))
+           (multiple-value-bind (request-id hashes)
+               (decode-eth-get-block-access-lists payload)
+             (let ((reader (eth-serve-backend-block-access-list backend)))
+               (answer "serving GetBlockAccessLists"
+                       +eth-message-block-access-lists+
+                       (lambda ()
+                         (encode-eth-block-access-lists
+                          request-id
+                          (mapcar (lambda (hash)
+                                    (or (and reader (funcall reader hash))
+                                        (make-byte-vector 0)))
+                                  hashes))))))
+           t)
+          ((= eth-id +eth-message-get-cells+)
+           (when (< (eth-peer-eth-version peer) +eth-protocol-version-72+)
+             (error "GetCells requires eth/72"))
+           ;; geth v1.17.5 and v1.17.6 lay GetCells out differently and each
+           ;; decodes only its own Cells layout, so answer in the request's.
+           (multiple-value-bind (request-id hashes mask dialect)
+               (decode-eth-get-cells payload)
+             (eth-peer-note-cells-dialect peer dialect)
+             (let ((reader (eth-serve-backend-blob-cells backend)))
+               (answer "serving GetCells" +eth-message-cells+
+                       (lambda ()
+                         (multiple-value-bind
+                               (response-hashes groups response-mask)
+                             (if reader
+                                 (funcall reader hashes mask)
+                                 (values nil nil mask))
+                           (unless (bytes= response-mask mask)
+                             (error "eth/72 Cells backend changed the ~
+                                     requested custody mask"))
+                           (encode-eth-cells request-id response-hashes groups
+                                             response-mask
+                                             :dialect dialect))))))
+           t)
+          (t nil))))))
 
 ;;; Dispatching an inbound message across the request handlers here and the
 ;;; gossip handlers in gossip.lisp is ETH-PEER-HANDLE-MESSAGE, which lives with

@@ -209,6 +209,9 @@
    #:devp2p-capability-message-count
    #:rlpx-disconnect
    #:rlpx-disconnect-reason
+   #:rlpx-disconnect-write-error
+   #:rlpx-write-failed
+   #:rlpx-write-failed-cause
    #:rlpx-stream-ended
    #:rlpx-shared-capability
    #:rlpx-shared-capability-name

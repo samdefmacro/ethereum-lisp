@@ -379,48 +379,91 @@ the pool."
         (is (search "injected malformed StorageRanges response"
                     (princ-to-string condition))))
       (is (typep condition 'ethereum-lisp.cli::devnet-snap-source-pool-exhausted))))
-  ;; Positive control: an ordinary error from the account page's own source
-  ;; is still that peer's import failure.
-  (let* ((node
-           (ethereum-lisp.cli:make-devnet-node
-            :genesis-json *eth-sync-paris-genesis-json*
-            :port 0 :public-port 0))
-         (entry (ethereum-lisp.cli::make-devnet-peer-entry
-                 :id-hex "account-page-source"))
-         (logs '()))
-    (devnet-peer-sync-call-with-function-overrides
-     (list
-      (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
-            (lambda (seen-node &key snap-only-p)
-              (declare (ignore seen-node snap-only-p))
-              (list entry)))
-      (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
-            (lambda (seen-entry)
-              (declare (ignore seen-entry))
-              (devnet-snap-test-source)))
-      (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
-            (lambda (seen-database sources &rest arguments)
-              (declare (ignore seen-database))
-              (funcall (getf arguments :on-source-error)
-                       (first sources)
-                       (make-condition 'simple-error
-                                       :format-control "injected page error"
-                                       :format-arguments nil))
-              :callback-driven))
-      (cons 'ethereum-lisp.cli::devnet-peer-manager-log
-            (lambda (seen-node name &rest fields)
-              (declare (ignore seen-node fields))
-              (push (list name) logs))))
-     (lambda ()
-       (ethereum-lisp.cli::devnet-node-snap-import-with-failover
-        node (make-memory-key-value-database)
-        (block-header (ethereum-lisp.cli::devnet-node-genesis-block node))
-        (make-hash32 (make-byte-vector 32 :initial-element 96)))))
-    (is (= 1 (count "peer.snap.import_failed" logs
-                    :key #'first :test #'string=)))
-    (is (= -50 (ethereum-lisp.cli::devnet-peer-score
-                (ethereum-lisp.cli:devnet-node-peer-table node)
-                "account-page-source")))))
+  ;; Positive controls: the account page's own source is still judged by
+  ;; what it did. An answer that fails verification ends its session (geth
+  ;; drops the peer); a lost transport and a defect of ours charge nobody
+  ;; (docs/evidence/sec5-peer-parity-2.txt; until then an ordinary error here
+  ;; cost the page's peer 50).
+  (flet ((page-error (condition)
+           (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+                  (node
+                    (ethereum-lisp.cli:make-devnet-node
+                     :genesis-json *eth-sync-paris-genesis-json*
+                     :port 0 :public-port 0 :telemetry-sink sink))
+                  (entry (ethereum-lisp.cli::make-devnet-peer-entry
+                          :id-hex "account-page-source"))
+                  (ended '())
+                  (logs '()))
+             (devnet-peer-sync-call-with-function-overrides
+              (list
+               (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+                     (lambda (seen-node &key snap-only-p)
+                       (declare (ignore seen-node snap-only-p))
+                       (list entry)))
+               (cons 'ethereum-lisp.cli::devnet-peer-queued-snap-source
+                     (lambda (seen-entry)
+                       (declare (ignore seen-entry))
+                       (devnet-snap-test-source)))
+               (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+                     (lambda (seen-database sources &rest arguments)
+                       (declare (ignore seen-database))
+                       (funcall (getf arguments :on-source-error)
+                                (first sources) condition)
+                       :callback-driven))
+               (cons 'ethereum-lisp.cli::devnet-peer-end-session-for-invalid-delivery
+                     (lambda (seen-node seen-entry reason &key charged-p)
+                       (declare (ignore seen-node charged-p))
+                       (push (cons seen-entry reason) ended)
+                       t))
+               (cons 'ethereum-lisp.cli::devnet-peer-manager-log
+                     (lambda (seen-node name &rest fields)
+                       (declare (ignore seen-node fields))
+                       (push name logs))))
+              (lambda ()
+                (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+                 node (make-memory-key-value-database)
+                 (block-header (ethereum-lisp.cli::devnet-node-genesis-block node))
+                 (make-hash32 (make-byte-vector 32 :initial-element 96)))))
+             (list :ended (mapcar #'car ended)
+                   :entry entry
+                   :logs logs
+                   :errors (loop for event in (ethereum-lisp.telemetry:telemetry-events
+                                               sink)
+                                 when (eq :error
+                                          (ethereum-lisp.telemetry:telemetry-event-value
+                                           event))
+                                   collect (ethereum-lisp.telemetry:telemetry-event-name
+                                            event))
+                   :score (ethereum-lisp.cli::devnet-peer-score
+                           (ethereum-lisp.cli:devnet-node-peer-table node)
+                           "account-page-source")))))
+    (let ((invalid (page-error
+                    (make-condition
+                     'ethereum-lisp.snap-sync:snap-sync-invalid-response
+                     :kind "account-range"
+                     :cause (make-condition
+                             'simple-error
+                             :format-control "range proof does not verify"
+                             :format-arguments nil))))
+          (lost (page-error
+                 (make-condition 'sb-int:simple-stream-error
+                                 :stream *standard-output*
+                                 :format-control "Couldn't write to ~A: Broken pipe"
+                                 :format-arguments (list "socket"))))
+          (ours (page-error
+                 (make-condition 'simple-error
+                                 :format-control "injected page error"
+                                 :format-arguments nil))))
+      (is (equal (list (getf invalid :entry)) (getf invalid :ended)))
+      (is (null (getf lost :ended)))
+      (is (member "peer.snap.source_lost" (getf lost :logs)
+                  :test #'string=))
+      (is (null (getf ours :ended)))
+      (is (equal '("peer.snap.internal_error") (getf ours :errors)))
+      (dolist (case (list invalid lost ours))
+        (is (= 0 (getf case :score)))
+        (is (not (member "peer.snap.import_failed" (getf case :logs)
+                         :test #'string=)))))))
 
 (deftest devnet-sync-coordinator-contains-snap-workers-stopped-without-evidence
   (:layer :unit :module :p2p)
@@ -567,8 +610,9 @@ the pool."
 
 (defvar *peer-attribution-number-request-hook* nil
   "NIL, or a function the serving side calls with the origin of each
-number-origin GetBlockHeaders before answering it (it runs on the server's
-thread, so a test sets it globally).")
+number-origin GetBlockHeaders and its own ETH-PEER before answering it (it
+runs on the server's thread, the connection's one writer, so a test sets it
+globally). A hook that signals ends the serving loop with that condition.")
 
 (defun peer-attribution-serve-by-hash (peer blocks)
   "Answer GetBlockHeaders and GetBlockBodies from BLOCKS until the connection
@@ -614,7 +658,7 @@ block listed at each height."
                                      request)))
                               (when *peer-attribution-number-request-hook*
                                 (funcall *peer-attribution-number-request-hook*
-                                         origin))
+                                         origin peer))
                               (loop for number from origin
                                     repeat amount
                                     for block = (gethash number by-number)
@@ -674,6 +718,10 @@ reached the scheduler's error callback fails the test."
            (client (ethereum-lisp.cli:make-devnet-node
                     :genesis-json *eth-sync-paris-genesis-json*
                     :port 0 :public-port 0 :max-peers 4
+                    ;; Events the node logs past DEVNET-PEER-MANAGER-LOG, at
+                    ;; error level (see PEER-ATTRIBUTION-ERROR-EVENTS).
+                    :telemetry-sink
+                    (ethereum-lisp.telemetry:make-memory-telemetry-sink)
                     :peers (list (enode-url
                                   (node-id-from-private-key server-key)
                                   "127.0.0.1" port))))
@@ -1158,7 +1206,8 @@ does not have: the wire-level fault geth answers errInvalidBody."
     (unwind-protect
          (progn
            (setf *peer-attribution-number-request-hook*
-                 (lambda (origin)
+                 (lambda (origin peer)
+                   (declare (ignore peer))
                    (when (= origin 2)
                      (setf serving-2 t)
                      ;; Still in flight when the download aborts.
@@ -1196,3 +1245,393 @@ does not have: the wire-level fault geth answers errInvalidBody."
       (setf *peer-attribution-number-request-hook* nil)))
   #-sbcl
   (is t))
+
+;;;; Parity leftovers (docs/evidence/sec5-peer-parity-2.txt): a snap answer
+;;;; that fails verification ends the session, a lost transport is charged to
+;;;; nobody, the reason a peer gave before our write failed is read, and a
+;;;; defect of ours on a session thread is typed, logged and not charged.
+
+(defun peer-attribution-error-events (node)
+  "The names of the error-level events NODE logged to its memory sink."
+  (loop for event in (ethereum-lisp.telemetry:telemetry-events
+                      (ethereum-lisp.cli::devnet-node-telemetry-sink node))
+        when (eq :error (ethereum-lisp.telemetry:telemetry-event-value event))
+          collect (ethereum-lisp.telemetry:telemetry-event-name event)))
+
+(defun peer-attribution-broken-pipe ()
+  (make-condition 'sb-int:simple-stream-error
+                  :stream *standard-output*
+                  :format-control "Couldn't write to ~A: Broken pipe"
+                  :format-arguments (list "socket")))
+
+(defun peer-attribution-snap-source-error (client entry condition)
+  "Hand CONDITION to CLIENT's shipped snap import :ON-SOURCE-ERROR as ENTRY's
+own source raising it, the way the importer's account and heal workers do."
+  (devnet-peer-sync-call-with-function-overrides
+   (list
+    (cons 'ethereum-lisp.cli::devnet-node-live-sync-entries
+          (lambda (seen-node &key snap-only-p)
+            (declare (ignore seen-node snap-only-p))
+            (list entry)))
+    (cons 'ethereum-lisp.snap-sync:snap-sync-import-state-multi
+          (lambda (database sources &rest arguments)
+            (declare (ignore database))
+            (funcall (getf arguments :on-source-error)
+                     (first sources) condition)
+            :callback-driven)))
+   (lambda ()
+     (ethereum-lisp.cli::devnet-node-snap-import-with-failover
+      client (make-memory-key-value-database)
+      (block-header (ethereum-lisp.cli::devnet-node-genesis-block client))
+      (make-hash32 (make-byte-vector 32 :initial-element 97))))))
+
+(deftest devnet-peer-session-ends-on-a-snap-response-that-fails-verification
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; sec5-robustness-followups.txt, Not verified: an account range proof or a
+  ;; TrieNodes answer from the page's own peer that failed verification cost
+  ;; it 50 (peer.snap.import_failed) and kept its session, and so did a lost
+  ;; transport and a defect of ours. go-ethereum v1.17.6 eth/protocols/snap/
+  ;; sync.go OnAccounts and OnTrieNodes return the verification error and
+  ;; snap/handler.go Handle drops the peer; a dropped peer's requests are only
+  ;; reverted. Controls first, on the same real session: a broken pipe, a
+  ;; remote Disconnect under a request and an untyped local error keep it at
+  ;; score 0. RED at 3c0cfeab: the controls cost 150 and the invalid answer
+  ;; kept the session.
+  #+sbcl
+  (let ((server-outcome
+          (call-with-peer-attribution-session
+           (lambda (genesis config)
+             (eth-sync-produce-empty-blocks genesis config 1))
+           (lambda (client entry logs)
+             (let ((table (ethereum-lisp.cli:devnet-node-peer-table client))
+                   (id-hex (ethereum-lisp.cli::devnet-peer-entry-id-hex entry)))
+               (dolist (condition
+                        (list (peer-attribution-broken-pipe)
+                              (make-condition
+                               'ethereum-lisp.eth-sync:eth-sync-peer-transport-error
+                               :operation "GetAccountRange"
+                               :cause (make-condition 'rlpx-disconnect
+                                                      :reason 4))
+                              (make-condition
+                               'simple-error
+                               :format-control "injected local defect"
+                               :format-arguments nil)))
+                 (peer-attribution-snap-source-error client entry condition))
+               (sleep 0.5)
+               (is (peer-attribution-session-intact-p client entry))
+               (let ((events (funcall logs)))
+                 (is (= 2 (count "peer.snap.source_lost" events
+                                 :key #'first :test #'string=)))
+                 (is (= 0 (count "peer.snap.import_failed" events
+                                 :key #'first :test #'string=))))
+               (is (= 1 (count "peer.snap.internal_error"
+                               (peer-attribution-error-events client)
+                               :test #'string=)))
+               ;; The source's own account range fails its proof.
+               (peer-attribution-snap-source-error
+                client entry
+                (make-condition
+                 'ethereum-lisp.snap-sync:snap-sync-invalid-response
+                 :kind "account-range"
+                 :cause (make-condition
+                         'simple-error
+                         :format-control "range proof does not verify"
+                         :format-arguments nil)))
+               (wait-for-test-condition
+                "session teardown after an invalid snap answer" 5d0
+                (lambda () (null (peer-attribution-entry client))))
+               (is (= -25 (ethereum-lisp.cli::devnet-peer-score table id-hex)))
+               (is (= 1 (count "peer.session.invalid_delivery" (funcall logs)
+                               :key #'first :test #'string=)))
+               (is (= 0 (count "peer.snap.import_failed" (funcall logs)
+                               :key #'first :test #'string=))))))))
+    ;; The peer was told why, as for any other invalid delivery.
+    (is (equal (list :disconnected
+                     ethereum-lisp.p2p:+devp2p-disconnect-subprotocol-error+)
+               server-outcome)))
+  #-sbcl
+  (is t))
+
+(deftest devnet-peer-download-charges-nothing-for-a-peer-that-hangs-up
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; sec5-peer-attribution.txt D7: the multi-peer downloader charged -25
+  ;; (:failed) for any failed fetch, so a peer whose connection went away
+  ;; under a request was scored for it. go-ethereum v1.17.6 eth/downloader/
+  ;; fetchers_concurrent.go returns a departed peer's request to the queue and
+  ;; charges nothing. Here the serving peer closes its socket when asked for
+  ;; block 1. RED at 3c0cfeab: score -25.
+  #+sbcl
+  (let ((hung-up nil))
+    (unwind-protect
+         (progn
+           (setf *peer-attribution-number-request-hook*
+                 (lambda (origin peer)
+                   (when (= origin 1)
+                     (setf hung-up t)
+                     (close (rlpx-connection-stream (eth-peer-connection peer))
+                            :abort t)
+                     (error "the serving peer hung up"))))
+           (call-with-peer-attribution-session
+            (lambda (genesis config)
+              (eth-sync-produce-empty-blocks genesis config 1))
+            (lambda (client entry logs)
+              (let ((outcome
+                      (handler-case
+                          (eth-sync-download-blocks-multi
+                           (ethereum-lisp.cli::devnet-node-sync-peer-sources
+                            client)
+                           (lambda (block) (declare (ignore block)))
+                           :start-number 1 :target-number 1
+                           :fetch-receipts-p nil
+                           :request-timeout-seconds 10)
+                        (serious-condition (condition) condition))))
+                (is hung-up)
+                (is (typep outcome
+                           'ethereum-lisp.eth-sync:eth-sync-multi-peer-error))
+                (wait-for-test-condition
+                 "session teardown after the hang-up" 5d0
+                 (lambda () (null (peer-attribution-entry client))))
+                (is (= 0 (ethereum-lisp.cli::devnet-peer-score
+                          (ethereum-lisp.cli:devnet-node-peer-table client)
+                          (ethereum-lisp.cli::devnet-peer-entry-id-hex entry))))
+                (is (null (find "peer.sync.source_penalty" (funcall logs)
+                                :key #'first :test #'string=)))))))
+      (setf *peer-attribution-number-request-hook* nil)))
+  #-sbcl
+  (is t))
+
+(defun peer-attribution-write-after-close (client entry)
+  "On ENTRY's session, ask the peer for block 5's header without awaiting it,
+then keep writing Pings until a write fails, and wait for the session to end.
+Returns the condition the job failed with."
+  (let* ((peer (ethereum-lisp.cli::devnet-peer-entry-peer entry))
+         (queue (ethereum-lisp.cli::devnet-peer-entry-request-queue entry))
+         (condition
+           (handler-case
+               (progn
+                 (ethereum-lisp.cli::devnet-peer-request-queue-submit
+                  queue
+                  (lambda ()
+                    (eth-peer-send
+                     peer ethereum-lisp.eth-wire:+eth-message-get-block-headers+
+                     (ethereum-lisp.eth-wire:encode-eth-get-block-headers
+                      (ethereum-lisp.eth-wire:make-eth-get-block-headers
+                       :request-id 77 :origin-number 5 :amount 1)))
+                    ;; The peer answers by closing; the Disconnect it may send
+                    ;; first stays unread while this job holds the writer.
+                    (sleep 0.5)
+                    (loop repeat 200
+                          do (rlpx-send-ping (eth-peer-connection peer))
+                             (sleep 0.01))))
+                 nil)
+             (serious-condition (condition) condition))))
+    (wait-for-test-condition
+     "session teardown after the failed write" 5d0
+     (lambda () (null (peer-attribution-entry client))))
+    condition))
+
+(defun peer-attribution-dial-failure (logs)
+  "The fields of the first peer.dial.failed in LOGS, waiting for it."
+  (rest (wait-for-test-condition
+         "peer.dial.failed after the teardown" 5d0
+         (lambda ()
+           (find "peer.dial.failed" (funcall logs)
+                 :key #'first :test #'string=)))))
+
+(defun peer-attribution-write-failure-case (goodbye-p)
+  "One session whose peer, asked for block 5, closes its socket, first
+sending Disconnect 4 when GOODBYE-P; our job keeps writing until a write
+fails. Returns (VALUES JOB-CONDITION DIAL-FAILED-FIELDS SCORE)."
+  (let ((fields nil)
+        (job-condition nil)
+        (score nil))
+    (unwind-protect
+         (progn
+           (setf *peer-attribution-number-request-hook*
+                 (lambda (origin peer)
+                   (when (= origin 5)
+                     (when goodbye-p
+                       (rlpx-send-disconnect
+                        (eth-peer-connection peer)
+                        +devp2p-disconnect-too-many-peers+))
+                     (close (rlpx-connection-stream
+                             (eth-peer-connection peer))
+                            :abort t)
+                     (error "the serving peer left"))))
+           (call-with-peer-attribution-session
+            (lambda (genesis config)
+              (eth-sync-produce-empty-blocks genesis config 1))
+            (lambda (client entry logs)
+              (setf job-condition
+                    (peer-attribution-write-after-close client entry)
+                    fields (peer-attribution-dial-failure logs)
+                    score (ethereum-lisp.cli::devnet-peer-score
+                           (ethereum-lisp.cli:devnet-node-peer-table client)
+                           (ethereum-lisp.cli::devnet-peer-entry-id-hex
+                            entry))))))
+      (setf *peer-attribution-number-request-hook* nil))
+    (values job-condition fields score)))
+
+(deftest devnet-peer-session-reads-the-disconnect-sent-before-our-write-failed
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; sec5-peer-attribution.txt, Not verified: 23 broken pipes in 33 minutes
+  ;; on Hoodi at 1a7b9059 (53 dialed and 20 accepted at f8c882bc), 15 of them
+  ;; 0.18-0.49 s after admission, carried no reason, because a Disconnect the
+  ;; peer sent before closing is never read once our write fails first. Now
+  ;; a failed write drains the peer's pending messages (bounded, 0.5 s) and
+  ;; the session ends with the reason it gave. Here the peer sends
+  ;; Disconnect 4 (too many peers) and closes while our job keeps writing.
+  ;; RED at 3c0cfeab: the dial failure is the bare broken pipe, no reason.
+  #+sbcl
+  (progn
+    (multiple-value-bind (job-condition fields score)
+        (peer-attribution-write-failure-case t)
+      ;; The job met the failed write itself.
+      (is (typep job-condition 'stream-error))
+      (is (equal "4" (second (member "disconnectReason" fields
+                                     :test #'string=))))
+      (is (equal "rlpx-disconnect-4" (second (member "reason" fields
+                                                     :test #'string=))))
+      (is (search "before our write failed"
+                  (second (member "error" fields :test #'string=))))
+      (is (eql 0 score)))
+    ;; Control: a peer that closes without a word leaves the write failure.
+    (multiple-value-bind (job-condition fields score)
+        (peer-attribution-write-failure-case nil)
+      (is (typep job-condition 'stream-error))
+      (is (null (member "disconnectReason" fields :test #'string=)))
+      (is (equal "rlpx-write-failed" (second (member "reason" fields
+                                                     :test #'string=))))
+      (is (eql 0 score))))
+  #-sbcl
+  (is t))
+
+(deftest devnet-peer-session-end-does-not-charge-a-defect-in-our-serving
+  (:layer :integration :module :p2p :requires-local-sockets t)
+  ;; A local program error on a peer's session thread and a message from the
+  ;; peer we could not decode were both plain ERRORs, so our own defect was
+  ;; charged 25 as if the peer had sent garbage. Here, while our job waits for
+  ;; the peer's answer, the peer asks us for headers and serving them fails
+  ;; with a TYPE-ERROR of ours. The session ends (we cannot tell how far the
+  ;; work got), unscored, and peer.session.internal_error is logged at error
+  ;; level. RED at 3c0cfeab: score -25 and nothing at error level.
+  #+sbcl
+  (let ((asked nil))
+    (unwind-protect
+         (progn
+           (setf *peer-attribution-number-request-hook*
+                 (lambda (origin peer)
+                   (when (= origin 9)
+                     (setf asked t)
+                     (eth-peer-send
+                      peer ethereum-lisp.eth-wire:+eth-message-get-block-headers+
+                      (ethereum-lisp.eth-wire:encode-eth-get-block-headers
+                       (ethereum-lisp.eth-wire:make-eth-get-block-headers
+                        :request-id 555 :origin-number 0 :amount 1))))))
+           (call-with-peer-attribution-session
+            (lambda (genesis config)
+              (eth-sync-produce-empty-blocks genesis config 1))
+            (lambda (client entry logs)
+              (declare (ignore logs))
+              (let ((queue (ethereum-lisp.cli::devnet-peer-entry-request-queue
+                            entry))
+                    (peer (ethereum-lisp.cli::devnet-peer-entry-peer entry))
+                    (job-condition nil))
+                (devnet-peer-sync-call-with-function-overrides
+                 (list
+                  (cons 'ethereum-lisp.eth-sync:eth-serve-headers
+                        (lambda (backend request)
+                          (declare (ignore backend request))
+                          (error 'type-error :datum :not-a-header
+                                             :expected-type 'list))))
+                 (lambda ()
+                   (setf job-condition
+                         (handler-case
+                             (progn
+                               (ethereum-lisp.cli::devnet-peer-request-queue-submit
+                                queue
+                                (lambda ()
+                                  (eth-peer-get-block-headers
+                                   peer :origin-number 9 :amount 1)))
+                               nil)
+                           (serious-condition (condition) condition)))
+                   (wait-for-test-condition
+                    "session teardown after our serving defect" 5d0
+                    (lambda () (null (peer-attribution-entry client))))))
+                (is asked)
+                ;; The behaviour first, so a run against the old tree fails
+                ;; on it rather than on a type that tree does not define.
+                (is (= 0 (ethereum-lisp.cli::devnet-peer-score
+                          (ethereum-lisp.cli:devnet-node-peer-table client)
+                          (ethereum-lisp.cli::devnet-peer-entry-id-hex entry))))
+                (is (= 1 (count "peer.session.internal_error"
+                                (peer-attribution-error-events client)
+                                :test #'string=)))
+                (is (search "serving GetBlockHeaders"
+                            (princ-to-string job-condition)))
+                (is (typep job-condition
+                           'ethereum-lisp.eth-sync:eth-peer-internal-error))))))
+      (setf *peer-attribution-number-request-hook* nil)))
+  #-sbcl
+  (is t))
+
+(deftest eth-peer-local-work-types-only-our-own-untyped-failures
+  (:layer :unit :module :p2p)
+  ;; Inside our own work on a session thread, an untyped error is our defect
+  ;; (ETH-PEER-INTERNAL-ERROR); anything typed passes through with its type,
+  ;; a failed write included.
+  (flet ((through (condition)
+           (handler-case
+               (ethereum-lisp.eth-sync:call-with-eth-peer-local-work
+                "probing" (lambda () (error condition)))
+             (error (escaped) escaped))))
+    (dolist (untyped (list (make-condition 'type-error :datum 1
+                                                       :expected-type 'string)
+                           (make-condition 'simple-error
+                                           :format-control "local defect"
+                                           :format-arguments nil)
+                           (make-condition 'division-by-zero)))
+      (let ((escaped (through untyped)))
+        (is (typep escaped 'ethereum-lisp.eth-sync:eth-peer-internal-error))
+        (is (eq untyped (ethereum-lisp.eth-sync:eth-peer-internal-error-cause
+                         escaped)))
+        (is (equal "probing"
+                   (ethereum-lisp.eth-sync:eth-peer-internal-error-operation
+                    escaped)))))
+    (dolist (typed (list (peer-attribution-broken-pipe)
+                         (make-condition 'rlpx-disconnect :reason 4)
+                         (make-condition
+                          'ethereum-lisp.eth-sync:eth-peer-protocol-error
+                          :format-control "peer violation"
+                          :format-arguments nil)
+                         (make-condition 'ethereum-lisp.validation:storage-error
+                                         :message "local storage fault")
+                         (make-condition
+                          'ethereum-lisp.cli::devnet-peer-sync-invalid
+                          :message "INVALID")))
+      (is (eq typed (through typed)))))
+  ;; Charged: a plain ERROR (a decoder's) still is; our typed defect is not.
+  (is (= 0 (peer-attribution-session-score
+            (make-condition 'ethereum-lisp.eth-sync:eth-peer-internal-error
+                            :operation "serving GetBlockHeaders"
+                            :cause (make-condition 'type-error
+                                                   :datum 1
+                                                   :expected-type 'string)))))
+  (is (= -25 (peer-attribution-session-score
+              (make-condition
+               'simple-error
+               :format-control "eth/72 GetCells must contain exactly 3 items"
+               :format-arguments nil))))
+  ;; The session-failure token names the reason the peer gave.
+  (is (equal "rlpx-disconnect-4"
+             (ethereum-lisp.cli::devnet-peer-session-failure-reason
+              (make-condition 'rlpx-disconnect :reason 4))))
+  (is (equal "rlpx-disconnect-16"
+             (ethereum-lisp.cli::devnet-peer-session-failure-reason
+              (make-condition
+               'ethereum-lisp.eth-sync:eth-sync-peer-transport-error
+               :operation "GetBlockHeaders"
+               :cause (make-condition 'rlpx-disconnect :reason 16)))))
+  (is (equal "simple-stream-error"
+             (ethereum-lisp.cli::devnet-peer-session-failure-reason
+              (peer-attribution-broken-pipe)))))

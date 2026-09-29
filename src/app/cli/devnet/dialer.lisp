@@ -2340,17 +2340,37 @@ root identity, so the live-gate broker may expose its numeric fields."
                node "peer.snap.storage_failed"
                "peer" (devnet-peer-entry-id-hex entry)
                "error" condition))
-             (t
+             ((typep condition
+                     'ethereum-lisp.snap-sync:snap-sync-invalid-response)
+              ;; The source's own answer failed verification: an account
+              ;; range proof, an unrequested or mismatched trie node.
+              ;; go-ethereum v1.17.6 eth/protocols/snap/sync.go OnAccounts
+              ;; ("Account range failed proof") and OnTrieNodes ("unexpected
+              ;; healing trienode") return the error, and snap/handler.go
+              ;; Handle drops the peer. The session ends, and that end is the
+              ;; charge.
+              (devnet-peer-end-session-for-invalid-delivery
+               node entry condition))
+             ((ethereum-lisp.eth-sync:eth-sync-transport-loss-p condition)
+              ;; The transport went away under a request: nothing the peer
+              ;; sent. The importer has already retired the source; geth's
+              ;; snap syncer likewise only reverts a dropped peer's requests.
               (devnet-peer-manager-log
-               node "peer.snap.import_failed"
+               node "peer.snap.source_lost"
                "peer" (devnet-peer-entry-id-hex entry)
-               "error" condition)
-              (call-with-devnet-peer-table
-               node
-               (lambda ()
-                 (devnet-peer-note-score
-                  (devnet-node-peer-table node)
-                  (devnet-peer-entry-id-hex entry) -50))))))))))))
+               "pivot" pivot-number "error" condition))
+             (t
+              ;; Every verification of what a peer sent is typed above, and a
+              ;; message the session could not decode ended the session
+              ;; (queue closed) before reaching here. What is left is our own
+              ;; defect: logged loudly, charged to nobody.
+              (telemetry-log
+               :error "peer.snap.internal_error"
+               :fields
+               (list (cons "peer" (devnet-peer-entry-id-hex entry))
+                     (cons "pivot" (princ-to-string pivot-number))
+                     (cons "error" (princ-to-string condition)))
+               :sink (devnet-node-telemetry-sink node)))))))))))
 
 (defconstant +devnet-snap-blockhash-window+ 256
   "How many ancestors BLOCKHASH can read (the opcode's 256-block window).")
@@ -2879,82 +2899,83 @@ A peer-specific backfill refusal is logged and the next target is tried, except
 a body that does not match its header: that propagates, ending this peer's
 session as geth's errInvalidBody does. Local storage, capability, validation,
 and unknown program failures propagate to the session supervisor instead of
-being misclassified as a peer branch miss."
+being misclassified as a peer branch miss.
+
+The known-block lookups and the imports run on the peer's session thread but
+are our own work (CALL-WITH-ETH-PEER-LOCAL-WORK): a verdict, a storage fault
+or an internal execution failure keeps its type, and any other untyped
+failure there is our defect (ETH-PEER-INTERNAL-ERROR), never the peer's."
   (let ((store (devnet-node-store node))
         (imported 0)
         (*telemetry-activity-label* "sync-gap-fill"))
-    (dolist (target (devnet-node-sync-targets node) imported)
-      (let ((parent (hash32-bytes
-                     (block-header-parent-hash (block-header target)))))
-        (handler-case
-            (let ((filled (eth-sync-fill-gap
-                           peer parent
-                           (lambda (hash)
-                             (call-with-devnet-node-store-guard
-                              node
-                              (lambda ()
-                                (and (chain-store-known-block
-                                      store (make-hash32 hash))
-                                     t))))
-                           (lambda (block)
-                             (devnet-peer-sync-import-block
-                              node block :require-valid-p t
-                              :invalid-head-hash (block-hash target))))))
-              ;; The reverse walk stops at TARGET's parent.  Re-admit the
-              ;; buffered target even when FILLED is zero: another sync path
-              ;; may already have supplied its parent since TARGET was first
-              ;; buffered.
-              (devnet-peer-sync-import-block
-               node target :require-valid-p t
-               :invalid-head-hash (block-hash target))
-              (devnet-peer-manager-log node "peer.sync.gap_filled"
-                                       "blocks" (1+ filled)
+    (labels ((known-p (hash)
+               (ethereum-lisp.eth-sync:call-with-eth-peer-local-work
+                "looking up a gap-fill ancestor"
+                (lambda ()
+                  (call-with-devnet-node-store-guard
+                   node
+                   (lambda ()
+                     (and (chain-store-known-block store (make-hash32 hash))
+                          t))))))
+             (import-into (block invalid-head-hash)
+               (ethereum-lisp.eth-sync:call-with-eth-peer-local-work
+                "importing a gap-fill block"
+                (lambda ()
+                  (devnet-peer-sync-import-block
+                   node block :require-valid-p t
+                   :invalid-head-hash invalid-head-hash)))))
+      (dolist (target (devnet-node-sync-targets node))
+        (let ((parent (hash32-bytes
+                       (block-header-parent-hash (block-header target)))))
+          (handler-case
+              (let ((filled (eth-sync-fill-gap
+                             peer parent #'known-p
+                             (lambda (block)
+                               (import-into block (block-hash target))))))
+                ;; The reverse walk stops at TARGET's parent.  Re-admit the
+                ;; buffered target even when FILLED is zero: another sync path
+                ;; may already have supplied its parent since TARGET was first
+                ;; buffered.
+                (import-into target (block-hash target))
+                (devnet-peer-manager-log node "peer.sync.gap_filled"
+                                         "blocks" (1+ filled)
+                                         "target" (hash32-to-hex
+                                                   (block-hash target)))
+                (incf imported (1+ filled)))
+            (eth-sync-backfill-invalid-body (condition)
+              ;; The peer paired a header with a body it does not commit to.
+              ;; geth drops such a peer (errInvalidBody): this job's error
+              ;; ends the session, and the coordinator asks another peer.
+              (devnet-peer-manager-log node "peer.sync.gap_invalid_body"
                                        "target" (hash32-to-hex
-                                                 (block-hash target)))
-              (incf imported (1+ filled)))
+                                                 (block-hash target))
+                                       "error" condition)
+              (error condition))
+            (eth-sync-backfill-peer-error (condition)
+              (devnet-peer-manager-log node "peer.sync.gap_failed"
+                                       "target" (hash32-to-hex
+                                                 (block-hash target))
+                                       "error" condition)))))
+      (dolist (target (devnet-node-forkchoice-sync-targets node) imported)
+        (handler-case
+            (let ((filled
+                    (eth-sync-fill-gap
+                     peer (hash32-bytes target) #'known-p
+                     (lambda (block) (import-into block target)))))
+              (when (plusp filled)
+                (devnet-peer-manager-log node "peer.sync.head_filled"
+                                         "blocks" filled
+                                         "target" (hash32-to-hex target))
+                (incf imported filled)))
           (eth-sync-backfill-invalid-body (condition)
-            ;; The peer paired a header with a body it does not commit to.
-            ;; geth drops such a peer (errInvalidBody): this job's error ends
-            ;; the session, and the coordinator asks another peer.
             (devnet-peer-manager-log node "peer.sync.gap_invalid_body"
-                                     "target" (hash32-to-hex (block-hash target))
+                                     "target" (hash32-to-hex target)
                                      "error" condition)
             (error condition))
           (eth-sync-backfill-peer-error (condition)
-            (devnet-peer-manager-log node "peer.sync.gap_failed"
-                                     "target" (hash32-to-hex (block-hash target))
-                                     "error" condition)))))
-    (dolist (target (devnet-node-forkchoice-sync-targets node) imported)
-      (handler-case
-          (let ((filled
-                  (eth-sync-fill-gap
-                   peer
-                   (hash32-bytes target)
-                   (lambda (hash)
-                     (call-with-devnet-node-store-guard
-                      node
-                      (lambda ()
-                        (and (chain-store-known-block
-                              store (make-hash32 hash))
-                             t))))
-                   (lambda (block)
-                     (devnet-peer-sync-import-block
-                      node block :require-valid-p t
-                      :invalid-head-hash target)))))
-            (when (plusp filled)
-              (devnet-peer-manager-log node "peer.sync.head_filled"
-                                       "blocks" filled
-                                       "target" (hash32-to-hex target))
-              (incf imported filled)))
-        (eth-sync-backfill-invalid-body (condition)
-          (devnet-peer-manager-log node "peer.sync.gap_invalid_body"
-                                   "target" (hash32-to-hex target)
-                                   "error" condition)
-          (error condition))
-        (eth-sync-backfill-peer-error (condition)
-          (devnet-peer-manager-log node "peer.sync.head_failed"
-                                   "target" (hash32-to-hex target)
-                                   "error" condition))))))
+            (devnet-peer-manager-log node "peer.sync.head_failed"
+                                     "target" (hash32-to-hex target)
+                                     "error" condition)))))))
 
 (defun devnet-peer-dial-session (node candidate shutdown-controller
                                  &key stop-p max-actions)
@@ -3084,10 +3105,12 @@ property of how the node is configured, not an assumption about the test corpus.
                                   (devnet-peer-dial-session
                                    node candidate shutdown-controller)
                                 (serious-condition (condition)
-                                  (devnet-peer-manager-log
+                                  (apply
+                                   #'devnet-peer-manager-log
                                    node "peer.dial.failed"
                                    "id" (devnet-dial-candidate-id-hex candidate)
-                                   "error" condition))))
+                                   (devnet-peer-failure-log-fields
+                                    condition)))))
                             :name "ethereum-lisp-devnet-dial-session")))
                     (call-with-devnet-mutex
                      sessions-lock

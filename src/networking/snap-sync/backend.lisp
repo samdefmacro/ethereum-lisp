@@ -234,7 +234,10 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
         (flat-entry
          (let ((trie (snap-sync-storage-trie flat-entry)))
            (unless (hash32= root (make-hash32 (mpt-root-hash trie)))
-             (error "snap storage trie does not match its account commitment"))
+             ;; Our own state disagrees with itself: a local storage fault,
+             ;; never the requesting peer's.
+             (ethereum-lisp.validation:storage-fail
+              "snap storage trie does not match its account commitment"))
            ;; Served from memory and never persisted: a storage node the
            ;; server wrote would be a closure claim it has no business making.
            trie))
@@ -362,7 +365,9 @@ proof verification (pinned commit 3827178, snap handlers.go and sync.go)."
                                             state)))))))))
         (when code
           (unless (bytes= hash (keccak-256 code))
-            (error "snap bytecode record does not match its content hash"))
+            ;; A corrupt local code record, never the requesting peer's.
+            (ethereum-lisp.validation:storage-fail
+             "snap bytecode record does not match its content hash"))
           (push (copy-seq code) codes)
           (incf response-bytes (length code))
           (when (or (> response-bytes byte-limit) (funcall stop-p))

@@ -11488,3 +11488,175 @@ node is durable, so this count is how many plan roots are actually healed."
       (let ((fetched (fetch (list code))))
         (is (listp fetched))
         (is (bytes= hash (car (first fetched))))))))
+
+(defun snap-test-heal-one-storage-leaf (trie-nodes)
+  "Heal a durable one-leaf storage frontier through one source whose
+TrieNodes answer is (FUNCALL TRIE-NODES LEAF-ENCODED). Return (VALUES OUTCOME
+SOURCE-CONDITIONS): OUTCOME is :COMPLETED or the condition the healer
+signalled, SOURCE-CONDITIONS what reached :ON-SOURCE-ERROR."
+  (let* ((database (make-memory-key-value-database))
+         (account-hash (snap-test-hash 241))
+         (leaf-encoded
+           (rlp-encode
+            (make-rlp-list
+             (ethereum-lisp.trie.encoding:hex-prefix-encode #(0) :terminator t)
+             (make-byte-vector 1 :initial-element 1))))
+         (leaf-reference (keccak-256 leaf-encoded))
+         (progress
+           (ethereum-lisp.snap-sync::snap-sync-make-progress
+            :pivot-hash (make-hash32 (snap-test-hash 242))
+            :pivot-number 3013
+            :state-root (make-hash32 leaf-reference)
+            :partial-root +empty-trie-hash+
+            :target-hash (make-hash32 (snap-test-hash 243))
+            :chain-id 560048
+            :genesis-hash (make-hash32 (snap-test-hash 244))
+            :authority-id (make-hash32 (snap-test-hash 245))
+            :completed-p nil
+            :tasks
+            (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+             :count 1 :completed-p t)))
+         (source-conditions '())
+         (source
+           (ethereum-lisp.snap-sync:make-snap-sync-source
+            :account-range (lambda (request) (declare (ignore request)))
+            :storage-ranges (lambda (request) (declare (ignore request)))
+            :bytecodes (lambda (request) (declare (ignore request)))
+            :trie-node-capacity (lambda () 1)
+            :trie-nodes
+            (lambda (request)
+              (declare (ignore request))
+              (funcall trie-nodes leaf-encoded)))))
+    (let ((batch (make-kv-write-batch)))
+      (ethereum-lisp.snap-sync::snap-sync-populate-heal-checkpoint-batch
+       batch progress
+       (list (ethereum-lisp.snap-sync::snap-sync-make-heal-work
+              :storage account-hash (make-byte-vector 0) leaf-reference))
+       0 0 0 0 0)
+      (kv-apply-batch database batch))
+    (let ((outcome
+            (handler-case
+                (progn
+                  (ethereum-lisp.snap-sync::snap-sync-heal-state
+                   database (list source) progress 350
+                   :on-source-error
+                   (lambda (failed condition)
+                     (declare (ignore failed))
+                     (push condition source-conditions)))
+                  :completed)
+              (serious-condition (condition) condition))))
+      (values outcome (reverse source-conditions)))))
+
+(deftest snap-account-range-that-fails-its-proof-is-an-invalid-response
+  (:layer :integration :module :p2p)
+  ;; go-ethereum v1.17.6 eth/protocols/snap/sync.go OnAccounts returns the
+  ;; error of an account range proof that fails ("Account range failed
+  ;; proof"), and snap/handler.go Handle then drops the peer. It was a plain
+  ;; ERROR here, which the node charged -50 and kept the session for. It is
+  ;; typed SNAP-SYNC-INVALID-RESPONSE now, as StorageRanges and ByteCodes
+  ;; already were, so the node can end the session. RED at 3c0cfeab: it
+  ;; arrived as a SIMPLE-ERROR.
+  (multiple-value-bind (source-state addresses)
+      (snap-test-partitioned-state)
+    (declare (ignore addresses))
+    (let* ((source-database (make-memory-key-value-database))
+           (root (state-db-root source-state))
+           (backend
+             (ethereum-lisp.snap-sync:make-persistent-snap-state-backend
+              source-database source-state))
+           (honest (snap-test-source backend))
+           (task
+             (first
+              (ethereum-lisp.snap-sync::snap-sync-make-account-tasks
+               :count 16))))
+      (flet ((prepare (answer)
+               (handler-case
+                   (ethereum-lisp.snap-sync::snap-sync-prepare-account-page-range
+                    (make-memory-key-value-database)
+                    (snap-test-source-with-account-callback honest answer)
+                    root 0 task (* 512 1024))
+                 (error (condition) condition)))
+             (honest-answer (request)
+               (funcall
+                (ethereum-lisp.snap-sync:snap-sync-source-account-range honest)
+                request)))
+        ;; Control: the honest page verifies.
+        (is (not (typep (prepare #'honest-answer) 'error)))
+        ;; One account's body replaced by another's: the proof fails.
+        (let ((condition
+                (prepare
+                 (lambda (request)
+                   (let* ((response (honest-answer request))
+                          (accounts
+                            (ethereum-lisp.snap:snap-account-range-accounts
+                             response)))
+                     (is (<= 1 (length accounts)))
+                     (setf (first accounts)
+                           (ethereum-lisp.snap:make-snap-account-data
+                            (ethereum-lisp.snap:snap-account-data-hash
+                             (first accounts))
+                            (rlp-encode
+                             (make-rlp-list
+                              (rlp-encode 7) (rlp-encode 7)
+                              (make-byte-vector 0) (make-byte-vector 0)))))
+                     response)))))
+          (is (typep condition
+                     'ethereum-lisp.snap-sync:snap-sync-invalid-response))
+          (is (equal "account-range"
+                     (ethereum-lisp.snap-sync:snap-sync-invalid-response-kind
+                      condition))))
+        ;; A wrong response id is the peer's too.
+        (is (typep (prepare
+                    (lambda (request)
+                      (let ((response (honest-answer request)))
+                        (setf (ethereum-lisp.snap:snap-account-range-id
+                               response)
+                              2)
+                        response)))
+                   'ethereum-lisp.snap-sync:snap-sync-invalid-response))
+        ;; Control: an empty answer is unavailable state, not invalid.
+        (is (typep (prepare
+                    (lambda (request)
+                      (declare (ignore request))
+                      (ethereum-lisp.snap:make-snap-account-range 1 '() '())))
+                   'ethereum-lisp.snap-sync:snap-sync-state-unavailable))))))
+
+(deftest snap-trie-nodes-that-fail-verification-are-an-invalid-response
+  (:layer :integration :module :p2p)
+  ;; go-ethereum v1.17.6 eth/protocols/snap/sync.go OnTrieNodes returns
+  ;; "unexpected healing trienode" for a node that was not requested, and
+  ;; snap/handler.go Handle drops the peer. The healer retired the source and
+  ;; the node charged it -50 with its session kept, because the failure was a
+  ;; plain ERROR. RED at 3c0cfeab: the healer reported a SIMPLE-ERROR.
+  (multiple-value-bind (outcome conditions)
+      (snap-test-heal-one-storage-leaf
+       (lambda (leaf)
+         (declare (ignore leaf))
+         (ethereum-lisp.snap:make-snap-trie-nodes
+          1 (list (make-byte-vector 3 :initial-element 9)))))
+    (is (typep outcome 'ethereum-lisp.snap-sync:snap-sync-sources-exhausted))
+    (is (= 1 (length conditions)))
+    (is (typep (first conditions)
+               'ethereum-lisp.snap-sync:snap-sync-invalid-response))
+    (is (search "unrequested healing node"
+                (princ-to-string (first conditions)))))
+  ;; A wrong TrieNodes response id is the peer's too.
+  (multiple-value-bind (outcome conditions)
+      (snap-test-heal-one-storage-leaf
+       (lambda (leaf)
+         (ethereum-lisp.snap:make-snap-trie-nodes 2 (list leaf))))
+    (declare (ignore outcome))
+    (is (typep (first conditions)
+               'ethereum-lisp.snap-sync:snap-sync-invalid-response)))
+  ;; Controls: the requested node heals; an empty answer is unavailable.
+  (is (eq :completed
+          (snap-test-heal-one-storage-leaf
+           (lambda (leaf) (ethereum-lisp.snap:make-snap-trie-nodes 1 (list leaf))))))
+  (multiple-value-bind (outcome conditions)
+      (snap-test-heal-one-storage-leaf
+       (lambda (leaf)
+         (declare (ignore leaf))
+         (ethereum-lisp.snap:make-snap-trie-nodes 1 '())))
+    (declare (ignore outcome))
+    (is (typep (first conditions)
+               'ethereum-lisp.snap-sync:snap-sync-state-unavailable))))

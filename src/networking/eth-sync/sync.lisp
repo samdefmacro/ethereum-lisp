@@ -470,8 +470,26 @@ provide canonical RECEIPT values directly."
                    :origin (eth-sync-delivery-origin delivery)
                    :peer (eth-sync-peer-source-id source))))))
 
+(defun eth-sync-delivery-failure-kind (condition)
+  "The event kind of a failed fetch, which decides whether its source is
+charged (ETH-SYNC-PENALIZE):
+
+  :MALFORMED  the delivery itself is wrong: the peer's data (-50);
+  :LOST       the transport went away (ETH-SYNC-TRANSPORT-LOSS-P): nothing
+              the peer sent, charged nothing, as go-ethereum v1.17.6's
+              fetchers_concurrent.go treats a peer that left;
+  :INTERNAL   our own defect (ETH-PEER-INTERNAL-ERROR): charged nothing;
+  :FAILED     anything else the exchange raised, a reply we could not
+              accept (-25).
+
+In every case the source takes no further part in this download."
+  (cond ((typep condition 'eth-sync-malformed-delivery) :malformed)
+        ((eth-sync-transport-loss-p condition) :lost)
+        ((typep condition 'eth-peer-internal-error) :internal)
+        (t :failed)))
+
 #+sbcl
-(defun eth-sync-state-fail-delivery (state source delivery condition malformed-p)
+(defun eth-sync-state-fail-delivery (state source delivery condition kind)
   (sb-thread:with-mutex ((eth-sync-multi-state-lock state))
     (when (eq delivery
               (gethash source (eth-sync-multi-state-in-flight state)))
@@ -487,7 +505,7 @@ provide canonical RECEIPT values directly."
             (nconc (eth-sync-multi-state-pending state) (list delivery)))
       (eth-sync-state-notify
        state
-       (list :event (if malformed-p :malformed :failed)
+       (list :event kind
              :origin (eth-sync-delivery-origin delivery)
              :peer (eth-sync-peer-source-id source)
              :detail (princ-to-string condition))))))
@@ -585,12 +603,14 @@ provide canonical RECEIPT values directly."
                  state delivery :receipts receipts))))
         (eth-sync-state-complete-delivery state source delivery))
     (eth-sync-malformed-delivery (condition)
-      (eth-sync-state-fail-delivery state source delivery condition t)
+      (eth-sync-state-fail-delivery state source delivery condition :malformed)
       (when (and (typep condition 'eth-sync-invalid-delivery)
                  (eth-sync-peer-source-reject source))
         (funcall (eth-sync-peer-source-reject source) condition)))
     (serious-condition (condition)
-      (eth-sync-state-fail-delivery state source delivery condition nil))))
+      (eth-sync-state-fail-delivery
+       state source delivery condition
+       (eth-sync-delivery-failure-kind condition)))))
 
 #+sbcl
 (defun eth-sync-worker-loop (state source fetch-receipts-p)
@@ -633,7 +653,9 @@ provide canonical RECEIPT values directly."
           (sb-thread:with-mutex ((eth-sync-multi-state-lock state))
             (gethash source (eth-sync-multi-state-in-flight state)))))
     (if delivery
-        (eth-sync-state-fail-delivery state source delivery condition nil)
+        (eth-sync-state-fail-delivery
+         state source delivery condition
+         (eth-sync-delivery-failure-kind condition))
         (sb-thread:with-mutex ((eth-sync-multi-state-lock state))
           (unless (eth-sync-multi-state-stopped-p state)
             (setf (gethash source (eth-sync-multi-state-disabled-peers state)) t)
@@ -716,7 +738,9 @@ provide canonical RECEIPT values directly."
 Each source has at most one request in flight. Header, body, and receipt
 deliveries are independently queued by origin, but IMPORT-BLOCK is called only
 in ascending block order. A timeout, request failure, or malformed delivery
-disables and penalizes only its source and requeues the missing range.
+disables only its source and requeues the missing range; the source is charged
+for a timeout, a malformed delivery or a reply it could not accept, never for
+a lost transport or our own defect (ETH-SYNC-DELIVERY-FAILURE-KIND).
 
 EXPECTED-PARENT-HASH anchors the first imported header to durable local state.
 EXPECTED-TARGET-HASH, when supplied by the consensus-driven caller, must name

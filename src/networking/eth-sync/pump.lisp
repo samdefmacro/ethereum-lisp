@@ -162,104 +162,122 @@ UPDATE similarly returns a zero-argument thunk that sends a local canonical-
 head announcement from this writer.
 
 ON-EVENT, when given, is called with a keyword for each action taken, which is
-how a caller observes the session without this file knowing what telemetry is."
+how a caller observes the session without this file knowing what telemetry is.
+
+When one of our writes fails, the session ends with the Disconnect the peer
+sent before it closed, if there is one (CALL-WITH-ETH-PEER-DISCONNECT-DRAIN).
+Work of our own done here (a chain update, a broadcast) that fails for want
+of a type of its own ends it as ETH-PEER-INTERNAL-ERROR."
   (let* ((now (funcall now-function))
          (state (or state (make-eth-pump-state :now now)))
          (broadcast-backlog nil)
          (actions 0))
-    (loop
-      (when (and max-actions (>= actions max-actions))
-        (return (values actions :max-actions)))
-      (let* ((now (funcall now-function))
-             ;; Asked first, and short-circuiting everything else: once we are
-             ;; stopping there is no reason to touch the peer's socket at all,
-             ;; and every reason not to — it may already be closing.
-             (stopping (and stop-p (funcall stop-p) t))
-             ;; Take coordinator jobs before polling the socket.  A snap/eth
-             ;; request reads its own response on this sole writer and handles
-             ;; unrelated messages while waiting, so this preserves wire
-             ;; ordering without allowing a continuously readable peer to
-             ;; starve the request queue.
-             (request (and (not stopping)
-                           pending-request (funcall pending-request)))
-             ;; PENDING-BROADCAST advances a per-peer txpool cursor. Retain its
-             ;; returned batch until this sole writer actually sends it; a read
-             ;; or coordinator request may legitimately outrank it this turn.
-             ;;
-             ;; Resolve it before the readiness gate so ready outbound work makes
-             ;; that gate a nonblocking poll. Otherwise every 64-entry batch pays
-             ;; the normal 50ms idle wait; pinned Hive's 2,000-transaction relay
-             ;; then spends most of its two-second deadline merely polling an
-             ;; intentionally quiet receiving peer.
-             (broadcast
-               (unless stopping
-                 (when (and (null broadcast-backlog) pending-broadcast)
-                   (setf broadcast-backlog (funcall pending-broadcast)))
-                 broadcast-backlog))
-             (readable
-               (and (not stopping) (null request)
-                    readable-function
-                    (funcall readable-function
-                             (if broadcast
-                                 0
-                                 (eth-pump-policy-read-tick-seconds policy)))
-                    t))
-             (chain-update (and (not stopping) (not readable) (null request)
-                                pending-chain-update
-                                (funcall pending-chain-update)))
-             (transaction-drainable
-               (and (plusp (eth-peer-announced-hash-count peer))
-                    (eth-peer-can-request-announced-transactions-p peer now)))
-             (action (eth-pump-next-action
-                      policy state now
-                      :readable-p readable
-                      :stop-p stopping
-                      :request-p (and request t)
-                      :drainable-p
-                      (or (plusp (eth-peer-announced-block-count peer))
-                          transaction-drainable
-                          (plusp
-                           (eth-peer-pending-blob-cell-fetch-count peer)))
-                      :urgent-drainable-p
-                      (or
-                       (plusp (eth-peer-pending-blob-cell-fetch-count peer))
-                       transaction-drainable)
-                      :chain-update-p (and chain-update t)
-                      :broadcast-p (and broadcast t))))
-        (when on-event (funcall on-event action))
-        (case action
-          (:stop (return (values actions :stop)))
-          (:idle-timeout (return (values actions :idle-timeout)))
-          (:request (funcall request))
-          (:read
-           ;; READ-ONCE, not READ: the base-protocol traffic has to reach this
-           ;; loop, or a connection carrying only keepalives never comes back
-           ;; here and none of the periodic work below ever runs again.
-           (multiple-value-bind (kind id payload) (eth-peer-read-once peer)
-             (setf (eth-pump-state-last-read-at state) now)
-             (case kind
-               (:eth (eth-peer-handle-message peer id payload))
-               (:snap
-                (unless (or (and snap-response-handler
-                                 (funcall snap-response-handler id payload))
-                            (eth-peer-serve-snap-message peer id payload))
-                  (error "unsolicited snap/1 response id ~D" id)))
-               (:base (eth-peer-handle-base-message peer id)))))
-          (:ping
-           (rlpx-send-ping (eth-peer-connection peer))
-           (setf (eth-pump-state-last-ping-at state) now))
-          (:drain
-           (eth-peer-request-announced-transactions peer :now now)
-           (eth-peer-fetch-omitted-blob-transaction peer)
-           (eth-peer-fetch-announced-block peer)
-           (setf (eth-pump-state-last-drain-at state) now))
-          (:chain-update (funcall chain-update))
-          (:broadcast
-           ;; Full-push only small transactions; the broadcast marks those
-           ;; known, so the second pass announces only the remaining large
-           ;; transactions by hash.
-           (eth-peer-broadcast-transactions peer broadcast)
-           (eth-peer-announce-transactions peer broadcast)
-           (setf broadcast-backlog nil))
-          (:wait nil))
-        (incf actions)))))
+    (call-with-eth-peer-disconnect-drain
+     (eth-peer-connection peer)
+     (lambda ()
+       (loop
+         (when (and max-actions (>= actions max-actions))
+           (return (values actions :max-actions)))
+         (let* ((now (funcall now-function))
+                ;; Asked first, and short-circuiting everything else: once we are
+                ;; stopping there is no reason to touch the peer's socket at all,
+                ;; and every reason not to — it may already be closing.
+                (stopping (and stop-p (funcall stop-p) t))
+                ;; Take coordinator jobs before polling the socket.  A snap/eth
+                ;; request reads its own response on this sole writer and handles
+                ;; unrelated messages while waiting, so this preserves wire
+                ;; ordering without allowing a continuously readable peer to
+                ;; starve the request queue.
+                (request (and (not stopping)
+                              pending-request (funcall pending-request)))
+                ;; PENDING-BROADCAST advances a per-peer txpool cursor. Retain its
+                ;; returned batch until this sole writer actually sends it; a read
+                ;; or coordinator request may legitimately outrank it this turn.
+                ;;
+                ;; Resolve it before the readiness gate so ready outbound work makes
+                ;; that gate a nonblocking poll. Otherwise every 64-entry batch pays
+                ;; the normal 50ms idle wait; pinned Hive's 2,000-transaction relay
+                ;; then spends most of its two-second deadline merely polling an
+                ;; intentionally quiet receiving peer.
+                (broadcast
+                  (unless stopping
+                    (when (and (null broadcast-backlog) pending-broadcast)
+                      (setf broadcast-backlog
+                            (call-with-eth-peer-local-work
+                             "choosing transactions to broadcast"
+                             pending-broadcast)))
+                    broadcast-backlog))
+                (readable
+                  (and (not stopping) (null request)
+                       readable-function
+                       (funcall readable-function
+                                (if broadcast
+                                    0
+                                    (eth-pump-policy-read-tick-seconds policy)))
+                       t))
+                (chain-update (and (not stopping) (not readable) (null request)
+                                   pending-chain-update
+                                   (call-with-eth-peer-local-work
+                                    "preparing a chain update"
+                                    pending-chain-update)))
+                (transaction-drainable
+                  (and (plusp (eth-peer-announced-hash-count peer))
+                       (eth-peer-can-request-announced-transactions-p peer now)))
+                (action (eth-pump-next-action
+                         policy state now
+                         :readable-p readable
+                         :stop-p stopping
+                         :request-p (and request t)
+                         :drainable-p
+                         (or (plusp (eth-peer-announced-block-count peer))
+                             transaction-drainable
+                             (plusp
+                              (eth-peer-pending-blob-cell-fetch-count peer)))
+                         :urgent-drainable-p
+                         (or
+                          (plusp (eth-peer-pending-blob-cell-fetch-count peer))
+                          transaction-drainable)
+                         :chain-update-p (and chain-update t)
+                         :broadcast-p (and broadcast t))))
+           (when on-event (funcall on-event action))
+           (case action
+             (:stop (return (values actions :stop)))
+             (:idle-timeout (return (values actions :idle-timeout)))
+             (:request (funcall request))
+             (:read
+              ;; READ-ONCE, not READ: the base-protocol traffic has to reach this
+              ;; loop, or a connection carrying only keepalives never comes back
+              ;; here and none of the periodic work below ever runs again.
+              (multiple-value-bind (kind id payload) (eth-peer-read-once peer)
+                (setf (eth-pump-state-last-read-at state) now)
+                (case kind
+                  (:eth (eth-peer-handle-message peer id payload))
+                  (:snap
+                   (unless (or (and snap-response-handler
+                                    (funcall snap-response-handler id payload))
+                               (eth-peer-serve-snap-message peer id payload))
+                     (error "unsolicited snap/1 response id ~D" id)))
+                  (:base (eth-peer-handle-base-message peer id)))))
+             (:ping
+              (rlpx-send-ping (eth-peer-connection peer))
+              (setf (eth-pump-state-last-ping-at state) now))
+             (:drain
+              (eth-peer-request-announced-transactions peer :now now)
+              (eth-peer-fetch-omitted-blob-transaction peer)
+              (eth-peer-fetch-announced-block peer)
+              (setf (eth-pump-state-last-drain-at state) now))
+             (:chain-update
+              (call-with-eth-peer-local-work "sending a chain update"
+                                             chain-update))
+             (:broadcast
+              ;; Full-push only small transactions; the broadcast marks those
+              ;; known, so the second pass announces only the remaining large
+              ;; transactions by hash.
+              (call-with-eth-peer-local-work
+               "broadcasting transactions"
+               (lambda ()
+                 (eth-peer-broadcast-transactions peer broadcast)
+                 (eth-peer-announce-transactions peer broadcast)))
+              (setf broadcast-backlog nil))
+             (:wait nil))
+           (incf actions)))))))

@@ -22,6 +22,15 @@
    #:eth-peer-snap-backend
    #:eth-peer-remote-status
    #:eth-peer-protocol-error
+   #:eth-peer-internal-error
+   #:eth-peer-internal-error-operation
+   #:eth-peer-internal-error-cause
+   #:eth-peer-internal-fail
+   #:eth-peer-untyped-error-p
+   #:call-with-eth-peer-local-work
+   #:eth-sync-source-lost
+   #:eth-sync-transport-loss-p
+   #:eth-peer-drain-disconnect-reason
    #:eth-peer-set-sync-notification-function
    #:eth-peer-remote-hello
    #:eth-peer-remote-client-id

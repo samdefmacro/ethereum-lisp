@@ -59,6 +59,79 @@
          :format-control control
          :format-arguments arguments))
 
+(define-condition eth-peer-internal-error (error)
+  ((operation :initarg :operation :reader eth-peer-internal-error-operation)
+   (cause :initarg :cause :initform nil :reader eth-peer-internal-error-cause))
+  (:report
+   (lambda (condition stream)
+     (format stream "internal error while ~A: ~A"
+             (eth-peer-internal-error-operation condition)
+             (eth-peer-internal-error-cause condition))))
+  (:documentation
+   "A defect in this node, met on a peer's session thread: our own work
+(serving a request from our chain, admitting a delivered transaction or block,
+encoding what we send) failed, and the failure says nothing about the peer.
+
+It still ends the session, because the session thread cannot tell how far
+the failed work got, but it is never scored against the peer. Before it
+existed such a failure was a plain ERROR, indistinguishable from a peer
+message we could not decode, and charged as one. CAUSE is the original
+condition; OPERATION names the work."))
+
+(defun eth-peer-internal-fail (operation control &rest arguments)
+  "Signal ETH-PEER-INTERNAL-ERROR for OPERATION, CONTROL and ARGUMENTS
+describing the defect."
+  (error 'eth-peer-internal-error
+         :operation operation
+         :cause (make-condition 'simple-error
+                                :format-control control
+                                :format-arguments arguments)))
+
+(define-condition eth-sync-source-lost (error) ()
+  (:documentation
+   "A mixin: a request lost its peer's transport (the session ended, or the
+request was withdrawn), which says nothing about the peer's data. The session
+layer defines the concrete conditions; the downloaders only need to recognise
+the class."))
+
+(defun eth-peer-untyped-error-p (condition)
+  "Whether CONDITION is an ERROR this project did not type: a plain ERROR, a
+standard or implementation error (TYPE-ERROR, an arithmetic or program error)
+or a library's, and not a transport failure.
+
+Raised inside our own work these are our defects. Every condition the
+project raises on purpose -- a verdict, a peer protocol violation, a storage
+fault, a typed transport loss -- belongs to one of its own packages."
+  (and (typep condition 'error)
+       (not (typep condition
+                   '(or stream-error
+                     #+sbcl sb-bsd-sockets:socket-error
+                     #+sbcl sb-ext:timeout)))
+       (let* ((name (class-name (class-of condition)))
+              (package (and (symbolp name) (symbol-package name))))
+         (not (and package
+                   (let ((package-name (package-name package)))
+                     (and (>= (length package-name) 13)
+                          (string= "ETHEREUM-LISP" package-name
+                                   :end2 13))))))))
+
+(defun call-with-eth-peer-local-work (operation thunk)
+  "Call THUNK, work of this node's own done on a peer's session thread, and
+return its values.
+
+An untyped error escaping THUNK (see ETH-PEER-UNTYPED-ERROR-P) is re-signalled
+as ETH-PEER-INTERNAL-ERROR naming OPERATION, so the session's end neither
+scores the peer for it nor reads it as a message the peer sent. Everything
+else passes through with its own type: a write that fails is still the
+transport's, a verdict still a verdict. THUNK must decode nothing the peer
+sent: a decoder's plain ERROR is the peer's fault and belongs outside."
+  (handler-case (funcall thunk)
+    (error (condition)
+      (if (eth-peer-untyped-error-p condition)
+          (error 'eth-peer-internal-error :operation operation
+                                          :cause condition)
+          (error condition)))))
+
 (defun eth-peer-set-sync-notification-function (peer function)
   "Install FUNCTION as PEER's validated sync-announcement notification.
 
@@ -242,12 +315,14 @@ misclassified as that capability."
 (defun eth-peer-send-snap (peer snap-message-id payload)
   "Send one snap/1 message, rejecting use when snap was not negotiated."
   (unless (eth-peer-snap-offset peer)
-    (error "snap/1 was not negotiated with this peer"))
+    (eth-peer-internal-fail "sending snap/1"
+                            "snap/1 was not negotiated with this peer"))
   (unless (and (integerp snap-message-id)
                (<= 0 snap-message-id)
                (< snap-message-id +snap-message-count+))
-    (error "snap/1 message id ~S is outside the negotiated range"
-           snap-message-id))
+    (eth-peer-internal-fail
+     "sending snap/1" "snap/1 message id ~S is outside the negotiated range"
+     snap-message-id))
   (rlpx-connection-write-message
    (eth-peer-connection peer)
    (+ (eth-peer-snap-offset peer) snap-message-id)
@@ -275,8 +350,9 @@ misclassified as that capability."
                (< eth-message-id
                   (devp2p-capability-message-count
                    "eth" (eth-peer-eth-version peer))))
-    (error "eth/~D message id ~S is outside the negotiated range"
-           (eth-peer-eth-version peer) eth-message-id))
+    (eth-peer-internal-fail
+     "sending eth" "eth/~D message id ~S is outside the negotiated range"
+     (eth-peer-eth-version peer) eth-message-id))
   (eth-wire-send (eth-peer-connection peer) (eth-peer-eth-offset peer)
                  eth-message-id payload))
 
@@ -566,17 +642,28 @@ HELLO is our devp2p Hello, which must advertise the eth capability. The eth
 version is whichever the negotiation settled on. CHAIN-CONTEXT, when supplied,
 enables the EIP-2124 fork-id compatibility check, and SERVE-BACKEND the serving
 of the peer's own requests. Returns the ETH-PEER, or errors if the peer does not
-share eth."
-  (multiple-value-bind (peer-hello shared) (rlpx-exchange-hello connection hello)
+share eth.
+
+A write that fails because the peer refused us and closed ends as the
+RLPX-DISCONNECT it sent, when it sent one (CALL-WITH-ETH-PEER-DISCONNECT-DRAIN;
+a Disconnect before the Hello exchange is uncompressed)."
+  (multiple-value-bind (peer-hello shared)
+      (call-with-eth-peer-disconnect-drain
+       connection
+       (lambda () (rlpx-exchange-hello connection hello))
+       :compressed nil)
     (let ((eth (rlpx-shared-capability-named shared "eth")))
       (unless eth
         (error "peer does not support the eth capability"))
-      (eth-peer-handshake connection
-                          (rlpx-shared-capability-offset eth)
-                          (rlpx-shared-capability-version eth)
-                          our-status
-                          :chain-context chain-context
-                          :serve-backend serve-backend
-                          :remote-hello peer-hello
-                          :shared-capabilities shared
-                          :snap-backend snap-backend))))
+      (call-with-eth-peer-disconnect-drain
+       connection
+       (lambda ()
+         (eth-peer-handshake connection
+                             (rlpx-shared-capability-offset eth)
+                             (rlpx-shared-capability-version eth)
+                             our-status
+                             :chain-context chain-context
+                             :serve-backend serve-backend
+                             :remote-hello peer-hello
+                             :shared-capabilities shared
+                             :snap-backend snap-backend))))))
