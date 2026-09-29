@@ -33,6 +33,29 @@
 (defun forkchoice-state-zero-head-status ()
   (invalid-payload-status "forkchoice head block hash is zero"))
 
+(defun engine-block-access-list-envelope-p (bytes)
+  "Whether BYTES is exactly one RLP list: a list prefix, canonical in the long
+form, whose declared length covers BYTES to the end.  Only the envelope is
+checked; the entries are decoded with the block."
+  (let ((size (length bytes)))
+    (and (plusp size)
+         (let ((prefix (aref bytes 0)))
+           (cond
+             ((< prefix #xc0) nil)
+             ((<= prefix #xf7) (= size (1+ (- prefix #xc0))))
+             (t
+              (let ((length-size (- prefix #xf7)))
+                (and (> size length-size)
+                     (plusp (aref bytes 1))
+                     (let ((content-size
+                             (loop with value = 0
+                                   for index from 1 to length-size
+                                   do (setf value (+ (* value 256)
+                                                     (aref bytes index)))
+                                   finally (return value))))
+                       (and (> content-size 55)
+                            (= size (+ 1 length-size content-size))))))))))))
+
 (defun engine-new-payload-version-invalid-p
     (version payload config versioned-hashes-supplied-p
              parent-beacon-root-supplied-p requests-supplied-p)
@@ -93,7 +116,17 @@
          ((not parent-beacon-root-supplied-p)
           "parentBeaconBlockRoot required after Cancun")
          ((not requests-supplied-p)
-          "executionRequests required after Prague")))
+          "executionRequests required after Prague")
+         ;; A block access list belongs to newPayloadV5 only
+         ;; (tests-glamsterdam-devnet v7.2.1
+         ;; bal_invalid_engine_payload_field_before_fork: -32602).  Empty
+         ;; bytes are left to block reconstruction, whose header then commits
+         ;; to a list the fork has no field for: an INVALID block hash
+         ;; (invalid_pre_fork_block_with_bal_hash_field; Nethermind
+         ;; ExecutionPayloadParams.ValidateParams isEmptyPreForkV4).
+         ((plusp (length (or (executable-data-block-access-list payload)
+                             #())))
+          "blockAccessList not supported before Amsterdam")))
       ((= version 5)
        (cond
          ((not amsterdam-p)
@@ -112,7 +145,14 @@
          ((null (executable-data-slot-number payload))
           "slotNumber required after Amsterdam")
          ((null (executable-data-block-access-list payload))
-          "blockAccessList required after Amsterdam")))
+          "blockAccessList required after Amsterdam")
+         ;; Bytes that are not one whole RLP list are a malformed
+         ;; parameter; a list whose entries do not decode is an INVALID
+         ;; block (Nethermind ExecutionPayloadParams.ValidateParams;
+         ;; tests-glamsterdam-devnet v7.2.1 bal_invalid_engine_payload_encoding).
+         ((not (engine-block-access-list-envelope-p
+                (executable-data-block-access-list payload)))
+          "blockAccessList must be one complete RLP list")))
       (t "unsupported newPayload version"))))
 
 (defun engine-new-payload-version-status
