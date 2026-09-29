@@ -117,9 +117,7 @@
       (setf (transaction-computation-cache-encoding cache)
             (copy-seq encoding)
             (transaction-computation-cache-hash cache) nil
-            (transaction-computation-cache-sender cache) nil
-            (transaction-computation-cache-sender-expected-chain-id cache) nil
-            (transaction-computation-cache-sender-cached-p cache) nil))
+            (transaction-computation-cache-sender cache) :unrecovered))
     (values encoding cache)))
 
 (defun transaction-from-encoding (bytes)
@@ -205,36 +203,63 @@ canonical transaction encodings."
    (set-code-transaction-signing-hash transaction)
    :expected-chain-id expected-chain-id))
 
-(defgeneric transaction-sender (transaction &key expected-chain-id))
+(defgeneric transaction-sender (transaction &key expected-chain-id)
+  (:documentation
+   "The address TRANSACTION's signature recovers to, or NIL when it recovers
+to none or EXPECTED-CHAIN-ID excludes it.
 
-(defmacro define-transaction-sender-method (type function)
+The recovery is cached on the transaction object and invalidated with its
+hash (TRANSACTION-REFRESH-COMPUTATION-CACHE).  The chain-id gate is the one
+the per-type function applies (LEGACY-TRANSACTION-SENDER and friends), but it
+is evaluated before the cache on every call, so callers asking with and
+without a chain id share one recovery."))
+
+(defun transaction-recovered-sender (transaction recover)
+  "TRANSACTION's cached ungated sender, calling RECOVER on it at most once for
+each canonical encoding."
+  (multiple-value-bind (encoding cache)
+      (transaction-refresh-computation-cache transaction)
+    (declare (ignore encoding))
+    (let ((sender (transaction-computation-cache-sender cache)))
+      (if (eq sender :unrecovered)
+          (setf (transaction-computation-cache-sender cache)
+                (funcall recover transaction))
+          sender))))
+
+(defun legacy-transaction-sender-chain-id-admits-p
+    (transaction expected-chain-id)
+  "LEGACY-TRANSACTION-SENDER's chain-id gate: an unprotected (pre-EIP-155)
+signature names no chain and passes every expected chain id."
+  (or (null expected-chain-id)
+      (not (legacy-transaction-protected-p transaction))
+      (let ((chain-id (legacy-transaction-chain-id transaction)))
+        (and chain-id (= expected-chain-id chain-id)))))
+
+(defmacro define-transaction-sender-method
+    (type recover &key chain-id admits-p)
+  "Define TRANSACTION-SENDER for TYPE over the ungated RECOVER function.
+The gate is ADMITS-P, a function of the transaction and the expected chain
+id, or else equality with the typed CHAIN-ID reader, as in
+TYPED-TRANSACTION-SENDER."
   `(defmethod transaction-sender ((transaction ,type) &key expected-chain-id)
-     (multiple-value-bind (encoding cache)
-         (transaction-refresh-computation-cache transaction)
-       (declare (ignore encoding))
-       (if (and
-            (transaction-computation-cache-sender-cached-p cache)
-            (eql
-             expected-chain-id
-             (transaction-computation-cache-sender-expected-chain-id cache)))
-           (transaction-computation-cache-sender cache)
-           (let ((sender
-                   (,function transaction
-                              :expected-chain-id expected-chain-id)))
-             (setf
-              (transaction-computation-cache-sender-expected-chain-id cache)
-              expected-chain-id
-              (transaction-computation-cache-sender cache) sender
-              (transaction-computation-cache-sender-cached-p cache) t)
-             sender)))))
+     (when ,(if admits-p
+                `(,admits-p transaction expected-chain-id)
+                `(or (null expected-chain-id)
+                     (= expected-chain-id (,chain-id transaction))))
+       (transaction-recovered-sender transaction #',recover))))
 
 (define-transaction-sender-method
-  legacy-transaction legacy-transaction-sender)
+  legacy-transaction legacy-transaction-sender
+  :admits-p legacy-transaction-sender-chain-id-admits-p)
 (define-transaction-sender-method
-  access-list-transaction access-list-transaction-sender)
+  access-list-transaction access-list-transaction-sender
+  :chain-id access-list-transaction-chain-id)
 (define-transaction-sender-method
-  dynamic-fee-transaction dynamic-fee-transaction-sender)
+  dynamic-fee-transaction dynamic-fee-transaction-sender
+  :chain-id dynamic-fee-transaction-chain-id)
 (define-transaction-sender-method
-  blob-transaction blob-transaction-sender)
+  blob-transaction blob-transaction-sender
+  :chain-id blob-transaction-chain-id)
 (define-transaction-sender-method
-  set-code-transaction set-code-transaction-sender)
+  set-code-transaction set-code-transaction-sender
+  :chain-id set-code-transaction-chain-id)

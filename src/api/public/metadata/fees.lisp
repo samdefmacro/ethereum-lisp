@@ -62,13 +62,15 @@
          (beneficiary (or (block-header-beneficiary header) (zero-address)))
          (expected-chain-id (chain-config-chain-id config))
          (ordered
-           (sort (copy-list (block-transactions block)) #'<
-                 :key (lambda (transaction)
-                        (transaction-priority-fee-per-gas
-                         transaction :base-fee base-fee)))))
-    (loop for transaction in ordered
-          for tip = (transaction-priority-fee-per-gas
-                     transaction :base-fee base-fee)
+           ;; (TIP . TRANSACTION), so SORT reads each tip once.
+           (sort (mapcar (lambda (transaction)
+                           (cons (transaction-priority-fee-per-gas
+                                  transaction :base-fee base-fee)
+                                 transaction))
+                         (block-transactions block))
+                 #'<
+                 :key #'car)))
+    (loop for (tip . transaction) in ordered
           for sender = (and (>= tip +eth-rpc-gas-oracle-ignore-under+)
                             (transaction-sender
                              transaction
