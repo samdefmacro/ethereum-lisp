@@ -427,3 +427,48 @@ its calls in the place CALLS when given."
       (is (engine-payload-store-blob-and-proofs-v1 store versioned-hash))
       (is (= 1 verifications))
       (is (zerop under-guard)))))
+
+(deftest txpool-blob-gossip-drops-a-bad-sidecar-the-pool-would-refuse-anyway
+  (:layer :integration :module :txpool)
+  ;; Hive devp2p BlobTxWithInvalidCells at 7116af82 (geth 101035a1
+  ;; cmd/devp2p/internal/ethtest/suite.go): the suite's GetCells test pools a
+  ;; blob transaction from its sender 5, then this test announces another
+  ;; one with the SAME sender and nonce and answers GetCells with zero cells.
+  ;; Our admission ran the pool checks first, refused the equal-fee
+  ;; replacement as an ordinary pool refusal and never looked at the cells,
+  ;; so the peer stayed connected. geth BlobPool.Add verifies the cells
+  ;; (ValidateCells) before validateTx reads any pool or sender state.
+  (let* ((node (txpool-s6-cancun-devnet-node))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (chain-id (chain-config-chain-id
+                    (ethereum-lisp.cli:devnet-node-config node)))
+         (backend (ethereum-lisp.cli::devnet-peer-serve-backend node)))
+    (multiple-value-bind (pooled pooled-sidecar)
+        (txpool-s6-blob-transaction +txpool-s6-devnet-funded-key+ #x74
+                                    :chain-id chain-id :fee-cap 2000000000)
+      (multiple-value-bind (rival rival-sidecar rival-hash)
+          (txpool-s6-blob-transaction +txpool-s6-devnet-funded-key+ #x75
+                                      :chain-id chain-id :fee-cap 2000000000)
+        (flet ((offer (valid-p)
+                 (with-txpool-s6-blob-proofs (:valid-p valid-p)
+                   (eth-accept-transactions
+                    backend
+                    (list (make-blob-network-transaction
+                           rival rival-sidecar))))))
+          (with-txpool-s6-blob-proofs ()
+            (is (= 1 (eth-accept-transactions
+                      backend
+                      (list (make-blob-network-transaction
+                             pooled pooled-sidecar))))))
+          ;; Control: with valid proofs the rival is an ordinary pool refusal
+          ;; (an underpriced replacement), skipped without a protocol error.
+          (is (= 0 (offer t)))
+          ;; With a proof that does not verify it is the sender's fault.
+          (signals ethereum-lisp.eth-sync:eth-peer-protocol-error
+            (offer nil))
+          (is (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+               store (transaction-hash pooled)))
+          (is (null (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                     store (transaction-hash rival))))
+          (is (null (engine-payload-store-blob-and-proofs-v1
+                     store rival-hash))))))))

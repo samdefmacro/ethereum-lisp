@@ -258,15 +258,20 @@ list under construction; Amsterdam building is capability-gated off."
   "TRANSACTIONS without the blob transactions whose sidecars STORE lacks.
 
 getPayload must return every selected blob with its commitment and proof, so a
-blob transaction this node holds no sidecar for cannot go into our payload."
-  (remove-if-not
-   (lambda (transaction)
-     (or (not (typep transaction 'blob-transaction))
-         (every (lambda (versioned-hash)
-                  (engine-payload-store-blob-and-proofs-v1
-                   store versioned-hash))
-                (blob-transaction-blob-versioned-hashes transaction))))
-   transactions))
+blob transaction this node holds no sidecar for cannot go into our payload.
+One read batch for the whole list: this runs before selection and its stop
+predicate, so its cost must not grow with the square of the pooled blobs."
+  (call-with-engine-payload-store-blob-read-batch
+   store
+   (lambda ()
+     (remove-if-not
+      (lambda (transaction)
+        (or (not (typep transaction 'blob-transaction))
+            (every (lambda (versioned-hash)
+                     (engine-payload-store-blob-available-p
+                      store versioned-hash))
+                   (blob-transaction-blob-versioned-hashes transaction))))
+      transactions))))
 
 (defun engine-rpc-build-viable-prepared-payload
     (store parent-block payload-attributes config transactions
@@ -320,6 +325,11 @@ Returns (VALUES BLOCK SELECTED EXECUTION-STATE STOPPED-P)."
               (expected-base-fee-per-gas parent-header))))
 
 (defun engine-rpc-blobs-bundle-for-transactions (store transactions)
+  (call-with-engine-payload-store-blob-read-batch
+   store
+   (lambda () (engine-rpc-blobs-bundle-from-store store transactions))))
+
+(defun engine-rpc-blobs-bundle-from-store (store transactions)
   (let ((blobs '())
         (commitments '())
         (proofs '()))

@@ -1317,6 +1317,24 @@ off, to keep waiting. The forward-batch control slows each block past the
 hold budget and requires one block per hold after the first; fast blocks must
 still share a hold. The record is `docs/evidence/sec5-engine-availability.txt`.
 
+### Blob building, eth/72 blob gossip and bad sidecars (Hive at 7116af82)
+
+```sh
+cl-workbench validation run cold-integration \
+  --match ENGINE-PAYLOAD-BUILD-ENFORCES-THE-BLOB-CACHE-BOUNDS-ONCE-PER-PASS \
+  --match ETH-72-BLOB-ANNOUNCEMENT-DERIVES-NO-CELL-PROOF \
+  --match ETH-72-BLOB-WRAPPER-DERIVES-ITS-BLOBS-IN-PARALLEL \
+  --match TXPOOL-BLOB-GOSSIP-DROPS-A-BAD-SIDECAR-THE-POOL-WOULD-REFUSE-ANYWAY
+```
+
+A pool of fifty 6-blob transactions must build a six-blob payload within one
+improvement pass and getPayload, with the blob cache bounds enforced once for
+the builder's availability filter. An eth/72 announcement derives no cell
+proof, and a served wrapper derives its blobs in parallel. A sidecar that fails
+verification is a protocol error even for a transaction the pool would refuse
+anyway (an equal-fee replacement). The record is
+`docs/evidence/sec5-hive-engine-7116af82.txt`.
+
 ### Snap tail: BLOCKHASH ancestry and phase outcomes
 
 ```sh

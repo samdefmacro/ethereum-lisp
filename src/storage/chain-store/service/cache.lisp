@@ -1048,19 +1048,60 @@ themselves, and the bounds need it to read the txpool's pins."
   (engine-payload-store-cache-remove-key
    store :sidecar (engine-payload-store-key versioned-hash)))
 
+(defvar *engine-payload-store-blob-read-batch* nil
+  "The chain store whose blob cache bounds the current read batch enforced.
+
+Enforcing the bounds walks and sorts the whole blob cache, so a caller that
+reads many blobs (a payload build over the pooled blob transactions, getBlobs,
+a pooled sidecar) enforces them once for the batch instead of once per blob:
+at a pool of 300 blobs the per-read enforcement cost 1.2 s per build and left
+the payload empty (docs/evidence/sec5-hive-engine-7116af82.txt).")
+
+(defun call-with-engine-payload-store-blob-read-batch
+    (store thunk &key (now (unix-time)))
+  "Call THUNK with STORE's blob cache bounds enforced once, as of NOW.
+
+Blob reads of STORE inside THUNK, on this thread, see the cache as the
+enforcement left it and do not enforce again. Pass the node store, as for
+ENGINE-PAYLOAD-STORE-ENFORCE-CACHE-BOUNDS, so the txpool's pins are read."
+  (let ((chain (chain-store-require-memory-store store)))
+    (if (eq chain *engine-payload-store-blob-read-batch*)
+        (funcall thunk)
+        (progn
+          (engine-payload-store-enforce-cache-bounds store :sidecar now nil)
+          (let ((*engine-payload-store-blob-read-batch* chain))
+            (funcall thunk))))))
+
+(defun engine-payload-store-cached-blob-and-proofs (store versioned-hash)
+  "The blob entry of VERSIONED-HASH as STORE holds it, uncopied, and whether
+it is present: the bounded cache first, then the durable backing. Enforces
+the cache bounds unless a read batch already did."
+  (call-with-engine-payload-store-blob-read-batch
+   store
+   (lambda ()
+     (let* ((chain (chain-store-require-memory-store store))
+            (cached
+              (gethash (engine-payload-store-key versioned-hash)
+                       (memory-chain-store-blob-sidecars chain))))
+       (if cached
+           (values cached t)
+           (chain-store-backing-blob-sidecar chain versioned-hash))))))
+
+(defun engine-payload-store-blob-available-p (store versioned-hash)
+  "Whether STORE holds the blob of VERSIONED-HASH, without copying it."
+  (nth-value 1 (engine-payload-store-cached-blob-and-proofs
+                store versioned-hash)))
+
 (defun engine-payload-store-blob-and-proofs-v1
     (store versioned-hash &key (now (unix-time)))
-  (engine-payload-store-enforce-cache-bounds store :sidecar now nil)
-  (setf store (chain-store-require-memory-store store))
-  (let ((cached
-          (gethash (engine-payload-store-key versioned-hash)
-                   (memory-chain-store-blob-sidecars store))))
-    (if cached
-        (engine-payload-store-copy-blob-and-proofs cached)
-        (multiple-value-bind (persisted present-p)
-            (chain-store-backing-blob-sidecar store versioned-hash)
-          (and present-p
-               (engine-payload-store-copy-blob-and-proofs persisted))))))
+  (call-with-engine-payload-store-blob-read-batch
+   store
+   (lambda ()
+     (multiple-value-bind (entry present-p)
+         (engine-payload-store-cached-blob-and-proofs store versioned-hash)
+       (and present-p
+            (engine-payload-store-copy-blob-and-proofs entry))))
+   :now now))
 
 (defun engine-payload-store-blob-and-proofs-v2
     (store versioned-hash &key (now (unix-time)))

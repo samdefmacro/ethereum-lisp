@@ -2273,3 +2273,148 @@ Returns the node, the transaction and the blob."
                (is (every #'bytes= cells (first groups))))))))
       (is (= 1 computations))
       (is (zerop guard-held-during-computation)))))
+
+(defun eth-gossip-test-pooled-multi-blob-node (blob-count)
+  "A devnet node whose pool holds one BLOB-COUNT-blob transaction with RPC (V1,
+one proof per blob) sidecars of distinct blobs. Returns the node and the
+transaction."
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (blobs (loop for index below blob-count
+                      collect (make-byte-vector +blob-byte-size+
+                                                :initial-element (1+ index))))
+         (commitments
+           (loop for index below blob-count
+                 collect (make-byte-vector +kzg-commitment-size+
+                                           :initial-element (+ 16 index))))
+         (transaction
+           (make-blob-transaction
+            :chain-id 1 :nonce 0 :max-fee-per-gas 1000
+            :max-priority-fee-per-gas 1 :gas-limit 21000
+            :max-fee-per-blob-gas 10
+            :to (address-from-hex
+                 "0x0000000000000000000000000000000000003001")
+            :blob-versioned-hashes
+            (mapcar #'kzg-commitment-to-versioned-hash commitments)
+            :y-parity 0 :r 8 :s 9)))
+    (let ((*kzg-blob-proof-verifier* (lambda (b c p) (declare (ignore b c p)) t)))
+      (engine-payload-store-put-blob-sidecar
+       store
+       (make-blob-sidecar
+        :blobs blobs :commitments commitments
+        :proofs (loop repeat blob-count
+                      collect (make-byte-vector +kzg-proof-size+)))))
+    (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
+     store transaction)
+    (values node transaction)))
+
+(defun eth-gossip-test-fake-cell-derivation (on-derivation)
+  "Function overrides making c-kzg's cell derivation a fake that calls
+ON-DERIVATION with the blob and returns 128 cells and 128 proofs."
+  (flet ((fake-cells ()
+           (loop for index below +cell-proofs-per-blob+
+                 collect (make-byte-vector +bytes-per-cell+
+                                           :initial-element (mod index 256))))
+         (fake-proofs ()
+           (loop repeat +cell-proofs-per-blob+
+                 collect (make-byte-vector +kzg-proof-size+
+                                           :initial-element 9))))
+    (list
+     (cons 'ethereum-lisp.kzg:kzg-cell-computation-available-p
+           (lambda () t))
+     (cons 'ethereum-lisp.kzg::compute-kzg-cell-proofs
+           (lambda (blob)
+             (funcall on-derivation blob)
+             (fake-proofs)))
+     (cons 'ethereum-lisp.kzg::kzg-compute-cells-and-proofs
+           (lambda (blob)
+             (funcall on-derivation blob)
+             (values (fake-cells) (fake-proofs)))))))
+
+(deftest eth-72-blob-announcement-derives-no-cell-proof
+  (:layer :integration :module :p2p)
+  ;; Hive engine-cancun 'Blob Transaction Ordering, Multiple Clients' at
+  ;; 7116af82: announcing each of the producer's 5-blob transactions to its
+  ;; eth/72 peer derived all 128 cell proofs per blob just to learn the
+  ;; wrapper's size, 0.9-1.7 s per announcement on the session's writer, and
+  ;; the peer's own announcements waited unread behind it. Every KZG proof is
+  ;; 48 bytes, so the size needs no proof.
+  (multiple-value-bind (node transaction)
+      (eth-gossip-test-pooled-multi-blob-node 2)
+    (let* ((backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+           (peer (ethereum-lisp.eth-sync::%make-eth-peer
+                  :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+                  :serve-backend backend))
+           (derivations 0)
+           (sent '()))
+      (eth-gossip-test-call-with-function-overrides
+       (append
+        (eth-gossip-test-fake-cell-derivation
+         (lambda (blob) (declare (ignore blob)) (incf derivations)))
+        (list (cons 'ethereum-lisp.eth-sync:eth-peer-send
+                    (lambda (seen message-id payload)
+                      (declare (ignore seen))
+                      (push (cons message-id payload) sent)))))
+       (lambda ()
+         (is (= 1 (eth-peer-announce-transactions peer (list transaction))))
+         (is (zerop derivations))
+         ;; Positive control: serving the wrapper derives both blobs' proofs,
+         ;; and the announced size is that wrapper's size.
+         (let ((wrapper (funcall (ethereum-lisp.eth-sync::eth-serve-backend-pooled-blob-sidecar
+                                  backend)
+                                 transaction)))
+           (is (= 2 derivations))
+           (is (= (* 2 +cell-proofs-per-blob+)
+                  (length (blob-sidecar-proofs wrapper))))
+           (is (= 1 (length sent)))
+           (is (= ethereum-lisp.eth-wire:+eth-message-new-pooled-transaction-hashes+
+                  (car (first sent))))
+           (multiple-value-bind (types sizes hashes)
+               (ethereum-lisp.eth-wire:decode-eth-new-pooled-transaction-hashes
+                (cdr (first sent))
+                ethereum-lisp.eth-wire:+eth-protocol-version-72+)
+             (is (equal '(3) types))
+             (is (bytes= (eth-gossip-transaction-hash-bytes transaction)
+                         (first hashes)))
+             (is (= (blob-network-transaction-announcement-size
+                     (make-blob-network-transaction
+                      transaction (blob-sidecar-without-blobs wrapper)))
+                    (first sizes))))))))))
+
+(deftest eth-72-blob-wrapper-derives-its-blobs-in-parallel
+  (:layer :integration :module :p2p)
+  ;; The same Hive run: serving a 5-blob wrapper to an eth/72 peer derived its
+  ;; blobs one after another, five c-kzg derivations of 0.12-0.19 s each on
+  ;; the session's writer. They are independent and c-kzg only reads its
+  ;; settings, so one wrapper's missing blobs are derived at once.
+  #-sbcl
+  (skip-test "Parallel derivation requires SBCL threads")
+  #+sbcl
+  (multiple-value-bind (node transaction)
+      (eth-gossip-test-pooled-multi-blob-node 5)
+    (let* ((backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+           (lock (sb-thread:make-mutex :name "eth-72-parallel-derivation"))
+           (active 0)
+           (most-active 0)
+           (derived '()))
+      (eth-gossip-test-call-with-function-overrides
+       (eth-gossip-test-fake-cell-derivation
+        (lambda (blob)
+          (sb-thread:with-mutex (lock)
+            (incf active)
+            (setf most-active (max most-active active))
+            (push (aref blob 0) derived))
+          (sleep 0.2)
+          (sb-thread:with-mutex (lock)
+            (decf active))))
+       (lambda ()
+         (let ((wrapper (funcall (ethereum-lisp.eth-sync::eth-serve-backend-pooled-blob-sidecar
+                                  backend)
+                                 transaction)))
+           (is (= (* 5 +cell-proofs-per-blob+)
+                  (length (blob-sidecar-proofs wrapper)))))))
+      ;; Each blob derived exactly once, and more than one at a time.
+      (is (equal '(1 2 3 4 5) (sort (copy-list derived) #'<)))
+      (is (> most-active 1)))))
