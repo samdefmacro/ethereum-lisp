@@ -73,6 +73,7 @@ upstream `abbe05777ab83fb94ce18c425daaa7ab79e779c1`); Hive
 | 1a7b9059 | 2026-09-29 | — | — | — | — | — | offline differential replay, 322 blocks: 316 match every header commitment (state root included), 4 diverge (3685491, 3685492, 3685546, 3685584: EntryPoint handleOps 3 gas short), 2 unreplayable (witness gap) | replay gate added on hoodi-differential-replay (879f7454, tests only, src identical); record sec5-hoodi-differential-replay.txt |
 | af15da12 | 2026-09-29 | — | 8/8 | — | — | — | — | evm-edge-audit branch (H1) on a6d2b58b: memory-region audit (no divergence) and internal execution failures typed, logged, never INVALID, contained by the sync pass; manifest lines identical to b5161312; record sec5-evm-edge-audit.txt |
 | c072361d | 2026-09-29 | — | 8/8 | — | — | — | — | amsterdam-inventory branch (G6) on 1a7b9059: Amsterdam intrinsic/floor, authorization and recipient runtime charges, BAL coinbase and factory entries, system-call reservoir, header slot rule, no 8246 burn log; JUMPDEST analysis no longer skips 0xe6..0xe8 immediates in any fork (5029383e); six manifest lines identical to b5161312 (also 8/8 at 8e460d49); the branch head differs only in docs and one docstring; Amsterdam burn-down in docs/gap-analysis/amsterdam-inventory.md |
+| f8c882bc | 2026-09-29 | 8d9829c636e1 + smoke PASS | 8/8 | — | — | — | cold-all 0 failures (unit 1512, integration 653, e2e 37 + 40); offline differential replay 320/322 match every header commitment, 0 diverge, 2 unreplayable (witness gap); deployed 04:57Z on datadir-b5161312 with the persistent node key | R8: G1-G5, H1, H2, K1 merged; first release candidate with a fully green cold-all since 886afd05 |
 
 ## Revisions and source records
 
@@ -123,6 +124,7 @@ one with
 | 1a7b9059 | `1a7b9059fef8ab705e6b0b56db831c7e6adef911` | sec5-hoodi-differential-replay.txt |
 | af15da12 | `af15da12d3a374e7bc6c1ff3097283f84d68edc3` | sec5-evm-edge-audit.txt |
 | c072361d | `c072361d7a5a86fa7b811f240b532238d120c0a8` | agent run logs (scratchpad g6/eest: gates.log sha256 `5eb515ae57173779a813738388d8d8f2810ef497faac9f9c3c42763ee9b99090`, one retained container per gate, removed afterwards); docs/gap-analysis/amsterdam-inventory.md |
+| f8c882bc | `f8c882bcbd6340f889b0c13e8e437944e9741270` | coordinator chain logs (scratchpad r8-*.log, eest-f8c882bc/summary.txt) |
 
 Full revisions that the records give only in short form (d203fee6, aee866f7,
 880319df, b5161312) were resolved with `git rev-parse` on this repository.
