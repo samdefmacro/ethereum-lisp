@@ -66,6 +66,7 @@
            "tests/evm-context-environment-tests.lisp"
            "tests/evm-call-tests.lisp"
            "tests/evm-precompile-tests.lisp"
+           "tests/evm-bn254-fast-tests.lisp"
            "tests/evm-call-family-tests.lisp"
            "tests/evm-create-tests.lisp"
            "tests/evm-pre-spurious-dragon-tests.lisp"

@@ -258,12 +258,6 @@ kept stable while a library-backed pairing implementation is wired in."
           do (setf remaining next)
           finally (return t))))
 
-(defvar *bn254-pairing-checker* #'bn254-optimal-ate-pairing-check
-  "Callable used for non-zero BN254 pairing products after point validation.")
-
-(defun bn254-pairing-check (pairs)
-  (funcall *bn254-pairing-checker* pairs))
-
 (defun true32-byte-vector ()
   (let ((output (make-byte-vector 32)))
     (setf (aref output 31) 1)
@@ -272,7 +266,9 @@ kept stable while a library-backed pairing implementation is wired in."
 (defun false32-byte-vector ()
   (make-byte-vector 32))
 
-(defun run-bn254-pairing-precompile (input &optional rules)
+(defun run-bn254-pairing-precompile-reference (input &optional rules)
+  "The integer implementation of 0x08, kept as the differential oracle of
+RUN-BN254-PAIRING-PRECOMPILE (bn254-fast.lisp)."
   (let ((gas (bn254-pairing-gas input rules)))
     (cond
       ((not (zerop (mod (length input) 192)))
@@ -290,7 +286,7 @@ kept stable while a library-backed pairing implementation is wired in."
                                gas)
                      when (and g1 g2)
                        collect (list g1 g2))))
-         (values (if (bn254-pairing-check pairs)
+         (values (if (bn254-optimal-ate-pairing-check pairs)
                      (true32-byte-vector)
                      (false32-byte-vector))
                  gas))))))

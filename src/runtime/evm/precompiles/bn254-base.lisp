@@ -101,7 +101,9 @@
       +bn254-pairing-per-point-gas+
       +bn254-pairing-per-point-gas-eip197+))
 
-(defun run-bn254-add-precompile (input &optional rules)
+(defun run-bn254-add-precompile-reference (input &optional rules)
+  "The integer implementation of 0x06, kept as the differential oracle of
+RUN-BN254-ADD-PRECOMPILE (bn254-fast.lisp)."
   (let* ((gas (bn254-add-gas rules))
          (left (parse-bn254-g1-point (padded-data-slice input 0 64)
                                      gas))
@@ -110,7 +112,9 @@
     (values (serialize-bn254-g1-point (bn254-g1-add left right))
             gas)))
 
-(defun run-bn254-mul-precompile (input &optional rules)
+(defun run-bn254-mul-precompile-reference (input &optional rules)
+  "The integer implementation of 0x07, kept as the differential oracle of
+RUN-BN254-MUL-PRECOMPILE (bn254-fast.lisp)."
   (let* ((gas (bn254-mul-gas rules))
          (point (parse-bn254-g1-point (padded-data-slice input 0 64)
                                       gas))
