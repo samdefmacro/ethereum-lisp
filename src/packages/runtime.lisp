@@ -234,6 +234,8 @@
    #:+access-list-address-gas-amsterdam+
    #:+access-list-storage-key-gas-amsterdam+
    #:+cold-account-access-amsterdam+
+   #:+warm-account-access-amsterdam+
+   #:+account-write-amsterdam+
    #:+create-access-amsterdam+
    #:+storage-set-state-gas+
    #:finalize-evm-selfdestructs
@@ -341,6 +343,8 @@
    #:+access-list-address-gas-amsterdam+
    #:+access-list-storage-key-gas-amsterdam+
    #:+cold-account-access-amsterdam+
+   #:+warm-account-access-amsterdam+
+   #:+account-write-amsterdam+
    #:+create-access-amsterdam+
    #:+storage-set-state-gas+
    #:finalize-evm-selfdestructs

@@ -26,6 +26,8 @@
 (defconstant +transaction-value-gas-eip2780+ 4244)
 (defconstant +transfer-log-gas-eip2780+ 1756)
 (defconstant +set-code-authorization-base-gas-amsterdam+ 7816)
+;; EIP-8037: an authorization's 23-byte delegation indicator as state gas.
+(defconstant +authorization-creation-state-gas+ (* 23 +cost-per-state-byte+))
 (defconstant +total-cost-floor-per-token-eip7976+ 16)
 
 (defconstant +create-data-gas+ 200)
