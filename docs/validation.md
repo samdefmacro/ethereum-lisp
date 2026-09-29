@@ -1350,6 +1350,31 @@ and the next pass to complete the target. The record, with the classification
 of every sync-reachable failure, is
 `docs/evidence/sec5-sync-outcomes-nonfatal.txt`.
 
+### EVM memory regions and internal execution failures
+
+```sh
+cl-workbench validation run cold-unit --match EVM-MEMORY-AUDIT
+cl-workbench validation run cold-unit \
+  --match BLOCK-IMPORT-INTERNAL-EXECUTION-ERROR \
+  --match BLOCK-IMPORT-VERDICTS-AND-SYNC-OUTCOMES-ARE-NOT-INTERNAL-ERRORS
+cl-workbench validation run cold-integration \
+  --match DEVNET-SNAP-TAIL-INTERNAL-EXECUTION-ERROR \
+  --match DEVNET-ENGINE-NEW-PAYLOAD-INTERNAL-EXECUTION-ERROR
+```
+
+The memory audit runs every opcode that takes a memory region under Osaka
+gas metering and pins go-ethereum v1.17.6's rules: a zero-length region is
+free at any offset, 2^256 - 1 included, and leaves MSIZE 0; a region past 2^64
+or beyond any gas is an exceptional halt, never a host error; CALL copies at
+most the return data into a region already paid in full; RETURNDATACOPY past
+the buffer halts even for a zero size; expansion rounds words up and the
+square term down. A condition that escapes a block's executor and is neither
+a verdict nor missing state is a BLOCK-EXECUTION-INTERNAL-ERROR: no INVALID
+verdict is cached, the node logs engine.execution.internal_error, newPayload
+answers a JSON-RPC internal error, and the sync coordinator ends the pass and
+executes the block again on the next one instead of stopping the node. The
+record is `docs/evidence/sec5-evm-edge-audit.txt`.
+
 ### Bounded snap/1 serving and peer-session holds
 
 ```sh
