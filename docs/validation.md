@@ -2043,6 +2043,11 @@ ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$PWD/.eest-fixtures-sec5-REV/tests-v20.0
   --match OPTIONAL-LEGACY-EEST-PRE-MERGE-BLOCKCHAIN-BURN-DOWN > pre-merge-v20.log 2>&1
 cl-workbench validation run cold-unit --match PRE-SPURIOUS-DRAGON
 cl-workbench validation run cold-unit --match FRONTIER-CREAT
+# Signers, EIP-170, single-flag rules, eth/68 Status, and the DAO drain and
+# ommer rewards on synthetic chains; then six vendored ethereum/tests
+# v6.0.0-beta.3 files with ommers and the HomesteadToDaoAt5 transition.
+cl-workbench validation run cold-unit --match PREMERGE-
+cl-workbench validation run cold-integration --match PREMERGE-LEGACY
 ```
 
 It prints one `PRE-MERGE-EEST` line per directory and a total, and fails only
@@ -2050,5 +2055,6 @@ for directories named in `ETHEREUM_LISP_PRE_MERGE_EEST_REQUIRED`;
 `ETHEREUM_LISP_PRE_MERGE_EEST_DIRECTORIES` and
 `ETHEREUM_LISP_PRE_MERGE_EEST_NETWORKS` narrow the walk. At `7ad834c7` every
 selected case passes: 5,466 legacy (two files over 48 MB unparsed) and 21,260
-stable. The rule inventory, the counts before and after, and the gaps are in
-`docs/gap-analysis/mainnet-inventory.md`.
+stable; at `820956d7` as well, with the 16 vendored legacy cases (the runner
+also reads their `expectExceptionALL` key). The rule inventory, the counts
+before and after, and the gaps are in `docs/gap-analysis/mainnet-inventory.md`.
