@@ -40,6 +40,9 @@
 (defconstant +ported-static-eest-directories-env+
   "ETHEREUM_LISP_PORTED_STATIC_DIRECTORIES")
 
+(defconstant +ported-static-eest-trace-env+
+  "ETHEREUM_LISP_PORTED_STATIC_TRACE")
+
 (defparameter +ported-static-eest-default-forks+
   '("Cancun" "Prague" "Osaka"))
 
@@ -48,6 +51,9 @@
 The largest ported_static state file in tests@v20.0.2 is 36.7 MB
 (stRandom/random_statetest36), so at this bound none is skipped.")
 
+(defparameter *ported-static-eest-full-gc-file-bytes* (* 4 1024 1024)
+  "After a fixture file above this size the runner collects in full.")
+
 (defparameter *ported-static-eest-harness-ceiling-bytes* (* 256 1024 1024)
   "The most bytes one EVM buffer may allocate under this runner, whatever the
 transaction's gas would pay for.")
@@ -55,9 +61,22 @@ transaction's gas would pay for.")
 (defparameter *ported-static-eest-failure-samples* 10
   "How many failure messages each directory reports verbatim.")
 
+(defparameter *ported-static-eest-heap-budget-fraction* 3/8
+  "The share of the Lisp dynamic space the heap may fill, after a full
+collection, before a paid EVM allocation is refused as
+paidMemoryAboveHarnessHeap.  The copying collector needs free space about the
+size of what it copies: with 3/4 of the cold image's 1 GiB live, a hash-table
+grow in the snapshot journal exhausted the heap inside the collector.")
+
+(defun ported-static-eest-heap-budget ()
+  (floor (* *ported-static-eest-heap-budget-fraction*
+            (sb-ext:dynamic-space-size))))
+
 (defparameter +ported-static-eest-reviewed-skip-reasons+
-  '("fileTooLarge" "paidAllocationAboveHarnessCeiling")
-  "Skip reasons that do not fail the gate: neither claims a vector executed.")
+  '("fileTooLarge" "paidAllocationAboveHarnessCeiling"
+    "paidMemoryAboveHarnessHeap")
+  "Skip reasons that do not fail the gate: none claims a vector executed, and
+each names a harness resource the vector's own gas legitimately pays past.")
 
 (defun ported-static-eest-env-list (name)
   (let ((value (funcall *fixture-root-environment-reader* name)))
@@ -139,21 +158,27 @@ never exceeds twice the memory it holds)."
 exceeds what GAS-LIMIT pays for, (VALUES :skipped reason) otherwise."
   (let ((requested (ethereum-lisp.evm.internal::evm-memory-allocation-refused-requested
                     condition)))
-    (if (or (null gas-limit)
-            (<= requested (ported-static-eest-paid-allocation-bytes gas-limit)))
-        (values :skipped "paidAllocationAboveHarnessCeiling")
-        (values :failed
-                (format nil "allocationBeyondPaidGas: ~D bytes requested, ~
-                             gas limit ~D pays for ~D"
-                        requested gas-limit
-                        (ported-static-eest-paid-allocation-bytes gas-limit))))))
+    (cond
+      ((and gas-limit
+            (> requested (ported-static-eest-paid-allocation-bytes gas-limit)))
+       (values :failed
+               (format nil "allocationBeyondPaidGas: ~D bytes requested, ~
+                            gas limit ~D pays for ~D"
+                       requested gas-limit
+                       (ported-static-eest-paid-allocation-bytes gas-limit))))
+      ((eq :heap-budget
+           (ethereum-lisp.evm.internal::evm-memory-allocation-refused-reason
+            condition))
+       (values :skipped "paidMemoryAboveHarnessHeap"))
+      (t
+       (values :skipped "paidAllocationAboveHarnessCeiling")))))
 
 ;;; Scoring
 
 (defstruct (ported-static-eest-tally
             (:constructor make-ported-static-eest-tally (fork directory)))
   fork directory (files 0) (cases 0) (entries 0) (passed 0) (failed 0)
-  (skips '()) (samples '()))
+  (skips '()) (samples '()) (skipped-entries '()))
 
 (defun ported-static-eest-tally-skipped (tally)
   (reduce #'+ (ported-static-eest-tally-skips tally) :key #'cdr))
@@ -179,9 +204,16 @@ Returns (VALUES outcome detail): :PASSED; :FAILED and a one-line message; or
   (let* ((gas-limit (ported-static-eest-entry-gas-limit case post-entry))
          (ethereum-lisp.evm.internal::*memory-allocation-ceiling*
            (ported-static-eest-allocation-ceiling gas-limit))
-         (label (format nil "~A ~A indexes ~S"
-                        (fixture-required-field case "name") fork
-                        (fixture-object-field post-entry "indexes"))))
+         (ethereum-lisp.evm.internal::*memory-allocation-heap-budget*
+           (ported-static-eest-heap-budget))
+         (label (let ((*print-pretty* nil))
+                  (format nil "~A ~A indexes ~S"
+                          (fixture-required-field case "name") fork
+                          (fixture-object-field post-entry "indexes")))))
+    (when (ported-static-eest-env-list +ported-static-eest-trace-env+)
+      (format t "~&PORTED-STATIC-EEST   running ~A heap=~D~%"
+              label (sb-kernel:dynamic-usage))
+      (finish-output))
     (handler-case
         (progn
           (assert-eest-state-test-post-entry case post-entry :fork fork)
@@ -192,13 +224,17 @@ Returns (VALUES outcome detail): :PASSED; :FAILED and a one-line message; or
           (values outcome
                   (if (eq outcome :failed)
                       (format nil "~A: ~A" label detail)
-                      detail))))
+                      detail)
+                  label)))
       (storage-condition (condition)
         ;; Heap or control-stack exhaustion: typed, contained, and a failure,
-        ;; because a vector that geth executes must not exhaust ours.
-        (values :failed
-                (format nil "~A: ~S ~A" label (type-of condition)
-                        (amsterdam-eest-condition-summary condition))))
+        ;; because a vector that geth executes must not exhaust ours.  The
+        ;; entry's data is garbage once the handler has unwound; collect it
+        ;; before consing the report, or the report exhausts the heap again.
+        (let ((type (type-of condition)))
+          (setf condition nil)
+          (sb-ext:gc :full t)
+          (values :failed (format nil "~A: ~S" label type))))
       (serious-condition (condition)
         (values :failed
                 (format nil "~A: ~A" label
@@ -216,16 +252,29 @@ Returns (VALUES outcome detail): :PASSED; :FAILED and a one-line message; or
                      nil))))
     (dolist (post-entry entries)
       (incf (ported-static-eest-tally-entries tally))
-      (multiple-value-bind (outcome detail)
+      (multiple-value-bind (outcome detail label)
           (ported-static-eest-run-entry case post-entry fork)
         (ecase outcome
           (:passed (incf (ported-static-eest-tally-passed tally)))
           (:failed (ported-static-eest-record-failure tally detail))
-          (:skipped (ported-static-eest-count-skip tally detail)))))))
+          (:skipped
+           (ported-static-eest-count-skip tally detail)
+           (push (format nil "~A ~A" detail label)
+                 (ported-static-eest-tally-skipped-entries tally))))))))
 
 (defun ported-static-eest-fixture-forks (case)
   (handler-case (eest-state-test-case-fork-names case)
     (error () '())))
+
+(defun ported-static-eest-collect-after-large-file (bytes)
+  "A full collection after a fixture file of BYTES above
+*PORTED-STATIC-EEST-FULL-GC-FILE-BYTES*.  Its text and JSON tree (several
+hundred MB for the 33 MB stRandom files, at four bytes a character) are
+garbage once the file is scored, but the generational collector can leave them
+promoted while the next large file is read, which exhausted the 1 GiB cold
+heap on the first run."
+  (when (> bytes *ported-static-eest-full-gc-file-bytes*)
+    (sb-ext:gc :full t)))
 
 (defun ported-static-eest-score-directory (state-root fork-directory fork
                                            directory)
@@ -252,7 +301,10 @@ Returns (VALUES outcome detail): :PASSED; :FAILED and a one-line message; or
                   (ported-static-eest-record-failure
                    tally
                    (format nil "~A: a for_~(~A~) fixture without ~A post entries"
-                           (fixture-required-field case "name") fork fork)))))))
+                           (fixture-required-field case "name") fork fork))))
+            (setf cases nil)
+            (ported-static-eest-collect-after-large-file
+             (eest-fixture-file-byte-size path)))))
     tally))
 
 (defun ported-static-eest-format-skips (skips)
@@ -306,6 +358,11 @@ returns the directory tallies."
               (format t "~&~A~%" (ported-static-eest-report-line tally))
               (dolist (sample (reverse (ported-static-eest-tally-samples tally)))
                 (format t "~&PORTED-STATIC-EEST   failure ~A~%" sample))
+              ;; Every skipped entry is named: a skip is a claim that the
+              ;; harness, not the vector, stopped it.
+              (dolist (entry (reverse
+                              (ported-static-eest-tally-skipped-entries tally)))
+                (format t "~&PORTED-STATIC-EEST   skip ~A~%" entry))
               (finish-output)
               (push tally tallies))))
         (format t "~&~A~%"
@@ -372,18 +429,21 @@ valid invalid), read one fixture file at a time."
             (if (> (eest-fixture-file-byte-size path)
                    *ported-static-eest-max-file-bytes*)
                 (incf too-large)
-                (dolist (case (load-eest-state-test-root-file-cases
-                               state-root path))
-                  (incf cases)
-                  (dolist (post-entry
-                           (fixture-object-field
-                            (fixture-object-field
-                             (fixture-required-field case "fixture") "post")
-                            fork))
-                    (incf entries)
-                    (if (eest-state-test-expected-exception post-entry)
-                        (incf invalid)
-                        (incf valid))))))))
+                (progn
+                  (dolist (case (load-eest-state-test-root-file-cases
+                                 state-root path))
+                    (incf cases)
+                    (dolist (post-entry
+                             (fixture-object-field
+                              (fixture-object-field
+                               (fixture-required-field case "fixture") "post")
+                              fork))
+                      (incf entries)
+                      (if (eest-state-test-expected-exception post-entry)
+                          (incf invalid)
+                          (incf valid))))
+                  (ported-static-eest-collect-after-large-file
+                   (eest-fixture-file-byte-size path)))))))
       (list fork directories files too-large cases entries valid invalid))))
 
 (defun ported-static-eest-manifest-line (row)
@@ -456,7 +516,23 @@ valid invalid), read one fixture file at a time."
          (refusal (1+ *ported-static-eest-harness-ceiling-bytes*))
          (expt 2 60))
       (is (eq :skipped outcome))
-      (is (equal "paidAllocationAboveHarnessCeiling" detail))))
+      (is (equal "paidAllocationAboveHarnessCeiling" detail)))
+    ;; Paid for, but the heap budget is spent: a reviewed skip of its own.
+    (multiple-value-bind (outcome detail)
+        (ported-static-eest-refusal-outcome
+         (make-condition
+          'ethereum-lisp.evm.internal::evm-memory-allocation-refused
+          :requested 1000000 :ceiling 0 :reason :heap-budget)
+         (expt 2 40))
+      (is (eq :skipped outcome))
+      (is (equal "paidMemoryAboveHarnessHeap" detail)))
+    ;; ... but never for more than the gas pays for.
+    (is (eq :failed
+            (ported-static-eest-refusal-outcome
+             (make-condition
+              'ethereum-lisp.evm.internal::evm-memory-allocation-refused
+              :requested 1000000 :ceiling 0 :reason :heap-budget)
+             100000))))
   (flet ((tally (fork passed failed &rest skips)
            (let ((tally (make-ported-static-eest-tally fork "stExample")))
              (setf (ported-static-eest-tally-passed tally) passed

@@ -15,37 +15,67 @@
 ;;; allocates before charging (a zero-length KECCAK256 at a 2 GB offset, the
 ;;; pre-d7a28c6c shape) does not halt; it asks the host for the bytes.  A
 ;;; fixture harness binds *MEMORY-ALLOCATION-CEILING* to the gas-derived bound
-;;; so such a defect is a typed refusal instead of a heap exhaustion.  It is
-;;; NIL, and costs one NIL check on the growth path, everywhere else.
+;;; so such a defect is a typed refusal instead of a heap exhaustion, and
+;;; *MEMORY-ALLOCATION-HEAP-BUDGET* so that memory a vector legitimately pays
+;;; for across many frames (hundreds of nested calls holding a megabyte each)
+;;; is a typed refusal too, rather than the end of the process.  Both are NIL,
+;;; and cost one NIL check where a buffer is allocated, everywhere else.
 
 (defvar *memory-allocation-ceiling* nil
   "NIL, or the most bytes one EVM memory backing vector or copied data buffer
 may allocate.  Checked only where a buffer is allocated.")
 
+(defvar *memory-allocation-heap-budget* nil
+  "NIL, or the most bytes the Lisp heap may hold once an EVM buffer of at
+least +MEMORY-ALLOCATION-HEAP-BUDGET-MIN-BYTES+ is allocated.")
+
+(defconstant +memory-allocation-heap-budget-min-bytes+ (* 64 1024)
+  "Smaller buffers skip the heap-budget check: they cannot move the heap by
+much, and CALLDATALOAD alone allocates 32 bytes per instruction.")
+
 (define-condition evm-memory-allocation-refused (storage-condition)
   ((requested :initarg :requested
               :reader evm-memory-allocation-refused-requested)
    (ceiling :initarg :ceiling
-            :reader evm-memory-allocation-refused-ceiling))
+            :reader evm-memory-allocation-refused-ceiling)
+   (reason :initarg :reason :initform :ceiling
+           :reader evm-memory-allocation-refused-reason))
   (:report
    (lambda (condition stream)
      (format stream
-             "EVM allocation of ~D bytes refused: the ceiling is ~D bytes"
+             "EVM allocation of ~D bytes refused: ~:[the ceiling is~;the ~
+              heap would pass its budget of~] ~D bytes"
              (evm-memory-allocation-refused-requested condition)
+             (eq :heap-budget (evm-memory-allocation-refused-reason condition))
              (evm-memory-allocation-refused-ceiling condition))))
   (:documentation
-   "An EVM buffer larger than *MEMORY-ALLOCATION-CEILING* was requested.
+   "An EVM buffer above *MEMORY-ALLOCATION-CEILING* (REASON :CEILING), or one
+that would take the heap past *MEMORY-ALLOCATION-HEAP-BUDGET* (REASON
+:HEAP-BUDGET), was requested.
 
 A STORAGE-CONDITION, not an ERROR: no EVM-ERROR or ERROR handler may turn it
 into an exceptional halt, a transaction failure, or an internal-error outcome
 that reads like a result."))
 
+(defun %check-memory-allocation (bytes ceiling budget)
+  (when (and ceiling (> bytes ceiling))
+    (error 'evm-memory-allocation-refused
+           :requested bytes :ceiling ceiling :reason :ceiling))
+  (when (and budget
+             (>= bytes +memory-allocation-heap-budget-min-bytes+)
+             (> (+ (sb-kernel:dynamic-usage) bytes) budget))
+    ;; Usage counts garbage too; only what a full collection leaves decides.
+    (sb-ext:gc :full t)
+    (when (> (+ (sb-kernel:dynamic-usage) bytes) budget)
+      (error 'evm-memory-allocation-refused
+             :requested bytes :ceiling budget :reason :heap-budget))))
+
 (declaim (inline check-memory-allocation))
 (defun check-memory-allocation (bytes)
-  (let ((ceiling *memory-allocation-ceiling*))
-    (when (and ceiling (> bytes ceiling))
-      (error 'evm-memory-allocation-refused
-             :requested bytes :ceiling ceiling))))
+  (let ((ceiling *memory-allocation-ceiling*)
+        (budget *memory-allocation-heap-budget*))
+    (when (or ceiling budget)
+      (%check-memory-allocation bytes ceiling budget))))
 
 (defun memory-size-payable-with-gas (gas)
   "The most memory, in bytes (a whole number of words), one frame can pay for
@@ -131,6 +161,7 @@ and its offset may be any word."
   (if (zerop size)
       (make-byte-vector 0)
       (let ((memory (ensure-memory-size memory (+ offset size))))
+        (check-memory-allocation size)
         (subseq memory offset (+ offset size)))))
 
 (defun copy-into-memory (memory memory-offset data)

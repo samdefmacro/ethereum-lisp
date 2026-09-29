@@ -392,3 +392,26 @@ at most 32 bytes written right-aligned, taking its last LENGTH bytes."
                    'ethereum-lisp.evm.internal::evm-memory-allocation-refused))
         (is (<= offset (ethereum-lisp.evm.internal::evm-memory-allocation-refused-requested
                         refused)))))))
+
+(deftest evm-memory-allocation-heap-budget-refuses-typed-past-the-budget
+  ;; A buffer of 64 KiB or more that would take the heap past
+  ;; *MEMORY-ALLOCATION-HEAP-BUDGET*, after a full collection, is refused with
+  ;; REASON :HEAP-BUDGET.  Smaller buffers are not checked.  Positive
+  ;; control: the same allocation with a generous budget.
+  (flet ((attempt (budget bytes)
+           (let ((ethereum-lisp.evm.internal::*memory-allocation-heap-budget*
+                   budget))
+             (handler-case
+                 (progn (ethereum-lisp.evm.internal::padded-data-slice
+                         (make-byte-vector 0) 0 bytes)
+                        :allocated)
+               (storage-condition (condition) condition)))))
+    (let ((refused (attempt 1 (* 64 1024))))
+      (is (typep refused
+                 'ethereum-lisp.evm.internal::evm-memory-allocation-refused))
+      (is (eq :heap-budget
+              (ethereum-lisp.evm.internal::evm-memory-allocation-refused-reason
+               refused))))
+    (is (eq :allocated (attempt 1 (1- (* 64 1024)))))
+    (is (eq :allocated (attempt (* 64 (sb-ext:dynamic-space-size))
+                                (* 64 1024))))))
