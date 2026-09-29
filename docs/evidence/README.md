@@ -156,6 +156,7 @@ record names no fix.
 - 17 of 57 Hoodi eth/72 sessions died on "GetCells must contain exactly 3 items": geth v1.17.5 nests GetCells/Cells, v1.17.6 does not; both layouts read, replies in the requester's → [sec5-eth72-interop.txt](sec5-eth72-interop.txt) → 635a9667
 - Peers were scored and disconnected for our own INVALID verdicts, for leaving, and for an empty SNAP pool (nine SNAP-capable peers banned in 33 minutes at 1a7b9059); the 1,820 dial failures classified → [sec5-peer-attribution.txt](sec5-peer-attribution.txt) → 5e6240fc
 - Follow-ups: an internal execution failure retried every pass (now a doubling wait per block), ended the delivering peer's session, and went unlogged on the prepared-payload and staged paths; a contradicting body or snap proof kept the session and an aborted download closed healthy peers' streams (geth v1.17.6 does the opposite of both) → [sec5-robustness-followups.txt](sec5-robustness-followups.txt) → fc2f0923, e0279c5a, 8cc97326, 7106f9e5, 1d38044e
+- Parity leftovers: an invalid account range or TrieNodes answer cost -50 and kept the session, the downloader and the snap import charged lost transports, the Disconnect a peer sent before our write failed went unread, and a defect of ours on a session thread was charged as a decoder error → [sec5-peer-parity-2.txt](sec5-peer-parity-2.txt) → 6284d463
 
 ### Section 5: public RPC and eth_simulateV1
 

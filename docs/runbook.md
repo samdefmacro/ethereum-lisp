@@ -377,7 +377,7 @@ plus `+Inf`, and export `_bucket`, `_sum` and `_count`.
 | `ethereum_lisp_store_guard_engine_waiting` | 1 while an Engine request waits for the guard |
 | `ethereum_lisp_engine_last_request_age_ms` | age of the last Engine request; absent before the first |
 | `ethereum_lisp_store_guard_long_holds_total{holder}`, `_store_guard_long_hold_ms` | holds of at least 1 s, by holder class (`sync-gap-fill`, `forward-batch-import`, fixed thread names, Engine methods by name, `rpc` for public methods, `other`), and their length |
-| `ethereum_lisp_peer_session_failures_total{reason}` | peer sessions that ended in a condition, by condition class |
+| `ethereum_lisp_peer_session_failures_total{reason}` | inbound peer sessions that ended in a condition, by condition class; a devp2p Disconnect counts by the reason the peer gave (`rlpx-disconnect-4` is too many peers), including one read after our write failed |
 | `ethereum_lisp_peer_refusals_total{reason}` | handshaken peers refused, by verdict (`too-many-peers`, `already-connected`, ...) |
 | `ethereum_lisp_snap_heal_pivot_number`, `_processed_nodes`, `_fetched_nodes`, `_frontier_works`, `_known_incomplete_nodes`, `_completed` | the latest `peer.snap.heal_progress` report |
 | `ethereum_lisp_reorgs_total`, `ethereum_lisp_reorg_depth_blocks` | Engine forkchoice reorgs and a histogram of displaced canonical blocks (buckets 1, 2, 3, 4, 8, 16, 32, 64, 128) |

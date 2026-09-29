@@ -1372,6 +1372,45 @@ no peer. Snap workers that all stop without a reported failure are a
 contained phase outcome. The record is
 `docs/evidence/sec5-peer-attribution.txt`.
 
+### Peer parity: invalid snap answers, lost transports, stated reasons, our defects
+
+```sh
+cl-workbench validation run cold-unit \
+  --match ETH-SYNC-MULTI-PEER-CHARGES-NO-SOURCE-FOR-A-LOST-TRANSPORT \
+  --match ETH-PEER-LOCAL-WORK-TYPES-ONLY-OUR-OWN-UNTYPED-FAILURES \
+  --match DEVNET-SNAP-SOURCE-POOL-EXHAUSTION-SCORES-NO-SINGLE-PEER \
+  --match DEVNET-SNAP-QUEUE-CLOSE-LIFECYCLE-DRIVES-THE-IMPORT-CALLBACK
+cl-workbench validation run cold-integration \
+  --match SNAP-ACCOUNT-RANGE-THAT-FAILS-ITS-PROOF \
+  --match SNAP-TRIE-NODES-THAT-FAIL-VERIFICATION \
+  --match DEVNET-PEER-SESSION-ENDS-ON-A-SNAP-RESPONSE \
+  --match DEVNET-PEER-DOWNLOAD-CHARGES-NOTHING \
+  --match DEVNET-PEER-SESSION-READS-THE-DISCONNECT \
+  --match DEVNET-PEER-SESSION-END-DOES-NOT-CHARGE-A-DEFECT
+```
+
+An account range whose proof fails and a TrieNodes answer holding a node
+nobody asked for are SNAP-SYNC-INVALID-RESPONSE, as StorageRanges and
+ByteCodes already were, and end the page peer's session with Disconnect 16
+(go-ethereum v1.17.6 OnAccounts / OnTrieNodes; the charge is the session's
+end, -25). A broken pipe, a reset or a remote Disconnect under a request is
+charged by nobody: the session, the multi-peer downloader (:LOST, geth's
+fetchers_concurrent.go) and the snap importer (peer.snap.source_lost) agree.
+When one of our writes fails, up to four messages the peer already sent are
+read within 0.5 s, and a Disconnect among them ends the session as that
+RLPX-DISCONNECT; peer.dial.failed and p2p.peer.session_failed carry
+disconnectReason and count it as rlpx-disconnect-N (control: a peer that
+closes without one leaves the write failure). Our own work on a session
+thread -- serving from our chain, admitting what the peer delivered, the
+gap fill's imports, a chain update or broadcast -- turns an untyped error into
+ETH-PEER-INTERNAL-ERROR, logged as peer.session.internal_error at error
+level and never charged; a plain ERROR elsewhere on the session is still a
+message we could not decode (-25). The snap loopback case runs its controls
+(a broken pipe, a remote Disconnect, our defect) on the same session first,
+and a well-formed block that executes INVALID still ends nothing
+(DEVNET-PEER-SESSION-OUTLIVES-AN-INVALID-VERDICT-FROM-ITS-GAP-FILL). The
+record is `docs/evidence/sec5-peer-parity-2.txt`.
+
 ### Hoodi differential replay
 
 EEST loads every slot into an in-memory state and holds none of Hoodi's

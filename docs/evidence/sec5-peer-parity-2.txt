@@ -1,0 +1,326 @@
+Section 5: peer handling parity leftovers (invalid snap answers, lost
+transports, the reason a peer gave, our own defects)
+
+Status
+
+Branch peer-parity-2, from 3c0cfeab
+(3c0cfeabbf80f3b9e951572856e179f570986df4). Five leftovers from the "Out of scope" and "Not
+verified" sections of sec5-peer-attribution.txt (D7, the unread Disconnect,
+the local-versus-decoder ambiguity) and sec5-robustness-followups.txt (the
+account-range and TrieNodes verification failures). Reproduced and fixed
+locally; RED before GREEN for each. Not deployed, no live run, no cold-all
+(the coordinator runs it once at the end). No execution, gas, state, root or
+receipt code changed, so EEST, ported_static, the Hoodi fixtures and the
+Hoodi replay were not run (the brief says so too).
+
+Revision
+
+  6284d463  p2p: charge a peer only for its own bad data, and name why it left
+            (6284d463fe86f9d6fcfe5748a7a29a266ab79a68)
+  (the commit adding this record follows it)
+
+Reference: go-ethereum v1.17.6 (references/go-ethereum, version/version.go
+1.17.6-unstable), cited by function.
+
+================================================================================
+1. Live evidence (read-only, docker logs of exited containers)
+================================================================================
+
+ event / class                               1a7b9059        f8c882bc
+                                             (33 min)        (10 h, 04:58-15:06Z)
+ ------------------------------------------  --------------  --------------
+ peer.dial.failed                              1,821           5,642
+   "Couldn't write ... Broken pipe"               23              53
+   remote Disconnect (reasons 0/2/3/4/16)   8/11/6/1510/1   25/18/31/4541/17
+ p2p.peer.session_failed (inbound)             1,016           8,720
+   "Couldn't write ..."                            0              20
+   remote Disconnect (reasons 3/4/11/16)     1/27/0/0      2/226/6/15
+   reason token counted                   class names     simple-error 8314,
+                                                          rlpx-disconnect 249,
+                                                          rlpx-stream-ended 133
+ peer.sync.source_penalty                          0               3
+   (all three MALFORMED "peer returned 0 headers for requested N", -50)
+ peer.snap.import_failed                           0               0
+
+So: 53 dialed and 20 accepted write failures at f8c882bc (23 dialed at
+1a7b9059) name no reason (item 3); 249 inbound Disconnects were counted as one metric label whatever the
+peer said. The downloader's :FAILED charge (item 2) and the snap import's
+-50 (items 1 and 4) were not hit in either run; they are fixed from the code
+and the geth comparison, not from an observed ban. f8c882bc exited 1 at
+15:06:54Z on "KV txpool record: Max fee per blob gas below blob base fee"
+(out of scope here; reported).
+
+================================================================================
+2. The five items, against geth v1.17.6
+================================================================================
+
+1. An invalid account range or TrieNodes answer from the page's own peer.
+   Before: snap-sync-prepare-account-page-range raised the range-proof
+   failure (MPT-VERIFY-RANGE-PROOF) and "Snap account response id mismatch"
+   as plain ERRORs; the healer's HANDLE-RESULT raised "Snap peer returned an
+   unrequested healing node" (and a node that does not decode) as plain
+   ERRORs, and snap-sync-heal-request-chunk a TrieNodes id mismatch. Each
+   reached DEVNET-NODE-SNAP-IMPORT-WITH-FAILOVER's :ON-SOURCE-ERROR generic
+   branch: peer.snap.import_failed, -50, session kept.
+   geth: eth/protocols/snap/sync.go OnAccounts ("Account range failed
+   proof", returns err) and OnTrieNodes ("Unexpected healing trienodes",
+   returns errors.New("unexpected healing trienode")); snap/handler.go
+   Handle returns the error and the peer is disconnected. An empty answer
+   (statelessPeers) and a node the peer simply lacks are not errors.
+   Fix: both verifications run inside SNAP-SYNC-CALL-VERIFYING-RESPONSE
+   (kinds "account-range", "trie-nodes"), so they are
+   SNAP-SYNC-INVALID-RESPONSE; an empty answer stays
+   SNAP-SYNC-STATE-UNAVAILABLE and a local storage fault keeps its type.
+   :ON-SOURCE-ERROR ends the session through
+   DEVNET-PEER-END-SESSION-FOR-INVALID-DELIVERY (Disconnect 16 on the
+   session's own writer, charged -25 at its end), as the pooled dependency
+   path already did for StorageRanges and ByteCodes.
+
+2. The multi-peer downloader's :FAILED penalty.
+   Before: ETH-SYNC-FETCH-DELIVERY turned every non-malformed failure into
+   :FAILED and the main loop charged -25, whatever it was: a stream error, a
+   remote Disconnect, a request queue closed under the request.
+   geth: eth/downloader/fetchers_concurrent.go -- a request whose send fails
+   is unreserved ("the peer was disconnected in between assignment and
+   network send"), a peer that leaves has its pending request returned to
+   the queue; no score exists at all.
+   Fix: ETH-SYNC-DELIVERY-FAILURE-KIND. :LOST for ETH-SYNC-TRANSPORT-LOSS-P
+   (STREAM-ERROR, socket error, SB-EXT:TIMEOUT, RLPX-DISCONNECT, the new
+   ETH-SYNC-SOURCE-LOST mixin that DEVNET-PEER-REQUEST-QUEUE-CLOSED and
+   DEVNET-PEER-REQUEST-ABANDONED now inherit, and an
+   ETH-SYNC-PEER-TRANSPORT-ERROR judged by its cause); :INTERNAL for
+   ETH-PEER-INTERNAL-ERROR; both uncharged. The source still leaves the
+   download (the event marks it, as geth's departed peer). :FAILED -25
+   remains for a reply we could not accept; :MALFORMED -50 and :TIMEOUT -10
+   are unchanged.
+
+3. The Disconnect a peer sent before our write failed.
+   Before: a write that met a closed socket signalled SBCL's "Couldn't write
+   ... Broken pipe" and the session ended there; a Disconnect the peer had
+   written before closing sat unread.
+   geth writes the reason and then closes (p2p/transport.go
+   rlpxTransport.close: t.conn.Write(discMsg, ...) under a write deadline,
+   then t.conn.Close()), so the reason is on the wire before the close.
+   Fix: RLPX-CONNECTION-WRITE-MESSAGE re-signals a stream failure as
+   RLPX-WRITE-FAILED (a STREAM-ERROR, so every classification by that type
+   holds). CALL-WITH-ETH-PEER-DISCONNECT-DRAIN, around the session pump and
+   around the Hello (uncompressed) and Status exchanges, reads on a write
+   failure at most four messages the peer already sent, within 0.5 s under
+   SB-SYS:WITH-DEADLINE, never writing, and ends the session with the
+   RLPX-DISCONNECT it finds (the write failure attached: "peer sent devp2p
+   Disconnect (reason 4) before our write failed: ..."). Without one the
+   original condition goes on. peer.dial.failed and p2p.peer.session_failed
+   now carry "reason" and "disconnectReason"; the session-failure metric
+   label is rlpx-disconnect-N for a Disconnect, else the class name.
+
+4. The snap import's per-peer scoring on :ON-SOURCE-ERROR.
+   Before: every condition not classified above (unavailable state, an
+   exhausted pool, a closed queue, a storage fault) took the generic branch,
+   -50: a broken pipe from a failed write, a remote Disconnect, or a defect
+   of ours alike.
+   Fix: classified the way item 2 classifies: an invalid answer ends the
+   session (item 1); a lost transport logs peer.snap.source_lost; anything
+   left logs peer.snap.internal_error at error level. None scores. Every
+   check of what a peer sent is typed now (account, storage, bytecode and
+   trie-node verification), and a message the session could not decode ends
+   the session before any worker sees it (queue closed), so what remains at
+   the generic branch is ours.
+
+5. Plain ERRORs that escape a peer session and were charged as decoder
+   errors. The audit, by file (session-thread paths only):
+
+   Peer's, still charged (-25 at the session's end), unchanged:
+     protocol/p2p/connection.lisp  frame/MAC/size, chunking, Snappy and
+       message-size errors of RLPX-CONNECTION-READ-MESSAGE
+     protocol/p2p/session.lisp  a message id outside every negotiated
+       range; an unexpected first message
+     networking/eth-sync/peer.lisp  unexpected base-protocol ids; unsolicited
+       or unexpected snap responses; "no snap/1 response ... after 256"
+     networking/eth-sync/fetch.lisp  "no reply of eth id ... after 256"
+     networking/eth-sync/serve.lisp, gossip.lisp  GetBlockAccessLists before
+       eth/71, GetCells before eth/72, BlockRangeUpdate before eth/69
+     every decode-eth-* / decode-snap-message / RLP decoder
+     networking/snap-sync/backend.lisp  a request bound over 32 bytes, an
+       empty TrieNodes path set (the peer's request)
+   The peer's, now typed ETH-PEER-PROTOCOL-ERROR (so also Disconnect 16):
+     serve.lisp  a first receipt index that is negative or beyond the block
+   Ours, now typed and uncharged:
+     peer.lisp  eth/snap send guards ("not negotiated", "outside the
+       negotiated range") -> ETH-PEER-INTERNAL-FAIL
+     serve.lisp  building every eth answer (headers, bodies, receipts, BALs,
+       cells, the "custody mask" check) -> local work
+     gossip.lisp  the accept-transactions predicate, known-transaction
+       lookups, batch and blob admission, propagated-block admission,
+       serving GetPooledTransactions -> local work; "no blob admission is
+       configured" -> ETH-PEER-INTERNAL-FAIL
+     pump.lisp  choosing and sending a broadcast, preparing and sending a
+       chain update -> local work
+     cli/devnet/dialer.lisp  the gap fill's known-block lookups and imports
+       -> local work (verdicts, BLOCK-EXECUTION-INTERNAL-ERROR and storage
+       faults keep their types)
+     snap-sync/backend.lisp  a served storage trie that does not match its
+       account, a code record that does not match its hash -> STORAGE-FAIL
+       (a local storage fault, already uncharged)
+     snap import :ON-SOURCE-ERROR, generic branch -> peer.snap.internal_error
+   Fix: CALL-WITH-ETH-PEER-LOCAL-WORK re-signals an error of a class this
+   project did not define (ETH-PEER-UNTYPED-ERROR-P: not a transport
+   failure, and not named in an ETHEREUM-LISP package) as
+   ETH-PEER-INTERNAL-ERROR (OPERATION, CAUSE); anything typed passes through,
+   a failed write included. The session still ends (the thread cannot tell
+   how far the work got), DEVNET-PEER-SESSION-END-CHARGES-PEER-P does not
+   charge it, and DEVNET-PEER-RUN-SESSION logs peer.session.internal_error
+   at error level with the operation.
+
+================================================================================
+3. Reproduction and verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0 (before the first run).
+
+New tests:
+  SNAP-ACCOUNT-RANGE-THAT-FAILS-ITS-PROOF-IS-AN-INVALID-RESPONSE
+    (integration, snap-tests.lisp): a real persistent snap backend's page
+    with one account body replaced is SNAP-SYNC-INVALID-RESPONSE
+    "account-range"; so is a wrong response id; controls: the honest page
+    verifies, an empty answer is STATE-UNAVAILABLE.
+  SNAP-TRIE-NODES-THAT-FAIL-VERIFICATION-ARE-AN-INVALID-RESPONSE
+    (integration): the healer over a durable one-leaf frontier reports an
+    unrequested node, and a wrong id, as SNAP-SYNC-INVALID-RESPONSE to
+    :ON-SOURCE-ERROR; controls: the requested node heals, an empty answer is
+    STATE-UNAVAILABLE.
+  DEVNET-PEER-SESSION-ENDS-ON-A-SNAP-RESPONSE-THAT-FAILS-VERIFICATION
+    (integration, loopback, real dialed session): through the shipped
+    :ON-SOURCE-ERROR, a broken pipe, a transport error wrapping Disconnect 4
+    and an untyped local error leave the session intact at score 0 (two
+    peer.snap.source_lost, one error-level peer.snap.internal_error); then an
+    invalid account-range answer ends it: queue closed, score -25, one
+    peer.session.invalid_delivery, and the serving peer read Disconnect 16.
+  ETH-SYNC-MULTI-PEER-CHARGES-NO-SOURCE-FOR-A-LOST-TRANSPORT (unit): a
+    broken pipe, Disconnect 4, a transport error wrapping Disconnect 3,
+    RLPX-WRITE-FAILED and ETH-SYNC-SOURCE-LOST are :LOST with no penalty, our
+    defect :INTERNAL with none; controls: a protocol violation, bare or
+    wrapped, is (:FAILED -25).
+  DEVNET-PEER-DOWNLOAD-CHARGES-NOTHING-FOR-A-PEER-THAT-HANGS-UP (integration,
+    loopback): the serving peer closes its socket when asked for block 1;
+    the download fails over to nobody, the session ends, score 0, no
+    peer.sync.source_penalty.
+  DEVNET-PEER-SESSION-READS-THE-DISCONNECT-SENT-BEFORE-OUR-WRITE-FAILED
+    (integration, loopback): our job sends GetBlockHeaders(5) and keeps
+    writing Pings; the peer sends Disconnect 4 and closes. The job meets the
+    failed write; peer.dial.failed carries disconnectReason 4, reason
+    rlpx-disconnect-4 and "before our write failed"; score 0. Control, a
+    second session: a peer that closes without a Disconnect leaves reason
+    rlpx-write-failed and no disconnectReason.
+  DEVNET-PEER-SESSION-END-DOES-NOT-CHARGE-A-DEFECT-IN-OUR-SERVING
+    (integration, loopback): while our job awaits block 9, the peer asks us
+    for headers and serving them raises a TYPE-ERROR of ours: the session
+    ends, score 0, one error-level peer.session.internal_error, the job's
+    condition is ETH-PEER-INTERNAL-ERROR "serving GetBlockHeaders".
+  ETH-PEER-LOCAL-WORK-TYPES-ONLY-OUR-OWN-UNTYPED-FAILURES (unit): TYPE-ERROR,
+    SIMPLE-ERROR and DIVISION-BY-ZERO become ETH-PEER-INTERNAL-ERROR; a broken
+    pipe, RLPX-DISCONNECT, ETH-PEER-PROTOCOL-ERROR, STORAGE-ERROR and an
+    INVALID verdict pass through unchanged; the typed defect charges 0 and a
+    decoder's plain ERROR still -25; the failure-reason tokens.
+Changed positive controls (they pinned the old -50 for a plain error):
+  DEVNET-SNAP-SOURCE-POOL-EXHAUSTION-SCORES-NO-SINGLE-PEER: the page's own
+    invalid answer ends its session; a broken pipe logs source_lost; a plain
+    error logs an error-level internal_error; all score 0.
+  DEVNET-SNAP-QUEUE-CLOSE-LIFECYCLE-DRIVES-THE-IMPORT-CALLBACK: the invalid
+    answer logs peer.session.invalid_delivery, no import_failed.
+
+RED at 3c0cfeab: the src files this commit changes restored with git
+checkout 3c0cfeab and touched, the branch's src/packages/*.lisp and tests
+kept, fresh warm image, `cl-workbench test NAME`, each EXIT=1:
+  SNAP-ACCOUNT-RANGE-THAT-FAILS-...   "(TYPEP CONDITION
+                                      'SNAP-SYNC-INVALID-RESPONSE)"
+  SNAP-TRIE-NODES-THAT-FAIL-...       "(TYPEP (FIRST CONDITIONS)
+                                      'SNAP-SYNC-INVALID-RESPONSE)"
+  DEVNET-PEER-SESSION-ENDS-ON-A-SNAP-...
+                                      "(PEER-ATTRIBUTION-SESSION-INTACT-P
+                                      CLIENT ENTRY)": the controls had cost
+                                      the peer
+  ETH-SYNC-MULTI-PEER-CHARGES-NO-SOURCE-...
+                                      "(NULL PENALTIES)" on the broken pipe
+  DEVNET-PEER-DOWNLOAD-CHARGES-NOTHING-...
+                                      "(= 0 (DEVNET-PEER-SCORE ...))" (-25)
+  DEVNET-PEER-SESSION-READS-THE-DISCONNECT-...
+                                      "(EQUAL \"4\" (SECOND (MEMBER
+                                      \"disconnectReason\" FIELDS ...)))"
+  DEVNET-PEER-SESSION-END-DOES-NOT-CHARGE-A-DEFECT-...
+                                      "(= 0 (DEVNET-PEER-SCORE ...))" (-25)
+  DEVNET-SNAP-SOURCE-POOL-EXHAUSTION-... "(EQUAL (LIST (GETF INVALID
+                                      :ENTRY)) (GETF INVALID :ENDED))"
+  DEVNET-SNAP-QUEUE-CLOSE-LIFECYCLE-... "(= 1 (COUNT
+                                      \"peer.session.invalid_delivery\" ...))"
+  Structural (a type the base does not define):
+  ETH-PEER-LOCAL-WORK-TYPES-...       "unknown type specifier:
+                                      ETH-PEER-INTERNAL-ERROR"
+GREEN (fresh warm image, branch source): the ten above, and
+  DEVNET-PEER-SESSION-OUTLIVES-AN-INVALID-VERDICT-FROM-ITS-GAP-FILL (the
+  well-formed-but-INVALID control), DEVNET-PEER-SESSION-END-CHARGES-ONLY-
+  WHAT-THE-PEER-SENT, DEVNET-PEER-SESSION-OUTLIVES-AN-INTERNAL-EXECUTION-
+  ERROR-FROM-ITS-GAP-FILL, DEVNET-GOSSIPED-BLOCK-INTERNAL-EXECUTION-ERROR-
+  STAYS-ON-THE-SESSION, DEVNET-PEER-SESSION-ENDS-ON-A-GAP-FILL-BODY-THAT-
+  CONTRADICTS-ITS-HEADER, DEVNET-PEER-SESSION-ENDS-ON-A-DOWNLOADED-BODY-THAT-
+  CONTRADICTS-ITS-HEADER, DEVNET-SNAP-SOURCE-POOL-ENDS-THE-SESSION-OF-AN-
+  INVALID-DEPENDENCY-RESPONSE, DEVNET-PEER-INVALID-DELIVERY-IS-CHARGED-ONCE,
+  DEVNET-PEER-SESSION-OUTLIVES-A-DOWNLOAD-ABORTED-WITH-ITS-REQUEST-IN-FLIGHT,
+  SNAP-DEPENDENCY-RESPONSE-THAT-FAILS-VERIFICATION-IS-AN-INVALID-RESPONSE:
+  each EXIT=0.
+
+Cold, on a tree whose src, tests and scripts equal 6284d463 (logs
+redirected to files, each test name once, no WARNING from /workspace/src):
+  cl-workbench validation run cold-unit --match PEER --match SNAP
+    --match DIAL --match RLPX --match ETH-SYNC --match ETH- --match GOSSIP
+    --match PUMP --match P2P --match OBSERVABILITY --match ARCHITECTURE
+    --match PACKAGE
+      507 tests passed, 0 not ok, EXIT=0 (the new unit tests and
+      PROJECT-PACKAGE-DEPENDENCY-GRAPH-IS-ACYCLIC by name).
+  cl-workbench validation run cold-integration --match DEVNET-PEER
+    --match DEVNET-DIAL --match DEVNET-SNAP --match ETH-SYNC
+    --match DEVNET-SYNC-COORDINATOR --match SNAP-ACCOUNT-RANGE-THAT
+    --match SNAP-TRIE-NODES-THAT --match DEVNET-INBOUND
+    --match DEVNET-LISTENER --match HOODI-LIVE-GATE-SELFTEST
+    --match SNAP-STATE-HEALER --match SNAP-STATE-IMPORT --match RLPX
+      106 tests passed, 0 not ok, EXIT=0 (every new integration test by
+      name; "hoodi-live-gate selftest: 172 checks, 0 failed" for the three
+      event names the gate now counts).
+  cl-workbench validation run cold-integration --match SNAP- --match GOSSIP
+    --match ETH- --match P2P --match SERVE --match DEVNET-BROADCAST
+    --match DEVNET-RANGE --match BLOB
+      195 tests passed, 0 not ok, EXIT=0 (the snap verifiers, serving and
+      gossip changed).
+  cl-workbench validation run cold-e2e --match DEVNET-SMOKE-GATE --match P2P
+    --match PEER
+      6 tests passed, 0 not ok, EXIT=0.
+
+================================================================================
+4. Not verified
+================================================================================
+
+- Live: nothing deployed. The next Hoodi run should show "before our write
+  failed" with a disconnectReason on most of the early broken pipes, the
+  session-failure metric split by rlpx-disconnect-N, and no
+  peer.snap.import_failed (the event is gone; peer.snap.source_lost,
+  peer.snap.internal_error and peer.session.internal_error are counted by
+  scripts/hoodi-live-gate.sh logs).
+- Whether Linux keeps a peer's last bytes readable after its RST on every
+  path is not proven beyond the loopback test (the drain reads what the
+  kernel and the stream buffer still hold; nothing else).
+- A protocol violation found while the downloader waited on a reply is still
+  charged twice: -25 by the downloader (:FAILED) and -25 at the session's
+  end. Pre-existing; geth keeps no score and simply disconnects.
+- An ETH-PEER-INTERNAL-ERROR from the gap fill's import reaches the sync
+  coordinator exactly as the untyped error it replaces did; containing our
+  defects there is sec5-sync-outcomes-nonfatal.txt's policy, not changed.
+- Snap serving's request callbacks are not wrapped as local work: they mix
+  checks of the peer's request with reads of our state, so only the two
+  integrity checks of our own state were retyped (as storage faults).
+- The snap pool's cooldown and degraded capability after a lost dependency
+  transport (DEVNET-SNAP-SOURCE-POOL-FAIL-AND-RELEASE) are unchanged; the
+  pool never scored.
+- The pivot probe's "Snap account probe response id mismatch" is not typed
+  (the probe logs peer.snap.pivot_probe_failed and scores nobody).
+- EEST, ported_static, the Hoodi fixtures and replay were not run: no
+  execution, gas, state, root or receipt code changed. cold-all was not run
+  (fleet rule; the coordinator runs it).
