@@ -1,48 +1,32 @@
 (in-package #:ethereum-lisp.node-store.persistence)
 
-(defun chain-store-export-invalid-tipset-to-kv
-    (database batch tipset-key invalid-block)
-  (declare (ignore tipset-key))
-  (node-store-put-immutable-block-body-record
-   database batch :invalid-tipset invalid-block "Invalid block"
-   :allow-missing-committed-p t))
+;;;; INVALID verdicts are never written.
+;;;;
+;;;; A verdict describes the binary that reached it as much as the block: a
+;;;; client defect produces one as readily as a bad block does.  go-ethereum
+;;;; v1.17 keeps its Engine verdicts in memory only (eth/catalyst/api.go
+;;;; invalidTipsets, invalidBlocksHits); the bad blocks it writes to disk
+;;;; (rawdb.WriteBadBlock) serve debug_getBadBlocks and are never consulted on
+;;;; import.  This file only removes the :INVALID-TIPSET records earlier
+;;;; revisions wrote, together with the block-access-list side data they
+;;;; alone owned.  Hoodi, 2026-09-24: a persisted verdict refused a canonical
+;;;; block after the fixing upgrade (60fb6e91), and the attempt to persist one
+;;;; for a block the snap history backfill had made known stopped the node.
 
-(defun chain-store-invalid-tipset-direct-key-p
-    (tipset-key invalid-block)
-  (string= tipset-key
-           (engine-payload-store-key (block-hash invalid-block))))
+(defun chain-store-populate-invalid-tipset-deletion-batch
+    (store database batch &key authoritative-p)
+  "Delete legacy :INVALID-TIPSET records into BATCH.
 
-(defun chain-store-invalid-tipset-exportable-p
-    (store tipset-key invalid-block)
-  (let ((invalid-hash (block-hash invalid-block)))
-    (and (chain-store-invalid-tipset-direct-key-p tipset-key invalid-block)
-         (not (chain-store-known-block store invalid-hash)))))
-
-(defun chain-store-populate-invalid-tipset-export-batch
-    (store database batch &key authoritative-p (write-current-p t))
+AUTHORITATIVE-P deletes every such record (a full export); otherwise only the
+keys this process evicted from its verdict cache while tracking durable cache
+changes are deleted, which can only name a legacy record.  Returns CHANGED-P
+and the deleted identifiers."
   (setf store (chain-store-require-memory-store store))
-  (let ((current-keys (make-hash-table :test 'equalp))
-        (deleted-keys (make-hash-table :test 'equalp))
+  (let ((deleted-keys (make-hash-table :test 'equalp))
         (changed-p nil))
-    (when write-current-p
-      (maphash
-       (lambda (tipset-key invalid-block)
-         (if (chain-store-invalid-tipset-exportable-p
-              store tipset-key invalid-block)
-             (progn
-               (setf (gethash tipset-key current-keys) t)
-               (when (chain-store-export-invalid-tipset-to-kv
-                      database batch tipset-key invalid-block)
-                 (setf changed-p t)))
-             (when (chain-store-invalid-tipset-direct-key-p
-                    tipset-key invalid-block)
-               (setf (gethash tipset-key deleted-keys) t))))
-       (memory-chain-store-invalid-tipsets store)))
     (when authoritative-p
       (dolist (entry (kv-chain-record-entries database :invalid-tipset))
-        (let ((key (bytes-to-hex (car entry))))
-          (unless (gethash key current-keys)
-            (setf (gethash key deleted-keys) t)))))
+        (setf (gethash (bytes-to-hex (car entry)) deleted-keys) t)))
     (maphash
      (lambda (tipset-key marker)
        (declare (ignore marker))
@@ -82,17 +66,13 @@ same batch are not allowed to masquerade as owners."
         (unless
             (let* ((key (bytes-to-hex identifier))
                    (blocks (memory-chain-store-blocks store))
-                   (remotes (memory-chain-store-remote-blocks store))
-                   (invalids (memory-chain-store-invalid-tipsets store)))
+                   (remotes (memory-chain-store-remote-blocks store)))
               (or
-               ;; Same-batch candidate/invalid/remote writes are already visible
-               ;; in memory even though point reads cannot see them yet.
+               ;; Same-batch candidate/remote writes are already visible in
+               ;; memory even though point reads cannot see them yet.  An
+               ;; in-memory INVALID verdict owns nothing durable.
                (gethash key blocks)
                (gethash key remotes)
-               (let ((invalid-block (gethash key invalids)))
-                 (and invalid-block
-                      (chain-store-invalid-tipset-direct-key-p
-                       key invalid-block)))
                (durable-owner-p :block identifier)
                (durable-owner-p :staged-block identifier)
                (and (not (scheduled-p identifier deleted-remote-identifiers))
@@ -105,14 +85,16 @@ same batch are not allowed to masquerade as owners."
             (setf changed-p t)))))
     changed-p))
 
-(defun chain-store-export-invalid-tipsets-to-kv (store database)
+(defun chain-store-sweep-invalid-tipsets-from-kv (store database)
+  "Delete every legacy :INVALID-TIPSET record and the BAL side data it alone
+owned, in one batch."
   (engine-payload-store-enable-durable-cache-change-tracking store)
   (let ((deleted-identifiers nil))
     (chain-store-apply-export-batch
      store database "invalid-tipset"
      (lambda (current-store current-database batch)
        (multiple-value-bind (changed-p deleted)
-           (chain-store-populate-invalid-tipset-export-batch
+           (chain-store-populate-invalid-tipset-deletion-batch
             current-store current-database batch :authoritative-p t)
          (setf deleted-identifiers deleted)
          (when (node-store-populate-evicted-remote-bal-cleanup-batch

@@ -169,7 +169,7 @@
                      (block-hash (chain-store-head-block store)))
                     (hash32-bytes (block-hash parent-block))))))))
 
-(deftest engine-rpc-new-payload-persistence-persists-syncing-and-invalid-cleanup
+(deftest engine-rpc-new-payload-persistence-persists-syncing-but-not-invalid
   (let* ((config (make-chain-config :london-block 0))
          (address
            (address-from-hex "0x0000000000000000000000000000000000000001"))
@@ -229,12 +229,7 @@
              (ecase candidate-kind
                (:buffered
                 (is (engine-payload-store-remote-block
-                     current-store (block-hash candidate))))
-               (:invalid
-                (is (engine-payload-store-invalid-block
-                     current-store (block-hash candidate)))
-                (is (null (engine-payload-store-remote-block
-                           current-store (block-hash candidate)))))))))
+                     current-store (block-hash candidate))))))))
     (engine-payload-store-put-block store parent-block :state-available-p t)
     (let* ((syncing-response
              (engine-rpc-handle-request
@@ -261,9 +256,11 @@
       (is (string= +payload-status-invalid+
                    (new-payload-persistence-test-field invalid-status
                                                        "status")))
-      (is (= 2 calls))
-      (is (eq :invalid observed-kind))
-      (is (string= +payload-status-invalid+ observed-status)))))
+      ;; INVALID is process-local: the persistence callback does not run.
+      (is (= 1 calls))
+      (is (eq :buffered observed-kind))
+      (is (engine-payload-store-invalid-block
+           store (block-hash invalid-child-block))))))
 
 (deftest engine-rpc-new-payload-persistence-runs-for-known-valid-replay
   (multiple-value-bind (store config parent-block child-block)

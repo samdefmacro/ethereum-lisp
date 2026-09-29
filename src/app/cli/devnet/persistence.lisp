@@ -101,6 +101,11 @@ past the metadata that actually exists on disk."
         (devnet-cli-call-with-retryable-file-write
          "New payload persistence"
          (lambda ()
+           ;; There is no :INVALID kind: a verdict is never persisted (see
+           ;; BLOCK-IMPORT-MARK-INVALID-FOR-HEAD).  Persisting one stopped
+           ;; the node on Hoodi once the snap history backfill had made the
+           ;; rejected block known, and a restored one refused a canonical
+           ;; block after an upgrade.
            (ecase candidate-kind
              (:executed
               (node-store-export-payload-candidate-to-kv
@@ -121,13 +126,7 @@ past the metadata that actually exists on disk."
               ;; route from turning the exporter's refusal into a node exit.
               (unless (chain-store-known-block store (block-hash candidate))
                 (node-store-export-buffered-candidate-to-kv
-                 store candidate database)))
-             (:invalid
-              (when progress
-                (block-validation-fail
-                 "Invalid candidate cannot advance peer sync progress"))
-              (node-store-export-invalid-candidate-to-kv
-               store candidate database)))))))))
+                 store candidate database))))))))))
 
 (defun devnet-cli-peer-sync-progress-function
     (database-path &optional (engine :file))

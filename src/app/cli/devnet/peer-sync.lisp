@@ -575,10 +575,10 @@ would replace committed data with NIL."
 
 (define-condition devnet-peer-sync-invalid (block-validation-error) ()
   (:documentation
-   "A peer range executed to a durable deterministic INVALID verdict.
+   "A peer range executed to a deterministic INVALID verdict.
 
-The verdict is already installed in the payload store and, when configured,
-persisted before this condition is signaled.  Sync coordinators may therefore
+The verdict is already installed in this process's payload store (it is never
+persisted) before this condition is signaled.  Sync coordinators may therefore
 stop the rejected branch without treating it as a node-fatal implementation or
 storage failure; subsequent Engine requests can read the cached verdict."))
 
@@ -736,15 +736,9 @@ hold back. Returns the blocks still to import."
                            (- (get-internal-real-time) started-at))
                      (when (string= +payload-status-invalid+
                                     (payload-status-status status))
-                       ;; An invalid intermediate block did not receive the
-                       ;; last-candidate callback. Preserve its deterministic
-                       ;; verdict and the CL-head alias in this transaction,
-                       ;; then stop before admitting descendants.
-                       (when (and (not last-p) durability-function)
-                         (funcall durability-function
-                                  store block :source :p2p
-                                  :candidate-kind :invalid
-                                  :payload-status status))
+                       ;; The verdict and the CL-head alias are already in
+                       ;; this process's cache (never on disk). Commit the
+                       ;; blocks before it and stop before its descendants.
                        (setf invalid-status status
                              invalid-block block)
                        (loop-finish)))

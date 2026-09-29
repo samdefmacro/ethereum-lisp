@@ -299,18 +299,11 @@
                                           (block-header candidate)))
                                    (execute-and-commit-engine-payload
                                     current-store candidate current-config))
+                                 ;; INVALID is process-local: never persisted.
                                  :new-payload-persistence-function
-                                 (lambda (current-store candidate
-                                          &key candidate-kind payload-status
-                                            &allow-other-keys)
-                                   (incf persistence-calls)
-                                   (is (eq :invalid candidate-kind))
-                                   (is (string= +payload-status-invalid+
-                                                (payload-status-status
-                                                 payload-status)))
-                                   (is (engine-payload-store-invalid-block
-                                        current-store
-                                        (block-hash candidate))))))
+                                 (lambda (&rest arguments)
+                                   (declare (ignore arguments))
+                                   (incf persistence-calls))))
                               (result (field response "result")))
                          (is (not (string=
                                    (hash32-to-hex correct-block-hash)
@@ -322,7 +315,7 @@
                          (is (string=
                               (hash32-to-hex (block-hash parent-block))
                               (field result "latestValidHash")))
-                         (is (= 1 persistence-calls))
+                         (is (= 0 persistence-calls))
                          (assert-no-candidate-projection
                           store bad-block-hash)
                          (assert-no-candidate-projection

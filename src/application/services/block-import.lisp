@@ -271,7 +271,7 @@ rollback boundary and calls durability only after this function has completed."
     ;; kind: a durable adapter must select its remote-block/sync-target exporter
     ;; instead of the stateful candidate exporter.
     (if (or progress-supplied-p
-            (member candidate-kind '(:buffered :invalid)))
+            (eq candidate-kind :buffered))
         (apply function
                store
                candidate
@@ -328,12 +328,15 @@ the legacy two arguments (STORE CANDIDATE).  PROGRESS opts into :SOURCE,
        condition)))))
 
 (defun block-import-mark-invalid-for-head (store block invalid-head-hash)
-  "Cache BLOCK's own verdict and an optional bounded-sync head alias."
-  ;; The durability adapter exports an invalid candidate by BLOCK's own hash,
-  ;; while Engine needs the CL-authorized descendant hash to resolve the same
-  ;; verdict after gap fill stopped before admitting the intervening bodies.
-  ;; Keep both keys inside this import transaction; storing only the alias
-  ;; violates the exporter invariant and rolls the whole verdict back.
+  "Cache BLOCK's own verdict and an optional bounded-sync head alias.
+
+The verdict is process-local and is never persisted: a client defect produces
+one as readily as a bad block does, so a new process re-executes the block
+(go-ethereum v1.17 keeps its Engine verdicts, eth/catalyst/api.go
+invalidTipsets and invalidBlocksHits, in memory only)."
+  ;; Engine needs the CL-authorized descendant hash to resolve the same verdict
+  ;; after gap fill stopped before admitting the intervening bodies, so the
+  ;; alias is kept next to BLOCK's own key.
   (engine-payload-store-mark-invalid store block)
   (when (and invalid-head-hash
              (not (hash32= invalid-head-hash (block-hash block))))
@@ -422,8 +425,9 @@ the typed canonical header/body and lets execution derive and verify those
 commitments.  Missing-parent and missing-state blocks are durably buffered and
 return SYNCING or ACCEPTED.  INVALID-HEAD-HASH, when supplied by a bounded
 consensus sync, aliases a deterministic invalid ancestor to that sync head in
-the same durable transaction.  Deterministic consensus failures return INVALID;
-storage, capability, and unknown program failures propagate and roll back.
+this process's verdict cache.  Deterministic consensus failures return INVALID
+and run no durability callback; storage, capability, and unknown program
+failures propagate and roll back.
 
 Returns PAYLOAD-STATUS, candidate block, and receipts."
   (block-import-ensure-function durability-function
@@ -557,13 +561,9 @@ Returns PAYLOAD-STATUS, candidate block, and receipts."
                 durability-function store candidate :p2p
                 (block-import-status-candidate-kind status)
                 status progress progress-supplied-p))
-             ;; This common path also covers a cached self/ancestor verdict.  It
-             ;; lets a durable adapter remove a stale buffered copy even when no
-             ;; execution is attempted on this replay.
-             (when (string= +payload-status-invalid+
-                            (payload-status-status status))
-               (block-import-call-candidate-durability
-                durability-function store block :p2p :invalid status nil nil))
+             ;; INVALID is not durable: the verdict lives in this process only
+             ;; (see BLOCK-IMPORT-MARK-INVALID-FOR-HEAD), so no durability
+             ;; callback runs for it.
              (values status candidate receipts))))))))
 
 (defun import-executable-payload
@@ -592,11 +592,10 @@ never converted into INVALID payload verdicts."
      (let ((kernel-ran-p nil)
            (imported-receipts nil)
            (wire-block nil))
-       ;; Keep the typed block available even when the memory status later
-       ;; returns INVALID.  The durability sink then can atomically remove a
-       ;; previously buffered record for the same hash.  This preflight has no
-       ;; store mutation; the status layer repeats its own defense-in-depth
-       ;; checks below.
+       ;; Decode the typed block before the status layer so its sidecar can be
+       ;; validated outside the consensus-invalid classifier.  This preflight
+       ;; has no store mutation; the status layer repeats its own
+       ;; defense-in-depth checks below.
        (multiple-value-bind (wire-status decoded-block)
            (apply
             #'engine-new-payload-version-status
@@ -683,12 +682,7 @@ never converted into INVALID payload verdicts."
                   status
                   progress
                   progress-supplied-p))
-               (when (and wire-block
-                          (string= +payload-status-invalid+
-                                   (payload-status-status status)))
-                 (block-import-call-candidate-durability
-                  durability-function store wire-block source :invalid status
-                  nil nil))
+               ;; An INVALID verdict stays in this process: no durability.
                (values status candidate returned-receipts)))))))))
 
 (defun block-import-normalize-block-hash (block-or-hash)

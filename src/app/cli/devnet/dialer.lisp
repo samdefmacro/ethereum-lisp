@@ -2320,6 +2320,63 @@ every tail block already executed stay durable, and the coordinator's next
 pass resumes the tail from the first block without state. A deterministic
 INVALID verdict ends the phase as DEVNET-PEER-SYNC-INVALID instead."))
 
+(define-condition devnet-snap-state-incomplete (error)
+  ((pivot-number :initarg :pivot-number
+                 :reader devnet-snap-state-incomplete-pivot-number)
+   (pivot-hash :initarg :pivot-hash
+               :reader devnet-snap-state-incomplete-pivot-hash))
+  (:report
+   (lambda (condition stream)
+     (format stream "Snap pivot ~D (~A) state import returned before completion"
+             (devnet-snap-state-incomplete-pivot-number condition)
+             (hash32-to-hex (devnet-snap-state-incomplete-pivot-hash condition)))))
+  (:documentation
+   "The snap state importer returned without completing the pivot's state.
+
+A sync phase outcome, not a node failure: every range cursor, trie node and
+heal checkpoint the importer published is durable, nothing past the import (the
+pivot installation, the tail) has run, and the coordinator's next pass resumes
+the import from those records. Local storage faults inside the importer still
+escape as STORAGE-ERROR."))
+
+(defun devnet-node-snap-forget-rejected-ancestry (node pivot-header low)
+  "Drop this process's INVALID verdicts on the pivot and its known ancestors
+down to block LOW. Returns the number of blocks whose verdict was dropped.
+
+The pivot's ancestry is the chain the consensus client authorized, and the
+pivot's state is authenticated by the snap proofs, so a verdict this process
+reached on one of those blocks is a consensus divergence on our side, not a
+reason to refuse the chain. Left in place it makes every tail block answer
+'links to previously rejected block' through the invalid-ancestor walk (Hoodi
+2026-09-24: 3685491 rejected by a gas bug, then inside the BLOCKHASH window
+of the rebased pivot 3685520). Each such block is logged as
+peer.snap.ancestry_contains_rejected_block. Nothing is re-executed: the backfill
+writes no state, and the tail executes only the blocks above the pivot."
+  (let ((store (devnet-node-store node))
+        (pivot-number (block-header-number pivot-header))
+        (rejected '()))
+    (call-with-devnet-node-store-guard
+     node
+     (lambda ()
+       (let ((hash (block-header-hash pivot-header))
+             (number pivot-number))
+         (loop while (>= number low)
+               do (when (plusp (engine-payload-store-forget-invalid-block
+                                store hash))
+                    (push (cons number hash) rejected))
+                  (let ((block (chain-store-known-block store hash)))
+                    (unless block
+                      (return))
+                    (setf hash (block-header-parent-hash
+                                (block-header block))
+                          number (1- number)))))))
+    (dolist (entry (nreverse rejected))
+      (devnet-peer-manager-log
+       node "peer.snap.ancestry_contains_rejected_block"
+       "number" (car entry) "hash" (hash32-to-hex (cdr entry))
+       "pivot" pivot-number))
+    (length rejected)))
+
 (defun devnet-node-snap-backfill-blockhash-window (node pivot-header)
   "Make every ancestor in the first tail block's BLOCKHASH window a known block.
 
@@ -2331,7 +2388,9 @@ the history unavailable; the import then answers SYNCING (Hoodi block
 header chain backwards from the head. Walks back from the pivot's parent
 through known blocks and downloads only the missing part of the window,
 anchored at the hash the pivot's own ancestry names, and writes it in one
-batch after the whole range is verified. Returns the number of blocks
+batch after the whole range is verified. Then drops any INVALID verdict this
+process holds on the window or the pivot (see
+DEVNET-NODE-SNAP-FORGET-REJECTED-ANCESTRY). Returns the number of blocks
 written, 0 when the window is already known."
   (let* ((store (devnet-node-store node))
          (pivot-number (block-header-number pivot-header))
@@ -2350,7 +2409,9 @@ written, 0 when the window is already known."
                                     (block-header block))
                               number (1- number)))))))
       (if (null missing-number)
-          0
+          (progn
+            (devnet-node-snap-forget-rejected-ancestry node pivot-header low)
+            0)
           (let ((blocks '()))
             (eth-sync-download-blocks-multi
              (devnet-node-sync-peer-sources node)
@@ -2370,6 +2431,10 @@ written, 0 when the window is already known."
                node "peer.snap.history_backfilled"
                "pivot" pivot-number "from" low "to" missing-number
                "blocks" count)
+              ;; The window is now the CL-authorized ancestry, known blocks
+              ;; included; a verdict this process reached on one of them must
+              ;; not block the tail through the invalid-ancestor walk.
+              (devnet-node-snap-forget-rejected-ancestry node pivot-header low)
               count))))))
 
 (defun devnet-node-snap-import-tail-block (node block pivot-header target-hash)
@@ -2498,8 +2563,8 @@ Returns the VALID status."
                         (devnet-node-set-snap-dial-demand node nil))))
                 (unless (ethereum-lisp.snap-sync:snap-sync-progress-completed-p
                          state-progress)
-                  (storage-fail
-                   "Snap pivot state import returned before completion")))
+                  (error 'devnet-snap-state-incomplete
+                         :pivot-number pivot-number :pivot-hash pivot-hash)))
               ;; This sparse checkpoint continues the authority of the Engine
               ;; target. The durability adapter rechecks completed target-bound
               ;; skeleton and state evidence in the same rollback boundary.
@@ -2964,24 +3029,35 @@ property of how the node is configured, not an assumption about the test corpus.
          (call-with-devnet-mutex sessions-lock (lambda () (copy-list sessions))))))))
 
 (defun devnet-node-sync-coordinator-pass (node)
-  "Run one sync pass, containing only finite remote-source exhaustion.
+  "Run one sync pass, containing only its typed phase outcomes.
 
-Each pass takes a new live-peer snapshot inside DEVNET-NODE-MULTI-SYNC-PASS.
-An exhausted snap snapshot therefore leaves the durable task cursors intact and
-returns control to the long-running loop, whose next pass may use replacement
-sessions.  Local storage, merge, and unexpected program failures deliberately
-escape to the coordinator's outer serious-condition boundary."
+A phase outcome is a result of the sync itself: a verdict (an INVALID peer
+range), a phase that ended short of completion (the snap tail, the snap state
+import), or a finite live-peer snapshot that ran out of sources.  Each is
+logged and the pass returns NIL; durable progress is intact and the next pass
+takes a new live-peer snapshot inside DEVNET-NODE-MULTI-SYNC-PASS.  Local
+storage, merge, and unexpected program failures deliberately escape to the
+coordinator's outer serious-condition boundary, which stops the node."
   (handler-case
       (call-with-devnet-sync-claim
        node (lambda () (devnet-node-multi-sync-pass node)))
     (devnet-peer-sync-invalid (condition)
-      ;; IMPORT-P2P-BLOCK-CANDIDATE installs and durably exports the INVALID
-      ;; verdict before DEVNET-PEER-SYNC-IMPORT-BLOCK signals this typed result.
-      ;; Keep the node and Engine RPC alive so the CL/Hive retry can observe
-      ;; that verdict instead of waiting against listeners torn down by the
-      ;; coordinator supervisor.
+      ;; IMPORT-P2P-BLOCK-CANDIDATE installs the INVALID verdict in this
+      ;; process (it is never persisted) before DEVNET-PEER-SYNC-IMPORT-BLOCK
+      ;; signals this typed result. Keep the node and Engine RPC alive so the
+      ;; CL/Hive retry can observe that verdict instead of waiting against
+      ;; listeners torn down by the coordinator supervisor.
       (devnet-peer-manager-log
        node "peer.sync.invalid_ancestor" "error" condition)
+      nil)
+    (devnet-snap-state-incomplete (condition)
+      ;; A phase outcome: the import resumes from its durable cursors on the
+      ;; next pass. Before this it was a storage failure that stopped the node.
+      (devnet-peer-manager-log
+       node "peer.snap.state_incomplete"
+       "pivot" (devnet-snap-state-incomplete-pivot-number condition)
+       "pivotHash" (hash32-to-hex
+                    (devnet-snap-state-incomplete-pivot-hash condition)))
       nil)
     (devnet-snap-tail-incomplete (condition)
       ;; A phase outcome: the tail resumes on the next pass. Before this, the

@@ -1,117 +1,29 @@
 (in-package #:ethereum-lisp.test)
 
-(deftest chain-store-export-import-kv-restores-invalid-tipsets
-  (let* ((path
-           (merge-pathnames
-            (make-pathname
-             :name (format nil "ethereum-lisp-chain-invalid-tipset-~A"
-                           (gensym))
-             :type "sexp")
-            #P"/private/tmp/"))
-         (source (make-engine-payload-memory-store))
-         (restored (make-engine-payload-memory-store))
-         (address
-           (address-from-hex "0x0000000000000000000000000000000000000001"))
-         (parent
-           (make-block
-            :header
-            (make-block-header
-             :parent-hash (zero-hash32)
-             :beneficiary address
-             :state-root +empty-trie-hash+
-             :mix-hash (zero-hash32)
-             :number 1
-             :gas-limit 50000
-             :timestamp 10)))
-         (invalid-child
-           (make-block
-            :header
-            (make-block-header
-             :parent-hash (block-hash parent)
-             :beneficiary address
-             :state-root +empty-trie-hash+
-             :mix-hash (zero-hash32)
-             :number 2
-             :gas-limit 50000
-             :timestamp 11)))
-         (propagated-head
-           (make-block
-            :header
-            (make-block-header
-             :parent-hash (block-hash invalid-child)
-             :beneficiary address
-             :state-root +empty-trie-hash+
-             :mix-hash (zero-hash32)
-             :number 3
-             :gas-limit 50000
-             :timestamp 12)))
-         (invalid-id (hash32-bytes (block-hash invalid-child)))
-         (propagated-id (hash32-bytes (block-hash propagated-head))))
-    (unwind-protect
-         (progn
-           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
-            source invalid-child)
-           (ethereum-lisp.chain-store:engine-payload-store-mark-invalid
-            source invalid-child
-            :head-hash (block-hash propagated-head))
-           (let ((database (make-file-key-value-database path)))
-             (node-store-export-to-kv source database))
-           (let ((database (make-file-key-value-database path)))
-             (multiple-value-bind (record present-p)
-                 (kv-get-chain-record database :invalid-tipset invalid-id)
-               (is present-p)
-               (is (bytes= (block-rlp invalid-child) record)))
-             (multiple-value-bind (record present-p)
-                 (kv-get-chain-record
-                  database :invalid-tipset propagated-id :missing)
-               (is (eq :missing record))
-               (is (not present-p))))
-           (let ((database (make-file-key-value-database path)))
-             (is (eq restored
-                     (node-store-import-from-kv restored database))))
-           (let ((direct
-                   (ethereum-lisp.chain-store:engine-payload-store-invalid-block
-                    restored
-                    (block-hash invalid-child)))
-                 (propagated
-                   (ethereum-lisp.chain-store:engine-payload-store-invalid-block
-                    restored
-                    (block-hash propagated-head))))
-             (is direct)
-             (is (not propagated))
-             (is (bytes= (block-rlp invalid-child)
-                         (block-rlp direct))))
-           (let ((status
-                   (ethereum-lisp.engine:engine-payload-store-invalid-ancestor-status
-                    restored
-                    (block-hash invalid-child)
-                    (block-hash propagated-head))))
-             (is (string= +payload-status-invalid+
-                          (payload-status-status status)))
-             (is (string= "links to previously rejected block"
-                          (payload-status-validation-error status)))
-             (is (bytes= (hash32-bytes (block-hash parent))
-                         (hash32-bytes
-                          (payload-status-latest-valid-hash status))))
-             (let ((propagated
-                     (ethereum-lisp.chain-store:engine-payload-store-invalid-block
-                      restored
-                      (block-hash propagated-head))))
-               (is propagated)
-               (is (bytes= (block-rlp invalid-child)
-                           (block-rlp propagated)))))
-           (let ((database (make-file-key-value-database path)))
-             (node-store-export-to-kv
-              (make-engine-payload-memory-store)
-              database))
-           (let ((database (make-file-key-value-database path)))
-             (multiple-value-bind (record present-p)
-                 (kv-get-chain-record
-                  database :invalid-tipset invalid-id :missing)
-               (is (eq :missing record))
-               (is (not present-p)))))
-      (when (probe-file path)
-        (delete-file path)))))
+(deftest node-store-full-export-writes-no-invalid-verdict-and-sweeps-a-legacy-one
+  ;; A verdict and its descendant alias stay in the process.  The full export
+  ;; writes neither, and deletes a record an earlier revision wrote.
+  (let* ((database (make-memory-key-value-database))
+         (store (make-engine-payload-memory-store))
+         (invalid (chain-store-bal-persistence-test-block 2 70 :bal-p t))
+         (head (chain-store-bal-persistence-test-block 3 71 :bal-p nil))
+         (legacy (chain-store-bal-persistence-test-block 4 72 :bal-p t)))
+    (engine-payload-store-mark-invalid store invalid)
+    (engine-payload-store-mark-invalid store invalid
+                                       :head-hash (block-hash head))
+    (chain-store-seed-legacy-invalid-tipset database legacy)
+    (dolist (kind '(:invalid-tipset :block-access-list))
+      (is (nth-value 1 (kv-get-chain-record
+                        database kind (hash32-bytes (block-hash legacy))))))
+    (node-store-export-to-kv store database)
+    (is (null (kv-chain-record-entries database :invalid-tipset)))
+    (dolist (block (list invalid legacy))
+      (is (not (nth-value 1 (kv-get-chain-record
+                             database :block-access-list
+                             (hash32-bytes (block-hash block)))))))
+    ;; The process still answers from its own verdicts.
+    (is (engine-payload-store-invalid-block store (block-hash invalid)))
+    (is (engine-payload-store-invalid-block store (block-hash head)))))
 
 (deftest direct-restart-re-executes-a-block-an-earlier-process-rejected
   ;; A verdict belongs to the process that reached it (go-ethereum keeps its
@@ -161,8 +73,8 @@
              :finalized-block-hash (block-hash genesis)))
            (node-store-export-to-kv source database)
            (engine-payload-store-mark-invalid source invalid)
-           (node-store-export-invalid-candidate-to-kv
-            source invalid database)
+           ;; A datadir written before verdicts became process-local.
+           (chain-store-seed-legacy-invalid-tipset database invalid)
            (is (nth-value
                 1 (kv-get-chain-record database :invalid-tipset
                                        (hash32-bytes (block-hash invalid)))))

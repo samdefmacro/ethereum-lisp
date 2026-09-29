@@ -5,7 +5,8 @@
   (:import-from #:ethereum-lisp.types
                 #:hash32=)
   (:import-from #:ethereum-lisp.chain-store
-                #:engine-payload-store-ancestor-p)
+                #:engine-payload-store-ancestor-p
+                #:engine-payload-store-forget-invalid-block)
   (:import-from #:ethereum-lisp.node-store
                 #:node-store-publish-read-view
                 #:node-store-read-view-attempt)
@@ -117,7 +118,6 @@
                 #:node-store-delete-peer-sync-progress
                 #:node-store-export-payload-candidate-to-kv
                 #:node-store-export-buffered-candidate-to-kv
-                #:node-store-export-invalid-candidate-to-kv
                 #:node-store-export-forkchoice-to-kv
                 #:node-store-export-to-kv
                 #:node-store-export-txpool-records-to-kv

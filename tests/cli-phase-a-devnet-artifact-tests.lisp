@@ -458,13 +458,13 @@
                               report "invalidTipsetBlockHash")
                             (fixture-object-field
                              report "databaseInvalidTipsetBlockHash")))
-               (is (string= +payload-status-invalid+
+               (is (string= +payload-status-syncing+
                             (fixture-object-field
                              report "databaseRpcInvalidTipsetStatus")))
-               (is (string= "links to previously rejected block"
-                            (fixture-object-field
-                             report
-                             "databaseRpcInvalidTipsetValidationError")))
+               (is (null
+                    (fixture-object-field
+                     report
+                     "databaseRpcInvalidTipsetValidationError")))
                (devnet-cli-assert-txpool-subpool-persistence report)
                (devnet-cli-assert-side-reorg-persistence report)
                (is (< 0 (length (kv-chain-record-entries database :block))))
@@ -472,8 +472,8 @@
                                  database :prepared-payload))))
                (is (< 0 (length (kv-chain-record-entries
                                  database :remote-block))))
-               (is (< 0 (length (kv-chain-record-entries
-                                 database :invalid-tipset))))
+               ;; INVALID verdicts are process-local and never written.
+               (is (null (kv-chain-record-entries database :invalid-tipset)))
                (is (< 0 (length (kv-chain-record-entries
                                  database :txpool))))
                (is (< 0 (length (kv-chain-record-entries

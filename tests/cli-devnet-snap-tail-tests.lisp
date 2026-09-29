@@ -331,3 +331,143 @@ whose CAR collects the observations."
           (is (= 1 (snap-tail-log-count logs "peer.snap.target_completed")))
           (is (= 1 (snap-tail-log-count logs "peer.snap.tail_failed")))
           (is (chain-store-state-available-p store target-hash))))))))
+
+;;;; Sync outcomes that used to exit the node.
+;;;;
+;;;; Hoodi, 2026-09-24 (container hoodi-el-sec5-1a7b9059): newPayload rejected
+;;;; block 3685491 (a gas bug); the verdict stayed in the process.  The CL target
+;;;; then moved past it, the pivot was rebased to 3685520, and the BLOCKHASH
+;;;; backfill wrote 3685265..3685519 as known blocks, 3685491 among them.  The
+;;;; first tail block's invalid-ancestor walk reached the rejected block through
+;;;; those known ancestors and answered INVALID; the durability sink then tried
+;;;; to persist that verdict for a known block and refused with "Invalid
+;;;; candidate export refuses a known executed block", which stopped the node.
+
+(defun snap-tail-log-fields (logs name)
+  "The fields of the newest NAME event in LOGS, as a plist of strings."
+  (cdr (find name (car logs) :key #'car :test #'string=)))
+
+(deftest devnet-snap-tail-completes-over-an-ancestry-this-process-rejected
+  (:layer :integration :module :p2p)
+  ;; RED control (1a7b9059): the coordinator pass lets BLOCK-VALIDATION-ERROR
+  ;; "Invalid candidate export refuses a known executed block" escape, the
+  ;; Hoodi exit.  Positive control for the second half of the fix: without
+  ;; the backfill forgetting the verdict, block 21 answers "links to
+  ;; previously rejected block" and the pass ends with
+  ;; peer.sync.invalid_ancestor instead of completing the target.
+  (call-with-snap-tail-fixture
+   "ethereum-lisp-snap-tail-rejected-ancestry"
+   (lambda (node chain)
+     (let* ((store (ethereum-lisp.cli::devnet-node-store node))
+            (database
+              (ethereum-lisp.node-store.persistence:database-engine-payload-store-database
+               store))
+            (target-hash (block-hash (aref chain 23)))
+            (rejected (aref chain 12))
+            (logs (list '()))
+            (result nil))
+       ;; What an INVALID newPayload leaves behind: the verdict, in memory.
+       (ethereum-lisp.cli::call-with-devnet-node-store-guard
+        node
+        (lambda () (engine-payload-store-mark-invalid store rejected)))
+       (is (engine-payload-store-invalid-block store (block-hash rejected)))
+       (devnet-peer-sync-call-with-function-overrides
+        (append
+         (list
+          (cons 'ethereum-lisp.cli::devnet-node-multi-sync-pass
+                (lambda (seen-node)
+                  (ethereum-lisp.cli::devnet-node-snap-sync-target
+                   seen-node target-hash))))
+         (snap-tail-overrides node chain 20 23 :logs logs))
+        (lambda ()
+          (setf result
+                (handler-case
+                    (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node)
+                  (serious-condition (condition)
+                    (error "The coordinator pass let a sync outcome escape: ~A"
+                           condition))))))
+       ;; The CL-authorized ancestry wins over our verdict: the tail executed.
+       (is (eql 3 result))
+       (is (= 1 (snap-tail-log-count logs "peer.snap.target_completed")))
+       (is (= 0 (snap-tail-log-count logs "peer.sync.invalid_ancestor")))
+       (dolist (number '(21 22 23))
+         (is (chain-store-state-available-p
+              store (block-hash (aref chain number)))))
+       ;; Loudly, once, naming the block.
+       (is (= 1 (snap-tail-log-count
+                 logs "peer.snap.ancestry_contains_rejected_block")))
+       (let ((fields (snap-tail-log-fields
+                      logs "peer.snap.ancestry_contains_rejected_block")))
+         (is (eql 12 (second (member "number" fields :test #'equal))))
+         (is (equal (hash32-to-hex (block-hash rejected))
+                    (second (member "hash" fields :test #'equal))))
+         (is (eql 20 (second (member "pivot" fields :test #'equal)))))
+       ;; The verdict is gone from the process, and none ever reached disk.
+       (is (null (engine-payload-store-invalid-block
+                  store (block-hash rejected))))
+       (is (null (kv-chain-record-entries database :invalid-tipset)))))))
+
+(deftest devnet-snap-state-import-that-returns-incomplete-is-a-phase-outcome
+  (:layer :integration :module :p2p)
+  ;; RED control (1a7b9059): the coordinator pass lets STORAGE-ERROR "Snap
+  ;; pivot state import returned before completion" escape to the
+  ;; supervisor, which stops the node.  An importer that returns before the
+  ;; state is complete has written nothing the next pass cannot resume from.
+  (call-with-snap-tail-fixture
+   "ethereum-lisp-snap-state-incomplete"
+   (lambda (node chain)
+     (let* ((store (ethereum-lisp.cli::devnet-node-store node))
+            (target-hash (block-hash (aref chain 23)))
+            (pivot (aref chain 20))
+            (complete-p nil)
+            (logs (list '()))
+            (state-imports (list 0))
+            (overrides
+              (snap-tail-overrides node chain 20 23
+                                   :logs logs :state-imports state-imports))
+            (finished-import
+              (cdr (assoc 'ethereum-lisp.cli::devnet-node-snap-import-with-failover
+                          overrides))))
+       (devnet-peer-sync-call-with-function-overrides
+        (append
+         (list
+          (cons 'ethereum-lisp.cli::devnet-node-multi-sync-pass
+                (lambda (seen-node)
+                  (ethereum-lisp.cli::devnet-node-snap-sync-target
+                   seen-node target-hash)))
+          (cons 'ethereum-lisp.cli::devnet-node-snap-import-with-failover
+                (lambda (&rest arguments)
+                  (if complete-p
+                      (apply finished-import arguments)
+                      (ethereum-lisp.snap-sync::%make-snap-sync-progress
+                       :pivot-hash (block-hash pivot)
+                       :pivot-number 20
+                       :state-root (block-header-state-root
+                                    (block-header pivot))
+                       :target-hash target-hash
+                       :completed-p nil)))))
+         ;; The overrides are installed in order; drop the finished import
+         ;; so the one above is the one in place.
+         (remove 'ethereum-lisp.cli::devnet-node-snap-import-with-failover
+                 overrides :key #'car))
+        (lambda ()
+          (is (null
+               (handler-case
+                   (ethereum-lisp.cli::devnet-node-sync-coordinator-pass node)
+                 (serious-condition (condition)
+                   (error "The coordinator pass let a sync outcome escape: ~A"
+                          condition)))))
+          (is (= 1 (snap-tail-log-count logs "peer.snap.state_incomplete")))
+          (let ((fields (snap-tail-log-fields
+                         logs "peer.snap.state_incomplete")))
+            (is (eql 20 (second (member "pivot" fields :test #'equal)))))
+          (is (= 0 (snap-tail-log-count logs "peer.snap.target_completed")))
+          ;; Nothing past the state import ran: no pivot, no tail.
+          (is (not (chain-store-state-available-p
+                    store (block-hash (aref chain 21)))))
+          ;; The next pass, with the import finished, completes the target.
+          (setf complete-p t)
+          (is (eql 3 (ethereum-lisp.cli::devnet-node-sync-coordinator-pass
+                      node)))
+          (is (= 1 (snap-tail-log-count logs "peer.snap.target_completed")))
+          (is (chain-store-state-available-p store target-hash))))))))
