@@ -63,10 +63,27 @@
        :context (amsterdam-test-context :amsterdam-p nil))))
   (signals evm-error
     (execute-bytecode #(#xe8 #x5b 0)
-                      :context (amsterdam-test-context)))
-  ;; The immediate byte is data, even when it is JUMPDEST.
+                      :context (amsterdam-test-context))))
+
+(deftest eip8024-immediate-byte-stays-a-jump-destination
+  ;; Only PUSH data is excluded from JUMPDEST analysis (geth v1.17.6
+  ;; core/vm/analysis_legacy.go codeBitmap). A 0x5b immediate of DUPN, SWAPN
+  ;; or EXCHANGE is a valid jump target: tests-glamsterdam-devnet@v7.2.1
+  ;; dupn_jump_to_immediate_byte_0x5b_succeeds and
+  ;; exchange_jump_to_immediate_byte expect the jump to succeed. Before
+  ;; Amsterdam 0xe6..0xe8 are undefined opcodes, so the byte after one was
+  ;; always code. PUSH1 4, JUMP lands on the 0x5b at pc 4 and stops.
+  (dolist (opcode '(#xe6 #xe7 #xe8))
+    (dolist (amsterdam-p '(t nil))
+      (let ((result (execute-bytecode
+                     (vector #x60 4 #x56 opcode #x5b 0)
+                     :context (amsterdam-test-context
+                               :amsterdam-p amsterdam-p))))
+        (is (eq :stopped (evm-result-status result))))))
+  ;; The control: PUSH data is still excluded, so a 0x5b pushed as data is
+  ;; not a jump target.
   (signals evm-error
-    (execute-bytecode #(#x60 4 #x56 #xe6 #x5b 0)
+    (execute-bytecode #(#x60 4 #x56 #x60 #x5b 0)
                       :context (amsterdam-test-context))))
 
 (deftest amsterdam-contract-code-limit-is-eip7954-value

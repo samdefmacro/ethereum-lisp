@@ -73,19 +73,22 @@
       +exp-byte-gas-eip160+
       +exp-byte-gas+))
 
+;;; JUMPDEST analysis skips PUSH data and nothing else, as geth v1.17.6
+;;; core/vm/analysis_legacy.go codeBitmap does. EIP-8024's DUPN, SWAPN and
+;;; EXCHANGE immediates are NOT data here: a 0x5b immediate stays a valid jump
+;;; target (tests-glamsterdam-devnet@v7.2.1
+;;; dupn_jump_to_immediate_byte_0x5b_succeeds), and before Amsterdam
+;;; 0xe6..0xe8 are undefined opcodes whose next byte is ordinary code.
+
 (defun code-position-p (code position)
   (loop with pc = 0
         while (< pc (length code))
         do (let ((op (aref code pc)))
              (when (= pc position)
                (return t))
-             (cond
-               ((<= #x60 op #x7f)
-                (incf pc (+ 1 (- op #x5f))))
-               ((<= #xe6 op #xe8)
-                (incf pc 2))
-               (t
-                (incf pc))))
+             (if (<= #x60 op #x7f)
+                 (incf pc (+ 1 (- op #x5f)))
+                 (incf pc)))
         finally (return nil)))
 
 (defun jump-destination-bitmap (code)
@@ -97,13 +100,9 @@
           do (let ((op (aref code pc)))
                (when (= op #x5b)
                  (setf (sbit bitmap pc) 1))
-               (cond
-                 ((<= #x60 op #x7f)
-                  (incf pc (+ 1 (- op #x5f))))
-                 ((<= #xe6 op #xe8)
-                  (incf pc 2))
-                 (t
-                  (incf pc)))))
+               (if (<= #x60 op #x7f)
+                   (incf pc (+ 1 (- op #x5f)))
+                   (incf pc))))
     bitmap))
 
 (defun valid-jump-destination-p (code destination &optional bitmap)
