@@ -150,6 +150,240 @@ diff in an oracle, or as :STATE-HISTORY for the direct trie provider."
        (uiop:ensure-directory-pathname dir)
        :validate t :if-does-not-exist :ignore))))
 
+;;; A restart on a healthy datadir whose txpool records the head no longer
+;;; admits. Hoodi 2026-09-29 (docs/evidence/sec5-txpool-journal-import.txt):
+;;; the node stopped cleanly with a parked blob transaction whose max fee per
+;;; blob gas was below the head's blob base fee, and the restart exited 1 with
+;;; "KV txpool record: Max fee per blob gas below blob base fee".
+
+(defconstant +devnet-restart-stale-txpool-excess-blob-gas+ (* 64 1024 1024)
+  "Genesis excess blob gas putting the Cancun blob base fee near 5.4e8 wei.")
+
+(defparameter +devnet-restart-stale-txpool-set-code-hex+
+  "0x04f90126820539800285012a05f2008307a1209471562b71999873db5b286df957af199ec94617f78080c0f8baf85c82053994000000000000000000000000000000000000aaaa0101a07ed17af7d2d2b9ba7d797a202125bf505b9a0f962a67b3b61b56783d8faf7461a001b73b6e586edc706dce6c074eaec28692fa6359fb3446a2442f36777e1c0669f85a8094000000000000000000000000000000000000bbbb8001a05011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98a056c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf6101a0167b0ecfc343a497095c22ee4270d3cc3b971cc3599fc73bbff727e0d2ed432da01c003c72306807492bf1150e39b2f79da23b49a4e83eb6e9209ae30d3572368f"
+  "A well-formed chain-1337 set-code transaction (EIP-7702).")
+
+(defun devnet-restart-stale-txpool-genesis-json ()
+  "Cancun at genesis, Prague not scheduled, keys 1-3 funded, and a genesis
+header whose excess blob gas makes the blob base fee far above 100 wei."
+  (let ((genesis
+          (parse-json
+           (devnet-cli-funded-txpool-genesis-json
+            :private-keys '(1 2 3)
+            :config-fields (list (cons "cancunTime" 0))))))
+    (json-encode
+     (append genesis
+             (list (cons "excessBlobGas"
+                         (quantity-to-hex
+                          +devnet-restart-stale-txpool-excess-blob-gas+))
+                   (cons "blobGasUsed" "0x0"))))))
+
+(defun devnet-restart-stale-txpool-put-record
+    (database subpool transaction admitted-at)
+  (kv-put-chain-record
+   database :txpool
+   (hash32-bytes (transaction-hash transaction))
+   (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
+    subpool transaction admitted-at)))
+
+(deftest devnet-live-persistence-restart-keeps-a-datadir-with-stale-txpool-records
+  ;; The production restart path: --db.engine rocksdb, direct provider. Four
+  ;; records are written as an earlier process would have left them, then a
+  ;; second node starts on the datadir. Before the fix the second
+  ;; MAKE-DEVNET-NODE signalled BLOCK-VALIDATION-ERROR (the node's exit 1).
+  (let ((dir (namestring
+              (devnet-cli-temp-directory
+               "ethereum-lisp-devnet-stale-txpool")))
+        (genesis-json (devnet-restart-stale-txpool-genesis-json))
+        (*kzg-blob-proof-verifier*
+          (lambda (blob commitment proof)
+            (declare (ignore blob commitment proof))
+            t)))
+    (unwind-protect
+         (ethereum-lisp.cli::call-with-devnet-cli-kv-database-cache
+          (lambda ()
+            (let* ((first-node
+                     (ethereum-lisp.cli:make-devnet-node
+                      :genesis-json genesis-json
+                      :database-path dir
+                      :db-engine :rocksdb))
+                   (genesis-header
+                     (block-header
+                      (ethereum-lisp.cli:devnet-node-genesis-block
+                       first-node)))
+                   (commitment (make-byte-vector 48 :initial-element #x31))
+                   (versioned-hash
+                     (kzg-commitment-to-versioned-hash commitment))
+                   ;; Parked: its blob bid is below the head's blob base fee.
+                   (blob
+                     (fixture-sign-blob-transaction
+                      (make-blob-transaction
+                       :chain-id 1337 :nonce 0
+                       :max-priority-fee-per-gas 2
+                       :max-fee-per-gas 2000000000
+                       :gas-limit 21000
+                       :to (address-from-hex
+                            "0x0000000000000000000000000000000000003001")
+                       :max-fee-per-blob-gas 100
+                       :blob-versioned-hashes (list versioned-hash))
+                      3))
+                   ;; Stale by chain rule: the head's rules have no Prague.
+                   (set-code
+                     (transaction-from-encoding
+                      (hex-to-bytes
+                       +devnet-restart-stale-txpool-set-code-hex+)))
+                   ;; Stale by fee: recorded pending, below the base fee now.
+                   (underpriced
+                     (fixture-sign-legacy-transaction
+                      (make-legacy-transaction
+                       :nonce 0 :gas-price 1 :gas-limit 21000
+                       :to (address-from-hex
+                            "0x0000000000000000000000000000000000003002"))
+                      1 1337))
+                   ;; Control: still executable.
+                   (payable
+                     (fixture-sign-legacy-transaction
+                      (make-legacy-transaction
+                       :nonce 0 :gas-price 2000000000 :gas-limit 21000
+                       :to (address-from-hex
+                            "0x0000000000000000000000000000000000003003"))
+                      2 1337))
+                   (set-code-hash (transaction-hash set-code)))
+              (is (> (block-header-blob-base-fee genesis-header)
+                     (blob-transaction-max-fee-per-blob-gas blob)))
+              (is (< (transaction-max-fee-per-gas underpriced)
+                     (block-header-base-fee-per-gas genesis-header)))
+              (is (transaction-sender set-code :expected-chain-id 1337))
+              (ethereum-lisp.cli::devnet-node-export-database first-node)
+              (let ((database
+                      (ethereum-lisp.cli::devnet-cli-cached-kv-database dir)))
+                (devnet-restart-stale-txpool-put-record
+                 database :blob blob 1000)
+                (devnet-restart-stale-txpool-put-record
+                 database :pending set-code 1001)
+                (devnet-restart-stale-txpool-put-record
+                 database :pending underpriced 1002)
+                (devnet-restart-stale-txpool-put-record
+                 database :pending payable 1003)
+                (kv-put-chain-record
+                 database :blob-sidecar (hash32-bytes versioned-hash)
+                 (ethereum-lisp.node-store.persistence::chain-store-blob-sidecar-record-rlp
+                  (ethereum-lisp.chain-store.model:make-engine-blob-and-proofs
+                   :blob (make-byte-vector +blob-byte-size+)
+                   :commitment commitment
+                   :proof (make-byte-vector 48 :initial-element #x22)
+                   :cell-proofs nil))))
+              (let* ((second-node
+                       (ethereum-lisp.cli:make-devnet-node
+                        :genesis-json genesis-json
+                        :database-path dir
+                        :db-engine :rocksdb))
+                     (store (ethereum-lisp.cli:devnet-node-store second-node))
+                     (txpool (ethereum-lisp.txpool:engine-payload-store-txpool
+                              store))
+                     (restore
+                       (ethereum-lisp.cli::devnet-node-startup-txpool-restore
+                        second-node))
+                     (drops (getf restore :drops)))
+                (is (database-engine-payload-store-p store))
+                ;; The parked blob transaction is restored as it was held,
+                ;; with its sidecar and its admission age.
+                (is (eq blob
+                        (ethereum-lisp.txpool:engine-payload-store-blob-transaction
+                         store (transaction-hash blob))))
+                (is (eql 1000
+                         (ethereum-lisp.txpool.index:engine-pending-txpool-admission-time
+                          txpool blob)))
+                (is (engine-payload-store-blob-and-proofs-v1
+                     store versioned-hash))
+                ;; The stale-by-rule record is dropped, and only it.
+                (is (null (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+                           store set-code-hash)))
+                (is (= 4 (getf restore :records)))
+                (is (= 1 (length drops)))
+                (is (hash32= set-code-hash
+                             (getf (first drops) :transaction-hash)))
+                (is (search "Prague" (getf (first drops) :reason)))
+                ;; The stale-fee one is demoted, as the running pool does;
+                ;; the payable one stays pending. Both keep their age.
+                (is (ethereum-lisp.txpool:engine-payload-store-basefee-transaction
+                     store (transaction-hash underpriced)))
+                (is (eql 1002
+                         (ethereum-lisp.txpool.index:engine-pending-txpool-admission-time
+                          txpool underpriced)))
+                (is (ethereum-lisp.txpool:engine-payload-store-pending-transaction
+                     store (transaction-hash payable)))
+                (is (eql 1003
+                         (ethereum-lisp.txpool.index:engine-pending-txpool-admission-time
+                          txpool payable)))
+                ;; The next txpool delta deletes the dropped record and keeps
+                ;; the rest.
+                (let ((dirty
+                        (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+                         store))
+                      (database
+                        (ethereum-lisp.cli::devnet-cli-cached-kv-database dir)))
+                  (is (find set-code-hash dirty :test #'hash32=))
+                  (ethereum-lisp.cli::devnet-node-persist-canonical-transition
+                   second-node
+                   (ethereum-lisp.canonical-chain::make-canonical-chain-transition
+                    :changed-txpool-hashes dirty))
+                  (is (null (nth-value 1 (kv-get-chain-record
+                                          database :txpool
+                                          (hash32-bytes set-code-hash)))))
+                  (dolist (kept (list blob underpriced payable))
+                    (is (nth-value 1 (kv-get-chain-record
+                                      database :txpool
+                                      (hash32-bytes (transaction-hash kept)))))))
+                ;; A third start meets no stale record.
+                (let ((third-restore
+                        (ethereum-lisp.cli::devnet-node-startup-txpool-restore
+                         (ethereum-lisp.cli:make-devnet-node
+                          :genesis-json genesis-json
+                          :database-path dir
+                          :db-engine :rocksdb))))
+                  (is (= 3 (getf third-restore :records)))
+                  (is (null (getf third-restore :drops))))))
+            (let ((database
+                    (ethereum-lisp.cli::devnet-cli-cached-kv-database dir)))
+              (when database
+                (ethereum-lisp.database:close-rocksdb-key-value-database
+                 database)))))
+      (uiop:delete-directory-tree
+       (uiop:ensure-directory-pathname dir)
+       :validate t :if-does-not-exist :ignore))))
+
+(deftest devnet-live-persistence-restore-logs-each-dropped-txpool-record
+  ;; One warning per dropped record (hash, subpool, reason; no peer), then
+  ;; the counts, as geth's "Loaded local transaction journal" line.
+  (let* ((sink (ethereum-lisp.telemetry:make-memory-telemetry-sink))
+         (hash (make-hash32 (make-byte-vector 32 :initial-element #xab)))
+         (count
+           (ethereum-lisp.cli::devnet-log-txpool-restore
+            sink
+            (list :records 4
+                  :drops (list (list :transaction-hash hash
+                                     :subpool :pending
+                                     :reason "Set-code transaction before Prague"
+                                     :transaction nil)))))
+         (events (ethereum-lisp.telemetry:telemetry-events sink)))
+    (is (= 1 count))
+    (is (equal '("txpool.restore.dropped" "txpool.restore.loaded")
+               (mapcar #'ethereum-lisp.telemetry:telemetry-event-name events)))
+    (let ((fields (ethereum-lisp.telemetry:telemetry-event-fields (first events))))
+      (is (equal (hash32-to-hex hash)
+                 (cdr (assoc "hash" fields :test #'string=))))
+      (is (equal "pending" (cdr (assoc "subpool" fields :test #'string=))))
+      (is (equal "Set-code transaction before Prague"
+                 (cdr (assoc "reason" fields :test #'string=)))))
+    (let ((fields (ethereum-lisp.telemetry:telemetry-event-fields (second events))))
+      (is (equal "4" (cdr (assoc "records" fields :test #'string=))))
+      (is (equal "1" (cdr (assoc "dropped" fields :test #'string=)))))
+    ;; Nothing read, nothing logged.
+    (let ((quiet (ethereum-lisp.telemetry:make-memory-telemetry-sink)))
+      (ethereum-lisp.cli::devnet-log-txpool-restore quiet nil)
+      (is (null (ethereum-lisp.telemetry:telemetry-events quiet))))))
+
 (deftest devnet-live-persistence-restores-forkchoice-before-lifecycle-export
   (let ((database-path
           (devnet-cli-temp-path

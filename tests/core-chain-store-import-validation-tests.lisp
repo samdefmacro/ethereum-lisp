@@ -465,7 +465,7 @@
       (when (probe-file path)
         (delete-file path)))))
 
-(deftest node-store-import-from-kv-rejects-indexed-txpool-record
+(deftest node-store-import-from-kv-drops-a-mined-txpool-record
   (let* ((path
            (merge-pathnames
             (make-pathname
@@ -537,24 +537,29 @@
               (ethereum-lisp.node-store.persistence::chain-store-txpool-transaction-record-rlp
                :pending
                transaction)))
-           (signals block-validation-error
-             (node-store-import-from-kv
-              target
-              (make-file-key-value-database path)))
-           (is (= 1
-                  (ethereum-lisp.txpool:engine-payload-store-pending-transaction-count
-                   target)))
-           (is (eq target-transaction
-                   (ethereum-lisp.txpool:engine-payload-store-pending-transaction
-                    target
-                    (transaction-hash target-transaction))))
+           ;; A record the head already includes is stale, not corrupt: the
+           ;; import drops it, reports it, and marks it for the next delta.
+           (multiple-value-bind (imported drops records)
+               (node-store-import-from-kv
+                target
+                (make-file-key-value-database path)
+                :track-txpool-database-changes-p t)
+             (is (eq target imported))
+             (is (= 1 records))
+             (is (= 1 (length drops)))
+             (is (hash32= transaction-hash
+                          (getf (first drops) :transaction-hash)))
+             (is (search "already included"
+                         (getf (first drops) :reason))))
            (is (null
                 (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
                  target
                  transaction-hash)))
-           (is (null (chain-store-transaction-location
-                      target
-                      transaction-hash))))
+           (is (chain-store-transaction-location target transaction-hash))
+           (is (find transaction-hash
+                     (ethereum-lisp.txpool:engine-payload-store-txpool-database-dirty-transaction-hashes
+                      target)
+                     :test #'hash32=)))
       (when (probe-file path)
         (delete-file path)))))
 
