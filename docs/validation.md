@@ -1308,6 +1308,46 @@ the coordinator pass: the block is imported three times, the pass logs
 bounded-pivot case asserts the retry bound and that INVALID ends the phase
 after one import. The record is `docs/evidence/sec5-snap-tail-syncing.txt`.
 
+### Hoodi differential replay
+
+EEST loads every slot into an in-memory state and holds none of Hoodi's
+current traffic, so it cannot see a divergence that only a lazily read state or
+a real contract shows (Hoodi blocks 3684027 and 3685491). Before a deploy,
+replay real Hoodi blocks offline. Fetch the corpus on the control plane (bash,
+curl and jq; read-only JSON-RPC, one call at a time; about 35 seconds a block,
+most of it the execution witness):
+
+```sh
+scripts/fetch-hoodi-replay-corpus.sh                # default corpus
+scripts/fetch-hoodi-replay-corpus.sh 3685491 3684027 3685380..3685400
+```
+
+With no argument it fetches 3685380..3685600, block 3684027 and 100 blocks
+sampled evenly over the 50,000 below the head, into the git-ignored
+`.hoodi-replay/<number>/` with a sha256 manifest per block. Reruns skip every
+block whose manifest verifies. Then run the gate:
+
+```sh
+ETHEREUM_LISP_HOODI_REPLAY_ROOT=.hoodi-replay \
+  cl-workbench validation run cold-integration \
+  --match HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT
+# Optional: ETHEREUM_LISP_HOODI_REPLAY_BLOCKS=3685380-3685490,3685492
+cl-workbench validation run cold-unit --match HOODI-REPLAY-
+```
+
+The cold broker mounts the corpus read-only. Without the variable the test
+skips and says so; with it, the test fails unless it replayed at least one
+block and every block matched. Each block executes from its parent state, read
+lazily from the execution witness's trie nodes the way the direct RocksDB
+provider reads them, through `execute-signed-block` with the block's own header
+(every header commitment, the state root included), and again with the
+transaction applier observed, which compares each receipt with the server's
+and each touched account and slot with its diffMode post-state. Each block
+prints one `HOODI-REPLAY` line and, on a divergence, the transaction, account
+and slot it starts at. The unit controls check the comparator and the
+zero-replay refusal without a corpus. The record is
+`docs/evidence/sec5-hoodi-differential-replay.txt`.
+
 ### Bounded snap/1 serving and peer-session holds
 
 ```sh

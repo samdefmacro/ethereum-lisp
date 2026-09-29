@@ -528,6 +528,7 @@
      (:file "engine-fixture-tests")
      (:file "core-tests")
      (:file "state-tests")
+     (:file "hoodi-replay-tests")
      (:file "evm-tests")
      (:file "execution-tests")
      (:file "cli-tests")
