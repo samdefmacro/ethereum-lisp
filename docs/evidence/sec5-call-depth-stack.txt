@@ -1,0 +1,277 @@
+Section 5: the EVM depth budget -- 1,024 CALL levels and the thread control stack
+
+Status
+
+Branch call-depth-stack, from 7cef5a67151754cc279c51e07cda3511796f9fba
+(sec5-public-bootstrap-sync, the merge of interpreter throughput round 2).
+Gated revision 76cec72bf6b1ff122115fc44e06eafbc371f37bc. FIXED LOCALLY at 76cec72b. On the
+merged 7cef5a67 tree three of the eight EEST tests@v20.0.2 gates (state,
+engine-late, rlp) ended in an SBCL crash instead of a test result; each
+contributing branch had passed all eight alone. A CALL level took 1,968
+bytes of control stack against SBCL's 2 MiB default thread stack. After the
+fix a CALL level takes 960 bytes (CREATE 880), and every SBCL that executes
+blocks gives each thread 8 MiB. No live run, no runtime image build, no
+cold-all (the coordinator runs it).
+
+Revisions (branch call-depth-stack)
+
+  76cec72b  evm: a CALL level takes 960 bytes of stack, and every thread has
+            8 MiB for 1,024 of them
+  (this record is the next commit)
+
+================================================================================
+1. Symptom and reproduction (RED)
+================================================================================
+
+The gates optional-phase-a-eest-state-test-root-vectors-execute,
+optional-phase-a-eest-engine-late-payload-replay-executes and
+optional-phase-a-eest-blockchain-rlp-replay-executes ended with
+
+  fatal error encountered in SBCL pid 11 tid 11:
+  maximum interrupt nesting depth (8) exceeded
+  Bad frame pointer ... [valid range ...]
+
+The throughput branch's own depth test reproduces it on the base tree:
+
+  cl-workbench validation run cold-unit \
+    --match EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT      (at 7cef5a67)
+
+  fatal error encountered in SBCL pid 11 tid 13:
+  maximum interrupt nesting depth (8) exceeded
+  Bad frame pointer 0xffff835c0010 [valid range=0xffff833e0000..0xffff835e0000]
+  EXIT=1
+
+The valid range is 2 MiB, the default thread stack. The test body handles
+STORAGE-CONDITION, but SBCL 2.2.9 never gets that far: the process dies, so
+the test (and every test after it in the run) reports nothing. That is why a
+gate crashes rather than fails.
+
+================================================================================
+2. Mechanism: bytes per CALL level
+================================================================================
+
+Measurement: a self-CALL contract (0x5f5f5f5f5f305af100: PUSH0 x5, ADDRESS,
+GAS, CALL, STOP; all gas forwarded) started at depth 960 in a fresh thread,
+with MAKE-CHILD-EVM-CONTEXT wrapped to record the stack pointer
+(SB-KERNEL::CURRENT-SP) each time a level makes its child's context.  The
+wrapper is a leaf called from the frame about to run the child, so it adds
+nothing between levels; every consecutive difference was identical.  Frame
+sizes from the debugger's frame pointers (SB-DI) at the same point.  arm64,
+SBCL 2.2.9, warm dev image.
+
+  7cef5a67, one CALL level = 1,968 bytes:
+    %EXECUTE-BYTECODE-FRAME (run-evm-machine inlined)        136
+    EXECUTE-SYSTEM-OPCODE                                    120
+    EXECUTE-EVM-MESSAGE-CALL                                 224
+    EXECUTE-MESSAGE-CALL-CHILD                               896
+    (FLET TRACED-BODY :IN EXECUTE-MESSAGE-CALL-CHILD)        592
+
+  The throughput record (sec5-evm-throughput-2.txt section 3) measured the
+  same five frames at 1,840 bytes on its base (136, 120, 200, 808, 576).
+  The merge added 128 bytes a level: the Section 7 tracer labels
+  (trace-type, trace-from) and the pre-Merge create-callee-p became three
+  more keyword arguments of EXECUTE-MESSAGE-CALL-CHILD, captured by the
+  stack-allocated TRACED-BODY closure, and EXECUTE-EVM-MESSAGE-CALL passed
+  them.  1,024 x 1,968 = 2,015,232 bytes before the thread's own frames,
+  against 2,097,152.
+
+  Why EXECUTE-MESSAGE-CALL-CHILD was 896 bytes and alive under the child:
+  it parsed eighteen keyword arguments and stack-allocated a closure over
+  all of them (DYNAMIC-EXTENT TRACED-BODY) to hand to
+  CALL-WITH-EVM-CALL-TRACE.  A stack-allocated closure pins its frame, so
+  the call into the tracer wrapper was not a tail call even with no tracer
+  bound, and all of it stayed on the stack for the life of the child.
+
+  CREATE, same method (0x385f5f39385f5ff000: copy your own code, CREATE it
+  with all the gas): 880 bytes a level at 7cef5a67 (%EXECUTE-CONTRACT-CREATION
+  384, EXECUTE-CONTRACT-CREATION 240, EXECUTE-SYSTEM-OPCODE 120,
+  %EXECUTE-BYTECODE-FRAME 136); unchanged by this branch.
+
+================================================================================
+3. Fix
+================================================================================
+
+(a) Smaller levels (src/runtime/evm/interpreter/call.lisp).
+EXECUTE-MESSAGE-CALL-CHILD takes the opcode's EVM-MESSAGE-CALL object (which
+already carried every field) plus the five values the caller computes
+(precompile contract, child budget, state reservoir, create-callee-p), and
+tail-calls the new %EXECUTE-MESSAGE-CALL-CHILD-FRAME when *EVM-CALL-TRACER*
+is NIL, so its frame is gone before the child's is pushed.  With a tracer
+bound it still stack-allocates a closure and calls CALL-WITH-EVM-CALL-TRACE
+(only a tracing run pays).  The frame function reads the call's fields at
+their point of use.  The two callers' WITH-SLOTS lists shrank to the slots
+they read, and the unused PRECOMPILE-P binding (a known style warning) went.
+
+  after, one CALL level = 960 bytes:
+    %EXECUTE-BYTECODE-FRAME                                  136
+    EXECUTE-SYSTEM-OPCODE                                    120
+    EXECUTE-EVM-MESSAGE-CALL                                 152
+    %EXECUTE-MESSAGE-CALL-CHILD-FRAME                        552
+
+  1,024 levels: 983,040 bytes (0.94 MiB).  In the warm image, whose threads
+  then had SBCL's 2 MiB default, the full recursion from depth 0 returned
+  :STOPPED with the new call path loaded and killed nothing.
+
+(b) An explicit stack for every executing thread.  SBCL 2.2.9's MAKE-THREAD
+takes no stack size (lambda list (FUNCTION &KEY NAME ARGUMENTS); no
+STACK-SIZE symbol in the image), and setting the runtime's
+thread_control_stack_size from Lisp in a running image and then creating
+threads ended in "Unhandled memory fault" in the eval thread (observed once,
+warm image; not pursued).  The runtime option is the supported route: in a
+child SBCL, --control-stack-size 8 gave thread_control_stack_size 8,388,608
+and an 8 MiB control stack to the main thread and to a new thread (default:
+2,097,152 each), and an executable saved with :save-runtime-options t from
+such a process kept 8 MiB for both.  Set in:
+
+  Dockerfile.runtime   the core build (sbcl --dynamic-space-size 6144
+                       --control-stack-size 8 ... build-core.lisp); the
+                       saved executable keeps it
+  scripts/docker-test.sh, Makefile test-unit/-integration/-e2e,
+  scripts/run-test-layers.sh
+                       every cold and CI test runner
+  tests/run-tests.lisp e2e worker processes inherit the runner's size
+  scripts/dev.sh       the warm dev image
+
+Why 8 MiB: 1,024 levels take 0.94 MiB now and at most 1.5 MiB at the
+per-level ceiling the test enforces (1,536 bytes); 8 MiB holds twice that and
+leaves 5 MiB for the frames beneath the EVM (block import, Engine RPC, sync,
+the test harness).  The cost is address space, not memory: a thread's stack
+is reserved and committed as it is touched.  Reasoning in docs/validation.md,
+"The EVM depth budget", and in Dockerfile.runtime.
+
+Tests (tests/evm-core-tests.lisp, unit):
+  EVM-CALL-LEVEL-CONTROL-STACK-FITS-THE-DEPTH-BUDGET: measures bytes per
+    level for CALL and CREATE as above (64 levels; 64 hook calls required as
+    a positive control, every difference equal); requires each at most 1,536,
+    and 2 x 1,024 x bytes within 8 MiB, within thread_control_stack_size and
+    within the running thread's actual stack; requires the configured size
+    to be at least 8 MiB (so a runner started without the option fails).
+  EVM-SELF-CALL-AND-SELF-CREATE-REACH-THE-DEPTH-LIMIT-ON-A-FRESH-THREAD
+    (replaces EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT-ON-A-DEFAULT-STACK, whose
+    "default stack" is now 8 MiB): both recursions from depth 0 to the limit
+    return :STOPPED on a fresh thread of the configured size.  A regression
+    here kills the run rather than failing the test; the comment says so.
+  EXECUTION-SBCL-LAUNCHES-CARRY-THE-EXECUTION-CONTROL-STACK: reads the
+    launch lines of Dockerfile.runtime, Makefile, scripts/docker-test.sh,
+    scripts/run-test-layers.sh and scripts/dev.sh that start the test
+    runner, the dev image or the core build, requires --control-stack-size
+    of at least 8 on each and ten such lines; positive controls: a launch
+    without the option and one with 2 are both reported.
+
+================================================================================
+4. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: exit 0 before any application tooling.
+
+RED
+  7cef5a67, cold-unit --match EVM-SELF-CALL-REACHES-THE-DEPTH-LIMIT: SBCL
+    fatal error (section 1), EXIT=1, no test result.
+  Control of the new level test: the tree of 4b0d3609 (the fix commit as
+    first written, amended into 76cec72b when the ceiling went from 1,280
+    to 1,536 for other architectures; same tests otherwise) with
+    call.lisp restored to 7cef5a67 and touched, cold-unit --match
+    EVM-CALL-LEVEL-CONTROL-STACK --match EVM-SELF-CALL-AND-SELF-CREATE:
+    EXIT=1; "not ok EVM-CALL-LEVEL-CONTROL-STACK-FITS-THE-DEPTH-BUDGET -
+    Assertion failed: (<= PER-LEVEL +EVM-CALL-LEVEL-STACK-CEILING+)" (1,968
+    against 1,280 then; 1,968 > 1,536 as well), and "ok
+    EVM-SELF-CALL-AND-SELF-CREATE-REACH-THE-DEPTH-LIMIT-ON-A-FRESH-THREAD":
+    the 8 MiB stack alone (layer b) holds the old 1,968-byte levels.
+  Layer a alone: the warm probe in section 3 (new call path, 2 MiB threads)
+    reached the limit.
+
+GREEN, all at 76cec72b on a clean tree (git status --porcelain empty and
+HEAD unchanged before and after every step), 2026-09-29T20:22:22Z to
+20:51:22Z (control-plane clock), sequential, output redirected to files
+(runner and logs in the agent's scratchpad, y2/gates; summary.txt sha256
+4d42b35fd57cadd1e07a588a3d61ab0afcdce7ee98bfc6f32470ab2d20734b06).
+
+  cold-unit --match EVM-CALL-LEVEL-CONTROL-STACK --match
+    EVM-SELF-CALL-AND-SELF-CREATE --match EXECUTION-SBCL-LAUNCHES --match EVM
+    --match CALL --match DEPTH --match STACK --match TRACE: 236 passed, 0
+    failed, EXIT=0 (the three new tests among them).
+
+EEST tests@v20.0.2. Corpus: hard-link copy of the main checkout's
+.eest-fixtures-stable-v20.0.2 as <worktree>/.eest-fixtures-y2; fixtures.tar.gz
+re-hashed on the control plane:
+1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788.
+Selectors and commands exactly as in
+docs/evidence/sec5-591f700e-eest-v20.0.2.txt, one retained container per gate
+(COLD_TEST_CONTAINER=ethereum-lisp-cold-eest-y2-76cec72b-<slug>), removed
+after its state was recorded:
+
+  slug                 test                                                     cmd  container  OOM
+  state-manifest       phase-a-eest-state-conformance-is-non-vacuous            0    0          false
+  blockchain-manifest  phase-a-eest-blockchain-conformance-is-non-vacuous       0    0          false
+  rlp-manifest         phase-a-eest-blockchain-rlp-conformance-is-non-vacuous   0    0          false
+  state                optional-phase-a-eest-state-test-root-vectors-execute    0    0          false
+  blockchain           optional-phase-a-eest-blockchain-replay-executes         0    0          false
+  engine-late          optional-phase-a-eest-engine-late-payload-replay-executes 0   0          false
+  engine-reject        optional-phase-a-eest-engine-payload-rejection-executes  0    0          false
+  rlp                  optional-phase-a-eest-blockchain-rlp-replay-executes     0    0          false
+
+  Each log: "ok <TEST>", "1 test passed.", no "not ok", no "fatal error" or
+  "Bad frame pointer" line.  The six count-manifest lines, sorted, hash to
+  9c8f7010d2ec64d41c6564ffbed70f5d13e95f454f85f6f0d59547b96d2f4561, the
+  b5161312 record's set.  State, engine-late and rlp are the three that
+  crashed on 7cef5a67.
+
+ported_static (ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=<worktree>/
+.eest-fixtures-y2/tests-v20.0.2, cold-integration --match
+OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE), EXIT=0:
+  Cancun total: files=2078 cases=7060 passed=7059 failed=0 skipped=1
+    [paidMemoryAboveHarnessHeap:1]
+  Prague total: files=2078 cases=7060 passed=7059 failed=0 skipped=1
+    [paidMemoryAboveHarnessHeap:1]
+  Osaka total: files=1969 cases=6581 passed=6581 failed=0 skipped=0
+  The skip is the documented static_call1_mb1024_calldepth d1.  The
+  deep-recursion directories pass whole in all three forks
+  (stCallCreateCallCodeTest, stDelegatecallTestHomestead,
+  stSystemOperationsTest; stStaticCall 467/468 with that skip).
+
+Hoodi fixtures (hard-linked .eest-fixtures-hoodi-3684027 and -3685491),
+cold-integration --match HOODI-3684027- --match HOODI-3685491-, EXIT=0:
+  HOODI-3684027-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE ok,
+  HOODI-3685491-GAS-USED-MATCHES-ITS-HEADER-ON-A-BACKED-STATE ok.
+
+Hoodi differential replay (hard-linked .hoodi-replay,
+ETHEREUM_LISP_HOODI_REPLAY_ROOT=.hoodi-replay, cold-integration --match
+HOODI-REPLAY-BLOCKS-MATCH-THE-REFERENCE-CLIENT), EXIT=1 by design:
+  selected=322 replayed=320 match=320 diverges=0 comparator=0 prestate=0
+  unreplayable=2 (3679328, 3685509: the known witness gaps).  Cost summary
+  strictCpuMs=22683 medianStrictCpuUs=68135 blockCpuMs=65201 (5068bbb1:
+  21,160 / 65,460 / 60,847; one run each on a shared machine, no speed
+  claim either way).  Log sha256
+  6a3ecd46e77d0704fc3dc7b56f53b43fee016b0a2b1c73c5dd4cc15c9de6458a.
+
+Amsterdam burn-down (the Amsterdam CALL path goes through the changed
+EXECUTE-MESSAGE-CALL-CHILD; hard-linked .eest-fixtures-amsterdam-v7.2.1,
+ETHEREUM_LISP_AMSTERDAM_EEST_TREES=all, all fourteen directories required as
+docs/gap-analysis/amsterdam-inventory.md gives it), EXIT=0:
+  state 15,627/15,627, engine 21,067/21,067, transition 96/96, no line with
+  a failure.
+
+================================================================================
+Out of scope, seen on the way
+================================================================================
+
+- Child SBCL processes that tests and gate scripts start by name (sbcl
+  --script scripts/devnet-smoke-gate.lisp, scripts/ethereum-lisp.lisp and
+  about seventy other sites) keep SBCL's 2 MiB default.  1,024 levels fit it
+  (0.94 MiB) but without the margin.
+- A saved executable built with :save-runtime-options t still honoured a
+  leading --control-stack-size 2 on its command line in the probe (2 MiB for
+  both threads), though Dockerfile.runtime says the runtime parses no argv of
+  its own.  Nothing passes that option to the node; noted, not pursued.
+- Per-level bytes were measured on arm64 only.  x86-64 frames may differ;
+  the 1,536 ceiling leaves 60% above the arm64 measurement for that.
+
+================================================================================
+Not verified
+================================================================================
+
+- The runtime image was not rebuilt; that the amd64 executable carries
+  8 MiB rests on the probe of :save-runtime-options above (arm64) and on
+  EXECUTION-SBCL-LAUNCHES-CARRY-THE-EXECUTION-CONTROL-STACK reading the
+  build line.
+- amd64 bytes per level; live Hoodi; cold-all (coordinator).
