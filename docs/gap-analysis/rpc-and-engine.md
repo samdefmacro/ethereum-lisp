@@ -10,7 +10,9 @@ claim that a fix is in the tree.
 Findings are a snapshot of the working tree at commit
 `28e9912072135bebc3f49bc75226d6fed68dc21f`. Line numbers are relative to that
 snapshot; function and constant names are the durable identifier, so prefer them
-when a line has moved.
+when a line has moved. The **Status 2026-09-30** line that opens a finding was
+re-measured against `6fee0c69` (main, 2026-09-30); the text after it is the
+original finding, kept for the record.
 
 Per `PROJECT.md`, method count is not the metric. The audit is weighted by what a
 consensus client, a wallet, and an indexer actually depend on, and several
@@ -25,6 +27,7 @@ that is noted; a documented limitation is not a bug.
 | go-ethereum | 1.17.6-unstable | `38271784c2b31926563806da9a2e023b88f5e7a8` | 2026-07-28 |
 | Nethermind | 1.40.0 | `e52dc19a56a46f58170a730822580774d403c838` | 2026-07-28 |
 | this client | — | `28e9912072135bebc3f49bc75226d6fed68dc21f` | 2026-07-28 |
+| this client (status lines) | — | `6fee0c69` | 2026-09-30 |
 
 The Nethermind checkout is sparse and contains `src/Nethermind` only. Nethermind
 was used mainly to establish whether a behaviour is a geth idiosyncrasy or a
@@ -239,6 +242,7 @@ least informative.
 ### Engine API
 
 **RPC-01 — `eth_syncing` reports live progress rather than an unconditional stub.**
+**Status 2026-09-30:** RESOLVED in baa55871, a89826b4, 78e62003 and 567aef46. `engine-rpc-handle-eth-syncing` (`src/api/public/metadata/metadata.lisp`) answers from a guarded snapshot of buffered remote blocks, forkchoice targets and the durable SNAP skeleton target; tests `eth-syncing-reports-a-pending-forkchoice-target-at-genesis`, `eth-syncing-snapshot-does-not-wait-for-the-store-guard`, `eth-syncing-reports-the-durable-snap-skeleton-target`.
 Verdict RESOLVED. Severity breaks-consensus-client-integration.
 Ours now returns a geth-shaped `startingBlock`, `currentBlock`, and
 `highestBlock` object whenever the canonical head trails a buffered remote
@@ -253,6 +257,7 @@ targets, and store-guard contention. This fixes reporting only; it does not
 change downloader, import, forkchoice, networking, or SNAP mechanics.
 
 **RPC-02 — Engine version violations are reported as `INVALID`, not as an RPC error.**
+**Status 2026-09-30:** RESOLVED in 0d4fd71e and 5891f4dc. The `engine_newPayload*` handler (`src/api/engine/new-payload.lisp`) validates the method shape (`-32602`), then the fork (`engine-rpc-validate-new-payload-fork`, `-38005`), then the version-invalid predicate as `-32602`, all before import; tests `engine-rpc-new-payload-versions-reject-unsupported-forks`, `engine-rpc-new-payload-v3-validates-shape-before-fork`. The store-level `engine-new-payload-memory-status` still maps a version mismatch to `INVALID`, but the RPC path refuses first.
 Verdict DIVERGENT. Severity breaks-consensus-client-integration.
 Ours: `engine-new-payload-version-invalid-p`
 (`src/protocol/engine-payloads/validation.lisp:36`) feeds
@@ -269,6 +274,7 @@ as `-32602` is a retryable protocol error. The Hive `engine-api` suite asserts o
 the error code directly.
 
 **RPC-03 — `forkchoiceUpdatedV1` and `V2` do no fork or attribute gating.**
+**Status 2026-09-30:** RESOLVED in 0d4fd71e. `engine-rpc-validate-payload-attributes-v1`/`v2` (`src/api/engine/forkchoice-codecs.lisp`) reject withdrawals and `parentBeaconBlockRoot` in V1 and enforce the per-fork withdrawals rule in V2 (`-38003`); `engine-rpc-prepared-payload-version` (`src/api/engine/forkchoice.lisp`) refuses V1 after Shanghai and V2 after Cancun with `-38005`. Test `engine-rpc-forkchoice-updated-v2-prepares-withdrawal-payload` covers `-38003`; no test drives the `-38005` arm.
 Verdict MISSING. Severity breaks-consensus-client-integration.
 Ours: `engine-rpc-validate-payload-attributes-v1`
 (`src/api/engine/forkchoice-codecs.lisp:15-31`) parses `withdrawals` whenever
@@ -288,6 +294,7 @@ both attributes and fork range, which shows the pattern is understood and simply
 was not applied to the older versions.
 
 **RPC-04 — `forkchoiceUpdatedV4` ignores `targetGasLimit`.**
+**Status 2026-09-30:** RESOLVED in 0d4fd71e (required `targetGasLimit`), e12264a6 (`engine-target-gas-limit`, `src/protocol/engine-payloads/build.lisp`) and 27c42c1c (`custodyColumns` parsed). The target feeds the build and the payload id; `custodyColumns` is checked for 16 bytes and otherwise unused. Test `engine-builder-hones-gas-limit-toward-operator-target`.
 Verdict MISSING. Severity correctness.
 Ours: `engine-rpc-validate-payload-attributes-v4`
 (`src/api/engine/forkchoice-codecs.lisp:52-61`) requires `slotNumber` and stops
@@ -303,6 +310,7 @@ chain asked for. Also in this method: the third positional parameter
 (`src/api/engine/forkchoice.lisp:100-108`).
 
 **RPC-05 — `getPayload` version mismatch uses `-32602` where the spec and geth use `-38005`.**
+**Status 2026-09-30:** RESOLVED in 0d4fd71e. `engine-rpc-require-prepared-payload-version` (`src/api/engine/payloads.lisp`) answers `-38005` (`+engine-rpc-error-unsupported-fork+`). No test pins the code, and the check runs after the final rebuild closes the payload.
 Verdict DIVERGENT. Severity completeness.
 Ours: each `engine-rpc-handle-get-payload-v*` calls `block-validation-fail` on a
 version mismatch (`src/api/engine/payloads.lisp:39-40`, `:59-60`, `:70-71`,
@@ -316,6 +324,7 @@ functional one — a consensus client treats both as fatal for the request. List
 because the `execution-apis` vectors assert the code.
 
 **RPC-06 — `getPayloadV3` and later always return an empty `blobsBundle`.**
+**Status 2026-09-30:** RESOLVED in 511481d7 and 68c2f376. Blob transactions are selectable, and every build stores a bundle from `engine-rpc-blobs-bundle-for-transactions` (`src/api/engine/forkchoice.lisp`), which fails the build rather than emit a commitment without its sidecar; tests `prepared-payload-builds-blob-transaction-and-bundle`, `engine-rpc-builds-submitted-blob-wrapper-into-v3-payload`, `engine-rpc-get-payload-v5-returns-osaka-blobs-bundle`. The empty-bundle fallback in `engine-rpc-blobs-bundle-object` now applies only to a payload with no bundle.
 Verdict DIVERGENT. Severity breaks-consensus-client-integration (on a chain with
 blob traffic).
 Ours: the prepared payload is constructed with `:payload-id`, `:version` and
@@ -339,6 +348,7 @@ blob commitments have no matching bundle, which is worse than emitting neither.
 Overlaps txpool/block-building.
 
 **RPC-07 — `blockValue` in the payload envelope is always zero.**
+**Status 2026-09-30:** RESOLVED in 0d4fd71e and f35bc82c. `engine-rpc-block-value` (`src/api/engine/forkchoice.lisp`) sums effective tip times gas used over the receipts and is passed to the envelope in `src/api/engine/payloads.lisp`. Existing tests assert only `0x0` for empty blocks.
 Verdict DIVERGENT. Severity correctness.
 Ours: `block-to-executable-data` defaults `:block-value` to `0`
 (`src/protocol/engine-payloads/codecs.lisp:26`) and
@@ -352,6 +362,7 @@ block. Even without a builder, `blockValue` is what operators read to confirm th
 node is including transactions at all.
 
 **RPC-08 — The payload ID depends on the mempool, and the payload is never improved.**
+**Status 2026-09-30:** RESOLVED in 8f17c8c5, afab959a and 2bab2d36. `engine-payload-id` (`src/protocol/engine-payloads/build.lisp`) hashes version, parent and attributes; a repeat call reuses the open build, and `engine-rpc-improve-prepared-payload` keeps improving it; tests `engine-rpc-forkchoice-updated-v1-improves-stable-payload-before-get`, `engine-payload-improvement-stops-early-and-never-regresses`. The old `engine-payload-id-with-transactions` is still defined and exported but has no caller.
 Verdict DIVERGENT. Severity correctness.
 Ours: `engine-payload-id-with-transactions`
 (`src/protocol/engine-payloads/build.lisp:36`) hashes the selected transactions
@@ -371,6 +382,7 @@ the payload a proposer publishes reflects the pool as of the `forkchoiceUpdated`
 call rather than as of `getPayload`, giving up the whole build window.
 
 **RPC-09 — `engine_getBlobs*` is not fork-gated.**
+**Status 2026-09-30:** RESOLVED in 0d4fd71e. `src/api/engine/blobs.lisp` answers `getBlobsV1` with `-38005` once Osaka is active at the head and `getBlobsV2`/`V3` with `null` before Osaka. Tests cover the positive paths only.
 Verdict MISSING. Severity completeness.
 Ours: `engine-rpc-handle-get-blobs-v1/v2/v3`
 (`src/api/engine/blobs.lisp:21-60`) validate the request size and nothing else.
@@ -392,6 +404,7 @@ completeness item — but note that we do advertise `getBlobsV3`, so a client ma
 reasonably infer the newer surface is present.
 
 **RPC-11 — `forkchoiceUpdated` on an unknown head does not pursue that head.**
+**Status 2026-09-30:** RESOLVED in 8117b233, 13cebe2a and 6b37b097. An unknown or state-less forkchoice head is recorded as a sync target (`src/application/services/engine-payload-status.lisp`) and the dialer's gap fill walks toward it (`src/app/cli/devnet/dialer.lisp`); tests `forkchoice-sync-target-survives-candidate-execution`, `engine-forkchoice-valid-status-defers-sync-target-cleanup`.
 Verdict DIVERGENT. Severity breaks-consensus-client-integration on restart.
 Ours: `engine-forkchoice-memory-status`
 (`src/application/services/engine-payload-status.lisp:62-82`) returns
@@ -410,6 +423,7 @@ dialer walks back from its parent to fill the gap
 the forkchoice-initiated case is missing. Overlaps networking/sync.
 
 **RPC-12 — The invalid-ancestor cache is unbounded and cannot recover.**
+**Status 2026-09-30:** PARTIAL. bb5ccb3f added a per-entry hit counter that drops an entry and its descendants after 128 hits, bounds the cache at 512 entries, 64 MiB and one hour, and zeroes `latestValidHash` on the invalid-ancestor path when the parent is a PoW block (`engine-payload-store-mark-invalid`, `engine-payload-store-invalid-ancestor`, `src/storage/chain-store/service/cache.lisp`); tests `engine-invalid-ancestor-cache-recovers-after-hit-threshold`, `engine-invalid-ancestor-zeroes-pre-merge-last-valid-hash`. Still divergent: a payload judged `INVALID` directly names its parent as `latestValidHash` even when the parent is a PoW block (`src/application/services/engine-payload-status.lisp`, `block-import-make-invalid-status`), where geth's `invalid()` returns `0x0`. Re-graded to completeness: it matters only for the first post-Merge block.
 Verdict DIVERGENT. Severity correctness.
 Ours: `engine-payload-store-invalid-ancestor-status`
 (`src/application/services/engine-payload-status.lisp:20-33`) looks the hash up,
@@ -460,6 +474,7 @@ every token. The devnet CLI supplies it; a new embedder might not.
 ### Public `eth_*`
 
 **RPC-15 — No state or block overrides on `eth_call`, `eth_estimateGas`, or `eth_createAccessList`.**
+**Status 2026-09-30:** RESOLVED in 27c42c1c. `eth-rpc-apply-state-overrides` and the block-override reader (`src/api/public/state/call-simulation.lisp`) serve the third and fourth parameters of `eth_call`, `eth_estimateGas` (`gas.lisp`) and `eth_createAccessList` (`access-lists.lisp`), including `state`, `stateDiff` and `movePrecompileToAddress`; test `eth-rpc-call-applies-state-and-block-overrides`. No test sends overrides to `eth_estimateGas` or `eth_createAccessList`.
 Verdict MISSING. Severity completeness (correctness for the callers that need it).
 Ours: `engine-rpc-handle-eth-call` takes `(params store config)` and reads at
 most two positional parameters (`src/api/public/state/call-simulation.lisp:82`);
@@ -472,6 +487,7 @@ abstraction bundlers, `eth_call`-based simulators, and any tool that needs to
 answer "what would this do if the balance were higher" cannot use this node.
 
 **RPC-16 — No RPC gas cap and no EVM timeout.**
+**Status 2026-09-30:** RESOLVED in b0606eb3 (50,000,000 default call gas cap, `+eth-rpc-default-call-gas-limit+`) and 3ad547c9 (`--rpc.gascap` and `--rpc.evmtimeout` parsed into per-listener `rpc-budgets`, `src/api/public/budgets.lisp`, `src/app/cli/http-limits.lisp`); tests `rpc-gas-cap-budget-lowers-the-gas-a-call-gets`, `rpc-evm-timeout-budget-stops-a-call-that-runs-too-long`. The 5 s EVM timeout wraps `eth_call` and `eth_simulateV1`; `eth_estimateGas` and `eth_createAccessList` are gas-capped but have no deadline.
 Verdict MISSING. Severity performance (denial of service).
 Ours: an `eth_call` with no `gas` defaults to `+eth-rpc-default-call-gas-limit+`,
 which is `2^64-1` (`src/api/public/state/call-objects.lisp:3`), and a
@@ -488,6 +504,7 @@ already accepts `--rpc.gascap` and `--rpc.evmtimeout` and ignores both
 have configured a cap has not.
 
 **RPC-17 — `eth_simulateV1` remains incomplete.**
+**Status 2026-09-30:** RESOLVED in 27c42c1c (the handler) and the September burn-down (abfe6da3, de66bf7b and about thirty `fix(rpc):` simulate commits). The pinned rpc-compat run passed all 91 `eth_simulateV1` cases at d1da4d54 and 234/234 at 6e3e9b1d (`docs/evidence/gates.md`; the burn-down record merged in b78f7b78). No rpc-compat run exists after d203fee6/aee866f7 (2026-09-23).
 Verdict PARTIAL. Severity completeness and correctness.
 Ours dispatches multi-block, multi-call simulation from
 `src/api/public/state/call-simulation.lisp`. Reference: geth
@@ -498,6 +515,7 @@ progression. The method is therefore implemented but is not yet a conformance
 gate; RPC-15's override machinery remains a prerequisite for closing it.
 
 **RPC-18 — Blob-transaction receipts include `blobGasUsed` and `blobGasPrice`.**
+**Status 2026-09-30:** RESOLVED in b0606eb3, with coverage in e210ca00. `eth-rpc-receipt-blob-fields` (`src/api/public/transactions/receipts.lisp`); test `eth-rpc-blob-receipts-derive-gas-fields-and-preserve-legacy-shape`. `blobGasPrice` is absent at 28e99120, so the paragraph below saying the fields predated the audit is wrong about that field.
 Verdict RESOLVED. Severity correctness.
 The original finding was stale by the reviewed baseline: type-3 serialization
 already derived `blobGasUsed` from each transaction's versioned hashes and
@@ -510,6 +528,7 @@ legacy transaction. Pinned Hive failures, if any remain, must be attributed to
 their specific receipt divergence rather than these fields.
 
 **RPC-19 — The header field is named `balHash` rather than `blockAccessListHash`.**
+**Status 2026-09-30:** RESOLVED in b0606eb3. `src/api/public/blocks/header-objects.lisp` emits `blockAccessListHash`; the genesis parser still accepts both spellings. Test `eth-rpc-get-header-by-number`.
 Verdict DIVERGENT. Severity correctness (silent, for one field).
 Ours: `src/api/public/blocks/header-objects.lisp:65`. Reference: Nethermind's
 header property is `BlockAccessListHash`
@@ -520,6 +539,7 @@ absent. Which spelling is correct at this commit is worth confirming against
 divergence itself is verified. Overlaps block execution.
 
 **RPC-20 — `pending` is an alias for `latest` in state and call paths.**
+**Status 2026-09-30:** still PARTIAL. `eth_getTransactionCount(addr, "pending")` counts the contiguous pooled nonce (e4682cfa, 2026-05-19, before this audit, so the nonce example below was already wrong) and `eth_getBlockByNumber("pending")` executes pooled transactions on the head (`eth-rpc-build-pending-block`, 27c42c1c). Balance, code, storage, `eth_call` and `eth_estimateGas` at `pending` still resolve to the latest state (`eth-rpc-state-block-param`, `src/api/public/state/queries.lisp`).
 Verdict DIVERGENT. Severity completeness.
 Ours: `eth-rpc-state-block-param` (`src/api/public/state/queries.lisp:37`)
 resolves `pending` to the latest block, so `eth_getTransactionCount(addr,
@@ -532,6 +552,7 @@ nonce and will reuse a nonce that is already in the pool. This is the single mos
 commonly hit divergence for ordinary wallet traffic. Overlaps txpool.
 
 **RPC-21 — Gas-price oracle sparse-history state diverges from geth.**
+**Status 2026-09-30:** RESOLVED in 30ad66d1 and 67a4eb42 (first oracle 27c42c1c); see the paragraph below. Tests `eth-rpc-gas-oracle-filters-and-bounds-block-samples`, `rpc-context-rebind-resets-chain-bound-gas-oracle-state`.
 Verdict RESOLVED. Severity correctness.
 Ours samples the latest 20 non-genesis canonical blocks, sorts each block by
 effective tip, retains at most its three lowest eligible transactions, excludes
@@ -569,6 +590,7 @@ focused test fail.
 ### Filters and subscriptions
 
 **RPC-23 — Filters never expire and their IDs are guessable.**
+**Status 2026-09-30:** RESOLVED in bb5ccb3f. Filter ids are `+engine-filter-id-bytes+` (16) random bytes, filters carry a `+engine-filter-timeout-seconds+` (300) deadline reset by each poll, and `engine-payload-store-sweep-expired-filters` removes expired ones (`src/storage/chain-store/service/filters.lisp`); test `engine-filter-ids-are-random-and-polls-reset-expiry`. There is no cap on the number of installed filters.
 Verdict DIVERGENT. Severity correctness (isolation) and performance.
 Ours: `engine-payload-store-put-log-filter` and its siblings assign
 `memory-chain-store-next-log-filter-id` and increment it
@@ -586,6 +608,7 @@ abandoned log filter appends one change entry per block forever
 until restart. Both are fixed by the same change.
 
 **RPC-24 — `logs` subscriptions never report removed logs, and skip logs across a deep reorg.**
+**Status 2026-09-30:** PARTIAL. bb5ccb3f made `eth-rpc-subscription-poll-chain` (`src/api/public/subscriptions/subscriptions.lisp`) emit the orphaned branch's logs with `removed: true` and then the replacement branch. When no common ancestor is found within `+eth-rpc-subscription-head-catchup-limit+` (128) blocks, `eth-rpc-subscription-new-heads` still returns the head alone, so a deeper reorg, or more than 128 blocks between polls, skips logs. No test covers a subscription across a reorg.
 Verdict DIVERGENT. Severity correctness.
 Ours: `eth-rpc-subscription-poll` derives log notifications from the blocks
 `eth-rpc-subscription-new-heads` returns
@@ -605,6 +628,7 @@ reorg handler (`src/application/services/canonical-chain.lisp:109`) and
 the subscription path simply does not use it.
 
 **RPC-25 — Log topic and address limits are geth-compatible; range work is streamed and budgeted.**
+**Status 2026-09-30:** still PARTIAL. Topic limits (13f8efa3), the 1,000-address limit, the streamed scan and the 10,000-log result cap (6d0dbad7) are in `src/api/public/filters/logs.lisp`, with the 5,000-block range cap from b0606eb3. A scan still has no deadline of its own: only the transport-wide HTTP request deadline applies, and WebSocket has none.
 Verdict PARTIAL. Severity performance.
 `eth_getLogs`, `eth_newFilter`, and log subscriptions share enforcement of
 geth's `maxTopics = 4` and `maxSubTopics = 1000`, including exact `-32000`
@@ -621,6 +645,7 @@ deadline/cancellation for a slow in-bound scan remains open.
 
 
 **RPC-26 — Unknown log-filter `blockHash` returns an explicit error.**
+**Status 2026-09-30:** RESOLVED in 13f8efa3. `eth-rpc-log-filter-block-source` (`src/api/public/filters/logs.lisp`); test `eth-rpc-log-filters-reject-unknown-block-hash-like-geth`.
 Verdict RESOLVED. Severity cosmetic.
 The shared validation path now returns JSON-RPC `-32000` with message
 `unknown block` for both `eth_getLogs` and `eth_newFilter`. Regression tests
@@ -641,6 +666,7 @@ recording as a performance item, not a defect.
 ### debug and trace
 
 **RPC-28 — The `debug_*` tracing surface is one method with one tracer.**
+**Status 2026-09-30:** PARTIAL. 27c42c1c added `debug_traceTransaction`, `debug_traceBlockByHash` and `debug_traceBlockByNumber`, and 4b9f20b2 traces a block in one execution with every call and create frame labelled (`src/api/public/debug/tracing.lisp`); tests `debug-trace-block-executes-each-transaction-once`, `debug-trace-call-labels-every-call-and-create-frame`. Still missing: `debug_traceBlock`, `debug_traceCallMany`, the struct logger, and every tracer but `callTracer` (other names are refused). `tracerConfig` is not read, so `onlyTopCall` and `withLog` are silently ignored, and frames carry no `revertReason`.
 Verdict MISSING. Severity completeness.
 Ours: `engine-rpc-handle-debug-trace-call`
 (`src/api/public/debug/tracing.lisp:110`) renders call frames in `callTracer`
@@ -657,6 +683,7 @@ single largest method-count gap in the area and also the one with the least
 consensus risk, which is why it is not higher in the summary.
 
 **RPC-29 — The Parity-style `trace_*` module is absent.**
+**Status 2026-09-30:** still MISSING, and now deliberately so: `engine-rpc-public-method-p` (`src/api/engine/methods.lisp`) admits no `trace_` prefix, and test `parity-trace-namespace-is-explicitly-unavailable` (27c42c1c) pins the refusal. No decision record formally declines the module.
 Verdict MISSING. Severity completeness.
 Ours: no `trace_` prefix appears in `engine-rpc-public-method-p`
 (`src/api/engine/methods.lisp:97-104`) or any dispatch table. Reference:
@@ -670,6 +697,7 @@ cannot use this node. Since one reference lacks it entirely, this is a
 completeness item and arguably should be declined rather than implemented.
 
 **RPC-30 — Several `debug_*` state and control methods are absent.**
+**Status 2026-09-30:** PARTIAL. `debug_setHead` is served (`engine-rpc-handle-debug-set-head`, `src/api/public/debug/tracing.lisp`, 27c42c1c) and refuses a post-Merge head or target (fa8859d4), so it cannot reset a post-Merge chain; tests `debug-set-head-rewinds-the-canonical-chain`, `debug-set-head-cannot-publish-a-post-merge-view`. `debug_storageRangeAt`, `debug_accountRange`, `debug_dumpBlock`, `debug_getBadBlocks`, `debug_dbGet` and `debug_chainConfig` are still absent.
 Verdict MISSING. Severity completeness.
 Ours: the raw-data getters (`debug_getRawHeader`, `debug_getRawBlock`,
 `debug_getRawReceipts`, `debug_getRawTransaction`) are dispatched
@@ -683,6 +711,7 @@ what the Hive suites use to reset state between cases. Overlaps state/storage.
 ### Operational modules
 
 **RPC-31 — `admin_*` is three methods, and `admin_nodeInfo` is incomplete.**
+**Status 2026-09-30:** PARTIAL. `admin_removePeer` is served with a real backend (`engine-rpc-handle-admin-remove-peer`, `src/api/public/admin/admin.lisp`, 27c42c1c); test `admin-methods-report-the-backend-and-refuse-without-one`. Still missing: `admin_addTrustedPeer`, `admin_removeTrustedPeer`, `admin_startHTTP`/`stopHTTP`/`startWS`/`stopWS`, `admin_datadir`, `admin_peerEvents`, and `config` under `nodeInfo.protocols.eth`.
 Verdict MISSING. Severity completeness.
 Ours: `admin_nodeInfo`, `admin_peers`, `admin_addPeer`
 (`src/api/public/admin/admin.lisp:69` and neighbours), reached only when
@@ -698,6 +727,7 @@ disconnect a misbehaving peer over RPC, and tooling that reads
 `admin_removePeer` is the one worth having. Overlaps networking/node-ops.
 
 **RPC-32 — `txpool_inspect` uses an ASCII `x` where geth uses `×`.**
+**Status 2026-09-30:** RESOLVED in b0606eb3. `txpool-rpc-transaction-summary` (`src/api/public/txpool/views.lisp`) formats `"~A: ~D wei + ~D gas × ~D wei"`; asserted in the `eth-rpc-send-raw-transaction` test.
 Verdict DIVERGENT. Severity cosmetic.
 Ours: `engine-rpc-handle-txpool-inspect`
 (`src/api/public/txpool/handlers.lisp:78` into
@@ -707,6 +737,7 @@ parser matching geth's exact string fails. Included only because the method's
 entire contract is its string format.
 
 **RPC-33 — `eth_config` / chain-configuration introspection is implemented.**
+**Status 2026-09-30:** RESOLVED in 27c42c1c (handler) and b9a2a9d8 (null future fork). `engine-rpc-handle-eth-config` (`src/api/public/metadata/metadata.lisp`); tests `eth-rpc-config-reports-current-next-and-last-forks`, `eth-rpc-config-encodes-null-when-no-future-fork-exists`.
 Verdict RESOLVED locally; pinned Hive rerun pending.
 `engine-rpc-handle-eth-config` returns EIP-7910 current/next/last descriptors
 with activation times, blob schedule, active precompiles, system contracts, and
@@ -732,6 +763,7 @@ uses a two-item batch and proves that the other item still succeeds. Before the
 whole-boundary repair, that test instead received the non-JSON HTTP 400 body.
 
 **RPC-35 — Batch item and response limits follow geth.**
+**Status 2026-09-30:** RESOLVED in 6d0dbad7 (batch budgets in `src/api/rpc/router.lisp`) and 3ad547c9, which made the CLI honour `--rpc.batch-request-limit` and `--rpc.batch-response-max-size` (`devnet-cli-rpc-budgets`, `src/app/cli/http-limits.lisp`), so the sentence below saying the CLI ignores both is no longer true; tests `rpc-oversized-batch-is-refused-whole-before-any-item-runs`, `rpc-budget-flags-are-parsed-and-reach-every-listener`.
 Verdict RESOLVED (rpc-hardening branch). Severity performance (denial of service).
 `*rpc-batch-request-limit*` (1000) and `*rpc-batch-response-max-size*`
 (25,000,000) are geth's `node/defaults.go:68-69` values. An oversized batch is
@@ -754,6 +786,7 @@ all match.
 
 
 **RPC-36 — Every HTTP response closes the connection; no keep-alive, chunked encoding, or gzip.**
+**Status 2026-09-30:** PARTIAL. e3bcb7ae made HTTP/1.1 connections persistent with idle deadlines and a reuse loop (`src/transport/http/handler.lisp`, `server.lisp`); test `engine-rpc-http-service-reuses-http11-connection`. `Transfer-Encoding: chunked` and gzip are still not handled: a request without `Content-Length` is read as an empty body. Re-graded to completeness.
 Verdict DIVERGENT. Severity performance.
 Ours: `Connection: close` is written unconditionally
 (`src/transport/http/policy.lisp:73`), and the parser reads a single
@@ -767,6 +800,7 @@ which some HTTP libraries do by default, gets a parse failure. The correct
 `Content-Length` on responses and the 5 MB body limit are both in place.
 
 **RPC-37 — No IPC transport, but the flags for one are accepted.**
+**Status 2026-09-30:** RESOLVED in d8a000ea as far as the flags go: `--ipcpath`, `--ipcapi` and `--ipcdisable` now fail parsing with "IPC is not implemented" (`src/app/cli/options/options.lisp`); test `devnet-cli-rejects-unimplemented-ipc-options`. There is still no IPC transport, and the usage text still lists the three flags.
 Verdict MISSING. Severity completeness.
 Ours: `--ipcpath`, `--ipcapi` and `--ipcdisable` appear in the accepted-option
 list (`src/app/cli/options/definitions.lisp:10-15`) and no IPC listener exists
@@ -779,6 +813,7 @@ RPC-16 and RPC-35. Under `PROJECT.md`'s capability-gating principle an
 unimplemented flag should be rejected at parse time with a message, not accepted.
 
 **RPC-38 — Virtual hosts default to allowing any `Host` header.**
+**Status 2026-09-30:** RESOLVED in d8a000ea (`engine-vhosts` and `http-vhosts` default to `("localhost")`, `src/app/cli/options/options.lisp`) and 16e48490 (IP-literal hosts accepted, `engine-rpc-http-ip-literal-host-p`, `src/transport/http/policy.lisp`); test `engine-rpc-http-accepts-ip-literal-hosts`.
 Verdict DIVERGENT. Severity correctness (security).
 Ours: `engine-vhosts` and `http-vhosts` default to nil
 (`src/app/cli/options/options.lisp:22-23`) and
@@ -791,6 +826,7 @@ authenticated Engine port the JWT still holds, so the exposure is the public
 port.
 
 **RPC-39 — The default public method set includes `debug_` and `txpool_`.**
+**Status 2026-09-30:** PARTIAL. d8a000ea made `devnet-cli-public-api-method-filter` (`src/app/cli/options/parsers.lisp`) drop `debug_`, `admin_` and `testing_` when `--http.api`/`--ws.api` is absent; test `debug-namespace-is-advertised-and-gateable`. `txpool_` is still in the default set. Re-graded to completeness: `debug_traceCall` is no longer reachable on a default port, and `txpool_` exposes pool contents only.
 Verdict DIVERGENT. Severity correctness (security).
 Ours: with no `--http.api`, `devnet-cli-public-api-method-filter` returns
 `engine-rpc-public-method-p` unfiltered
@@ -804,6 +840,7 @@ same file's docstring explains at length why `admin_` was excluded from that
 predicate; the reasoning applies to `debug_` and was not extended to it.
 
 **RPC-40 — WebSocket hardening.**
+**Status 2026-09-30:** RESOLVED in 0ec0eb5c; see the paragraph below. Tests in `tests/websocket-hardening-tests.lisp`.
 Verdict RESOLVED (rpc-hardening branch); the original "no gap" verdict was
 wrong on two counts. Masking was documented but never enforced: the decoder
 accepted unmasked client frames. It now refuses them on the server side

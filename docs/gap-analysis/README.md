@@ -160,17 +160,17 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
 | [EVM-04](evm-and-gas.md) | evm | DIVERGENT | consensus | `engine_newPayloadV5` is enabled at Amsterdam with no Amsterdam EVM, so payloads get a verdict computed under near-Osaka rules. |
-| [RPC-02](rpc-and-engine.md) | rpc | DIVERGENT | CC-integration | Engine version-vs-fork violations return `INVALID` instead of an RPC error, so a consensus client permanently blacklists a valid chain. |
-| [RPC-01](rpc-and-engine.md) | rpc | MISSING | CC-integration | `eth_syncing` always answers `false`, so the execution-layer upcheck passes while blocks are buffered and unexecuted. |
-| [RPC-03](rpc-and-engine.md) | rpc | MISSING | CC-integration | `forkchoiceUpdatedV1`/`V2` do no fork or attribute gating, so a wrong-version call yields a payload built under a ruleset the caller did not ask for. |
-| [RPC-12](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The invalid-ancestor cache has no hit eviction, no capacity bound and no pre-merge zeroing, so one spurious `INVALID` is permanent until restart. |
+| [RPC-02](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e, 5891f4dc) | CC-integration | `engine_newPayload*` refuses a version-shape violation with `-32602` and a wrong-fork payload with `-38005` before import, so no version mistake becomes an `INVALID` verdict. |
+| [RPC-01](rpc-and-engine.md) | rpc | RESOLVED (baa55871, a89826b4, 78e62003, 567aef46) | CC-integration | `eth_syncing` reports progress toward buffered remote blocks, forkchoice targets and the durable SNAP target, from a snapshot that never waits on the store guard. |
+| [RPC-03](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e) | CC-integration | `forkchoiceUpdatedV1`/`V2` apply geth's withdrawals and beacon-root attribute rules and refuse timestamps outside their fork range. |
+| [RPC-12](rpc-and-engine.md) | rpc | PARTIAL | completeness | The invalid cache has a hit eviction, capacity bounds and PoW zeroing on the invalid-ancestor path; a freshly `INVALID` payload whose parent is a PoW block still names that parent as `latestValidHash`. |
 | [EVM-09](evm-and-gas.md) | evm | DIVERGENT | correctness | `POINT_EVALUATION` converts "the KZG backend is absent" into "the proof is invalid", fabricating a verdict. |
 | [EVM-16](evm-and-gas.md) | evm | MISSING | completeness | BLS backend availability is not in the Engine gate, so a misbuilt node accepts Prague and then stalls mid-import. |
 | [EXEC-11](block-execution-and-types.md) | exec | MISSING | correctness | The KZG blob-proof verifier exists, is capability-gated, and has no caller on any live path; no code we own verifies a blob against its commitment. |
-| [RPC-06](rpc-and-engine.md) | rpc | DIVERGENT | CC-integration | `getPayloadV3`+ always returns an empty `blobsBundle` rather than declining the method. |
-| [POOL-13](txpool-building-and-ops.md) | pool | MISSING | completeness | A blob transaction is accepted and given a hash, then never mined, never gossiped and never expired. Executed. |
+| [RPC-06](rpc-and-engine.md) | rpc | RESOLVED (511481d7, 68c2f376) | CC-integration | Blob transactions are built into payloads and `getPayloadV3`+ returns a `blobsBundle` assembled from the stored sidecars. |
+| [POOL-13](txpool-building-and-ops.md) | pool | RESOLVED (511481d7, 5e3fb80f, bd7906c3) | completeness | Blob transactions are pooled with pinned sidecars, built into payloads, announced to peers and expired. |
 | [OPS-01](txpool-building-and-ops.md) | ops | DIVERGENT | operability | 56 command-line flags are accepted, consumed and discarded, including `--verbosity`, `--syncmode`, the cache family and every chain preset. |
-| [RPC-37](rpc-and-engine.md) | rpc | MISSING | completeness | No IPC transport exists and `--ipcpath`/`--ipcapi`/`--ipcdisable` are accepted anyway. |
+| [RPC-37](rpc-and-engine.md) | rpc | RESOLVED (d8a000ea) | completeness | There is still no IPC transport, and `--ipcpath`/`--ipcapi`/`--ipcdisable` are refused at parse time instead of accepted. |
 
 ### Tier 3 — Verification collapse
 
@@ -186,13 +186,13 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EXEC-03](block-execution-and-types.md) | exec | DIVERGENT | consensus | Post-merge status is inferred from the header's own difficulty, not the chain config, so a PoS-from-genesis chain skips all four PoS header checks. |
 | [EXEC-02](block-execution-and-types.md) | exec | MISSING | consensus | Uncles are never validated beyond the ommers hash, yet uncle rewards are paid, so a pre-merge block can mint to fabricated uncles. |
 | [STORE-02](state-trie-storage.md) | store | DIVERGENT | consensus | Empty-account deletion is not gated on EIP-158, so pre-Spurious-Dragon replay produces a wrong account trie. Inert post-merge. |
-| [POOL-03](txpool-building-and-ops.md) | pool | MISSING | blocks-production | No EIP-7623 floor-data-gas check at admission; the cheapest remote way to poison every subsequent payload build. |
-| [POOL-02](txpool-building-and-ops.md) | pool | MISSING | blocks-production | No EIP-3860 initcode-size check at admission; same consequence, slightly costlier to trigger. |
-| [BUILD-01](txpool-building-and-ops.md) | build | DIVERGENT | blocks-production | One unexecutable transaction aborts the whole payload build; `transaction-validation-error` escapes every handler and closes the socket with no response. |
-| [BUILD-02](txpool-building-and-ops.md) | build | DIVERGENT | blocks-production | The pending list is filtered at the head's base fee and the block is built at the child's, so a rising base fee triggers BUILD-01 with no adversary. |
-| [BUILD-03](txpool-building-and-ops.md) | build | MISSING | blocks-production | The payload is built once at `forkchoiceUpdated` and never improved, giving up the whole build window. |
+| [POOL-03](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | blocks-production | Admission applies the EIP-7623 floor data gas. |
+| [POOL-02](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | blocks-production | Admission applies the EIP-3860 initcode-size cap. |
+| [BUILD-01](txpool-building-and-ops.md) | build | RESOLVED (a7a7b1d0, 8f17c8c5, f35bc82c) | blocks-production | The Engine builder rolls a failing transaction back, skips its sender and keeps building, from an empty block that is always returnable. |
+| [BUILD-02](txpool-building-and-ops.md) | build | RESOLVED (a7a7b1d0) | blocks-production | Selection filters the pending list at the child block's base fee. |
+| [BUILD-03](txpool-building-and-ops.md) | build | RESOLVED (8f17c8c5, afab959a, 2bab2d36) | blocks-production | A background worker improves open payloads every 2 s and `getPayload` makes one final bounded rebuild, keeping the more valuable block. |
 | [STORE-21](state-trie-storage.md) | store | MISSING | durability | A head whose state is gone is a hard startup failure; there is no `SetHead`, no rewind and no repair. |
-| [RPC-11](rpc-and-engine.md) | rpc | DIVERGENT | CC-integration | `forkchoiceUpdated` on an unknown head answers `SYNCING` and never goes to fetch it, so a restarted node can sit there indefinitely. |
+| [RPC-11](rpc-and-engine.md) | rpc | RESOLVED (8117b233, 13cebe2a, 6b37b097) | CC-integration | An unknown or state-less forkchoice head becomes a sync target that the peer dialer fetches toward. |
 | [EVM-07](evm-and-gas.md) | evm | DIVERGENT | correctness | EIP-7702 delegation resolution is not fork-gated; we execute a designator's target at every fork where geth resolves only under Prague. |
 | [EVM-08](evm-and-gas.md) | evm | DIVERGENT | correctness | `empty-account-p` carries a storage-root term, so `EXTCODEHASH` pushes a hash where both references push zero. |
 | [EVM-15](evm-and-gas.md) | evm | DIVERGENT | completeness | `PREVRANDAO` selection is derived from the header rather than the fork schedule; equivalence UNVERIFIED, and call simulation hardcodes post-merge. |
@@ -204,20 +204,20 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EXEC-13](block-execution-and-types.md) | exec | DIVERGENT | correctness | Header RLP encoding is presence-driven, not positional, so a gapped header silently shifts fields. Latent; the decoder allowlist is load-bearing. |
 | [STORE-03](state-trie-storage.md) | store | MISSING | correctness | No touched set and no end-of-transaction finalisation pass; the no-empty-account invariant is held by agreement between mutators. |
 | [STORE-10](state-trie-storage.md) | store | DIVERGENT | correctness | Proof verification requires an exactly-sized, correctly-ordered list, so a valid geth or Nethermind proof is rejected as malformed. |
-| [RPC-04](rpc-and-engine.md) | rpc | MISSING | correctness | `forkchoiceUpdatedV4` ignores `targetGasLimit` and the third `custodyColumns` parameter. |
-| [RPC-07](rpc-and-engine.md) | rpc | DIVERGENT | correctness | `blockValue` in the payload envelope is always zero, so a MEV-Boost proposer always takes the builder's block. |
-| [RPC-08](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The payload id is a function of the selected transaction set, so identical calls return different ids and each stores another prepared payload. |
-| [RPC-18](rpc-and-engine.md) | rpc | MISSING | correctness | Blob-transaction receipts omit `blobGasUsed` and `blobGasPrice`. |
-| [RPC-19](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The header field is named `balHash` where Nethermind's is `BlockAccessListHash`, so a reader silently sees no commitment. |
-| [RPC-21](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The oracle now has geth's nonzero empty-history fallback, but its transaction eligibility, per-block sampling, sparse-history extension, caching, and cap still diverge. |
-| [RPC-24](rpc-and-engine.md) | rpc | DIVERGENT | correctness | `logs` subscriptions never report removed logs and skip logs across a deep reorg, though the filter path does this correctly. |
-| [POOL-04](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | The minimum-fee check reads the fee cap, not the effective tip, so a zero-tip transaction passes the price floor. |
-| [POOL-05](txpool-building-and-ops.md) | pool | MISSING | correctness | No EIP-7702 authority reservation and no delegated-account in-flight limit. |
-| [POOL-06](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | Nonce and balance are not checked at all when head state is unavailable; anything lands straight in the pending list. |
-| [POOL-08](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | A full pool rejects the newcomer instead of evicting the cheapest resident, so price stops mattering at the limit. |
-| [POOL-12](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | Blob replacement requires no blob-fee-cap bump and uses 10% where geth's blob pool uses 100%. |
-| [BUILD-04](txpool-building-and-ops.md) | build | DIVERGENT | correctness | The block gas limit is copied from the parent and `--miner.gaslimit` never reaches the builder, so the limit can never move. |
-| [BUILD-07](txpool-building-and-ops.md) | build | MISSING | correctness | Nothing bounds the encoded size of the block being assembled, so we can build past the EIP-7934 cap. |
+| [RPC-04](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e, e12264a6, 27c42c1c) | correctness | `forkchoiceUpdatedV4` requires `targetGasLimit` and the builder moves the gas limit toward it; the third `custodyColumns` parameter is length-checked and otherwise unused. |
+| [RPC-07](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e, f35bc82c) | correctness | `blockValue` is the priority fees the built block pays its fee recipient, and it also decides which rebuild is kept. |
+| [RPC-08](rpc-and-engine.md) | rpc | RESOLVED (8f17c8c5, afab959a, 2bab2d36) | correctness | The payload id is derived from version, parent and attributes only, and the payload behind it is improved in the background and once more at `getPayload`. |
+| [RPC-18](rpc-and-engine.md) | rpc | RESOLVED (b0606eb3, e210ca00) | correctness | Blob-transaction receipts carry `blobGasUsed` and `blobGasPrice`; legacy receipts omit both. |
+| [RPC-19](rpc-and-engine.md) | rpc | RESOLVED (b0606eb3) | correctness | The header object names the field `blockAccessListHash`. |
+| [RPC-21](rpc-and-engine.md) | rpc | RESOLVED (30ad66d1, 67a4eb42) | correctness | The gas-price oracle follows geth's bounded sample, eligibility, percentile, cap, head cache and sparse-history extension. |
+| [RPC-24](rpc-and-engine.md) | rpc | PARTIAL | correctness | `logs` subscriptions report reorged-away logs with `removed: true`, but a reorg or an advance deeper than the 128-block catch-up window still skips logs. |
+| [POOL-04](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | correctness | The price floor reads the priority fee, not the fee cap. |
+| [POOL-05](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1, bd7906c3) | correctness | Admission reserves EIP-7702 authorities through an index and limits a delegated account to one in-flight transaction at its current nonce. |
+| [POOL-06](txpool-building-and-ops.md) | pool | DIVERGENT | correctness | Nonce and balance are still not checked when head state is unavailable; payload builds now skip such a transaction, but it lands in the pending list. |
+| [POOL-08](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1, bd7906c3) | correctness | A full pool evicts its cheapest resident by effective tip at the child base fee, and refuses the newcomer only when it pays no more. |
+| [POOL-12](txpool-building-and-ops.md) | pool | RESOLVED (511481d7) | correctness | Replacing a blob transaction requires a 100% bump on the fee cap, the tip and the blob fee cap. |
+| [BUILD-04](txpool-building-and-ops.md) | build | RESOLVED (e12264a6, b3e05d91, 6e3e9b1d) | correctness | The builder moves the gas limit toward `targetGasLimit` or `--miner.gaslimit` (default 60,000,000) by at most parent/1024 - 1 per block. |
+| [BUILD-07](txpool-building-and-ops.md) | build | PARTIAL | completeness | From Osaka the Engine builder budgets transaction bytes against the EIP-7934 cap and re-checks the built block; per-transaction list framing is not counted, and no test covers the cap during building. |
 | [OPS-03](txpool-building-and-ops.md) | ops | MISSING | correctness | The data directory is not locked, so two processes can open the same datadir and interleave writes. |
 
 ### Tier 5 — Unauthenticated resource exhaustion and open-by-default exposure
@@ -226,16 +226,16 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | --- | --- | --- | --- | --- |
 | [NET-15](networking-and-sync.md) | net | MISSING | remote-DoS | No inbound per-IP throttle, no `netrestrict`, no IP-diversity limit; one host can occupy every peer slot and force unlimited ECIES work. |
 | [NET-06](networking-and-sync.md) | net | DIVERGENT | correctness | An unsolicited Ping marks a node bonded with its claimed ports, and bonded nodes are relayed — table poisoning and traffic reflection. |
-| [RPC-16](rpc-and-engine.md) | rpc | MISSING | performance | No RPC gas cap and no EVM timeout; an unspecified `gas` defaults to `2^64-1`, so one unauthenticated request can pin a core. |
-| [RPC-25](rpc-and-engine.md) | rpc | MISSING | performance | No topic-count and no block-range limit on log queries. |
-| [RPC-35](rpc-and-engine.md) | rpc | MISSING | performance | No batch item limit and no batch response size limit; a 5 MB body can carry tens of thousands of calls. |
-| [RPC-39](rpc-and-engine.md) | rpc | DIVERGENT | correctness | The default public method set includes `debug_` and `txpool_`, so uncapped `debug_traceCall` is reachable on a default-open port. |
-| [RPC-38](rpc-and-engine.md) | rpc | DIVERGENT | correctness | Virtual hosts default to allowing any `Host` header, where geth defaults to `localhost` against DNS rebinding. |
-| [RPC-23](rpc-and-engine.md) | rpc | DIVERGENT | correctness | Filters never expire and their ids are sequential integers, so any caller can uninstall or drain another's filter. |
-| [POOL-07](txpool-building-and-ops.md) | pool | DIVERGENT | operability | Every pool limit defaults to unlimited, so a default-configured node has no bound on pool memory. |
-| [POOL-09](txpool-building-and-ops.md) | pool | MISSING | operability | The basefee and blob subpools take no limits at all — the two a remote caller can most easily fill. |
-| [POOL-10](txpool-building-and-ops.md) | pool | DIVERGENT | operability | Lifetime eviction runs only when a public JSON-RPC request arrives, so a validator-attached node never expires anything. |
-| [POOL-01](txpool-building-and-ops.md) | pool | MISSING | correctness | No transaction size cap; a multi-megabyte calldata transaction is admitted and retained indefinitely. |
+| [RPC-16](rpc-and-engine.md) | rpc | RESOLVED (b0606eb3, 3ad547c9) | performance | Calls are capped at a 50,000,000 gas default and `eth_call`/`eth_simulateV1` at a 5 s EVM timeout, both set by `--rpc.gascap`/`--rpc.evmtimeout`. |
+| [RPC-25](rpc-and-engine.md) | rpc | PARTIAL | performance | Topic and address limits match geth, and range scans are streamed and capped at 5,000 blocks and 10,000 results; a scan still has no deadline of its own. |
+| [RPC-35](rpc-and-engine.md) | rpc | RESOLVED (6d0dbad7, 3ad547c9) | performance | Batches are limited to 1,000 items and 25,000,000 response bytes as geth does, and `--rpc.batch-request-limit`/`--rpc.batch-response-max-size` set both. |
+| [RPC-39](rpc-and-engine.md) | rpc | PARTIAL | completeness | The default public method set no longer includes `debug_` or `admin_`; it still includes `txpool_`. |
+| [RPC-38](rpc-and-engine.md) | rpc | RESOLVED (d8a000ea, 16e48490) | correctness | Virtual hosts default to `localhost`, with IP-literal `Host` headers accepted as geth does. |
+| [RPC-23](rpc-and-engine.md) | rpc | RESOLVED (bb5ccb3f) | correctness | Filter ids are 16 random bytes and filters expire after 300 s without a poll. |
+| [POOL-07](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1, b3e05d91) | operability | Pool limits default to geth's values: price limit 1, bump 10, 16/5120 slots, 64/1024 queue, 3 h lifetime. |
+| [POOL-09](txpool-building-and-ops.md) | pool | PARTIAL | operability | The basefee and blob subpools are each bounded at the global slot limit, and the blob subpool at 1,024 blobs; there is no shared cross-subpool bound and no blob data cap setting. |
+| [POOL-10](txpool-building-and-ops.md) | pool | RESOLVED (b3e05d91) | operability | A maintenance thread expires pool entries every 60 s with a 3 h default lifetime, independent of RPC traffic. |
+| [POOL-01](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | correctness | Admission caps the encoded size at 128 KiB, and 1 MiB for a blob transaction without its sidecar. |
 | [NET-18](networking-and-sync.md) | net | DIVERGENT | performance | A hash-origin header query with a large skip walks the chain one parent at a time — up to ~10⁶ store lookups per small request. |
 
 ### Tier 6 — Capability gaps
@@ -269,21 +269,21 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EVM-06](evm-and-gas.md) | evm | MISSING | completeness | No Bogota, and no fork-order validation at all, so a mistyped genesis yields an impossible ruleset that executes without complaint. |
 | [EXEC-12](block-execution-and-types.md) | exec | MISSING | completeness | No built-in chain presets, so mainnet, Sepolia, Holesky and Hoodi genesis state cannot be constructed from the tree. |
 | [OPS-02](txpool-building-and-ops.md) | ops | MISSING | completeness | No chain presets means `--genesis` is mandatory, and the preset flags are accepted anyway. |
-| [POOL-14](txpool-building-and-ops.md) | pool | MISSING | completeness | Blob sidecars are never verified and the pooled transaction has nowhere to carry them; the 14-field decoder cannot parse the network wrapper. |
-| [BUILD-08](txpool-building-and-ops.md) | build | MISSING | completeness | A built payload can never contain a blob transaction, so blob gas is always zero and no blob budget exists in selection. |
-| [RPC-15](rpc-and-engine.md) | rpc | MISSING | completeness | No state or block overrides on `eth_call`, `eth_estimateGas` or `eth_createAccessList`. |
-| [RPC-17](rpc-and-engine.md) | rpc | MISSING | completeness | `eth_simulateV1` is absent; depends on RPC-15. |
-| [RPC-20](rpc-and-engine.md) | rpc | DIVERGENT | completeness | `pending` is an alias for `latest` in state and call paths, so a wallet asking for the pending nonce reuses a pooled nonce. |
-| [RPC-28](rpc-and-engine.md) | rpc | MISSING | completeness | The `debug_*` tracing surface is one method with one tracer; no historic tracing of a mined transaction is possible. |
-| [RPC-30](rpc-and-engine.md) | rpc | MISSING | completeness | Several `debug_*` state and control methods are absent; `debug_setHead` is the one that matters operationally. |
-| [RPC-31](rpc-and-engine.md) | rpc | MISSING | completeness | `admin_*` is three methods and `admin_nodeInfo` omits the per-protocol detail; `admin_removePeer` is the one worth having. |
-| [RPC-33](rpc-and-engine.md) | rpc | MISSING | completeness | `eth_config` (EIP-7910) is absent, though everything it reports is already in `chain-config`. |
-| [RPC-29](rpc-and-engine.md) | rpc | MISSING | completeness | The Parity-style `trace_*` module is absent. geth does not serve it either, so declining is defensible. |
-| [RPC-05](rpc-and-engine.md) | rpc | DIVERGENT | completeness | `getPayload` version mismatch uses `-32602` where the spec and geth use `-38005`. |
-| [RPC-09](rpc-and-engine.md) | rpc | MISSING | completeness | `engine_getBlobs*` is not fork-gated, so we answer a method the spec says to refuse. |
+| [POOL-14](txpool-building-and-ops.md) | pool | RESOLVED (511481d7, a979fc60, bd7906c3) | completeness | Pooled blob transactions carry their sidecars, and admission verifies the sidecar shape, versioned hashes and every KZG proof before touching the pool. |
+| [BUILD-08](txpool-building-and-ops.md) | build | RESOLVED (511481d7, f35bc82c) | completeness | Built payloads include blob transactions whose sidecars the node holds, within the fork's blob-gas limit. |
+| [RPC-15](rpc-and-engine.md) | rpc | RESOLVED (27c42c1c) | completeness | `eth_call`, `eth_estimateGas` and `eth_createAccessList` accept state overrides and block overrides. |
+| [RPC-17](rpc-and-engine.md) | rpc | RESOLVED (27c42c1c, abfe6da3, de66bf7b) | completeness | `eth_simulateV1` passes all 91 pinned rpc-compat simulate cases (234/234 at 6e3e9b1d). |
+| [RPC-20](rpc-and-engine.md) | rpc | PARTIAL | completeness | The pending nonce counts pooled transactions and `eth_getBlockByNumber("pending")` executes the pool on the head, but balance, code, storage and call queries at `pending` still read the latest state. |
+| [RPC-28](rpc-and-engine.md) | rpc | PARTIAL | completeness | `debug_traceTransaction`, `debug_traceBlockByHash`/`ByNumber` and `debug_traceCall` serve `callTracer`; the struct logger, other tracers, `tracerConfig` options and `revertReason` are still absent. |
+| [RPC-30](rpc-and-engine.md) | rpc | PARTIAL | completeness | `debug_setHead` is served but refuses a post-Merge head or target; `debug_storageRangeAt`, `accountRange`, `dumpBlock`, `getBadBlocks`, `dbGet` and `chainConfig` are still absent. |
+| [RPC-31](rpc-and-engine.md) | rpc | PARTIAL | completeness | `admin_removePeer` is served; the trusted-peer, start/stop-listener, `datadir` and `peerEvents` methods and `nodeInfo.protocols.eth.config` are still absent. |
+| [RPC-33](rpc-and-engine.md) | rpc | RESOLVED (27c42c1c, b9a2a9d8) | completeness | `eth_config` (EIP-7910) reports the current, next and last fork descriptors. |
+| [RPC-29](rpc-and-engine.md) | rpc | MISSING | completeness | The Parity-style `trace_*` module is absent, and a test pins the refusal. geth does not serve it either, so declining is defensible. |
+| [RPC-05](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e) | completeness | `getPayload` answers a version mismatch with `-38005`. |
+| [RPC-09](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e) | completeness | `getBlobsV1` answers `-38005` once Osaka is active, and `getBlobsV2`/`V3` answer `null` before Osaka. |
 | [RPC-10](rpc-and-engine.md) | rpc | RESOLVED (27c42c1c, 5fbbd9a2) | completeness | `engine_getBlobsV4` and `engine_hasBlobs` are implemented and advertised. |
 | [EVM-13](evm-and-gas.md) | evm | MISSING | completeness | No interpreter-side tracing hooks beyond call boundaries; `CREATE`/`CREATE2` frames are untraced and `DELEGATECALL`/`CALLCODE` are mislabelled. |
-| [POOL-11](txpool-building-and-ops.md) | pool | DIVERGENT | completeness | Promotion on a new head ignores the slot limits, so configured limits hold on submission and are exceeded on block arrival. |
+| [POOL-11](txpool-building-and-ops.md) | pool | PARTIAL | completeness | New-head promotion applies the slot limits recorded by admission; until the first admission after a start, those limits are unset and promotion is unbounded. |
 | [OPS-05](txpool-building-and-ops.md) | ops | MISSING | operability | No log levels, no structured format, no rotation; the log stream is Lisp plists via `write`. |
 | [OPS-08](txpool-building-and-ops.md) | ops | MISSING | operability | No profiling endpoint and no health endpoint; a stuck node cannot be profiled in place. |
 | [OPS-10](txpool-building-and-ops.md) | ops | MISSING | completeness | The persisted format has a version and no migration, so the first format change orphans every datadir. |
@@ -311,14 +311,14 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EVM-10](evm-and-gas.md) | evm | DIVERGENT | performance | Memory expansion allocates and copies the whole buffer with no capacity slack, so word-at-a-time growth is quadratic. Magnitude UNVERIFIED. |
 | [EVM-11](evm-and-gas.md) | evm | DIVERGENT | performance | The 1024-item stack limit is enforced by taking `length` of a list on every push. Magnitude UNVERIFIED. |
 | [EVM-14](evm-and-gas.md) | evm | MISSING | performance | No precompile result cache, which matters more here than in geth because several precompiles are pure Lisp. |
-| [BUILD-06](txpool-building-and-ops.md) | build | DIVERGENT | performance | Selection packs against declared gas limits and never reclaims unused gas, so built blocks are systematically under-full. |
-| [BUILD-05](txpool-building-and-ops.md) | build | DIVERGENT | performance | Ordering is per-sender by the first transaction's tip with no re-comparison after each inclusion. |
-| [BUILD-09](txpool-building-and-ops.md) | build | DIVERGENT | operability | Building runs synchronously inside the `forkchoiceUpdated` request with no deadline of its own. |
+| [BUILD-06](txpool-building-and-ops.md) | build | RESOLVED (8f17c8c5, f35bc82c) | performance | The Engine builder executes candidates one at a time and charges the gas each actually used. |
+| [BUILD-05](txpool-building-and-ops.md) | build | RESOLVED (e12264a6, a1577a56) | performance | Selection re-ranks each sender's next transaction after every inclusion, through a heap keyed on effective tip. |
+| [BUILD-09](txpool-building-and-ops.md) | build | RESOLVED (afab959a, 3aa5b7c4, f35bc82c) | operability | `forkchoiceUpdated` returns the payload id after building only the empty block; pool execution runs on a background worker under a per-pass deadline. |
 | [NET-19](networking-and-sync.md) | net | DIVERGENT | performance | Downloaded bodies are not matched to their headers at the sync layer, so a bad delivery ends the session instead of the delivery. |
 | [NET-13](networking-and-sync.md) | net | DIVERGENT | performance | Transaction gossip pushes every transaction in full to every peer and re-sends to the peer it came from. |
-| [POOL-15](txpool-building-and-ops.md) | pool | DIVERGENT | performance | Gossip rescans the entire pending list per peer per tick and never offers queued, basefee or blob transactions. |
+| [POOL-15](txpool-building-and-ops.md) | pool | RESOLVED (cb7cb5b8, 5e3fb80f) | performance | Gossip reads a bounded per-peer change log and announces transactions from every subpool; small transactions still go in full to every peer. |
 | [NET-23](networking-and-sync.md) | net | DIVERGENT | performance | `snappy-compress` emits literal runs only, so egress is several times what a peer expects. Documented. |
-| [RPC-36](rpc-and-engine.md) | rpc | DIVERGENT | performance | Every HTTP response closes the connection; no keep-alive, chunked encoding or gzip. |
+| [RPC-36](rpc-and-engine.md) | rpc | PARTIAL | completeness | HTTP connections are kept alive and reused; chunked request bodies and gzip are still not handled. |
 | [OPS-06](txpool-building-and-ops.md) | ops | DIVERGENT | operability | Metrics are event counts only — no pool-size, head-number or peer-count gauge — and no derivative recovers a level. |
 | [OPS-04](txpool-building-and-ops.md) | ops | DIVERGENT | operability | `--log-file` truncates the previous run's log, so the restart destroys the record of the crash it follows. |
 | [OPS-09](txpool-building-and-ops.md) | ops | MISSING | operability | Unclean shutdown has no repair path: no rewind, no reset, no offline inspection between "it starts" and "delete the datadir". |
@@ -331,14 +331,14 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EXEC-16](block-execution-and-types.md) | exec | DIVERGENT | cosmetic | `receipt-list-root` cannot encode typed receipts; no live path uses it and a test pins the behaviour. Naming hazard only. |
 | [STORE-04](state-trie-storage.md) | store | DIVERGENT | cosmetic | Access-list and transient-storage bookkeeping live on the EVM context, not the state database. No observable difference. |
 | [STORE-09](state-trie-storage.md) | store | DIVERGENT | cosmetic | No secure-trie layer; callers hash keys themselves and no preimages are kept. |
-| [RPC-26](rpc-and-engine.md) | rpc | DIVERGENT | cosmetic | `eth_getLogs` with an unknown `blockHash` returns `[]` where geth returns an error. |
-| [RPC-32](rpc-and-engine.md) | rpc | DIVERGENT | cosmetic | `txpool_inspect` uses an ASCII `x` where geth uses `×`, and the method's whole contract is its string format. |
+| [RPC-26](rpc-and-engine.md) | rpc | RESOLVED (13f8efa3) | cosmetic | `eth_getLogs` and `eth_newFilter` with an unknown `blockHash` answer `-32000 unknown block`. |
+| [RPC-32](rpc-and-engine.md) | rpc | RESOLVED (b0606eb3) | cosmetic | `txpool_inspect` formats its summary with geth's `×`. |
 | [NET-24](networking-and-sync.md) | net | informational | cosmetic | Session policy constants are ours, not parity claims; the audit's 33-row table is the correction to `docs/reference-map.md`. |
 | [EVM-17](evm-and-gas.md) | evm | not a gap | no gap | EOF is absent from both references and from us. Nothing to close. |
 | [RPC-13](rpc-and-engine.md) | rpc | no gap | no gap | Payload-status semantics match geth including `ACCEPTED`-on-missing-state and the absence of `INVALID_BLOCK_HASH`. Do not "fix". |
 | [RPC-14](rpc-and-engine.md) | rpc | no gap | no gap | JWT authentication and `iat` freshness are implemented correctly; one operational note about an omitted `now`. |
 | [RPC-27](rpc-and-engine.md) | rpc | no gap | no gap | `eth_subscribe syncing` is refused explicitly and subscription ids are 16 random bytes. This is the pattern to copy. |
-| [RPC-40](rpc-and-engine.md) | rpc | no gap | no gap | The WebSocket implementation is sound: masking, bounds, control frames and origin checks are all correct. |
+| [RPC-40](rpc-and-engine.md) | rpc | RESOLVED (0ec0eb5c) | correctness | The WebSocket server enforces client masking, geth's origin rules, `--ws.api`, connection and subscription caps, write deadlines and keepalive. |
 
 ### Severity split
 
