@@ -1,0 +1,251 @@
+Section 5: Hive engine-cancun "Blob Transaction Ordering, Multiple Clients"
+still fails at b40d61c0
+
+Status
+
+Branch wave7-hive-blob-ordering, from 05bbd4c5 (which contains b40d61c0;
+nothing between them touches eth gossip, the txpool or the blob cache); fix
+d821ef54, this record in the commit that follows it. The failure is timing, not a lost message: every one of B's
+transactions reaches A, but through a chain of steps on the two peers' only
+session threads, and both threads spent steps 3 to 5 on KZG work done one
+blob, or one transaction, at a time. Reproduced with two real devnet nodes
+over loopback eth/72 under a load that makes their admission times match the
+Hive client logs: the base answers Hive's 5 blobs (A's first transaction
+alone) in 3 of 3 runs, the fix answers 6 in 3 of 3. Four tests pin the three
+mechanisms; three are RED at the base and all four are GREEN at d821ef54. No
+consensus, execution or encoding code changed. Not rerun in Hive (remote; the
+coordinator's).
+
+================================================================================
+1. The Hive run
+================================================================================
+
+Hive dde4f59d04ff0ff8b6585670b08cea1b6c8ab65c, runtime image
+ethereum-lisp-runtime:sec5-b40d61c0-amd64, Hoodi host (read only):
+/data/hoodi-sec5-hive/runs/b40d61c0-engine-full-r1-20260929T214028Z, 402/403,
+the only failure this case (test 184 of suite 4, results
+1790724466-d090d88d1a4c70e07c3722d97cb44662.json; details
+1790721258-...-4.log offsets 1184891..1288784; client logs client-91ccd70f...
+= A, producer, and client-df043b4e... = B).
+
+Test source (simulators/ethereum/engine/suites/cancun/tests.go, "Blob
+Transaction Ordering, Multiple Clients"; steps.go SendBlobTransactions and
+NewPayloads; clmock): launch B, not in the CL mock; one empty payload on A;
+five 5-blob transactions (blob fee cap 120, account 0) to A; five 1-blob
+transactions (cap 100, account 1) to B; then NewPayloads with
+GetPayloadDelay 2: fcU with attributes on A, getPayloadV3 two seconds later,
+six blobs expected. B's transactions reach A only by gossip, and A needs one
+of them by getPayload.
+
+What A answered: getPayloadV3 with one transaction, account 0's nonce 0,
+gasUsed 0x5208, blobGasUsed 0xa0000 (5 blobs): "FAIL: Error verifying blob
+bundle (payload 1/5): expected 6 blob, got 5". Hive's timestamps: test start
+22:35:44.679Z, A up 22:35:48.680Z, B up 22:35:52.959Z, test end
+22:36:00.556Z. The client logs and the details log carry no per-line
+timestamps and the session logs no gossip, so the message-level timeline of
+the Hive run cannot be reconstructed; what the logs do show:
+- A: eth_sendRawTransaction handlerMs 188, 596, 176, 160, 440 (readMs 52, 192,
+  52, 128, 180); forkchoiceUpdatedV3 4 ms; getPayloadV3 36 ms.
+- B: eth_sendRawTransaction handlerMs 104, 104, 184, 36, 40.
+- One session (A p2p.peer.connected eth 72, B peer.dial.connected eth 72), no
+  session failure, no node.store_guard.long_hold on either node.
+- The host (8 CPUs) ran no Hoodi EL during the run: hoodi-el-sec5-a18b84e2
+  stopped 21:40:23Z, hoodi-el-sec5-b40d61c0 started 23:36:35Z; the runner has
+  no CPU limit.
+With no session failure and no dropped verdict, the logs are consistent with
+B's transactions arriving at A after getPayload, which is what the
+reproduction below shows.
+
+================================================================================
+2. Reproduction: two devnet nodes over loopback eth/72
+================================================================================
+
+A warm-image probe, not part of the suite (it asserts on wall-clock outcomes
+under an artificial load). Two real devnet nodes, each started with the
+CLI's whole service set (START-DEVNET-NODE-LISTENERS with idle HTTP listeners:
+dialer, listener, discovery, coordinator, payload improvement, rejournal,
+maintenance), RocksDB datadirs, chain id 7, Cancun at 0, B given A as its
+bootnode, eth/72 negotiated, the senders ordered as Hive's (account 0 sorts
+first). The Hive step order: one empty block on A through fcU V3, getPayload
+V3, newPayload V3 and fcU; five 5-blob transactions to A 0.3 s apart and five
+1-blob transactions to B 0.1 s apart, each eth_sendRawTransaction parsed from
+JSON text and dispatched through the node's public RPC context (its guard
+included); fcU V3 with attributes on A; getPayloadV3 two seconds after B's
+last admission. Blobs are distinct valid field-element vectors and cell
+derivation is real c-kzg; the commitments are made up, so every KZG
+verification and blob-proof derivation runs real c-kzg on the real blob with
+the point at infinity as commitment (for its cost) and then answers as valid.
+
+Unloaded (14 CPUs), the base passes every time: 9 runs over the variants
+above (memory or RocksDB stores, with or without the full service set), the
+first of B's transactions held by A 7-499 ms and all five 734-1,275 ms after
+B's last admission (E1's 1.0 s for all five at 68c2f376). The Hive
+client's admissions were 2-4 times slower than the unloaded probe's (A 92-171
+ms, B 23-31 ms). With 28 threads spinning on the CPU the probe's admissions
+match the Hive logs (A 221-660 ms, B 35-225 ms), and the base fails as Hive
+did:
+
+  revision              load         runs  getPayloadV3   B's first / all five
+                                                          at A after B's last
+  05bbd4c5 (base)       none          9    6 blobs         7-499 / 734-1,275 ms
+  05bbd4c5 (base)       14 spinners   1    6 blobs         760 / 2,622 ms
+  05bbd4c5 (base)       28 spinners   3    5 blobs, A's    5,054 / 8,107
+                                           nonce 0 only    2,391 / 5,079
+                                                           3,579 / 5,478 ms
+  d821ef54 (fix)        28 spinners   3    6 blobs         185 / 1,014
+                                                           1 / 1,302
+                                                           1 / 1,272 ms
+
+(An intermediate build with only the first two changes of section 4, 28
+spinners, 1 run: 5 blobs, first B transaction 2,363 ms.)
+
+The sender order matters to the probe and not to Hive: with B's sender
+sorting first, two unloaded base runs held all of B's transactions in time
+and still returned 5 blobs, B's five 1-blob transactions, because the builder
+breaks equal tips by sender address (ENGINE-MINING-GROUP-BEFORE-P) and A's
+5-blob transaction no longer fit. Hive's account 0 (0x47b6...) sorts before
+account 1 (0x5ad0...), so its payload tries A's transaction first; pinned
+geth breaks the tie by the time a transaction was first seen
+(core/txpool/txorder/ordering.go txByPriceAndTime.Less), which orders A's
+first too. Every run in the table uses Hive's order. Not changed here.
+
+================================================================================
+3. Mechanism
+================================================================================
+
+After 68c2f376 no single step blocks for long, but one of B's transactions
+reaches A only through five steps that each need one of the two session
+threads free: B announces; A asks (GetPooledTransactions); B serves the eth/72
+wrapper, deriving 128 cell proofs per blob; A asks for the cells (GetCells, a
+blocking pump action); A verifies and admits. Both threads were busy with KZG
+work for A's 5-blob transactions, one blob or one transaction at a time:
+
+(a) A derived each 5-blob wrapper's 640 cell proofs only when B asked for it,
+    on A's session thread: 146-167 ms unloaded, 601-931 ms loaded. B asks
+    for each of A's transactions as it is announced, so during steps 3 and 4
+    A's thread reads nothing else, including B's announcements and replies.
+(b) B fetched each of A's transactions with a blocking GetCells action,
+    waiting for A (up to 1,753 ms loaded) and then verifying five blobs'
+    cell proofs and deriving five blob proofs one after another: 212-225 ms
+    unloaded, 283-1,497 ms loaded. B's own announcements go first only
+    between actions (68c2f376's broadcast-first rule), so they waited for the
+    action in progress.
+(c) Answering A's GetPooledTransactions for several of B's 1-blob wrappers
+    derived them one after another: 268 ms for two unloaded, 2,251 ms for
+    five loaded.
+
+A loaded base run (the first of the three failing runs; ms from the start):
+
+    3836 B GetCells for A's 2nd transaction started; A's thread is deriving
+         wrappers for B's requests (784 and 931 ms, ending 4569 and 5503)
+    4286 B admits its first transaction by RPC (its fifth at 5179)
+    5589 B GetCells round trip done in 1,753 ms
+    6659 B verify+derive of that 5-blob sidecar done in 1,070 ms
+    6686 B announces its five transactions; A asks at once
+    7291 A getPayloadV3: 5 blobs, A's nonce 0 only
+    8941 B answers A's request for its five 1-blob wrappers after 2,251 ms
+    10333 A admits B's first transaction
+
+================================================================================
+4. Fix (d821ef54)
+================================================================================
+
+- src/application/services/txpool-blob-admission.lisp: TXPOOL-VERIFY-BLOB-
+  SIDECAR splits the sidecar into one-blob parts and runs each part's field
+  checks, proof verification and blob-proof derivation through a MAP-FUNCTION
+  (default MAPCAR). A derivation that fails after verification is still not
+  the sender's fault (it is signalled outside the sidecar-fault handler, as
+  before).
+- src/app/cli/devnet/peer-sync.lisp: DEVNET-PARALLEL-MAP (at most 8 at once,
+  helpers get the caller's KZG verifier specials, the first failing item's
+  condition is signalled again in the caller); the devnet backend passes it
+  to blob admission, and E1's DEVNET-NODE-DERIVE-BLOB-CELLS now uses it.
+  DEVNET-NODE-PREPARE-POOLED-BLOB-SIDECARS derives every blob of a
+  PooledTransactions reply in one parallel pass. DEVNET-NODE-WARM-POOLED-
+  BLOB-SIDECARS starts that derivation on a background thread when a blob
+  transaction is announced to an eth/72 peer, once per transaction, as
+  pinned geth computes cells when a transaction enters its pool
+  (core/txpool/blobpool newBlobTxForPool, references/go-ethereum).
+- src/app/cli/devnet/types.lisp: the blob cell cache is single-flight: a
+  caller that finds a blob being derived waits for that derivation (up to
+  10 s) instead of deriving it again.
+- src/networking/eth-sync: two optional backend callbacks,
+  PREPARE-POOLED-BLOB-SIDECARS (called once per PooledTransactions reply
+  before its wrappers are read) and WARM-POOLED-BLOB-SIDECARS (called after
+  an announcement, must return at once).
+
+Tests (tests/eth-gossip-tests.lisp, integration, through the devnet node's
+production backend):
+  ETH-72-RECEIVED-BLOB-SIDECAR-IS-VERIFIED-BLOB-BY-BLOB-IN-PARALLEL: a 5-blob
+    cell sidecar is admitted, each blob verified and derived once, more than
+    one at a time.
+  ETH-72-POOLED-TRANSACTIONS-REPLY-DERIVES-ALL-ITS-BLOBS-AT-ONCE: a reply for
+    three 1-blob wrappers derives each blob once, more than one at a time.
+  ETH-72-ANNOUNCED-BLOB-TRANSACTION-IS-DERIVED-BEFORE-ITS-PEER-ASKS: after an
+    announcement, with no request, the cache fills with all five blobs;
+    nothing is derived on the announcing thread; the wrapper served then
+    derives nothing more.
+  ETH-72-REQUEST-DURING-A-WARM-UP-WAITS-FOR-IT: a request right after the
+    announcement derives each of five blobs once in all.
+ETH-72-BLOB-ANNOUNCEMENT-DERIVES-NO-CELL-PROOF (E1) now counts derivations
+on the announcing thread, since the warm-up derives in the background.
+
+================================================================================
+5. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: passed.
+
+RED at 05bbd4c5 (the six source files checked out from 05bbd4c5 and
+touched, the new tests present), cold:
+  cl-workbench validation run cold-integration
+    --match ETH-72-RECEIVED-BLOB-SIDECAR-IS-VERIFIED-BLOB-BY-BLOB-IN-PARALLEL
+    --match ETH-72-POOLED-TRANSACTIONS-REPLY-DERIVES-ALL-ITS-BLOBS-AT-ONCE
+    --match ETH-72-ANNOUNCED-BLOB-TRANSACTION-IS-DERIVED-BEFORE-ITS-PEER-ASKS
+    --match ETH-72-REQUEST-DURING-A-WARM-UP-WAITS-FOR-IT
+  1 passed, 3 failed, EXIT=1:
+    ETH-72-RECEIVED-...          Assertion failed: (> MOST-ACTIVE 1)
+    ETH-72-POOLED-...            Assertion failed: (> MOST-ACTIVE 1)
+    ETH-72-ANNOUNCED-...         Timed out after 10.000s waiting for the
+                                 announced transaction's blobs
+    ETH-72-REQUEST-DURING-...    ok (the base has no warm-up to race)
+
+Mutation controls (warm image, fix otherwise in place, each reverted):
+  the cache treats a blob in flight as absent:
+    ETH-72-REQUEST-DURING-A-WARM-UP-WAITS-FOR-IT fails (a blob derived twice).
+  the warm-up derives on the announcing thread before starting its thread:
+    ETH-72-ANNOUNCED-... and ETH-72-BLOB-ANNOUNCEMENT-DERIVES-NO-CELL-PROOF
+    fail (ZEROP ON-ANNOUNCING-THREAD).
+
+GREEN at d821ef54, cold, each redirected to a file, no duplicated ok lines:
+  cold-integration --match ETH-GOSSIP --match ETH-72 --match DEVNET-PEER
+    --match TXPOOL --match BLOB --match DEVNET-ENGINE --match ENGINE-PAYLOAD
+    --match PAYLOAD-BUILD --match GET-BLOBS --match CACHE --match DEVNET-DIAL
+    --match DEVNET-TRANSACTION
+                     119 passed, 1 skipped (optional EEST root), EXIT=0
+    (the four new tests and E1's four appear as ok)
+  cold-unit --match BLOB --match GOSSIP --match ETH-72 --match TXPOOL
+    --match PEER --match CACHE --match GET-BLOBS --match PACKAGE
+    --match ARCHITECTURE --match PUMP --match POOLED --match KZG --match CELL
+                     256 passed, EXIT=0
+
+Two-node probe: section 2's table (warm image; the probe file is not
+committed).
+
+================================================================================
+6. Not verified
+================================================================================
+
+- The Hive rerun (remote, the coordinator's), and so whether the Hive host's
+  load really is what the 28 spinners stand in for: why its admissions run
+  2-4 times slower than the unloaded warm image (amd64 runtime image, the
+  host's CPUs) is not established; the load matches the observed times, not
+  their cause.
+- cold-all (the coordinator's); cold-e2e (no CLI or option change).
+- The CPU the warm-up adds on a live network: every blob transaction
+  announced to an eth/72 peer, relayed ones included, is derived once in the
+  background (about 0.13 s of c-kzg per blob unloaded), into a 32-blob cache.
+  Not measured on Hoodi.
+- EEST, ported_static, the Hoodi fixtures and the differential replay: no
+  code that executes blocks or computes consensus data changed (pool
+  admission's KZG checks are unchanged, only run blob by blob in parallel).
