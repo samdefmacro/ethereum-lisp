@@ -300,6 +300,9 @@ if [ "$actual_head" != "$revision" ]; then
         ':(exclude)scripts/hoodi-log-redact.sh' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate-selftest.sh' \
+        ':(exclude)scripts/hoodi-health-gate.sh' \
+        ':(exclude)scripts/hoodi-health-gate-selftest.sh' \
+        ':(exclude)scripts/hoodi-health-probe.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
     # Read-only evidence stays available for an older revision; nothing that
     # stages, prepares or starts a run may act for a revision the checkout has

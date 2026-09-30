@@ -191,6 +191,9 @@ if [ "$actual_head" != "$revision" ]; then
         ':(exclude)scripts/hoodi-log-redact.sh' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate.sh' \
         ':(exclude)scripts/hoodi-geth-benchmark-gate-selftest.sh' \
+        ':(exclude)scripts/hoodi-health-gate.sh' \
+        ':(exclude)scripts/hoodi-health-gate-selftest.sh' \
+        ':(exclude)scripts/hoodi-health-probe.sh' \
         ':(exclude)scripts/hoodi-lisp-benchmark-gate.sh')"
     # An old runtime may remain live while a later revision changes production
     # code.  That must block every action which could replace or restart it,

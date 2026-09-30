@@ -86,3 +86,16 @@ check count it printed after MARKER (NIL when it printed none)."
     ;; RUNTIME-REVISION marker on restore and status, and the masked geth
     ;; log: 124 checks in all.
     (is (and count (>= count 120)))))
+
+(deftest hoodi-health-gate-selftest-alerts-and-stays-read-only
+  (:layer :integration :module :control-plane :launches-processes t)
+  (multiple-value-bind (status stdout count)
+      (%control-plane-selftest-check-count
+       "scripts/hoodi-health-gate-selftest.sh" "hoodi-health-gate selftest: ")
+    (is (= 0 status))
+    (is (search ", 0 failed" stdout))
+    (is (null (search "not ok" stdout)))
+    ;; Every probe alert rule with a control on the other side of its
+    ;; threshold, the restart baseline, rotation and the redaction check;
+    ;; then the gate's refusals, status, report and the no-write checks.
+    (is (and count (>= count 140)))))

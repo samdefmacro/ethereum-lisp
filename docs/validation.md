@@ -1354,6 +1354,97 @@ and `/data` mount before stopping anything. It keeps the source EL stopped,
 restarts the same candidate container, waits for its loopback-only RPC, and
 prints before/after block, syncing, start-time, and datadir-byte evidence.
 
+### Health probe
+
+`scripts/hoodi-health-probe.sh` checks a long-running Hoodi EL and its
+Lighthouse. It is written to run on the remote host every five minutes as the
+SSH user, and needs only bash, docker, curl, awk, sed and date there (it uses
+flock and timeout when present). It only inspects: `docker container inspect`,
+`docker port`, one `docker stats --no-stream`, `du` of the EL's `/data` mount,
+`df` of `/data`, and loopback curl. The EL's public RPC and Lighthouse's 5052
+API are published on ephemeral loopback ports, and the probe looks up both
+with `docker port` on every run. This broker does not schedule the probe. Putting
+a schedule on the host is a separate, explicitly authorized host change.
+`scripts/hoodi-health-gate.sh` is the read-only control-plane side:
+
+```sh
+HOODI_GATE_HOST=... HOODI_GATE_RUNTIME_REVISION=<full revision> \
+  scripts/hoodi-health-gate.sh status      # latest.txt, ALERTS.log tail
+HOODI_GATE_HOST=... HOODI_GATE_RUNTIME_REVISION=<full revision> \
+  scripts/hoodi-health-gate.sh report 72   # the last 72 hours (default 24)
+```
+
+Files on the host, all below `REMOTE_ROOT/health` (default
+`/data/hoodi-sec5-20260814/health`):
+
+- `probe.log`: one line per run. It holds the ISO time, then `epoch`,
+  `container`, `running`, `status`, `restarts`, `oom`, `exit`, `started`,
+  `mem_bytes`, `mem_limit`, `cpu_pct`, `datadir`, `datadir_bytes`,
+  `data_free_bytes`, `block`, `block_ts`, `block_age_s` (now minus our latest
+  block's timestamp), `syncing`, `peers`, `cl_running`, `cl_is_syncing`,
+  `cl_is_optimistic`, `cl_el_offline`, `cl_head_slot`, `cl_head_age_s` (now
+  minus the head slot's start, from Lighthouse's genesis time), `alert` and
+  `alerts`. A value the probe could not read is `na`. When the previous run
+  still holds the lock, the line is `skipped=previous-probe-still-running`.
+- `latest.txt`: the newest run, one `key=value` per line, rewritten through
+  a rename.
+- `ALERTS.log`: one line per raised condition, in the form
+  `ISO epoch=N condition=NAME detail container=NAME`.
+- `probe.log.1`, `ALERTS.log.1`: the previous generation. Either file is
+  renamed once it reaches `HOODI_HEALTH_LOG_MAX_BYTES` (50 MiB). Nothing else
+  is ever deleted.
+- `probe.err`: the probe's own stderr.
+
+The alert conditions are `container-not-running`, `oom-killed`,
+`restart-count-grew` (Docker's restart count rose since the previous run of
+the same container), `started-at-changed` (a restart Docker did not count:
+manual, daemon or host), `el-rpc-unavailable`, `block-age` (above
+`HOODI_HEALTH_BLOCK_AGE_MAX`, 120 s), `peers-low` (below
+`HOODI_HEALTH_MIN_PEERS`, 3), `cl-unavailable`, `cl-el-offline`,
+`cl-optimistic`, `data-free-low` (below `HOODI_HEALTH_MIN_FREE_BYTES`,
+40 GiB) and `mem-high` (above `HOODI_HEALTH_MEM_PCT_MAX`, 90 %, of the
+container's memory limit, or of `HOODI_HEALTH_MEM_LIMIT_BYTES`, 12 GiB, when
+Docker reports none). Each threshold is exclusive: 120 s, 3 peers, exactly
+40 GiB and exactly 90 % do not alert. The probe's inputs are
+`HOODI_HEALTH_DIR`, `HOODI_HEALTH_CONTAINER` (required),
+`HOODI_HEALTH_CL_CONTAINER` (`hoodi-lighthouse-public`) and
+`HOODI_HEALTH_DATA_MOUNT` (`/data`), plus the thresholds above. A slot-derived
+expected block number cannot be computed, so a stalled head shows as a
+growing `block_age_s` next to a small `cl_head_age_s` (our EL behind), or as
+both growing together (the CL is stuck too).
+
+`status` prints `cron-line=present|absent|unreadable` (read with `crontab -l`
+only), `probe=installed matches-checkout=true|false` or `probe=absent`,
+`latest-age-s=N probe-stale=true|false` (stale past 15 minutes), each
+`latest:` line, `alerts-logged=N`, and the last `HOODI_HEALTH_ALERT_TAIL`
+(20) `alert:` lines. `report [HOURS]` reads `probe.log.1` and `probe.log`:
+
+- `samples`, `skipped`, `first`, `last`;
+- `block-first`, `block-last`, `block-advance`, and `block-rate-per-min
+  min= max=` between consecutive samples. Hoodi's 12 s slots give about
+  5.00; a minimum near 0 is a stall;
+- `block-age-max-s`, `mem-peak-bytes`, `peers-min`, `peers-max`,
+  `data-free-min-bytes`;
+- `restarts-first`, `restarts-last`, `not-running-samples`,
+  `alert-samples`;
+- `alert-lines` and one `alert-condition=NAME count=N` per condition in the
+  window.
+
+Both actions pipe their output through `scripts/hoodi-log-redact.sh` on the
+host. The probe records no peer identity in the first place. The broker keeps
+the live gate's revision fence: the watched container defaults to
+`hoodi-el-sec5-<rev8>` of `HOODI_GATE_RUNTIME_REVISION` (default HEAD), which
+must be HEAD or an ancestor of it, and `HOODI_GATE_CONTAINER` overrides it.
+The broker never writes on the host. `scripts/hoodi-health-gate-selftest.sh`
+drives each alert rule on both sides of its threshold, plus the restart
+baseline, rotation, the lock, the redaction check, every gate refusal,
+`status`, `report`, and a remote tree unchanged by both actions
+(`HOODI-HEALTH-GATE-SELFTEST-ALERTS-AND-STAYS-READ-ONLY`, 207 checks):
+
+```sh
+cl-workbench validation run cold-integration --match HEALTH-GATE
+```
+
 ### Engine availability under background store-guard holds
 
 ```sh
