@@ -1,0 +1,241 @@
+Section 5: a transaction's encoding, hash and sender are derived once per
+object, and the chain store keeps the imported objects
+
+Status
+
+Branch wave7-tx-identity-cache, from 05bbd4c5. Transactions are immutable
+values now; the canonical encoding, the hash and the sender are computed at
+most once per object, and the chain store no longer replaces a block's
+transactions with decoded copies. Measured in cold containers; not deployed,
+no live run. No cold-all: the coordinator runs it once at the end.
+
+Revision
+
+  51369068  tests: count a replayed Hoodi block's transaction encodings and
+            sender recoveries
+  57b075c2  transactions: immutable values whose encoding, hash and sender
+            are derived once
+
+================================================================================
+1. Mechanism
+================================================================================
+
+The transaction structs were mutable by design (builders and test vectors
+wrote their slots), so TRANSACTION-COMPUTATION-CACHE could not be trusted on
+its own: TRANSACTION-REFRESH-COMPUTATION-CACHE re-encoded the transaction on
+every TRANSACTION-HASH and TRANSACTION-SENDER call and compared the bytes
+with the cached encoding before answering. A hit still paid one full
+canonical RLP encoding.
+
+The chain store multiplied it. ENGINE-PAYLOAD-STORE-COPY-BLOCK, called when a
+block is stored and at every cache, remote-block, invalid-block, prepared-
+payload, read-view and transaction-location copy, rebuilt each transaction as
+(TRANSACTION-FROM-ENCODING (TRANSACTION-ENCODING TX)): one encoding and one
+decode per transaction per copy, and a new object whose hash and sender were
+empty. Each RPC lookup of one transaction copied its whole block, so
+eth_getTransactionByHash on a 32-transaction block encoded 32 transactions
+and recovered the sender of the copy again; forkchoiceUpdated read the stored
+copies and recovered every sender a second time (the "Not verified" item of
+sec5-txpool-sender-cache.txt).
+
+================================================================================
+2. Measurement before (51369068 source, the new tests)
+================================================================================
+
+Counters: every per-type canonical encoder (LEGACY-TRANSACTION-RLP,
+ACCESS-LIST-/DYNAMIC-FEE-/BLOB-/SET-CODE-TRANSACTION-ENCODING) and every
+uncached per-type sender recovery (LEGACY-TRANSACTION-SENDER and the four
+typed ones: signing payload, its hash and the secp256k1 recovery) are
+encapsulated, counted and timed in thread CPU (encapsulation overhead
+included); TRANSACTION-HASH, TRANSACTION-SENDER and
+TRANSACTION-SENDER-FOR-RULES calls are counted
+(HOODI-REPLAY-CALL-WITH-IDENTITY-COUNTS, tests/hoodi-replay-tests.lisp).
+
+(a) One replayed Hoodi block, the strict run (the Engine import's execution:
+    header checks, sender recovery, the EVM, the roots), block 3685538, 84
+    transactions (74 EIP-1559, 10 blob), two runs:
+
+      encodings 420 (5 per transaction), 2,074 / 1,985 us
+      sender recoveries 84 (1 per transaction), 2,515 / 2,473 us
+      hash calls 0, sender calls 84, for-rules calls 84
+      strict run uncounted 34,597 / 33,785 us
+
+    Encoding was about 6% of the block's strict CPU and recovery about 7%.
+    The replay executes only; it has no store, txpool or RPC.
+
+(b) The Engine import on a devnet node (memory store): one 32-transaction
+    legacy block through engine_newPayloadV2, engine_forkchoiceUpdatedV1,
+    then eth_getTransactionByHash and eth_getTransactionReceipt for each
+    transaction:
+
+      phase               encodings   per tx   recoveries   per tx
+      newPayload                256        8           32        1
+      forkchoiceUpdated         288        9           32        1
+      RPC reads               2,176       68           64        2
+      all                     2,720       85          128        4
+      (encoding 9,201 us, recovery 3,529 us, counted)
+
+================================================================================
+3. Fix (57b075c2)
+================================================================================
+
+- Every slot of LEGACY-, ACCESS-LIST-, DYNAMIC-FEE-, BLOB- and
+  SET-CODE-TRANSACTION, of ACCESS-LIST-ENTRY and of SET-CODE-AUTHORIZATION is
+  :READ-ONLY; no SETF function exists for any of them. Before the change,
+  rg over src/, tests/, scripts/ and docs/ found ten SETF sites on these
+  slots, all in tests (including two multi-place SETFs in
+  core-chain-store-basic-tests.lisp); each now builds a variant
+  (TRANSACTION-FIXTURE-WITH, SET-CODE-TRANSACTION-WITH-FIRST-AUTHORIZATION
+  in tests/core-transaction-tests.lisp). No destructive sequence operation
+  (SORT, NREVERSE, DELETE, FILL, REPLACE, SETF AREF...) writes into a
+  transaction's data vector or lists anywhere in the tree; decoded data is
+  a fresh vector (RLP-BYTES-FIELD copies).
+- TRANSACTION-COMPUTATION-CACHE (legacy.lisp) holds ENCODING, HASH, SENDER
+  and FRONTIER-SENDER, each filled once. TRANSACTION-CANONICAL-ENCODING is
+  the per-type encoder (the former TRANSACTION-ENCODING generic);
+  TRANSACTION-CACHED-ENCODING fills the slot; TRANSACTION-ENCODING returns a
+  COPY-SEQ of it, so no caller can write into the cache. The hash is computed
+  from our own canonical encoding, never from received bytes, as before.
+- The sender: SENDER is the ungated recovery under the EIP-2 low-s bound (as
+  since a1577a56). TRANSACTION-SENDER-FOR-RULES before Homestead used to
+  recover a signature the shared recovery refused again, uncached, on every
+  call; LEGACY-TRANSACTION-FRONTIER-SENDER now caches that recovery
+  (FrontierSigner, no low-s bound) in FRONTIER-SENDER. The signer choice
+  (go-ethereum v1.17.6 MakeSigner, as in ff264c42) and every gate (chain id,
+  protected-before-EIP-155) read only immutable fields and are applied per
+  call, so the cache is keyed by nothing and cannot answer for other rules.
+- ENGINE-PAYLOAD-STORE-COPY-TRANSACTION returns the transaction itself and
+  ENGINE-PAYLOAD-STORE-COPY-BLOCK shares the block's transaction objects
+  (the header, receipts and logs are still copied). The store, the txpool
+  reconciliation and the RPC therefore read the hash and sender the import
+  derived: one source of truth.
+
+Not changed: every RLP byte, hash, gas value, state, receipt, the wire and
+JSON encodings, which transactions are admitted, built or removed. The
+txpool's deliberate full copy (ENGINE-PENDING-TXPOOL-COPY, test-observed and
+off the import path) still decodes copies.
+
+================================================================================
+4. After (57b075c2), same counters
+================================================================================
+
+(a) Replay block 3685538: encodings 84 (1 per transaction), 370 us;
+    sender recoveries 84, 2,458 us; strict run uncounted 31,241 us.
+(b) Devnet import:
+
+      phase               encodings   recoveries
+      newPayload                 32           32
+      forkchoiceUpdated           0            0
+      RPC reads                   0            0
+      all                        32           32   (111 us, 947 us)
+
+Hoodi differential replay, HOODI-REPLAY-COST summary lines:
+
+  before (51369068 src): blocks=322 strictCpuMs=18821 strictMB=5876
+    medianStrictCpuUs=67944 blockCpuMs=58016 blockMB=26652
+  after (57b075c2):      blocks=322 strictCpuMs=19368 strictMB=5602
+    medianStrictCpuUs=66808 blockCpuMs=59857 blockMB=26239
+
+The replay's strict CPU did not move measurably: the encodings it removes
+were about 6% of one block and the two runs differ by more than that in
+both directions per block (3685538: 36,750 us before, 42,871 us after,
+against 34,597 and 31,241 us uncounted in the identity test) on a Docker
+VM shared with other agents. Allocation fell 5,876 -> 5,602 MB. The large
+saving is on the store and RPC paths, which the replay does not exercise.
+
+================================================================================
+5. Verification of record
+================================================================================
+
+cl-workbench doctor --strict: EXIT=0.
+
+RED at 51369068's source with the new tests (cold):
+  cold-integration --match HOODI-REPLAY-IMPORT-DERIVES-EACH-TRANSACTION-
+    IDENTITY-ONCE --match DEVNET-ENGINE-IMPORT-DERIVES-EACH-BLOCK-
+    TRANSACTION-IDENTITY-ONCE (ETHEREUM_LISP_HOODI_REPLAY_ROOT=.hoodi-replay):
+    EXIT=1, both "Assertion failed: (<= (GETF COUNTS :ENCODINGS) SIZE)".
+  cold-unit --match TRANSACTION-FIELDS-REFUSE-MUTATION-AFTER-CONSTRUCTION
+    --match TRANSACTION-DERIVED-CACHE --match TRANSACTION-SENDER-IS-
+    RECOVERED-ONCE: EXIT=1, 2 passed, 1 failed ("Assertion failed: (NULL
+    (STRUCTURE-WRITABLE-SLOTS TYPE))"). A first RED run failed this test
+    for the wrong reason (it named the new TRANSACTION-CANONICAL-ENCODING);
+    the type list now comes from TRANSACTION-SENDER's methods.
+
+GREEN at 57b075c2's tree (cold):
+  the same identity selection: EXIT=0, 2 tests passed.
+  the same refusal selection: EXIT=0, 3 tests passed. Positive controls in
+    the refusal test: the sweep reports a writable slot of a control struct
+    and the cache's own writable HASH slot; in the identity tests: decoded
+    copies are encoded and recovered again, and counted.
+  cold-unit --match TRANSACTION TXPOOL SENDER MINING CHAIN-STORE BLOCK ENGINE
+    PAYLOAD RPC RLP FORKCHOICE GAS-ORACLE RECEIPT EXECUTION GOSSIP ETH-
+    NODE-STORE DEVNET HOODI-REPLAY- BLOB SET-CODE ACCESS-LIST PREMERGE
+    FRONTIER HOMESTEAD: EXIT=0, 969 tests passed, 0 "not ok".
+  cold-integration --match TRANSACTION TXPOOL SENDER MINING CHAIN-STORE BLOCK
+    ENGINE PAYLOAD RPC FORKCHOICE DEVNET NODE-STORE GOSSIP RECEIPT BLOB
+    IDENTITY: EXIT=0, 445 passed, 10 skipped (fixture corpora not mounted),
+    0 "not ok"; includes DEVNET-TXPOOL-SENDER-IS-RECOVERED-ONCE-THROUGH-
+    ADMISSION-FORKCHOICE-AND-BUILDING with its forkchoice bound tightened
+    from <= 8 to 0 recoveries.
+
+Consensus gates at 57b075c2:
+  EEST tests@v20.0.2 (corpus hard-linked from the main checkout's
+    .eest-fixtures-stable-v20.0.2; fixtures.tar.gz sha256
+    1280540950a4c3470a421416b6f35458a9b635827265c29e5aef1ae839ae1788, the
+    pin). Selectors and commands as in sec5-b5161312-eest-v20.0.2.txt: one
+    retained container per gate (ethereum-lisp-cold-eest-z1-57b075c2-<slug>),
+    sequential, output redirected, clean checkout at 57b075c2 before and
+    after; 2026-09-29T23:51:28Z to 2026-09-30T00:05:35Z. All eight:
+    "1 test passed.", 0 "not ok", command exit 0, container exit 0,
+    OOMKilled false. The six manifest lines are byte-identical (cmp) to the
+    b5161312 record's; sorted-set sha256
+    9c8f7010d2ec64d41c6564ffbed70f5d13e95f454f85f6f0d59547b96d2f4561. The
+    containers were removed afterwards.
+  ported_static (OPTIONAL-EEST-PORTED-STATIC-STATE-TESTS-EXECUTE), EXIT=0:
+    Cancun files=2078 cases=7060 passed=7059 failed=0 skipped=1
+      [paidMemoryAboveHarnessHeap:1]
+    Prague files=2078 cases=7060 passed=7059 failed=0 skipped=1
+      [paidMemoryAboveHarnessHeap:1]
+    Osaka files=1969 cases=6581 passed=6581 failed=0 skipped=0
+  Hoodi fixtures (hard-linked .eest-fixtures-hoodi-3684027 and -3685491),
+    cold-integration --match HOODI-3684027- --match HOODI-3685491-: EXIT=0,
+    2 tests passed.
+  Hoodi differential replay (hard-linked .hoodi-replay): selected=322
+    replayed=320 match=320 diverges=0 comparator=0 prestate=0
+    unreplayable=2 (3679328, 3685509, the known witness gaps); EXIT=1 by
+    design. Same at the base.
+
+Run logs (session scratchpad z1/runs and z1/eest; sha256 of the bytes this
+record was written from):
+  base/identity.log   a4a0a243209bfad89d859fb1c23785bf2b34896de7d97fc43a9ed440cbc340d6
+  base2/identity.log  2300bbdb0bfcbdc9a8441de1009d302f8c818b6a31bb742886b04675a677800c
+  base2/refusal.log   3704025ba146e2ed8e85d7ce355338510c756766595f1f5b292d698a2c26d60c
+  base/replay.log     3b50a1899a4a119ea8bfb3179fd826f9f4f965aa1fa82dd7904f11da304d8694
+  after1/identity.log e9773c97ecaef3ba6ca53533f68f45717b0ecaacbabeb74cf1b87ec29de696fb
+  after1/refusal.log  3f40acfbf8716a4f8a835c26623f2bc0145291083a76a16a3a872ced8c0a4d42
+  after2/unit.log     26118d334330f9762043db04245ba43305b11b06dfdbfb7fcd46caa803718a98
+  after2/integration.log 1b4cddf2eadb5f74b90f6acda8fb24bf5567c05c8af966f7bc1843a3209c999e
+  after2/replay.log   356bbd2ae035b12747d738f22b91df58121ae2a4d942556eb8fefe9de6b330b3
+  after2/hoodi-fixtures.log 02ce5feb4754d98ccba835622dd8e68e743a3a79c2b72ad7aea56b04230ce50b
+  after2/ported-static.log a6f94105f49a92378a6035539fcacab27c2d650e069fbca5e68a519da6ac7c2e
+  eest/57b075c2/gates.log 79340136442e58e16f270d4dfac038e8c0462006ff841e0a28e3c9d4b3f47573
+The after runs ran on the tree of 84ae6cad, a work-in-progress head whose
+tree is byte-identical to 57b075c2 (git diff 84ae6cad 57b075c2 empty).
+
+================================================================================
+6. Not verified
+================================================================================
+
+- The live effect: nothing was deployed, and the RocksDB direct provider's
+  own block reads (which decode from disk per read) were not measured.
+- Whether the replay's strict CPU fell: the saving is below the noise of
+  the shared Docker VM (section 4).
+- In-place writes into a transaction's byte vectors are not refused, only
+  absent (no such write exists in the tree); SETF of SLOT-VALUE on a
+  read-only structure slot was not probed.
+- A block whose transaction list holds something other than a transaction
+  was refused by the old store copy (it re-decoded each element); the store
+  copy now shares the elements. Import validates the body before storing,
+  so no import path reaches the store with one; not separately tested.
+- cold-all, cold-e2e and the Amsterdam burn-down were not run (no code
+  behind the Amsterdam fork checks changed).
