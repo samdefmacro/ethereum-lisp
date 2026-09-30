@@ -11,7 +11,9 @@ pool-side consequence of one of theirs, it says so and does not restate it.
 
 The findings below describe the tree as audited on 2026-07-28.  The remediation
 status near the end records what has since been implemented and verified on
-`gap/txpool-build-ops`.
+`gap/txpool-build-ops`. For the POOL and BUILD findings, the **Status
+2026-09-30** line that opens each one was re-measured against `6fee0c69` (main,
+2026-09-30); the text after it is the original finding, kept for the record.
 
 ## Sources read
 
@@ -95,6 +97,7 @@ validator.
 ### Pool admission and validation
 
 **POOL-01 — No transaction size cap.**
+**Status 2026-09-30:** RESOLVED in 014d1bd1. `validate-txpool-encoded-size` (`src/application/services/txpool-admission.lisp`) applies `+txpool-legacy-transaction-max-bytes+` (128 KiB) and `+txpool-blob-transaction-max-bytes+` (1 MiB, sidecar not counted) on the RPC, peer-batch and blob paths; test `txpool-admission-enforces-size-initcode-and-floor-gas`.
 Verdict MISSING. Severity correctness.
 Ours: `validate-txpool-admission`
 (`src/application/services/txpool-admission.lisp:105-146`) validates type,
@@ -112,6 +115,7 @@ multi-megabyte calldata blob is admitted and retained. It will not fit a block
 global slot limit by default (POOL-07) a caller can repeat it.
 
 **POOL-02 — No EIP-3860 initcode-size check at admission.**
+**Status 2026-09-30:** RESOLVED in 014d1bd1. `validate-txpool-admission` calls `validate-contract-initcode-size`; test `txpool-admission-enforces-size-initcode-and-floor-gas`.
 Verdict MISSING. Severity loses-money-or-blocks-validation.
 Ours: admission computes intrinsic gas with `:eip3860-p`
 (`src/application/services/txpool-admission.lisp:125-132`), which charges the
@@ -127,6 +131,7 @@ BUILD-01 aborts the entire payload. The transaction is not removed by that
 failure, so every subsequent build fails the same way.
 
 **POOL-03 — No EIP-7623 floor-data-gas check at admission.**
+**Status 2026-09-30:** RESOLVED in 014d1bd1. `validate-txpool-admission` compares the gas limit with `transaction-effective-floor-gas`; test `txpool-admission-enforces-size-initcode-and-floor-gas`.
 Verdict MISSING. Severity loses-money-or-blocks-validation.
 Ours: admission compares the gas limit against `transaction-intrinsic-gas` only
 (`src/application/services/txpool-admission.lisp:125-132`), while
@@ -142,6 +147,7 @@ and floor gas is admitted and then poisons every payload build. This is the
 lowest-cost remote denial of block production in the pool today.
 
 **POOL-04 — The minimum-fee check reads the fee cap, not the effective tip.**
+**Status 2026-09-30:** RESOLVED in 014d1bd1. `validate-admission-policy` compares the priority fee with the price limit and exempts local senders; test `eth-rpc-send-raw-transaction-enforces-txpool-price-limit`. The floor is static; geth's dynamic `gasTip` has no counterpart.
 Verdict DIVERGENT. Severity correctness.
 Ours: `validate-admission-policy` compares
 `transaction-max-fee-per-gas` against the configured price limit
@@ -159,6 +165,7 @@ fee, a transaction paying a healthy tip is admitted or rejected on a criterion
 unrelated to what it pays us.
 
 **POOL-05 — No EIP-7702 authority reservation or delegated-account in-flight limit.**
+**Status 2026-09-30:** RESOLVED in 014d1bd1 (rules) and bd7906c3 (authority index). `validate-txpool-delegation-reservations` allows a delegated sender one in-flight transaction at its current nonce and refuses a reserved sender or authority; tests `txpool-7702-pending-authorization-reserves-its-authority-until-it-leaves`, `txpool-7702-admission-recovers-no-pooled-authorization`. It is stricter than geth: a same-nonce replacement from a delegated sender is refused, and no test drives the delegated in-flight branch.
 Verdict MISSING. Severity correctness.
 Ours: `txpool-admit-transaction` validates set-code field shape and
 authorization-signature values
@@ -182,6 +189,7 @@ transaction. This is the pool-side counterpart of the non-fork-gated delegation
 noted in `evm-and-gas.md`.
 
 **POOL-06 — Nonce and balance are not checked at all when head state is unavailable.**
+**Status 2026-09-30:** still DIVERGENT. `validate-txpool-sender-state` and `txpool-queued-nonce-gap-p` (`src/application/services/txpool-admission.lisp`) still skip the nonce, balance and nonce-gap checks when head state is unavailable. The build-side consequence is gone (BUILD-01: the builder skips such a sender), and the July remediation note's claim that POOL-01 through POOL-11 were implemented is wrong for this one.
 Verdict DIVERGENT. Severity correctness.
 Ours: `validate-txpool-sender-state` performs the nonce-too-low and
 balance-versus-cost checks inside
@@ -201,6 +209,7 @@ reconciliation demotes them (`canonical-chain-reconcile-txpool`,
 before that reconciliation hits BUILD-01.
 
 **POOL-07 — Every pool limit defaults to unlimited.**
+**Status 2026-09-30:** RESOLVED in 014d1bd1 (admission constants) and b3e05d91 (CLI defaults and lifetime). `make-txpool-admission-policy` and `make-devnet-txpool-policy` (`src/app/cli/devnet/types.lisp`) default to price limit 1, bump 10, 16/5120 slots, 64/1024 queue and a 3 h lifetime. No test starts a node without `--txpool.*` flags and reads the defaults, and there is no counterpart of geth's `sanitize`.
 Verdict DIVERGENT. Severity operability.
 Ours: `txpool-admission-policy` has no default for `price-limit`,
 `price-bump-percent`, `account-slot-limit`, `global-slot-limit`,
@@ -224,6 +233,7 @@ Our 10% bump makes no parity claim in the source; it happens to equal geth's
 `PriceBump`.
 
 **POOL-08 — A full pool rejects the newcomer instead of evicting the cheapest resident.**
+**Status 2026-09-30:** RESOLVED in 014d1bd1 (eviction) and bd7906c3 (effective-tip ranking). `engine-pending-txpool-evict-cheapest-or-fail` (`src/storage/txpool/index/insert.lisp`); test `txpool-full-pool-evicts-by-effective-tip-at-the-child-base-fee`. Eviction ranks within one subpool; geth ranks pending and queued together.
 Verdict DIVERGENT. Severity correctness.
 Ours: when the pending table has reached `global-slot-limit`, insertion signals
 `"Pending transaction exceeds txpool global slot limit"`
@@ -240,6 +250,7 @@ node stops taking the traffic that pays best and a proposing validator builds fr
 frozen, cheap pool.
 
 **POOL-09 — The basefee and blob subpools have no limits at all.**
+**Status 2026-09-30:** PARTIAL. 014d1bd1 bounds the basefee and blob subpools, each at its own `global-slot-limit` (5,120), and bd7906c3 caps the blob subpool at `+txpool-max-pooled-blobs+` (1,024 blobs); `src/storage/txpool/index/insert.lisp`, `src/application/services/txpool-blob-admission.lisp`. Still missing: one bound shared across subpools as geth's `GlobalSlots + GlobalQueue`, and a blob data cap (`--txpool.blobpool.datacap` is accepted and ignored with a warning). No test fills either subpool.
 Verdict MISSING. Severity operability.
 Ours: `engine-pending-txpool-put-basefee-transaction` and
 `...put-blob-transaction` both route through
@@ -257,6 +268,7 @@ lands in the basefee subpool, and blob transactions land in a subpool that
 nothing ever drains (POOL-14).
 
 **POOL-10 — Lifetime eviction runs only when a public JSON-RPC request arrives.**
+**Status 2026-09-30:** RESOLVED in b3e05d91. `devnet-start-txpool-maintenance-thread` (`src/app/cli/devnet/background.lisp`) runs lifetime eviction every 60 s with a 3 h default, independent of RPC; tests `txpool-maintenance-expires-queued-view-transactions-without-rpc`, `txpool-admission-age-survives-a-restart`.
 Verdict DIVERGENT. Severity operability.
 Ours: `engine-payload-store-remove-expired-txpool-queued-view-transactions`
 (`src/storage/txpool/service/cleanup-lifecycle.lisp:72-92`) is called from
@@ -274,6 +286,7 @@ basefee or blob transaction. Combined with POOL-09 the non-pending subpools grow
 monotonically for the life of the process.
 
 **POOL-11 — Promotion on a new head ignores the slot limits.**
+**Status 2026-09-30:** PARTIAL. 528d11b4 makes new-head promotion fall back to limits stored on the pool (`src/storage/txpool/service/queued-promotion.lisp`, `basefee-promotion.lisp`), but only admission stores them (`engine-payload-store-configure-txpool-promotion-policy`, called from `src/application/services/txpool-admission.lisp`), so a promotion before the first admission after a start, such as after a journal restore, is still unbounded. No test.
 Verdict DIVERGENT. Severity completeness.
 Ours: admission passes the configured limits when promoting after an insert
 (`src/application/services/txpool-admission.lisp:206-220`), but the new-head
@@ -289,6 +302,7 @@ silently exceeded on the block-arrival path, so `txpool_status` can report more
 pending transactions than `--txpool.globalslots` permits.
 
 **POOL-12 — Blob replacement does not require a blob-fee-cap bump, and uses 10% rather than 100%.**
+**Status 2026-09-30:** RESOLVED in 511481d7. `+txpool-blob-replacement-price-bump-percent+` (100) and `engine-pending-txpool-replacement-transaction-p` (`src/storage/txpool/index/replacement.lisp`) bump the fee cap, the tip and the blob fee cap. The test covers only a successful 100% replacement.
 Verdict DIVERGENT. Severity correctness.
 Ours: `engine-pending-txpool-replacement-transaction-p` requires the execution
 fee cap and the priority fee to be both strictly greater and bumped by the
@@ -310,6 +324,7 @@ anyway.
 ### Blob transactions
 
 **POOL-13 — There is no blob pool, and pooled blob transactions are inert.**
+**Status 2026-09-30:** RESOLVED in 511481d7 (blob transactions in the mining view), 5e3fb80f (relay) and bd7906c3 (atomic admission with pinned sidecars and a persisted admission age). `engine-payload-store-pending-mining-transactions` (`src/storage/txpool/service/views.lisp`) includes the blob subpool; tests `engine-rpc-builds-submitted-blob-wrapper-into-v3-payload`, `eth-rpc-send-raw-transaction-routes-blob-transactions-to-blob-subpool`. Sidecars live in the chain-store blob cache, not a separate on-disk store.
 Verdict MISSING. Severity completeness.
 Ours (executed): a signed blob transaction is rejected by
 `engine-payload-store-put-pending-transaction`,
@@ -338,6 +353,7 @@ accepted submission for a transaction that will not be included by this node and
 will not reach anyone who could include it.
 
 **POOL-14 — Blob sidecars are never verified, and the pooled transaction has nowhere to carry them.**
+**Status 2026-09-30:** RESOLVED in 511481d7 and 5e3fb80f (network wrapper), a979fc60 (EIP-7594 cell proofs) and bd7906c3 (one admission path). `pooled-transaction-from-encoding` decodes the wrapper and `txpool-verify-blob-sidecar` (`src/application/services/txpool-blob-admission.lisp`) reaches `validate-blob-sidecar-kzg-proofs` before any pool change; tests `txpool-blob-admission-rejects-bad-sidecars-before-any-pool-mutation`, `txpool-blob-gossip-drops-a-bad-sidecar-the-pool-would-refuse-anyway`.
 Verdict MISSING. Severity completeness.
 Ours: the `blob-transaction` struct carries `blob-versioned-hashes` and no
 blobs, commitments or proofs (`src/protocol/transactions/blob.lisp`);
@@ -394,6 +410,7 @@ has none of that structure. The metadata carries a format version that is
 checked on read (`src/storage/node-store/persistence/metadata.lisp:3`, `:126-128`).
 
 **POOL-15 — Gossip pushes full transactions from the pending subpool only, rescanning it per peer per tick.**
+**Status 2026-09-30:** RESOLVED in cb7cb5b8 and 5e3fb80f. `devnet-peer-pending-broadcast` (`src/app/cli/devnet/peer-sync.lisp`) reads a bounded txpool change log through a per-peer cursor and offers every subpool; large transactions and blob wrappers are announced by hash; tests `devnet-broadcast-offers-each-transaction-to-a-peer-once`, `eth-72-transaction-announcements-carry-custody`. Small transactions still go in full to every peer, where geth sends bodies to about the square root of its peers.
 Verdict DIVERGENT. Severity performance.
 Ours: `devnet-peer-pending-broadcast` closes over a per-session known-hash set
 and, on each tick, walks the entire pending list to find up to 64 unseen
@@ -410,6 +427,7 @@ offered to anyone. Correct as far as it goes, and the file says so.
 ### Payload and block building
 
 **BUILD-01 — One unexecutable transaction aborts the entire payload build.**
+**Status 2026-09-30:** RESOLVED in a7a7b1d0, 8f17c8c5 and f35bc82c for the Engine path. `apply-signed-message-selection` (`src/runtime/execution/message-lists.lisp`) rolls a failing candidate back to a snapshot, catching `transaction-validation-error` and `block-validation-error` alike, and skips its sender; `forkchoiceUpdated` first stores an empty block. Tests `prepared-payload-skips-an-invalid-sender`, `engine-payload-build-executes-each-candidate-once`. The `--dev` period sealer (`devnet-node-seal-pending-block-without-guard`, `src/app/cli/devnet/runtime.lisp`) still executes its whole selection in one call, so one bad transaction fails that seal.
 Verdict DIVERGENT. Severity loses-money-or-blocks-validation.
 Ours: `engine-rpc-build-prepared-payload` executes the selected transaction list
 in one `execute-signed-block` call
@@ -439,6 +457,7 @@ the `transaction-validation-error` class yields no JSON-RPC response at all, so
 the client sees its `engine_forkchoiceUpdated` time out.
 
 **BUILD-02 — The pending list is filtered at the head's base fee and built at the child's.**
+**Status 2026-09-30:** RESOLVED in a7a7b1d0. `engine-payload-store-pending-mining-transactions` filters at the child base fee passed by `engine-rpc-pending-build-transactions` and by the dev sealer; test `mining-order-filters-at-the-child-base-fee`.
 Verdict DIVERGENT. Severity loses-money-or-blocks-validation.
 Ours: admission and revalidation both use the head header's own base fee —
 `txpool-basefee-ineligible-p`
@@ -461,6 +480,7 @@ fees is selected and aborts the build under BUILD-01. This needs no adversary
 and no unusual configuration.
 
 **BUILD-03 — The payload is built once and never improved.**
+**Status 2026-09-30:** RESOLVED in 8f17c8c5, afab959a and 2bab2d36, with keep-the-best in f35bc82c. `devnet-start-payload-improvement-thread` (`src/app/cli/devnet/background.lisp`) rebuilds open payloads every 2 s or on notification and `getPayload` makes one final rebuild of at most 0.3 s (`src/api/engine/payloads.lisp`); tests `engine-rpc-forkchoice-updated-v1-improves-stable-payload-before-get`, `engine-payload-improvement-stops-early-and-never-regresses`. An open payload that is never fetched keeps being rebuilt until cache eviction; geth stops after one slot.
 Verdict MISSING. Severity loses-money-or-blocks-validation.
 Ours: `engine-rpc-handle-forkchoice-updated` selects transactions, derives a
 candidate id and builds the block inline, storing the finished block
@@ -484,6 +504,7 @@ changed pool produces a *different* id rather than improving the payload behind
 the existing one.
 
 **BUILD-04 — The gas limit is copied from the parent; `--miner.gaslimit` never reaches the builder.**
+**Status 2026-09-30:** RESOLVED in e12264a6 (`engine-target-gas-limit`), b3e05d91 (CLI, node and dev-sealer wiring) and 6e3e9b1d (60,000,000 default, `+devnet-default-miner-gas-limit+`); tests `engine-builder-hones-gas-limit-toward-operator-target`, `devnet-cli-miner-gas-limit-default-and-override-reach-live-node`. There is no runtime setter like geth's `miner_setGasLimit`.
 Verdict DIVERGENT. Severity correctness.
 Ours: `engine-build-empty-payload` sets
 `:gas-limit (block-header-gas-limit parent-header)`
@@ -505,6 +526,7 @@ or lower it has no way to do so, and a network-wide gas-limit vote proceeds
 without us.
 
 **BUILD-05 — Ordering is per-sender by the first transaction's tip, with no re-comparison after each inclusion.**
+**Status 2026-09-30:** RESOLVED in e12264a6 (re-ranking) and a1577a56 (a heap on precomputed keys). `engine-mining-interleave-sender-groups` (`src/storage/txpool/service/views.lisp`) re-keys a sender on its next transaction after each pop; tests `mining-order-prefers-payment-while-keeping-nonce-order`, `txpool-mining-order-reads-each-sort-key-once-in-the-pairwise-order`.
 Verdict DIVERGENT. Severity performance.
 Ours: `engine-payload-store-pending-mining-transactions` groups the pending list
 by sender, keys each group on the effective tip of its lowest-nonce transaction,
@@ -526,6 +548,7 @@ price entirely — and this is the remaining half: correct sender selection,
 no re-selection.
 
 **BUILD-06 — Selection packs against declared gas limits and never reclaims unused gas.**
+**Status 2026-09-30:** RESOLVED in 8f17c8c5 and f35bc82c for the Engine path. `apply-signed-message-selection` checks fit against the declared gas limit and then charges the gas each transaction used; test `engine-rpc-forkchoice-updated-v1-selects-pending-txpool-transactions`. The dev sealer still packs by declared gas (`engine-select-mining-transactions`).
 Verdict DIVERGENT. Severity performance.
 Ours: `engine-select-mining-transactions` accumulates
 `transaction-gas-limit` and blocks a sender once one of its transactions does not
@@ -541,6 +564,7 @@ using 21,000 costs us 979,000 gas of block space and the fees it would have
 earned.
 
 **BUILD-07 — No block size bound during selection.**
+**Status 2026-09-30:** PARTIAL. From Osaka, f35bc82c budgets each candidate's encoding against `+max-rlp-block-size-eip7934+` less the empty block and a 1,024-byte margin (`src/api/engine/forkchoice.lisp`, `src/runtime/execution/message-lists.lisp`), and 511481d7 re-checks the built block. Per-transaction list framing is not counted, although the comment beside the budget says it is, so an overshoot is caught only by the post-build check, which fails that build rather than trimming it. No test covers the cap during building, and the dev sealer has no size bound. Re-graded to completeness.
 Verdict MISSING. Severity correctness.
 Ours: nothing in `engine-select-mining-transactions` or
 `engine-rpc-build-prepared-payload` measures the encoded size of the block being
@@ -552,6 +576,7 @@ other client will reject. The validation side of that cap belongs to
 `block-execution-and-types.md`; this is the building side.
 
 **BUILD-08 — A built payload can never contain a blob transaction, so blob gas is always zero.**
+**Status 2026-09-30:** RESOLVED in 511481d7 and f35bc82c. `engine-rpc-buildable-transactions` admits blob transactions whose sidecars the node holds, selection enforces the fork's `max-blob-gas`, and `blobGasUsed` comes from the kept list; tests `prepared-payload-builds-blob-transaction-and-bundle`, `engine-payload-build-enforces-the-blob-cache-bounds-once-per-pass`. No test asserts the per-block blob cap during selection.
 Verdict MISSING. Severity completeness.
 Ours: `engine-build-empty-payload` sets `:blob-gas-used 0` whenever the
 attributes carry a parent beacon root
@@ -566,6 +591,7 @@ inconsistency, because the payload it accompanies provably carries no blob
 commitments. Cross-references RPC-06 and RPC-07.
 
 **BUILD-09 — Building is synchronous inside the `forkchoiceUpdated` request, with no deadline.**
+**Status 2026-09-30:** RESOLVED in afab959a, 3aa5b7c4 and f35bc82c. `forkchoiceUpdated` builds only the empty candidate, returns the id and wakes the worker, which runs under a 1 s per-pass deadline and steps aside for waiting Engine requests; tests `devnet-payload-builder-steps-aside-for-engine-requests`, `engine-payload-improvement-stops-early-and-never-regresses`.
 Verdict DIVERGENT. Severity operability.
 Ours: the build runs on the HTTP worker handling the call
 (`src/api/engine/forkchoice.lisp:187-193`). The only bound is the connection
@@ -911,6 +937,10 @@ later ones. Sizes are S (a day or less), M (a few days), L (a week or more).
     transaction.
 
 ## Remediation status (2026-07-29)
+
+Correction 2026-09-30, measured at `6fee0c69`: POOL-06 was not implemented,
+and POOL-09, POOL-11 and BUILD-07 are only partly done. Each finding's
+**Status 2026-09-30** line says what remains.
 
 Implemented in `gap/txpool-build-ops`:
 
