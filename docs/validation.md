@@ -2161,8 +2161,9 @@ ETHEREUM_LISP_EXECUTION_SPEC_TESTS_ROOT=$PWD/.eest-fixtures-sec5-REV/tests-v20.0
   --match OPTIONAL-LEGACY-EEST-PRE-MERGE-BLOCKCHAIN-BURN-DOWN > pre-merge-v20.log 2>&1
 cl-workbench validation run cold-unit --match PRE-SPURIOUS-DRAGON
 cl-workbench validation run cold-unit --match FRONTIER-CREAT
-# Signers, EIP-170, single-flag rules, eth/68 Status, and the DAO drain and
-# ommer rewards on synthetic chains; then six vendored ethereum/tests
+# Signers (execution, admission and the public RPC views), EIP-170,
+# single-flag rules for every fork predicate, eth/68 Status, and the DAO
+# drain and ommer rewards on synthetic chains; then six vendored ethereum/tests
 # v6.0.0-beta.3 files with ommers and the HomesteadToDaoAt5 transition.
 cl-workbench validation run cold-unit --match PREMERGE-
 cl-workbench validation run cold-integration --match PREMERGE-LEGACY

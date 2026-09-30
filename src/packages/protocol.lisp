@@ -134,6 +134,8 @@
    #:chain-rules-homestead-active-p
    #:chain-rules-eip155-active-p
    #:chain-rules-eip158-active-p
+   #:chain-rules-london-active-p
+   #:chain-rules-shanghai-active-p
    #:chain-rules-code-size-limited-p
    #:chain-rules-initcode-metering-p
    #:chain-rules-code-prefix-restricted-p

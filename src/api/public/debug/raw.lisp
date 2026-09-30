@@ -48,7 +48,8 @@ the canonical chain first and then the pool."
          (location (chain-store-transaction-location store hash)))
     (or (eth-rpc-raw-transaction-from-location
          location
-         :expected-chain-id (chain-config-chain-id config))
+         :expected-chain-id (chain-config-chain-id config)
+         :config config)
         (eth-rpc-pooled-raw-transaction
          (engine-payload-store-pooled-transaction store hash)
          (chain-config-chain-id config)))))

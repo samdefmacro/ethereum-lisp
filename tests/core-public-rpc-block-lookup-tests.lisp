@@ -32,7 +32,7 @@
               :transactions (list transaction)
               :ommers (list ommer)
               :withdrawals (list withdrawal)))
-           (config (make-chain-config)))
+           (config (make-chain-config :eip155-block 0)))
       (engine-payload-store-put-block store block :state-available-p t)
       (let* ((response
                (parse-json
@@ -118,7 +118,7 @@
               :transactions (list transaction)))
            (hash (block-hash block))
            (hash-hex (hash32-to-hex hash))
-           (config (make-chain-config)))
+           (config (make-chain-config :eip155-block 0)))
       (engine-payload-store-put-block store block :state-available-p t)
       (let* ((response
                (parse-json

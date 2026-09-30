@@ -134,9 +134,11 @@ broadly would quietly start collecting frames for block import."
     (eth-rpc-call-frame-object frame)))
 
 (defun eth-rpc-trace-applied-transaction
-    (state transaction chain-id apply-options)
+    (state transaction chain-id rules apply-options)
   "Apply TRANSACTION to STATE, as the block executor's applier does, with a
-fresh call tracer bound, and return its root frame.
+fresh call tracer bound, and return its root frame. The root's sender is
+recovered with the block's signer RULES, as geth's traceBlock does
+(types.MakeSigner of the block, eth/tracers/api.go v1.17.6).
 
 The root is the transaction's own frame, which no call hook sees: geth's
 callTracer takes its type, sender, recipient (or created address), value, gas
@@ -144,7 +146,9 @@ limit and input from the transaction, its gasUsed from the receipt (OnTxEnd),
 and its output and error from the top-level execution, which the applier notes
 on the tracer (EVM-CALL-TRACER-NOTE-TOP-LEVEL)."
   (let* ((sender
-           (or (transaction-sender transaction :expected-chain-id chain-id)
+           (or (eth-rpc-transaction-sender-or-nil transaction
+                                                  :expected-chain-id chain-id
+                                                  :rules rules)
                (block-validation-fail "Traced transaction sender recovery failed")))
          (to (transaction-to transaction))
          (created
@@ -194,9 +198,10 @@ and leaves the executor once the last wanted transaction has run: nothing after
 the transactions is needed, and STATE is the caller's private copy. With
 LAST-INDEX, the transactions before it are applied untraced and the result is
 the one frame at LAST-INDEX, as geth's traceTransaction replays its prefix."
-  (let ((chain-id (chain-config-chain-id config))
-        (block-header (block-header block))
-        (frames '()))
+  (let* ((chain-id (chain-config-chain-id config))
+         (block-header (block-header block))
+         (rules (eth-rpc-signer-rules config block-header))
+         (frames '()))
     (catch 'eth-rpc-trace-block-frames
       (apply #'execute-block-with-message-applier
              state
@@ -206,7 +211,7 @@ the one frame at LAST-INDEX, as geth's traceTransaction replays its prefix."
                      for index from 0
                      do (if (or (null last-index) (= index last-index))
                             (push (eth-rpc-trace-applied-transaction
-                                   state transaction chain-id options)
+                                   state transaction chain-id rules options)
                                   frames)
                             (apply #'apply-signed-message-list
                                    state (list transaction)

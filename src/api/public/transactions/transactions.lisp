@@ -6,20 +6,25 @@
      "~A params must contain block id and transaction index" method))
   (json-rpc-quantity-param params 1 "transaction index" method))
 
-(defun eth-rpc-raw-transaction (transaction &key expected-chain-id)
+(defun eth-rpc-raw-transaction (transaction &key expected-chain-id rules)
+  "TRANSACTION's encoding as hex when its sender recovers under the signer
+RULES select for EXPECTED-CHAIN-ID (ETH-RPC-SIGNER-RULES), or NIL."
   (when (and transaction
              (or (null expected-chain-id)
-                 (transaction-sender
+                 (eth-rpc-transaction-sender-or-nil
                   transaction
-                  :expected-chain-id expected-chain-id)))
+                  :expected-chain-id expected-chain-id
+                  :rules rules)))
     (bytes-to-hex (transaction-encoding transaction))))
 
 (defun eth-rpc-raw-transaction-from-location
-    (location &key expected-chain-id)
+    (location &key expected-chain-id config)
   (when location
     (eth-rpc-raw-transaction
      (engine-transaction-location-transaction location)
-     :expected-chain-id expected-chain-id)))
+     :expected-chain-id expected-chain-id
+     :rules (eth-rpc-block-signer-rules
+             config (engine-transaction-location-block location)))))
 
 (defun eth-rpc-pooled-raw-transaction (transaction expected-chain-id)
   (eth-rpc-raw-transaction
@@ -27,11 +32,12 @@
    :expected-chain-id expected-chain-id))
 
 (defun eth-rpc-raw-transaction-by-index
-    (block index &key expected-chain-id)
+    (block index &key expected-chain-id config)
   (when (and block (< index (length (block-transactions block))))
     (eth-rpc-raw-transaction
      (nth index (block-transactions block))
-     :expected-chain-id expected-chain-id)))
+     :expected-chain-id expected-chain-id
+     :rules (eth-rpc-block-signer-rules config block))))
 
 (defun engine-rpc-handle-eth-get-raw-transaction-by-block-number-and-index
     (params store config)
@@ -50,7 +56,8 @@
           (eth-rpc-raw-transaction-by-index
            block
            index
-           :expected-chain-id chain-id)))))
+           :expected-chain-id chain-id
+           :config config)))))
 
 (defun engine-rpc-handle-eth-get-raw-transaction-by-block-hash-and-index
     (params store config)
@@ -64,7 +71,8 @@
     (eth-rpc-raw-transaction-by-index
      block
      index
-     :expected-chain-id (chain-config-chain-id config))))
+     :expected-chain-id (chain-config-chain-id config)
+     :config config)))
 
 (defun engine-rpc-handle-eth-get-raw-transaction-by-hash
     (params store config)
@@ -73,7 +81,8 @@
          (location (chain-store-transaction-location store hash)))
     (or (eth-rpc-raw-transaction-from-location
          location
-         :expected-chain-id (chain-config-chain-id config))
+         :expected-chain-id (chain-config-chain-id config)
+         :config config)
         (eth-rpc-pooled-raw-transaction
          (engine-payload-store-pooled-transaction store hash)
          (chain-config-chain-id config)))))
@@ -94,7 +103,8 @@
                (block (chain-store-block-by-number store number)))
           (eth-rpc-transaction-by-index
            block index
-           :expected-chain-id chain-id)))))
+           :expected-chain-id chain-id
+           :config config)))))
 
 (defun engine-rpc-handle-eth-get-transaction-by-block-hash-and-index
     (params store config)
@@ -107,7 +117,8 @@
          (block (chain-store-known-block store hash)))
     (eth-rpc-transaction-by-index
      block index
-     :expected-chain-id (chain-config-chain-id config))))
+     :expected-chain-id (chain-config-chain-id config)
+     :config config)))
 
 (defun engine-rpc-handle-eth-get-transaction-by-hash (params store config)
   (let* ((hash (eth-rpc-hash-param
@@ -115,7 +126,8 @@
          (location (chain-store-transaction-location store hash)))
     (or (eth-rpc-transaction-from-location
          location
-         :expected-chain-id (chain-config-chain-id config))
+         :expected-chain-id (chain-config-chain-id config)
+         :config config)
         (eth-rpc-pending-transaction-object
          (engine-payload-store-pooled-transaction store hash)
          :expected-chain-id (chain-config-chain-id config)))))

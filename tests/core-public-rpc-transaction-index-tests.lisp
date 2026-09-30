@@ -37,7 +37,7 @@
            (hash-hex (hash32-to-hex (block-hash block)))
            (wrong-chain-hash-hex
              (hash32-to-hex (transaction-hash wrong-chain-tx)))
-           (config (make-chain-config)))
+           (config (make-chain-config :eip155-block 0)))
       (is (transaction-sender tx-1 :expected-chain-id 1))
       (is (transaction-sender tx-2 :expected-chain-id 1))
       (is (transaction-sender wrong-chain-tx :expected-chain-id 2))
@@ -152,7 +152,7 @@
               :transactions (list tx-1 tx-2)))
            (hash-hex (hash32-to-hex (block-hash block)))
            (tx-2-from (transaction-sender tx-2))
-           (config (make-chain-config)))
+           (config (make-chain-config :eip155-block 0)))
       (engine-payload-store-put-block store block :state-available-p t)
       (let* ((number-response
                (parse-json
