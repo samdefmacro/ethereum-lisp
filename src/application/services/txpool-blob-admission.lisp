@@ -181,31 +181,73 @@ blob count, so the work here is bounded too."
                 index))
     t))
 
-(defun txpool-verify-blob-sidecar (transaction sidecar)
+(defun txpool-blob-sidecar-parts (sidecar)
+  "SIDECAR as one sidecar per blob, each with that blob's commitment and its
+proof or its +CELL-PROOFS-PER-BLOB+ cell proofs. Call it on a sidecar whose
+shape is checked."
+  (let* ((blobs (blob-sidecar-blobs sidecar))
+         (proofs (blob-sidecar-proofs sidecar))
+         (per-blob (if (= (length proofs) (length blobs))
+                       1
+                       +cell-proofs-per-blob+)))
+    (loop for blob in blobs
+          for commitment in (blob-sidecar-commitments sidecar)
+          for start from 0 by per-blob
+          collect (make-blob-sidecar
+                   :blobs (list blob)
+                   :commitments (list commitment)
+                   :proofs (subseq proofs start (+ start per-blob))))))
+
+(defun txpool-verify-blob-sidecar-part (part)
+  "Verify the one-blob sidecar PART and return its EIP-4844 blob proof when
+PART carries cell proofs, which getBlobsV1 and the V1 pooled wrapper serve (NIL
+otherwise). Derived here, outside the store guard, rather than at publication.
+
+A derivation that fails after the proofs verified is not the sender's fault:
+it comes back as (:DERIVATION-FAILED . CONDITION) for the caller to signal
+outside the sidecar-fault handler."
+  (validate-blob-sidecar-fields part :require-proof-verification t)
+  (unless (= 1 (length (blob-sidecar-proofs part)))
+    (handler-case
+        (compute-kzg-blob-proof (first (blob-sidecar-blobs part))
+                                (first (blob-sidecar-commitments part)))
+      (block-validation-error (condition)
+        (cons :derivation-failed condition)))))
+
+(defun txpool-verify-blob-sidecar
+    (transaction sidecar &key (map-function #'mapcar))
   "Verify every KZG proof of SIDECAR against TRANSACTION and return a
 TXPOOL-VERIFIED-BLOB-SIDECAR. Touches no store: call it outside any store lock.
 A failing proof or a malformed field signals TXPOOL-INVALID-BLOB-SIDECAR; a
 missing native KZG library still signals KZG-UNAVAILABLE-ERROR, which is this
-node's capability and not the sender's fault."
+node's capability and not the sender's fault.
+
+Each blob's field checks, proof verification and blob-proof derivation are
+independent of the others', so they go through MAP-FUNCTION, a function like
+MAPCAR over one-blob sidecars; a caller may pass one that runs them in
+parallel. It must return the results in order and signal the first failing
+blob's condition, as MAPCAR does. A peer session admitting a received 5-blob
+sidecar spent 0.2 s of its only thread doing them one after another, 1.1 s
+under load (Hive 'Blob Transaction Ordering, Multiple Clients' at b40d61c0,
+docs/evidence/sec5-b40d61c0-hive-blob-order.txt)."
   (txpool-check-blob-sidecar-shape transaction sidecar)
-  (handler-case
-      (validate-blob-sidecar-fields sidecar :transaction transaction
-                                            :require-proof-verification t)
-    (txpool-invalid-blob-sidecar (condition) (error condition))
-    (block-validation-error (condition)
-      (txpool-invalid-blob-sidecar-fail
-       "~A" (block-validation-error-message condition))))
-  (let ((blobs (blob-sidecar-blobs sidecar)))
+  (let ((blob-proofs
+          (handler-case
+              (funcall map-function #'txpool-verify-blob-sidecar-part
+                       (txpool-blob-sidecar-parts sidecar))
+            (txpool-invalid-blob-sidecar (condition) (error condition))
+            (block-validation-error (condition)
+              (txpool-invalid-blob-sidecar-fail
+               "~A" (block-validation-error-message condition))))))
+    (let ((failed (find-if #'consp blob-proofs)))
+      (when failed
+        (error (cdr failed))))
     (%make-txpool-verified-blob-sidecar
      transaction sidecar
-     ;; A cell-proof (EIP-7594) sidecar carries no EIP-4844 blob proof, which
-     ;; getBlobsV1 and the V1 pooled wrapper serve: derive it here rather than
-     ;; under the store guard at publication.
-     (when (and blobs
-                (/= (length (blob-sidecar-proofs sidecar)) (length blobs)))
-       (loop for blob in blobs
-             for commitment in (blob-sidecar-commitments sidecar)
-             collect (compute-kzg-blob-proof blob commitment))))))
+     (when (and (blob-sidecar-blobs sidecar)
+                (/= (length (blob-sidecar-proofs sidecar))
+                    (length (blob-sidecar-blobs sidecar))))
+       blob-proofs))))
 
 (defun txpool-admit-verified-blob-transaction
     (verified store config policy &key admitted-at)
@@ -243,12 +285,13 @@ transaction hash. Nothing is left behind when any step refuses."
 
 (defun txpool-admit-blob-transaction
     (transaction sidecar store config policy
-     &key admitted-at (call-with-store #'funcall))
+     &key admitted-at (call-with-store #'funcall) (map-function #'mapcar))
   "Admit the blob TRANSACTION with its SIDECAR through the one pooled-blob
 admission path (see this file's header). CALL-WITH-STORE is called with a
 thunk for each step that reads or writes STORE; a node passes its store guard
-so the KZG verification between them runs outside it. Returns the transaction
-hash; signals TXPOOL-INVALID-BLOB-SIDECAR for the sender's fault and
+so the KZG verification between them runs outside it. MAP-FUNCTION runs that
+verification's per-blob work (TXPOOL-VERIFY-BLOB-SIDECAR). Returns the
+transaction hash; signals TXPOOL-INVALID-BLOB-SIDECAR for the sender's fault and
 BLOCK-VALIDATION-ERROR for any other refusal, in both cases before any change
 to the pool or the blob store."
   (when (funcall call-with-store
@@ -259,7 +302,8 @@ to the pool or the blob store."
                          nil))))
     (return-from txpool-admit-blob-transaction
       (transaction-hash transaction)))
-  (let ((verified (txpool-verify-blob-sidecar transaction sidecar)))
+  (let ((verified (txpool-verify-blob-sidecar
+                   transaction sidecar :map-function map-function)))
     (funcall call-with-store
              (lambda ()
                (txpool-admit-verified-blob-transaction

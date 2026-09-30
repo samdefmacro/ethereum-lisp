@@ -31,7 +31,9 @@
                       accept-transactions-p
                       accept-transactions accept-transaction
                       accept-blob-transaction accept-block
-                      block-access-list blob-cells)))
+                      block-access-list blob-cells
+                      prepare-pooled-blob-sidecars
+                      warm-pooled-blob-sidecars)))
   "What a peer's messages are answered from, as closures rather than a store.
 
 BLOCK-BY-NUMBER returns the canonical block at a block number; BLOCK-BY-HASH
@@ -68,7 +70,15 @@ Any callback may be NIL, which turns off just that part."
   ;; eth/71: return an RLP object for HASH, or NIL when unavailable.
   block-access-list
   ;; eth/72: (HASHES MASK) -> response hashes, cell groups, response mask.
-  blob-cells)
+  blob-cells
+  ;; (BLOB-TRANSACTIONS VERSION), called once per PooledTransactions reply
+  ;; before its wrappers are read, so a backend can do the work every wrapper
+  ;; needs in one pass rather than one transaction at a time.
+  prepare-pooled-blob-sidecars
+  ;; (BLOB-TRANSACTIONS VERSION), called after announcing them to a peer; it
+  ;; must return at once. The peer usually asks for them next, so a backend
+  ;; can start that work now, off the session thread.
+  warm-pooled-blob-sidecars)
 
 (defun eth-serve-block-by-number (backend number)
   (let ((reader (eth-serve-backend-block-by-number backend)))

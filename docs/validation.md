@@ -1364,6 +1364,24 @@ verification is a protocol error even for a transaction the pool would refuse
 anyway (an equal-fee replacement). The record is
 `docs/evidence/sec5-hive-engine-7116af82.txt`.
 
+### eth/72 blob KZG work off the session's critical path (Hive at b40d61c0)
+
+```sh
+cl-workbench validation run cold-integration \
+  --match ETH-72-RECEIVED-BLOB-SIDECAR-IS-VERIFIED-BLOB-BY-BLOB-IN-PARALLEL \
+  --match ETH-72-POOLED-TRANSACTIONS-REPLY-DERIVES-ALL-ITS-BLOBS-AT-ONCE \
+  --match ETH-72-ANNOUNCED-BLOB-TRANSACTION-IS-DERIVED-BEFORE-ITS-PEER-ASKS \
+  --match ETH-72-REQUEST-DURING-A-WARM-UP-WAITS-FOR-IT
+```
+
+A received 5-blob sidecar is verified, and its blob proofs derived, more than
+one blob at a time; a PooledTransactions reply derives the cell proofs of all
+its transactions' blobs in one parallel pass; announcing a blob transaction to
+an eth/72 peer derives its wrapper in the background, off the announcing
+thread, before any request; and a request that arrives during that derivation
+waits for it instead of deriving each blob again. The record is
+`docs/evidence/sec5-b40d61c0-hive-blob-order.txt`.
+
 ### Snap tail: BLOCKHASH ancestry and phase outcomes
 
 ```sh

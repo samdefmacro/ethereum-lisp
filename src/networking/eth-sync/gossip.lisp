@@ -146,7 +146,9 @@ placeholder proofs instead."
         (and backend (eth-pooled-blob-sidecar-reader backend version)))))
 
 (defun eth-peer-announce-transactions (peer transactions)
-  "Announce TRANSACTIONS to PEER by hash, and return how many were announced."
+  "Announce TRANSACTIONS to PEER by hash, and return how many were announced.
+The blob transactions announced then go to the backend's
+WARM-POOLED-BLOB-SIDECARS, since the peer usually asks for them next."
   (let* ((backend (eth-peer-serve-backend peer))
          (sidecar-reader
            (eth-announcement-blob-sidecar-reader
@@ -185,7 +187,16 @@ placeholder proofs instead."
                        (encode-eth-new-pooled-transaction-hashes
                         sendable :version (eth-peer-eth-version peer)
                                  :custody-mask custody-mask)))
-      (eth-peer-note-known-transactions peer sendable))
+      (eth-peer-note-known-transactions peer sendable)
+      (let ((warm (and backend
+                       (eth-serve-backend-warm-pooled-blob-sidecars backend)))
+            (blob-transactions
+              (loop for entry in sendable
+                    for transaction = (eth-pooled-entry-transaction entry)
+                    when (typep transaction 'blob-transaction)
+                      collect transaction)))
+        (when (and warm blob-transactions)
+          (funcall warm blob-transactions (eth-peer-eth-version peer)))))
     (length sendable)))
 
 ;;; Receiving.
@@ -467,30 +478,45 @@ accident."
   "The transactions from HASHES that we still hold, in request order.
 
 Hashes we cannot serve are left out: the reply may be short and reordered, and
-the peer matches it up by hash rather than by position."
-  (let ((pooled (eth-serve-backend-pooled-transaction backend))
-        (sidecar-reader
-          (eth-pooled-blob-sidecar-reader backend version))
-        (found '())
-        (examined 0))
-    (when pooled
-      (dolist (hash hashes)
-        (when (>= examined +eth-max-pooled-transactions-serve+)
-          (return))
-        (incf examined)
-        (let ((transaction (when (= (length hash) 32) (funcall pooled hash))))
-          (cond
-            ((and (typep transaction 'blob-transaction) sidecar-reader)
-             (let ((sidecar (funcall sidecar-reader transaction)))
-               (when sidecar
-                 (push (make-blob-network-transaction
-                        transaction
-                        (if (>= version +eth-protocol-version-72+)
-                            (blob-sidecar-without-blobs sidecar)
-                            sidecar))
-                       found))))
-            ((and transaction (eth-gossipable-transaction-p transaction))
-             (push transaction found))))))
+the peer matches it up by hash rather than by position.
+
+Every requested transaction is looked up first, and the blob transactions among
+them go to the backend's PREPARE-POOLED-BLOB-SIDECARS, when it has one, before
+any wrapper is built: an eth/72 wrapper carries cell proofs the backend may
+have to derive, and deriving each transaction's blobs in turn cost 0.13 s per
+blob of the session's time (Hive 'Blob Transaction Ordering, Multiple Clients'
+at b40d61c0, docs/evidence/sec5-b40d61c0-hive-blob-order.txt)."
+  (let* ((pooled (eth-serve-backend-pooled-transaction backend))
+         (sidecar-reader
+           (eth-pooled-blob-sidecar-reader backend version))
+         (prepare (eth-serve-backend-prepare-pooled-blob-sidecars backend))
+         (found '())
+         (transactions
+           (when pooled
+             (loop for hash in hashes
+                   repeat +eth-max-pooled-transactions-serve+
+                   collect (when (= (length hash) 32)
+                             (funcall pooled hash))))))
+    (when (and prepare sidecar-reader)
+      (let ((blob-transactions
+              (remove-if-not (lambda (transaction)
+                               (typep transaction 'blob-transaction))
+                             transactions)))
+        (when blob-transactions
+          (funcall prepare blob-transactions version))))
+    (dolist (transaction transactions)
+      (cond
+        ((and (typep transaction 'blob-transaction) sidecar-reader)
+         (let ((sidecar (funcall sidecar-reader transaction)))
+           (when sidecar
+             (push (make-blob-network-transaction
+                    transaction
+                    (if (>= version +eth-protocol-version-72+)
+                        (blob-sidecar-without-blobs sidecar)
+                        sidecar))
+                   found))))
+        ((and transaction (eth-gossipable-transaction-p transaction))
+         (push transaction found))))
     (nreverse found)))
 
 (defun eth-peer-take-announced-hashes (peer limit &key metadata-p)
