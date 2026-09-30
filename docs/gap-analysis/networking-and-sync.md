@@ -9,7 +9,10 @@ and no statement here should be read as a claim that a fix is in the tree.
 Findings are a snapshot of the working tree at commit
 `c9193bce5292a48e4cdb89b51409d31a8d716d75`. Line numbers are relative to that
 snapshot; function and constant names are the durable identifier, so prefer them
-when a line has moved.
+when a line has moved. Every finding was re-checked against
+`6fee0c69` on 2026-09-30 by reading source and history; the result is the
+**Status 2026-09-30** line at the top of each finding, and the text below it is
+the original audit, kept for the record.
 
 Per `PROJECT.md`, feature count is not the metric. The audit is weighted by what
 it takes to join a real network, stay on it, and not be taken down by a peer.
@@ -138,6 +141,8 @@ the only one a stranger can use to kill the process.
 
 ### NET-01 — `rlp-decode` has no depth limit, and the crash kills the process
 
+**Status 2026-09-30:** RESOLVED in 3a7abace (2026-07-29, `+rlp-max-depth+` 64 checked in `%rlp-decode`, `src/foundation/rlp.lisp`) and 4c68d5c6 (2026-07-29, `devnet-call-with-peer-session-thread-guard` catches `serious-condition`, `src/app/cli/devnet/peer-manager.lisp`). Tests: `RLP-REJECTS-EXCESSIVE-LIST-DEPTH`, `RLPX-AUTH-REJECTS-CONTROL-STACK-DEPTH-AS-AN-ORDINARY-ERROR`, `DEVNET-PEER-THREAD-CONTAINS-STORAGE-CONDITIONS`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT (both references bound this; we do not).
 **Severity:** remote-DoS.
 
@@ -200,6 +205,8 @@ not help; the packet can be replayed.
 
 ### NET-02 — No per-protocol message size cap
 
+**Status 2026-09-30:** RESOLVED in 4c68d5c6 (2026-07-29): `+devp2p-max-message-size+` 2 KiB (`src/protocol/p2p/protocol.lisp`), `+eth-max-message-size+` and `+snap-max-message-size+` 10 MiB, enforced from the frame header and after Snappy in `rlpx-connection-read-message` (`src/protocol/p2p/connection.lisp`) and on the Hello. Tests: `RLPX-FRAME-SIZE-LIMIT-IS-CHECKED-FROM-THE-HEADER`, `DEVP2P-BASE-MESSAGE-SIZE-IS-BOUNDED-AFTER-DECODING`. The original finding follows for the record.
+
 **Verdict:** MISSING.
 **Severity:** remote-DoS.
 
@@ -236,6 +243,8 @@ handshake.
 
 ### NET-03 — No `snap` capability
 
+**Status 2026-09-30:** RESOLVED in bcfcad1a (2026-07-29, snap/1 wire codec, `src/protocol/snap/messages.lisp`), 93187217 (2026-07-29, serving from persistent state) and 3a785f74 (2026-08-13, the resumable client, `src/networking/snap-sync/client.lisp`). `snap` is advertised only when client and server are both configured (`eth-sync-session-capabilities`, `src/networking/eth-sync/node.lisp`). `docs/evidence/gates.md` row 0fe42b97 records a Hoodi run that completed with the healer finished and frontier 0; snap/2 is not implemented. Tests: `SNAP-ONE-WIRE-MESSAGES-ROUND-TRIP`, `ETH-SYNC-ADVERTISES-SNAP-ONLY-WITH-AN-OPERATIONAL-CLIENT-AND-SERVER`. The original finding follows for the record.
+
 **Verdict:** MISSING.
 **Severity:** blocks-real-network-use.
 
@@ -260,6 +269,8 @@ node store to write downloaded ranges into). Implementing `snap` is therefore
 blocked on that area, not merely sequenced after it.
 
 ### NET-04 — The sync driver is single-peer, sequential, and capped
+
+**Status 2026-09-30:** RESOLVED in 24725d46 (2026-07-29, `eth-sync-download-blocks-multi` in `src/networking/eth-sync/sync.lisp`: one request in flight per source, reordered delivery, requeue on failure, optional receipts), 6d41a29a (2026-07-29, the 2048-block ceiling removed) and 3a785f74 (2026-08-13, the node drives it and picks a snap pivot with `devnet-node-select-snap-pivot`, `src/app/cli/devnet/dialer.lisp`). `devnet-node-claim-sync` still admits one catch-up at a time, by design. Test: `ETH-SYNC-THREE-SCRIPTED-PEERS-FAIL-OVER-WITHOUT-BLOCKING`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT.
 **Severity:** blocks-real-network-use.
@@ -302,6 +313,8 @@ always answers `false`.
 
 ### NET-05 — Discovery advertises an endpoint nobody can reach
 
+**Status 2026-09-30:** RESOLVED in 3571d8e4 (2026-07-29, the listener port as `:local-tcp-port`), 3ae7706c (2026-08-23, the responder's UDP port advertised) and 65a8604a (2026-08-23, crawls on the responder socket, `discv4-lookup` in `src/protocol/p2p/discovery.lisp`, called from `devnet-discovery-crawl-once`). Remaining edge: without `--nat extip:` a wildcard bind advertises 127.0.0.1 in the ENR (`eth-sync-socket-endpoint-host`). Test: `DISCV4-LOOKUP-CRAWLS-A-BOOTNODE-AND-DISCOVERS-A-PEER`; live inbound sessions are recorded in `docs/evidence/sec5-rlpx-inbound-auth.txt`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT.
 **Severity:** blocks-real-network-use.
 
@@ -341,6 +354,8 @@ retain the former ephemeral fallback.
 
 ### NET-06 — A Ping alone marks a node bonded, and bonded nodes are relayed
 
+**Status 2026-09-30:** RESOLVED in 3571d8e4 (2026-07-29): `discv4-serve-ping` inserts the sender unbonded and returns a tracked Ping-back, `discv4-table-accept-pong` bonds only on the pending ping hash, and `discv4-serve-find-node` relays only bonded entries that pass `discv4-relay-address-p` (`src/protocol/p2p/discovery.lisp`, `node-table.lisp`). Residual: no geth-style initialisation guard, so spoofed Pings can still fill buckets with unbonded, never-relayed entries until revalidation evicts them. Tests: `DISCV4-SERVES-PING-AND-REFUSES-UNBONDED-QUERIES`, `DISCV4-TABLE-CLOSEST-OFFERS-ONLY-PROVEN-NODES`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT.
 **Severity:** correctness (with a reflection/poisoning DoS consequence).
 
@@ -371,6 +386,8 @@ initialization guard, so the table can be filled with Pings.
 
 ### NET-07 — The routing table never evicts, revalidates, or refreshes
 
+**Status 2026-09-30:** PARTIAL. ae913ec5 (2026-07-29) added `discv4-table-revalidation-candidate` (`src/protocol/p2p/node-table.lisp`), probed once per tick by `devnet-discovery-revalidation-probe`; an unanswered probe or failed dial calls `discv4-table-note-failure`, and four failures evict. Still missing at 6fee0c69: a bonded entry is not re-probed until its 12 h bond (`+discv4-bond-lifetime-seconds+`) expires, a full bucket refuses newcomers with no replacement list, and `discv4-table-remove` still has no caller. Test: `DISCV4-TABLE-REVALIDATES-AND-EVICTS-UNANSWERED-ENTRIES`. The original finding follows for the record.
+
 **Verdict:** MISSING.
 **Severity:** completeness / performance.
 
@@ -396,6 +413,8 @@ entry leaves the table.
 
 ### NET-08 — discv5 is absent
 
+**Status 2026-09-30:** PARTIAL. fbcee9d5 (2026-07-29) added a discv5.1 library, `src/protocol/p2p/discv5-{crypto,wire,table,udp}.lisp` (package `ethereum-lisp.discv5`), pinned by `DISCV5-OFFICIAL-PING-AND-WHOAREYOU-PACKET-VECTORS` and `DISCV5-SCRIPTED-PEER-COMPLETES-HANDSHAKE-AND-PING`. Still missing at 6fee0c69: nothing under `src/app` starts a discv5 service, the Hive adapter refuses `HIVE_DISCV5` (`docs/evidence/sec5-0ba3a950-hive-discovery-genesis.txt`), and `docs/evidence/gates.md` row 0fe42b97 lists discv5 as the one expected devp2p failure (47/48). The original finding follows for the record.
+
 **Verdict:** MISSING.
 **Severity:** interop / completeness.
 
@@ -413,6 +432,8 @@ still widely served this is a completeness gap rather than a blocker, which is w
 it ranks below NET-05.
 
 ### NET-09 — `Receipts` has an encoder but no decoder
+
+**Status 2026-09-30:** RESOLVED in 75daf03f (2026-07-29, `decode-eth-receipts` per negotiated version in `src/protocol/eth-wire/messages.lisp`) and 24725d46 (2026-07-29, `:fetch-receipts` in the multi-peer downloader, which checks receipts against the receipt root). Tests: `ETH-RECEIPTS-DECODE-PER-NEGOTIATED-PROTOCOL-VERSION`, `ETH-SYNC-MULTI-NORMALIZES-TYPED-WIRE-RECEIPTS-BEFORE-ROOT-VALIDATION`. The original finding follows for the record.
 
 **Verdict:** MISSING.
 **Severity:** completeness (blocks receipt sync).
@@ -436,6 +457,8 @@ re-execution.
 
 ### NET-10 — `BlockRangeUpdate` interop
 
+**Status 2026-09-30:** RESOLVED in 75daf03f (2026-07-29, codec, `eth-validate-block-range`, the gossip handler and `eth-peer-send-block-range-update`) and 68575c9b (2026-08-31, geth's send cadence in `src/app/cli/devnet/peer-sync.lisp`); 3a785f74 first sent it from the session writer. Not verified further: Status and `BlockRangeUpdate` always advertise earliest block 0, including after a snap sync. The text below was already updated before this pass; the README row had not been.
+
 **Verdict:** IMPLEMENTED.
 
 **Ours.** The eth/69 Status codec carries and validates the initial served
@@ -457,6 +480,8 @@ covers the no-duplicate baseline, 32-block forward threshold, immediate
 backwards move, and retained eth/68 `NewBlockHashes` behavior.
 
 ### NET-11 — Our `eth` message-id block length is 17 where geth's is 18
+
+**Status 2026-09-30:** RESOLVED in 23c954f8 (2026-07-29, eth 18 and snap 8) and df1644ad (2026-07-29, a per-version table): `+devp2p-capability-message-counts+` in `src/protocol/p2p/session.lisp` is 17/18/18/20/22 for eth/68-72 and 8 for snap, and `rlpx-negotiate-capabilities` advances by it. Tests: `RLPX-CAPABILITY-BLOCK-LENGTHS-MATCH-THE-WIRE-PROTOCOLS`, `RLPX-ETH-72-RESERVES-ITS-FULL-MESSAGE-BLOCK`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT (latent).
 **Severity:** interop (latent — no observable effect today).
@@ -480,6 +505,8 @@ image was down when this was reached, and the negotiation function is short and
 pure enough to read with confidence, but it was not executed.)
 
 ### NET-12 — We speak eth/68 and eth/69; geth speaks 69 through 72 and has dropped 68
+
+**Status 2026-09-30:** RESOLVED in df1644ad (2026-07-29, `+eth-supported-protocol-versions+` '(72 71 70 69 68) and the eth/70-72 codecs and serving in `src/protocol/eth-wire/messages.lisp` and `src/networking/eth-sync/serve.lisp`) and 635a9667 (2026-09-29, both deployed geth `GetCells`/`Cells` layouts, `docs/evidence/sec5-eth72-interop.txt`). Tests: `ETH-70-THROUGH-72-INCREMENTAL-CODECS-ROUND-TRIP`, `ETH-72-GET-CELLS-IS-ANSWERED-IN-THE-REQUESTERS-PACKET-LAYOUT`. The original finding follows for the record.
 
 **Verdict:** MISSING (70, 71, 72).
 **Severity:** interop / completeness.
@@ -528,6 +555,8 @@ real gap only for the eth/68 we also advertise, and post-merge no one sends them
 
 ### NET-13 — Transaction gossip broadcasts everything to everyone, and re-sends to the sender
 
+**Status 2026-09-30:** PARTIAL. 142380c2 (2026-07-29) added per-peer known-hash tracking, filled on receive, so nothing is echoed to its sender, and the 4096-byte full-push threshold `+eth-full-transaction-broadcast-size+` above which transactions are only announced (`src/networking/eth-sync/gossip.lisp`). Still missing at 6fee0c69: geth's square-root peer subset for direct sends; every session still pushes each small transaction in full to its peer. Test: `ETH-GOSSIP-TRACKS-PEER-KNOWLEDGE-AND-LARGE-TRANSACTIONS`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT.
 **Severity:** performance / interop.
 
@@ -571,6 +600,8 @@ is the behaviour peers throttle or drop for.
 
 ### NET-14 — No block propagation and no fetcher
 
+**Status 2026-09-30:** RESOLVED in a646ebab (2026-07-29, `NewBlock`/`NewBlockHashes` codecs, `eth-accept-propagated-block` and the announced-block fetcher `eth-peer-fetch-announced-block`, which validates the body before admission) and 3a785f74 (2026-08-13, `NewBlockHashes` sent to eth/68 peers, `BlockRangeUpdate` to eth/69+). A full `NewBlock` is never sent, which is correct after the Merge. Not verified: the inbound handlers do not check the negotiated eth version. Tests: `ETH-BLOCK-PROPAGATION-MESSAGES-ROUND-TRIP`, `ETH-GOSSIP-QUEUES-HASH-ANNOUNCEMENTS-AND-SUBMITS-FULL-BLOCKS`. The original finding follows for the record.
+
 **Verdict:** MISSING.
 **Severity:** completeness.
 
@@ -593,6 +624,8 @@ with `+eth-max-announced-transaction-hashes+` 4096 bounding the queue,
 ignoring the type and size columns — documented at `gossip.lisp:171-173`.
 
 ### NET-15 — No inbound IP throttle, no netrestrict, no IP-diversity limits
+
+**Status 2026-09-30:** PARTIAL, re-graded to performance. 191a89a4 (2026-07-29) added `devnet-peer-table-slot-verdict` (`src/app/cli/devnet/peer-table.lisp`), which refuses `--netrestrict` misses, a fourth concurrent connection per IP and an eleventh per /24 before the handshake thread starts; 2e0c125a (2026-09-12) exempts LAN addresses. Still missing at 6fee0c69: geth's 30 s reconnect history (a host can reconnect serially and force repeated ECIES work), `--netrestrict` on dial candidates and discovery, and IP-diversity limits in the discovery table. Tests: `DEVNET-PEER-TABLE-THROTTLES-ADDRESSES-AND-SCORES-ABUSE`, `DEVNET-PEER-TABLE-EXEMPTS-LAN-ADDRESSES-FROM-HOST-THROTTLES`. The original finding follows for the record.
 
 **Verdict:** MISSING.
 **Severity:** remote-DoS / completeness.
@@ -618,6 +651,8 @@ connections. Two CLI flags silently do nothing, which is worse than rejecting
 them, since an operator who passes `--netrestrict` will believe it applied.
 
 ### NET-16 — No peer scoring, and misbehaviour costs only the current session
+
+**Status 2026-09-30:** PARTIAL. 191a89a4 (2026-07-29) added an identity-keyed score table that lasts the process and refuses a peer at `+devnet-peer-ban-score+` -100 with `useless-peer`; 61e1bb39 (2026-09-12) sends `subprotocol-error` on eth protocol violations; 5e6240fc and 6284d463 (2026-09-29) charge only for data the peer sent (`devnet-peer-session-end-charges-peer-p`, `src/app/cli/devnet/peer-manager.lisp`), and 578f4587 stops charging empty answers (`docs/evidence/sec5-peer-attribution.txt`). Still missing at 6fee0c69: scores neither decay nor persist across restarts, and seven of thirteen disconnect reasons are never sent. Test: `DEVNET-PEER-SESSION-END-CHARGES-ONLY-WHAT-THE-PEER-SENT`. The original finding follows for the record.
 
 **Verdict:** MISSING.
 **Severity:** completeness.
@@ -646,6 +681,8 @@ deliveries. Nethermind maintains a full reputation subsystem
 as new. A peer that is merely useless holds a slot until it goes idle.
 
 ### NET-17 — Decoders have no item-count caps
+
+**Status 2026-09-30:** RESOLVED in 4c68d5c6 (2026-07-29, `max-list-items` checked in `decode-list-payload` before each child is decoded, and 5000-item caps for transactions and announcements) and 3a785f74 (2026-08-13, every eth decoder goes through `eth-wire-decode` with `+eth-max-rlp-list-items+` 262,144). Tests: `ETH-TRANSACTION-GOSSIP-ITEM-COUNTS-ARE-BOUNDED`, `RLP-ENFORCES-A-PER-LIST-ITEM-CAP-BEFORE-RETURNING-A-VALUE`. The original finding follows for the record.
 
 **Verdict:** MISSING.
 **Severity:** remote-DoS.
@@ -685,6 +722,8 @@ to attribute it.
 
 ### NET-18 — Hash-origin header queries with a skip walk the chain one parent at a time
 
+**Status 2026-09-30:** PARTIAL. df1644ad (2026-07-29) added the canonical shortcut in `eth-serve-ancestor-hash` (`src/networking/eth-sync/serve.lisp`), so a canonical origin resolves each skip with one number lookup. Still missing at 6fee0c69: a side-chain origin still follows `skip` parent links, with no bound like geth's `maxNonCanonical` of 100 (`eth/protocols/eth/handlers.go:63` at 38271784). Test: `ETH-SERVE-CANONICAL-HASH-SKIP-IS-CONSTANT-TIME`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT.
 **Severity:** performance (remote-DoS-adjacent).
 
@@ -704,6 +743,8 @@ than I/O, which is why it is rated performance rather than remote-DoS — it bec
 the latter as soon as the store is on disk.
 
 ### NET-19 — Downloaded bodies are not matched to their headers at the sync layer
+
+**Status 2026-09-30:** RESOLVED in 962c50a6 (2026-07-29, `eth-sync-validate-header-batch` and `eth-sync-validate-body` in `src/networking/eth-sync/sync.lisp`), 24725d46 (2026-07-29, a failed range returns to the shared queue for another peer) and 7106f9e5 (2026-09-29, the source of a contradicting body is disconnected, as geth does; `docs/evidence/sec5-robustness-followups.txt`). Test: `ETH-SYNC-MULTI-PEER-REJECTS-THE-SOURCE-OF-A-BODY-THAT-CONTRADICTS-ITS-HEADER`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT.
 **Severity:** performance / robustness (not correctness — see below).
@@ -741,6 +782,8 @@ ever one (NET-04).
 
 ### NET-20 — Multi-frame (chunked) RLPx messages cannot be read
 
+**Status 2026-09-30:** RESOLVED in c7900464 (2026-07-29): `rlpx-connection-read-message` (`src/protocol/p2p/connection.lisp`) reassembles chunked packets, checking the context id, the declared total against the message limit and the continuation frames, and the Hello is read through it. Test: `RLPX-CHUNKED-PACKETS-REASSEMBLE-WITH-CONTEXT-VALIDATION`. The original finding follows for the record.
+
 **Verdict:** MISSING.
 **Severity:** interop (low).
 
@@ -764,6 +807,8 @@ so this is latent; a peer with many capabilities or a long client id would trip
 it.
 
 ### NET-21 — ENR carries no endpoint and a hardcoded sequence number
+
+**Status 2026-09-30:** RESOLVED in 3571d8e4 (2026-07-29, `devnet-node-record-pairs` adds `ip`/`tcp`/`udp` and raises the sequence number when they change, `src/app/cli/devnet/background.lisp`) and 3a785f74 (2026-08-13, the sequence number persists in the datadir `enrseq` file). Residuals: `udp` always equals the p2p port, `--discovery.port` is accepted but unused, and the wildcard-bind loopback edge is recorded under NET-05. Tests: `DEVNET-ENR-ADVERTISES-THE-LISTENING-ENDPOINT`, `DEVNET-DATADIR-PERSISTS-NODE-IDENTITY-AND-MONOTONIC-ENR-SEQUENCE`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT.
 **Severity:** interop.
@@ -805,6 +850,8 @@ This part of the recent fork-id filtering work is sound.
 
 ### NET-22 — No NAT traversal or port mapping
 
+**Status 2026-09-30:** PARTIAL. 18726f66 (2026-07-29) added `src/protocol/p2p/nat.lisp` (`parse-nat-policy`, NAT-PMP and UPnP IGD codecs, `nat-resolve-and-map` over injected transports), and `devnet-node-advertised-host` advertises an `extip:` address. Still missing at 6fee0c69: since 3a785f74 `--nat any`, `upnp` and `pmp` are refused at startup ("not wired"), so no port mapping ever runs. Tests: `NAT-PMP-AND-UPNP-SCRIPTED-GATEWAYS-MAP-BOTH-PROTOCOLS` (scripted gateway), `DEVNET-CLI-NAT-AND-NETRESTRICT-REACH-THE-LIVE-NODE`. The original finding follows for the record.
+
 **Verdict:** MISSING.
 **Severity:** completeness.
 
@@ -817,6 +864,8 @@ and ignored (NET-15).
 **Consequence.** Behind a NAT we are outbound-only regardless of NET-05.
 
 ### NET-23 — Snappy compression emits literal runs only
+
+**Status 2026-09-30:** RESOLVED in 06b1aa1d (2026-07-29, hash-matched back-references in the pure-Lisp `snappy-compress-lisp`) and 0fa09fff (2026-08-27, production `snappy-compress`/`snappy-decompress` on libsnappy through CFFI, `src/foundation/snappy.lisp`; the Lisp encoder stays as the oracle). Tests: `SNAPPY-COMPRESS-EMITS-REAL-BACK-REFERENCES`, `SNAPPY-NATIVE-CODEC-MATCHES-THE-PURE-ORACLE`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT (documented).
 **Severity:** performance.
@@ -835,6 +884,8 @@ Decompression is complete.
 same content. It costs us, not the network, and it is honest about it.
 
 ### NET-24 — Session policy constants are ours, not parity claims
+
+**Status 2026-09-30:** informational, unchanged. 8b5f80a5 (2026-07-31) pointed `docs/reference-map.md` at the parity table below. Several rows of that table are stale at 6fee0c69: the base-protocol cap (now 2 KiB) and eth cap (now 10 MiB) equal geth's (NET-02), the eth message-id block is per version (NET-11), announcements are capped at 5000 (NET-17), transactions over 4096 bytes are announced (NET-13), and inbound admission allows 3 per IP and 10 per /24 (NET-15). The original finding follows for the record.
 
 **Verdict:** informational.
 **Severity:** cosmetic.

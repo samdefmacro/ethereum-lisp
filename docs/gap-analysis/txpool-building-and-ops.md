@@ -597,6 +597,7 @@ would carry an empty access list.
 ### Node lifecycle, configuration and operations
 
 **OPS-01 — Fifty-six flags are accepted, consumed, and discarded.**
+**Status 2026-09-30:** PARTIAL. b3e05d91 (2026-07-29) added `devnet-cli-report-ignored-options` (`src/app/cli/telemetry/sinks.lisp`), which warns about each ignored flag; 05ef79d5 (2026-07-31) refuses unknown TOML keys and `--syncmode`, and the IPC flags are refused (`src/app/cli/options/options.lisp`). Many flags are now honoured (`--nat`, `--netrestrict`, `--nodiscover`, `--discovery.dns`, `--db.engine`, `--ws.api`, the `--rpc.*` budgets, the chain presets). Still ignored with a warning at 6fee0c69: about 36, among them `--verbosity`, `--log.*`, `--cache*`, `--gcmode`, `--state.scheme`, `--snapshot`, `--pprof*`, `--graphql*`, `--mine` and `--unlock`. Tests: `DEVNET-CLI-REJECTS-UNIMPLEMENTED-SYNCMODE`, `DEVNET-CLI-CONFIG-REJECTS-UNKNOWN-TOML-KEY`. The original finding follows for the record.
 Verdict DIVERGENT. Severity operability.
 Ours: the option loop ends with two catch-all clauses that consume a flag and
 its value and do nothing with them
@@ -631,6 +632,7 @@ unknown keys (`src/app/cli/config/config.lisp`), so a typo produces a default
 rather than an error.
 
 **OPS-02 — No chain presets; `--genesis` is mandatory.**
+**Status 2026-09-30:** RESOLVED in a22ed4e9 (2026-07-29, embedded genesis presets for mainnet, Sepolia, Holesky and Hoodi, `find-built-in-genesis-preset` in `src/protocol/genesis/presets.lisp`) and 3a785f74 (2026-08-13, bootnodes and the Hoodi DNS discovery URL installed unless overridden). `--goerli` is refused. Tests: `DEVNET-CLI-SELECTS-EMBEDDED-NETWORK-PRESETS`, `BUILT-IN-PUBLIC-NETWORK-PRESETS-CARRY-CANONICAL-V4-BOOTNODES`. The original finding follows for the record.
 Verdict MISSING. Severity completeness.
 Ours: the preset flags are in the discarded boolean list
 (`src/app/cli/options/definitions.lisp:42`), and startup fails with
@@ -644,6 +646,7 @@ mismatch is the operator's to detect. This is an honest capability boundary
 rather than a bug — but the flags are accepted, which hides it.
 
 **OPS-03 — The data directory is not locked.**
+**Status 2026-09-30:** RESOLVED in b3e05d91 (2026-07-29): `call-with-devnet-cli-datadir-lock` (`src/app/cli/devnet/files.lisp`) takes an exclusive `fcntl` write lock on `<datadir>/LOCK` around the node's lifetime and fails with "Data directory is already in use". Residuals: `init` and the offline `db` subcommand do not take the lock, and no test runs two processes against one datadir. Test: `DEVNET-CLI-DATADIR-LOCK-COVERS-THE-NODE-LIFETIME`. The original finding follows for the record.
 Verdict MISSING. Severity correctness.
 Ours: `src/app/cli/devnet/files.lisp` derives the database, genesis and JWT
 paths under the datadir (`:248-276`) and creates them; there is no lock file and
@@ -661,6 +664,7 @@ are running. Restarting a node without confirming the old one is gone is an
 ordinary operator mistake, and it should fail immediately and loudly.
 
 **OPS-04 — `--log-file` truncates the previous run's log.**
+**Status 2026-09-30:** RESOLVED in b3e05d91 (2026-07-29): `call-with-devnet-cli-telemetry-sink` opens the log with `:if-exists :append`, as the error-path logger does. No test restarts into an existing log, and rotation is still absent (OPS-05). The original finding follows for the record.
 Verdict DIVERGENT. Severity operability.
 Ours: `call-with-devnet-cli-telemetry-sink` opens the log with
 `:if-exists :supersede`
@@ -673,6 +677,7 @@ the node died overwrites the log that would explain why. Combined with OPS-01
 (the whole rotation flag family is discarded) there is no retention story at all.
 
 **OPS-05 — No log levels, no structured format, no rotation.**
+**Status 2026-09-30:** still MISSING. `stream-telemetry-sink` (`src/foundation/telemetry.lisp`) still writes every event as a Lisp plist with no level filter, there is no JSON or logfmt renderer and no rotation, and `--verbosity` and `--log.*` only produce an ignored-option warning (b3e05d91). The original finding follows for the record.
 Verdict MISSING. Severity operability.
 Ours: `telemetry-log` records a level on the event
 (`src/foundation/telemetry.lisp:127-134`) and no sink filters on it —
@@ -687,6 +692,7 @@ busy node or up while debugging, and cannot feed our log stream to any standard
 collector without writing a Lisp-plist parser.
 
 **OPS-06 — Metrics are event counts only.**
+**Status 2026-09-30:** RESOLVED in b3e05d91 (2026-07-29, gauge support and `devnet-node-metric-gauges` for pool, head, safe, finalized and peers), a560644b (2026-09-23, operator gauges for sync lag, SNAP pivot, database size and process) and 096a3fc0 (2026-09-24, histograms and Engine, guard, RocksDB, runtime and reorg series); `docs/evidence/sec10-observability.txt`. Tests: `DEVNET-METRICS-ENDPOINT-ANSWERS-A-SCRAPE`, `OPS-METRICS-ENDPOINT-REPORTS-SYNC-PEERS-STORAGE-PROCESS-AND-LATENCY`. The original finding follows for the record.
 Verdict DIVERGENT. Severity operability.
 Ours: the counting sink increments one counter per event name
 (`src/foundation/telemetry.lisp:83-93`) and the endpoint renders them as a
@@ -709,6 +715,7 @@ answered from our metrics endpoint. A rate of `event="..."` counters is a
 derivative, and no derivative recovers the level.
 
 **OPS-07 — Any startup failure prints the whole usage string after the error.**
+**Status 2026-09-30:** RESOLVED in b3e05d91 (2026-07-29, usage removed from the generic error handler) and a546c7c8 (2026-07-29, the `devnet-cli-usage-error` condition, so usage prints only for malformed input, `src/app/cli/cli.lisp`). Test: `ETHEREUM-LISP-SCRIPT-RECORDS-RUNNER-ERROR-TELEMETRY` asserts no usage text on a runtime error. The original finding follows for the record.
 Verdict DIVERGENT. Severity operability.
 Ours: the top-level handler prints the condition and then
 `devnet-cli-print-usage` (`src/app/cli/cli.lisp:229-236`), whose body is one
@@ -722,6 +729,7 @@ the state audit describes, this is the entire operator-facing surface of an
 unrecoverable condition.
 
 **OPS-08 — No profiling endpoint and no health endpoint.**
+**Status 2026-09-30:** PARTIAL. 2f29e23c (2026-09-24) added `/health/live` and `/health/ready` on the metrics listener, answered without the store guard (`src/app/cli/devnet/metrics-server.lisp`, `observability.lisp`; `docs/evidence/sec10-observability.txt`). Still missing at 6fee0c69: on-demand profiling. The only profiler is a one-shot allocation profile (51cc75f9) armed by `ETHEREUM_LISP_ALLOC_PROFILE_SECONDS` at a SNAP range import, `--pprof*` is ignored, and there is no `debug_` stack or CPU-profile method. Tests: `DEVNET-HEALTH-READY-NAMES-EACH-FAILED-CHECK`, `DEVNET-HEALTH-AND-METRICS-ANSWER-WHILE-THE-STORE-GUARD-IS-HELD`. The original finding follows for the record.
 Verdict MISSING. Severity operability.
 Ours: the metrics endpoint answers `/metrics` and
 `/debug/metrics/prometheus` and 404s everything else
@@ -734,6 +742,7 @@ cannot be profiled in place. The `--ready-file` written at listener-ready
 there is nothing an orchestrator can poll to decide the process is still healthy.
 
 **OPS-09 — Unclean shutdown has no repair path, and the operator surface for it is one line plus usage.**
+**Status 2026-09-30:** PARTIAL. 1fb99031 (2026-08-08) added the offline `db verify`, `backup`, `restore`, `repair` and `rebuild` subcommand (`src/app/cli/db.lisp`); c12488be rewinds a stateless head at startup (STORE-21); ef6f5e94 and 81439281 (2026-09-23) test SIGKILL recovery for range, heal, forward import, payload build and reorg (`docs/evidence/sec5-ops-recovery.txt`); usage no longer follows the error (OPS-07). Still missing at 6fee0c69: a post-Merge rewind or reset-to-block-N (`debug_setHead` refuses post-Merge views), and `docs/runbook.md` does not mention the `db` subcommand. Tests: `DB-OPERATOR-CLI-VERIFIES-AND-BACKS-UP-THE-FILE-ORACLE`, `OPS-SIGKILL-DURING-A-REORG-RESTARTS-ON-ONE-BRANCH-AND-COMPLETES-IT`. The original finding follows for the record.
 Verdict MISSING. Severity operability.
 Ours: the export happens in the `unwind-protect` cleanup of the serve path
 (`src/app/cli/cli.lisp:159`) and on each forkchoice persist
@@ -758,6 +767,7 @@ corruption — which is the right choice per `PROJECT.md` — but there is no to
 between "it starts" and "delete everything".
 
 **OPS-10 — Persisted format has a version but no migration.**
+**Status 2026-09-30:** RESOLVED in 14e1499d (2026-08-07, `node-store-require-supported-schema-version` refuses a newer schema by name), 01a4aefa (2026-08-07, forward migration `node-store-migrate-chain-schema`) and 1fb99031 (2026-08-08, resumable migration with a durable cursor, up to schema v4); SNAP progress records migrate to v5 (4e3d7717). `+node-store-persistence-metadata-version+` is still 1 with an exact-match check, but it has never been bumped. Tests: `NODE-STORE-CHAIN-SCHEMA-MIGRATION-RESUMES-AFTER-A-DURABLE-CHUNK`, `NODE-STORE-IMPORT-FROM-KV-REFUSES-NEWER-SCHEMA-VERSION`. The original finding follows for the record.
 Verdict MISSING. Severity completeness.
 Ours: `+node-store-persistence-metadata-version+` is 1 and a mismatch signals
 `"Unsupported node persistence metadata version"`
