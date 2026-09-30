@@ -11,7 +11,14 @@ the project owner rather than to an auditor.
 records as a side effect of feature work. This document is not that. It is a
 directly requested deliverable: the user asked for a prioritized cross-cutting
 remediation plan over the six completed audits, and this is it. It is also not a
-changelog — nothing described below has been implemented, and no statement here
+changelog. **Status 2026-09-30 (re-measured at 6fee0c69):** every row in the ranked
+table below carries a re-verified verdict, and each area file opens its findings
+with a `**Status 2026-09-30:**` line naming the commits that closed them. Of the
+149 gaps, 109 are RESOLVED, 29 PARTIAL, 4 MISSING (`EVM-14`, `RPC-29`, `OPS-05`,
+`STORE-20`) and 7 DIVERGENT (`EVM-15`, `EXEC-09`, `EXEC-10`, `POOL-06`, `STORE-04`,
+`STORE-09`, `STORE-13`). The tier prose, work programme and phases below are the
+2026-07-28 plan of record and are kept as written; read the table, not the prose,
+for what is still open. Originally, nothing described below had been implemented, and no statement here
 should be read as a claim that a fix is in the tree.
 
 ## The six areas
