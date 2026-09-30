@@ -2378,21 +2378,36 @@ Returns the newPayload status, its wait fields and its handler milliseconds."
                           (sleep 0.1)
                           (apply function arguments)))
     (unwind-protect
-         (let ((old (devnet-gap-fill-engine-wait 0 blocks genesis-json))
-               (new (devnet-gap-fill-engine-wait 2 blocks genesis-json)))
-           (flet ((wait-ms (result)
-                    (cdr (assoc "guardWaitMs" (getf result :waits)
-                                :test #'string=)))
-                  (waited-for (result)
-                    (cdr (assoc "guardWaitedFor" (getf result :waits)
-                                :test #'string=))))
+         (flet ((wait-ms (result)
+                  (cdr (assoc "guardWaitMs" (getf result :waits)
+                              :test #'string=)))
+                (waited-for (result)
+                  (cdr (assoc "guardWaitedFor" (getf result :waits)
+                              :test #'string=))))
+           (let* ((old (devnet-gap-fill-engine-wait 0 blocks genesis-json))
+                  ;; The control races an unfair mutex: on an idle machine
+                  ;; the request loses to the importer ten times over, but a
+                  ;; loaded host (a cold-all beside other suites, 05bbd4c5
+                  ;; and 7904f1ed) let it win within a few holds twice. The
+                  ;; control claims the old behaviour CAN hold the request
+                  ;; behind most of the imports, so it gets three attempts
+                  ;; and keeps the longest wait; the fixed run below gets one.
+                  (old-wait-ms
+                    (loop repeat 3
+                          for result = old
+                            then (devnet-gap-fill-engine-wait
+                                  0 blocks genesis-json)
+                          maximize (wait-ms result) into longest
+                          until (>= longest 500)
+                          finally (return longest)))
+                  (new (devnet-gap-fill-engine-wait 2 blocks genesis-json)))
              (dolist (result (list old new))
                ;; The gap filler already imported it: VALID, no execution.
                (is (string= +payload-status-valid+ (getf result :status)))
                (is (null (getf result :executed-p)))
                (is (eql 0 (search "sync-gap-fill:" (waited-for result)))))
              ;; Control: behind most of the eleven remaining holds.
-             (is (>= (wait-ms old) 500))
+             (is (>= old-wait-ms 500))
              ;; Fixed: behind the hold in progress only.
              (is (<= (wait-ms new) 350))
              ;; At most the hold in progress and one that raced it.
