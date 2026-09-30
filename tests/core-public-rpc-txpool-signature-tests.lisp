@@ -258,9 +258,15 @@
              "0x04f90126820539800285012a05f2008307a1209471562b71999873db5b286df957af199ec94617f78080c0f8baf85c82053994000000000000000000000000000000000000aaaa0101a07ed17af7d2d2b9ba7d797a202125bf505b9a0f962a67b3b61b56783d8faf7461a001b73b6e586edc706dce6c074eaec28692fa6359fb3446a2442f36777e1c0669f85a8094000000000000000000000000000000000000bbbb8001a05011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98a056c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf6101a0167b0ecfc343a497095c22ee4270d3cc3b971cc3599fc73bbff727e0d2ed432da01c003c72306807492bf1150e39b2f79da23b49a4e83eb6e9209ae30d3572368f")
            (store (make-engine-payload-memory-store))
            (bad-y-parity-transaction
-             (transaction-from-encoding (hex-to-bytes raw-transaction)))
+             (set-code-transaction-with-first-authorization
+              (transaction-from-encoding (hex-to-bytes raw-transaction))
+              :y-parity 2))
+           (high-s
+             #x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1)
            (high-s-transaction
-             (transaction-from-encoding (hex-to-bytes raw-transaction)))
+             (set-code-transaction-with-first-authorization
+              (transaction-from-encoding (hex-to-bytes raw-transaction))
+              :s high-s))
            (config (make-chain-config :chain-id 1337))
            (new-filter-response
              (parse-json
@@ -269,12 +275,10 @@
                store
                config)))
            (filter-id (field new-filter-response "result")))
-      (setf (set-code-authorization-y-parity
-             (first-authorization bad-y-parity-transaction))
-            2)
-      (setf (set-code-authorization-s
-             (first-authorization high-s-transaction))
-            #x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1)
+      (is (= 2 (set-code-authorization-y-parity
+                (first-authorization bad-y-parity-transaction))))
+      (is (= high-s (set-code-authorization-s
+                     (first-authorization high-s-transaction))))
       (let* ((bad-y-parity-response
                (send-raw bad-y-parity-transaction 107 store config))
              (high-s-response

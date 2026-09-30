@@ -9,12 +9,12 @@
                                            (y-parity 0)
                                            (r 0)
                                            (s 0))))
-  (chain-id 0 :type (integer 0 *))
-  address
-  (nonce 0 :type (integer 0 *))
-  (y-parity 0 :type (integer 0 *))
-  (r 0 :type (integer 0 *))
-  (s 0 :type (integer 0 *)))
+  (chain-id 0 :type (integer 0 *) :read-only t)
+  (address nil :read-only t)
+  (nonce 0 :type (integer 0 *) :read-only t)
+  (y-parity 0 :type (integer 0 *) :read-only t)
+  (r 0 :type (integer 0 *) :read-only t)
+  (s 0 :type (integer 0 *) :read-only t))
 
 (defun set-code-authorization-rlp-object (authorization)
   (make-rlp-list

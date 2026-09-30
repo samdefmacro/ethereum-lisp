@@ -114,6 +114,7 @@ record names no fix.
 - Peer-session holds of 20-134 s and heap growth: snap serving enumerated whole tries → [sec5-peer-session-holds.txt](sec5-peer-session-holds.txt) → 6dae34ea
 - forkchoiceUpdated's growing CPU cost was the txpool reconciliation → [sec5-fcu-canonical-cost.txt](sec5-fcu-canonical-cost.txt) → 80da9d7c
 - A pooled transaction was ecrecovered three times (the sender cache kept one answer per expected chain id), and the payload builder sorted by keys recomputed per comparison → [sec5-txpool-sender-cache.txt](sec5-txpool-sender-cache.txt) → a1577a56
+- Every transaction hash and sender call re-encoded the transaction to detect a mutation, and the chain store kept decoded copies that were encoded and recovered again: 85 encodings and 4 recoveries per transaction through a devnet Engine import and its RPC reads; transactions are immutable values now, 1 and 1 → [sec5-transaction-identity-cache.txt](sec5-transaction-identity-cache.txt) → 57b075c2
 - 11.5 GB anonymous RSS with a 0.5-4 GB Lisp heap: freed C-heap memory stayed resident → [sec5-resident-memory.txt](sec5-resident-memory.txt) → a910eeea, 35c4453b
 
 ### Section 5: shutdown and exit

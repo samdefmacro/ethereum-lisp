@@ -1,5 +1,41 @@
 (in-package #:ethereum-lisp.test)
 
+(defun fixture-struct-with (object constructor &rest fields)
+  "A new object built by CONSTRUCTOR, whose keywords are named after OBJECT's
+slots, from OBJECT's slot values except FIELDS (keywords and values).  A
+transaction's derived-value cache is not carried over."
+  (apply constructor
+         (append fields
+                 (loop for slot in (sb-mop:class-slots (class-of object))
+                       for name = (sb-mop:slot-definition-name slot)
+                       unless (string= "COMPUTATION-CACHE" (symbol-name name))
+                         append (list (intern (symbol-name name) :keyword)
+                                      (slot-value object name))))))
+
+(defun transaction-fixture-with (transaction &rest fields)
+  "A transaction of TRANSACTION's type with TRANSACTION's fields except FIELDS
+(constructor keywords and values).  Transactions are immutable values: a test
+that needs a variant builds a new one."
+  (apply #'fixture-struct-with
+         transaction
+         (etypecase transaction
+           (legacy-transaction #'make-legacy-transaction)
+           (access-list-transaction #'make-access-list-transaction)
+           (dynamic-fee-transaction #'make-dynamic-fee-transaction)
+           (blob-transaction #'make-blob-transaction)
+           (set-code-transaction #'make-set-code-transaction))
+         fields))
+
+(defun set-code-transaction-with-first-authorization (transaction &rest fields)
+  "TRANSACTION with its first authorization's FIELDS replaced."
+  (let ((authorizations (set-code-transaction-authorization-list transaction)))
+    (transaction-fixture-with
+     transaction
+     :authorization-list
+     (cons (apply #'fixture-struct-with (first authorizations)
+                  #'make-set-code-authorization fields)
+           (rest authorizations)))))
+
 (deftest empty-ommers-hash-vector
   (is (string= "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
                (hash32-to-hex +empty-ommers-hash+))))
@@ -154,8 +190,8 @@
                  (address-to-hex
                   (legacy-transaction-sender tx :expected-chain-id 1))))
     (is (null (legacy-transaction-sender tx :expected-chain-id 2)))
-    (setf (legacy-transaction-r tx) 0)
-    (is (null (legacy-transaction-sender tx :expected-chain-id 1)))))
+    (is (null (legacy-transaction-sender (transaction-fixture-with tx :r 0)
+                                         :expected-chain-id 1)))))
 
 (defun fixture-private-key-address (private-key)
   (let* ((point
@@ -449,10 +485,10 @@
                  (address-to-hex
                   (transaction-sender dynamic :expected-chain-id 1))))
     (is (null (transaction-sender access :expected-chain-id 2)))
-    (setf (access-list-transaction-r access) 0)
-    (is (null (transaction-sender access :expected-chain-id 1)))))
+    (is (null (transaction-sender (transaction-fixture-with access :r 0)
+                                  :expected-chain-id 1)))))
 
-(deftest transaction-derived-cache-reuses-and-invalidates
+(deftest transaction-derived-cache-reuses-and-a-variant-has-its-own
   (let ((transaction
           (make-dynamic-fee-transaction
            :chain-id 1
@@ -477,13 +513,57 @@
       ;; prove that Keccak and secp recovery were skipped.
       (is (eq first-hash second-hash))
       (is (eq first-sender second-sender))
-      ;; Transaction structs remain mutable.  A signature-field change alters
-      ;; the canonical encoding, invalidates both cached values, and must not
-      ;; return the formerly valid sender.
-      (setf (dynamic-fee-transaction-r transaction) 0)
-      (is (not (eq first-hash (transaction-hash transaction))))
-      (is (null
-           (transaction-sender transaction :expected-chain-id 1))))))
+      ;; Transactions are immutable values.  A changed signature is a new
+      ;; object whose own cache answers for it, never with the formerly valid
+      ;; sender, and the original keeps its answers.
+      (let ((variant (transaction-fixture-with transaction :r 0)))
+        (is (not (hash32= first-hash (transaction-hash variant))))
+        (is (null (transaction-sender variant :expected-chain-id 1)))
+        (is (eq first-hash (transaction-hash transaction)))
+        (is (eq first-sender
+                (transaction-sender transaction :expected-chain-id 1)))))))
+
+#+sbcl
+(defun structure-writable-slots (type)
+  "The accessors of structure TYPE's slots that can be written: a slot that
+is not read-only, or whose accessor has a SETF function."
+  (loop for slot in (sb-kernel::dd-slots
+                     (sb-kernel::find-defstruct-description type))
+        for accessor = (sb-kernel::dsd-accessor-name slot)
+        when (or (not (sb-kernel::dsd-read-only slot))
+                 (and accessor (fboundp (list 'setf accessor))))
+          collect accessor))
+
+#+sbcl
+(defun encoded-transaction-types ()
+  "The transaction structure types TRANSACTION-SENDER has a method for."
+  (loop for method in (sb-mop:generic-function-methods #'transaction-sender)
+        collect (class-name (first (sb-mop:method-specializers method)))))
+
+(defstruct (transaction-immutability-control) (writable 0))
+
+(deftest transaction-fields-refuse-mutation-after-construction
+  ;; A transaction's encoding, hash and sender are cached on the object and
+  ;; never re-derived to detect a change, so nothing the encoding covers may
+  ;; be written once the object is built: every slot of every transaction
+  ;; type, and of the access-list entries and authorizations inside one, is
+  ;; read-only and has no SETF function.  (SETF (LEGACY-TRANSACTION-NONCE TX)
+  ;; ...) does not compile to a write; a variant is a new object.
+  #-sbcl (skip-test "structure slot introspection requires SBCL")
+  #+sbcl
+  (let ((types (encoded-transaction-types)))
+    (is (= 5 (length types)))
+    (dolist (type (append types '(access-list-entry set-code-authorization)))
+      (is (plusp (length (sb-kernel::dd-slots
+                          (sb-kernel::find-defstruct-description type)))))
+      (is (null (structure-writable-slots type))))
+    ;; Positive controls: the sweep sees an ordinary writable slot, and the
+    ;; derived-value cache, which is filled lazily, stays writable.
+    (is (equal '(transaction-immutability-control-writable)
+               (structure-writable-slots 'transaction-immutability-control)))
+    (is (member 'ethereum-lisp.transactions::transaction-computation-cache-hash
+                (structure-writable-slots
+                 'ethereum-lisp.transactions::transaction-computation-cache)))))
 
 #+sbcl
 (defun transaction-sender-counted-recoveries (thunk)
@@ -570,21 +650,20 @@
       (is (transaction-sender protected :expected-chain-id 1))
       (is (transaction-sender unprotected :expected-chain-id 2))
       (is (null (transaction-sender dynamic :expected-chain-id 2)))
-      ;; A mutation changes the encoding, which invalidates the sender with
-      ;; the hash (TRANSACTION-REFRESH-COMPUTATION-CACHE): the next call
-      ;; recovers once more and answers for the mutated transaction.
-      (let ((before (transaction-sender protected :expected-chain-id 1)))
-        (setf (legacy-transaction-nonce protected) 10)
-        (let ((after nil))
-          (is (= 1 (transaction-sender-counted-recoveries
-                    (lambda ()
-                      (setf after (transaction-sender
-                                   protected :expected-chain-id 1))
-                      (transaction-sender protected)))))
-          (is (same-sender-p after
-                             (legacy-transaction-sender
-                              protected :expected-chain-id 1)))
-          (is (not (same-sender-p before after))))))))
+      ;; A transaction that differs is a new object with its own cache: it
+      ;; recovers once and answers for itself.
+      (let ((before (transaction-sender protected :expected-chain-id 1))
+            (variant (transaction-fixture-with protected :nonce 10))
+            (after nil))
+        (is (= 1 (transaction-sender-counted-recoveries
+                  (lambda ()
+                    (setf after (transaction-sender
+                                 variant :expected-chain-id 1))
+                    (transaction-sender variant)))))
+        (is (same-sender-p after
+                           (legacy-transaction-sender
+                            variant :expected-chain-id 1)))
+        (is (not (same-sender-p before after)))))))
 
 (deftest blob-and-set-code-transaction-sender-recovery
   (labels ((uint (bytes) (bytes-to-integer bytes))

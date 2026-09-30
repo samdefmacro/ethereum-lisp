@@ -1153,13 +1153,10 @@
                copy))))
       (is (not (eq transaction copy-indexed-transaction)))
       (is (eq copy-pending-transaction copy-indexed-transaction))
+      ;; The transaction itself cannot change after construction
+      ;; (TRANSACTION-FIELDS-REFUSE-MUTATION-AFTER-CONSTRUCTION).
       (is (bytes= original-encoding
-                  (transaction-encoding copy-indexed-transaction)))
-      (setf (legacy-transaction-gas-price transaction) 999)
-      (is (bytes= original-encoding
-                  (transaction-encoding copy-indexed-transaction)))
-      (is (not (bytes= original-encoding
-                       (transaction-encoding transaction)))))))
+                  (transaction-encoding copy-indexed-transaction))))))
 
 (deftest txpool-new-head-cleanup-removes-by-the-first-failing-check-in-pass-order
   ;; The new-head cleanup is one walk over the pool (it was four whole-pool

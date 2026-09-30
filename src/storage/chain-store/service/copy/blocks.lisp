@@ -63,8 +63,7 @@
      (make-block-from-parts
       :header (engine-payload-store-copy-block-header (block-header block))
       :transactions
-      (mapcar (lambda (transaction)
-                (transaction-from-encoding (transaction-encoding transaction)))
+      (mapcar #'engine-payload-store-copy-transaction
               (block-transactions block))
       :receipts (mapcar #'engine-payload-store-copy-receipt
                         (block-receipts block))
@@ -131,4 +130,7 @@
     copy))
 
 (defun engine-payload-store-copy-transaction (transaction)
-  (transaction-from-encoding (transaction-encoding transaction)))
+  "TRANSACTION itself: a transaction is an immutable value, so the store and
+its caller can share it, and every reader sees the hash and sender the import
+derived (TRANSACTION-COMPUTATION-CACHE)."
+  transaction)
