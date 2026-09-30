@@ -151,7 +151,7 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
 | [NET-01](networking-and-sync.md) | net | RESOLVED (3a7abace, 4c68d5c6) | remote-DoS | `rlp-decode` refuses nesting past `+rlp-max-depth+` (64) as an ordinary error, and peer session threads contain `serious-condition`, so hostile nesting no longer kills the process. |
-| [EXEC-14](block-execution-and-types.md) | exec | UNVERIFIED → confirmed | remote-DoS | The same root cause: `rlp-decode`/`decode-list-payload` recurse per nesting level with no depth limit. |
+| [EXEC-14](block-execution-and-types.md) | exec | RESOLVED (3a7abace, 3d68a503) | remote-DoS | RLP decoding carries a nesting-depth limit (`+rlp-max-depth+`, 64) and a total item budget, so deep nesting is an RLP error, not a control-stack exhaustion. |
 | [NET-02](networking-and-sync.md) | net | RESOLVED (4c68d5c6) | remote-DoS | Base-protocol messages are capped at 2 KiB and `eth`/`snap` messages at 10 MiB, checked from the frame header and again after Snappy, as geth does. |
 | [NET-17](networking-and-sync.md) | net | RESOLVED (4c68d5c6, 3a785f74) | remote-DoS | Every `eth` decode has a per-list item cap enforced inside the RLP decoder: 5000 transactions or announcements, 262,144 items elsewhere. |
 
@@ -159,14 +159,14 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
-| [EVM-04](evm-and-gas.md) | evm | DIVERGENT | consensus | `engine_newPayloadV5` is enabled at Amsterdam with no Amsterdam EVM, so payloads get a verdict computed under near-Osaka rules. |
+| [EVM-04](evm-and-gas.md) | evm | RESOLVED (e225c1aa) | consensus | The Amsterdam Engine methods carry `:amsterdam-p` and are refused while `amsterdam-execution-available-p` returns NIL, which it still does at 6fee0c69. |
 | [RPC-02](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e, 5891f4dc) | CC-integration | `engine_newPayload*` refuses a version-shape violation with `-32602` and a wrong-fork payload with `-38005` before import, so no version mistake becomes an `INVALID` verdict. |
 | [RPC-01](rpc-and-engine.md) | rpc | RESOLVED (baa55871, a89826b4, 78e62003, 567aef46) | CC-integration | `eth_syncing` reports progress toward buffered remote blocks, forkchoice targets and the durable SNAP target, from a snapshot that never waits on the store guard. |
 | [RPC-03](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e) | CC-integration | `forkchoiceUpdatedV1`/`V2` apply geth's withdrawals and beacon-root attribute rules and refuse timestamps outside their fork range. |
 | [RPC-12](rpc-and-engine.md) | rpc | PARTIAL | completeness | The invalid cache has a hit eviction, capacity bounds and PoW zeroing on the invalid-ancestor path; a freshly `INVALID` payload whose parent is a PoW block still names that parent as `latestValidHash`. |
-| [EVM-09](evm-and-gas.md) | evm | DIVERGENT | correctness | `POINT_EVALUATION` converts "the KZG backend is absent" into "the proof is invalid", fabricating a verdict. |
-| [EVM-16](evm-and-gas.md) | evm | MISSING | completeness | BLS backend availability is not in the Engine gate, so a misbuilt node accepts Prague and then stalls mid-import. |
-| [EXEC-11](block-execution-and-types.md) | exec | MISSING | correctness | The KZG blob-proof verifier exists, is capability-gated, and has no caller on any live path; no code we own verifies a blob against its commitment. |
+| [EVM-09](evm-and-gas.md) | evm | RESOLVED (e225c1aa) | correctness | `POINT_EVALUATION` re-signals `kzg-unavailable-error` instead of failing the precompile, so a missing backend is an error, not a verdict. |
+| [EVM-16](evm-and-gas.md) | evm | RESOLVED (e225c1aa) | completeness | Prague-and-later Engine methods carry `:bls-p` and are advertised and dispatched only while `bls12381-backend-available-p` holds. |
+| [EXEC-11](block-execution-and-types.md) | exec | RESOLVED (08faec2a, 511481d7, bd7906c3) | correctness | The pooled blob wrapper is decoded, and KZG blob and cell proofs are verified on txpool admission, block import and persisted import. |
 | [RPC-06](rpc-and-engine.md) | rpc | RESOLVED (511481d7, 68c2f376) | CC-integration | Blob transactions are built into payloads and `getPayloadV3`+ returns a `blobsBundle` assembled from the stored sidecars. |
 | [POOL-13](txpool-building-and-ops.md) | pool | RESOLVED (511481d7, 5e3fb80f, bd7906c3) | completeness | Blob transactions are pooled with pinned sidecars, built into payloads, announced to peers and expired. |
 | [OPS-01](txpool-building-and-ops.md) | ops | PARTIAL (b3e05d91, 05ef79d5) | operability | About 36 geth flags are still accepted and ignored, now each with a warning; unknown TOML keys, `--syncmode` and the IPC flags are refused, and the rest are honoured. |
@@ -176,15 +176,15 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
-| [EXEC-15](block-execution-and-types.md) | exec | MISSING (coverage) | correctness | No fixture the harness selects runs a fork later than Shanghai, and `.eest-fixtures` does not exist, so today they select nothing. |
+| [EXEC-15](block-execution-and-types.md) | exec | RESOLVED (8f05abb1, ac080fd3, 4f682c58) | correctness | The pinned `tests@v20.0.2` gates run Cancun through Osaka (8/8 at 0fe42b97), beside the ported_static gate and the Amsterdam and pre-Merge burn-downs. |
 
 ### Tier 4 — Consensus and correctness divergences
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
-| [EXEC-01](block-execution-and-types.md) | exec | DIVERGENT | consensus | EIP-7918 reserve-price comparison uses the parent's blob base-fee update fraction where both references use the child's. |
-| [EXEC-03](block-execution-and-types.md) | exec | DIVERGENT | consensus | Post-merge status is inferred from the header's own difficulty, not the chain config, so a PoS-from-genesis chain skips all four PoS header checks. |
-| [EXEC-02](block-execution-and-types.md) | exec | MISSING | consensus | Uncles are never validated beyond the ommers hash, yet uncle rewards are paid, so a pre-merge block can mint to fabricated uncles. |
+| [EXEC-01](block-execution-and-types.md) | exec | RESOLVED (3d68a503) | consensus | The EIP-7918 reserve price evaluates the parent's excess under the child's update fraction, as both references do. |
+| [EXEC-03](block-execution-and-types.md) | exec | RESOLVED (08faec2a, b6c095a1) | consensus | Proof-of-stake header rules follow the chain config, and where it leaves the Merge open, EIP-3675 over the parent's stored total difficulty. |
+| [EXEC-02](block-execution-and-types.md) | exec | RESOLVED (33354ea3, d06f4002) | consensus | Ommers are checked for count, depth, ancestry, duplicates and header validity before rewards are paid; the vendored legacy uncle fixtures pass. |
 | [STORE-02](state-trie-storage.md) | store | RESOLVED (f17a95dd, d06f4002) | consensus | Empty-account deletion runs only in the end-of-transaction pass, gated on the cumulative EIP-158 rule; pre-Spurious-Dragon account creation follows geth (6e405bf9). |
 | [POOL-03](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | blocks-production | Admission applies the EIP-7623 floor data gas. |
 | [POOL-02](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | blocks-production | Admission applies the EIP-3860 initcode-size cap. |
@@ -193,15 +193,15 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [BUILD-03](txpool-building-and-ops.md) | build | RESOLVED (8f17c8c5, afab959a, 2bab2d36) | blocks-production | A background worker improves open payloads every 2 s and `getPayload` makes one final bounded rebuild, keeping the more valuable block. |
 | [STORE-21](state-trie-storage.md) | store | RESOLVED (c12488be, ef6f5e94) | durability | Startup rewinds a head without state to the newest stateful canonical ancestor; offline `db repair`/`rebuild` exist, and SIGKILL recovery is tested end to end. |
 | [RPC-11](rpc-and-engine.md) | rpc | RESOLVED (8117b233, 13cebe2a, 6b37b097) | CC-integration | An unknown or state-less forkchoice head becomes a sync target that the peer dialer fetches toward. |
-| [EVM-07](evm-and-gas.md) | evm | DIVERGENT | correctness | EIP-7702 delegation resolution is not fork-gated; we execute a designator's target at every fork where geth resolves only under Prague. |
-| [EVM-08](evm-and-gas.md) | evm | DIVERGENT | correctness | `empty-account-p` carries a storage-root term, so `EXTCODEHASH` pushes a hash where both references push zero. |
-| [EVM-15](evm-and-gas.md) | evm | DIVERGENT | completeness | `PREVRANDAO` selection is derived from the header rather than the fork schedule; equivalence UNVERIFIED, and call simulation hardcodes post-merge. |
-| [EXEC-04](block-execution-and-types.md) | exec | MISSING | correctness | No proof-of-work seal verification and no difficulty formula: any pre-merge header's difficulty is accepted as given. |
-| [EXEC-05](block-execution-and-types.md) | exec | MISSING | correctness | The DAO fork is parsed from the chain config and neither the state transition nor the extra-data rule is implemented. |
-| [EXEC-08](block-execution-and-types.md) | exec | DIVERGENT | correctness | An EIP-2935 system-call failure is rolled back and swallowed where geth panics. Low reachability. |
-| [EXEC-09](block-execution-and-types.md) | exec | DIVERGENT | correctness | Request system calls require code and success; geth accepts a codeless predeploy. Direction undecided — needs execution-specs, not geth. |
-| [EXEC-10](block-execution-and-types.md) | exec | DIVERGENT | correctness | Withdrawals are credited before the request system calls; geth's order is the reverse. No observable difference established. |
-| [EXEC-13](block-execution-and-types.md) | exec | DIVERGENT | correctness | Header RLP encoding is presence-driven, not positional, so a gapped header silently shifts fields. Latent; the decoder allowlist is load-bearing. |
+| [EVM-07](evm-and-gas.md) | evm | RESOLVED (e225c1aa) | correctness | `evm-resolved-code` and `execution-resolved-code` resolve an EIP-7702 designator only under Prague rules. |
+| [EVM-08](evm-and-gas.md) | evm | RESOLVED (e225c1aa) | correctness | `empty-account-p` is the nonce, balance and code-hash test both references use; the storage-root term is gone. |
+| [EVM-15](evm-and-gas.md) | evm | DIVERGENT | correctness | Block execution still reads `PREVRANDAO` selection off the header, and `eth_call`/`eth_simulateV1` still hardcode `:random-p t`, so a call at a pre-Merge block pushes the mix hash where geth pushes difficulty. Re-graded from completeness now that pre-Merge blocks are validated. |
+| [EXEC-04](block-execution-and-types.md) | exec | RESOLVED (33354ea3) | correctness | Proof-of-work headers are checked against the fork's difficulty formula, and the in-tree light Ethash verifier checks the seal against the official vector. |
+| [EXEC-05](block-execution-and-types.md) | exec | RESOLVED (33354ea3, d06f4002) | correctness | The DAO extra-data rule and the drain into the refund contract are applied, absent accounts included; the vendored `bcHomesteadToDao` fixtures pass. |
+| [EXEC-08](block-execution-and-types.md) | exec | RESOLVED (08faec2a) | correctness | A failing EIP-2935 system call rejects the block (geth panics; neither imports it); EIP-4788 stays rolled back and non-fatal. |
+| [EXEC-09](block-execution-and-types.md) | exec | DIVERGENT | correctness | A reverting request system call fails the block in both clients; a codeless EIP-7002/7251 predeploy still fails it here where geth 1.17.6 skips the empty output. Direction still undecided against execution-specs. |
+| [EXEC-10](block-execution-and-types.md) | exec | DIVERGENT | correctness | Withdrawals are still credited before the request system calls (geth: after). Still no observable difference: the Prague/Osaka gates and the Amsterdam eip8282 and eip7928 fixtures pass. |
+| [EXEC-13](block-execution-and-types.md) | exec | RESOLVED (3d68a503, 08faec2a) | correctness | Optional header fields are encoded positionally with typed zero placeholders, so a gapped header no longer shifts a later field. |
 | [STORE-03](state-trie-storage.md) | store | RESOLVED (f17a95dd) | correctness | One end-of-transaction pass sweeps every account journaled or touched since the transaction mark, so the no-empty-account invariant no longer rests on mutators agreeing. |
 | [STORE-10](state-trie-storage.md) | store | RESOLVED (6a98ab75) | correctness | Proof verification indexes the supplied nodes by Keccak hash, so an unordered or padded geth or Nethermind proof verifies. |
 | [RPC-04](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e, e12264a6, 27c42c1c) | correctness | `forkchoiceUpdatedV4` requires `targetGasLimit` and the builder moves the gas limit toward it; the third `custodyColumns` parameter is length-checked and otherwise unused. |
@@ -259,15 +259,15 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [STORE-07](state-trie-storage.md) | store | RESOLVED (a307bc01, 00dc3b0a, 1fb99031) | completeness | Trie nodes are persisted content-addressed under `:trie-node`, opened lazily by root, served over snap `GetTrieNodes`, and healed. |
 | [STORE-11](state-trie-storage.md) | store | RESOLVED (a307bc01, 3a785f74) | completeness | `mpt-verify-range-proof` checks a gap-free range against the root with snap/1 edge proofs, empty and proofless ranges included; the snap client uses it. |
 | [STORE-12](state-trie-storage.md) | store | PARTIAL (6dae34ea) | cosmetic | Snap serving walks the trie in key order from the origin and stops at the bound; `make-mpt-iterator` and the entry-range helpers, called only from tests, still scan and sort. |
-| [EVM-01](evm-and-gas.md) | evm | MISSING | consensus | The four Amsterdam opcodes (`SLOTNUM`, `DUPN`, `SWAPN`, `EXCHANGE`) are not implemented. |
-| [EVM-02](evm-and-gas.md) | evm | MISSING | consensus | EIP-8037 state-gas metering and EIP-8038 repricing are absent; our gas budget is a scalar, so the metering dimension does not exist. |
-| [EVM-03](evm-and-gas.md) | evm | DIVERGENT | consensus | The Amsterdam contract-code-size limit is 32,768 where both references use 65,536 (EIP-7954), in two independent constants. |
-| [EVM-05](evm-and-gas.md) | evm | MISSING | consensus | EIP-7708 ETH-transfer system logs are absent, so every value transfer and `SELFDESTRUCT` payout diverges on logs, bloom and receipts root. |
-| [EVM-18](evm-and-gas.md) | evm | mixed | completeness | Amsterdam EIP inventory: EIP-8246's burn removal missing, EIP-7928 interpreter-side touching missing, five EIPs unassessed. |
-| [EXEC-06](block-execution-and-types.md) | exec | MISSING | completeness | The block access list is validated when supplied but never derived from execution, so an Amsterdam block without one cannot be validated. |
-| [EXEC-07](block-execution-and-types.md) | exec | MISSING | completeness | EIP-7997's irregular state transition and EIP-8282's request types `0x03`/`0x04` are absent from the pipeline. |
-| [EVM-06](evm-and-gas.md) | evm | MISSING | completeness | No Bogota, and no fork-order validation at all, so a mistyped genesis yields an impossible ruleset that executes without complaint. |
-| [EXEC-12](block-execution-and-types.md) | exec | MISSING | completeness | No built-in chain presets, so mainnet, Sepolia, Holesky and Hoodi genesis state cannot be constructed from the tree. |
+| [EVM-01](evm-and-gas.md) | evm | RESOLVED (e225c1aa, 5029383e) | consensus | `SLOTNUM`, `DUPN`, `SWAPN` and `EXCHANGE` are implemented behind the Amsterdam check; the `eip7843` and `eip8024` directories pass. The Engine Amsterdam gate is still NIL. |
+| [EVM-02](evm-and-gas.md) | evm | RESOLVED (1fc51bf1, 462c6d34) | consensus | EIP-8037 two-dimensional gas with geth's GasBudget frame hand-off, and the EIP-8038 prices; the `eip8037` and `eip8038` directories pass. |
+| [EVM-03](evm-and-gas.md) | evm | RESOLVED (e225c1aa) | consensus | The Amsterdam code-size limit is 65,536 (EIP-7954), and the block-access-list constant is derived from that one constant. |
+| [EVM-05](evm-and-gas.md) | evm | RESOLVED (e225c1aa, e1761197) | consensus | EIP-7708 transfer logs are emitted for value transfers and `SELFDESTRUCT` payouts; the `eip7708` directory passes. |
+| [EVM-18](evm-and-gas.md) | evm | RESOLVED (e225c1aa, 0d774e0b, 1cbb6a98, 87183c60) | completeness | All fourteen Amsterdam EIP directories of tests-glamsterdam-devnet@v7.2.1 pass (state 1,748/1,748, engine 3,729/3,729 at a69c6621); the Engine gate stays NIL. |
+| [EXEC-06](block-execution-and-types.md) | exec | RESOLVED (0d774e0b, 38ab8068) | completeness | Execution derives the EIP-7928 block access list and checks it against the header hash and any supplied list; `eip7928` passes 1,007/1,007 engine cases. |
+| [EXEC-07](block-execution-and-types.md) | exec | RESOLVED (0d774e0b, ac7d692d) | completeness | EIP-7997's activation transition and EIP-8282's request types `0x03`/`0x04` are in the pipeline; `eip7997` and `eip8282` pass. |
+| [EVM-06](evm-and-gas.md) | evm | PARTIAL (e225c1aa) | completeness | `validate-chain-config-fork-order` orders the timestamp forks and requires Prague under Osaka and Osaka under Amsterdam; block-number forks, Cancun or Prague set without its predecessor, and Bogota are still unchecked or absent. |
+| [EXEC-12](block-execution-and-types.md) | exec | RESOLVED (a22ed4e9) | completeness | Mainnet, Sepolia, Holesky and Hoodi presets embed their allocations and reproduce the published genesis hashes. |
 | [OPS-02](txpool-building-and-ops.md) | ops | RESOLVED (a22ed4e9, 3a785f74) | completeness | `--mainnet`, `--sepolia`, `--holesky` and `--hoodi` select an embedded genesis, chain config and bootnodes, so `--genesis` is optional on public networks. |
 | [POOL-14](txpool-building-and-ops.md) | pool | RESOLVED (511481d7, a979fc60, bd7906c3) | completeness | Pooled blob transactions carry their sidecars, and admission verifies the sidecar shape, versioned hashes and every KZG proof before touching the pool. |
 | [BUILD-08](txpool-building-and-ops.md) | build | RESOLVED (511481d7, f35bc82c) | completeness | Built payloads include blob transactions whose sidecars the node holds, within the fork's blob-gas limit. |
@@ -282,7 +282,7 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [RPC-05](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e) | completeness | `getPayload` answers a version mismatch with `-38005`. |
 | [RPC-09](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e) | completeness | `getBlobsV1` answers `-38005` once Osaka is active, and `getBlobsV2`/`V3` answer `null` before Osaka. |
 | [RPC-10](rpc-and-engine.md) | rpc | RESOLVED (27c42c1c, 5fbbd9a2) | completeness | `engine_getBlobsV4` and `engine_hasBlobs` are implemented and advertised. |
-| [EVM-13](evm-and-gas.md) | evm | MISSING | completeness | No interpreter-side tracing hooks beyond call boundaries; `CREATE`/`CREATE2` frames are untraced and `DELEGATECALL`/`CALLCODE` are mislabelled. |
+| [EVM-13](evm-and-gas.md) | evm | PARTIAL (4b9f20b2) | completeness | callTracer frames are labelled by opcode and `CREATE`/`CREATE2` are traced; per-opcode hooks (`structLog`, `prestateTracer`, `4byteTracer`) are still absent by design. |
 | [POOL-11](txpool-building-and-ops.md) | pool | PARTIAL | completeness | New-head promotion applies the slot limits recorded by admission; until the first admission after a start, those limits are unset and promotion is unbounded. |
 | [OPS-05](txpool-building-and-ops.md) | ops | MISSING | operability | Still no log levels, no structured format and no rotation; every event is a Lisp plist, and `--verbosity` and `--log.*` are ignored with a warning. |
 | [OPS-08](txpool-building-and-ops.md) | ops | PARTIAL (2f29e23c) | operability | `/health/live` and `/health/ready` exist and never take the store guard; there is still no on-demand profiling endpoint, and `--pprof` is ignored. |
@@ -307,10 +307,10 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [STORE-05](state-trie-storage.md) | store | RESOLVED (9a581e35, 01a4aefa) | performance | Clones share contract code with a memoized hash, and code is stored once per Keccak hash under `:code`. |
 | [STORE-24](state-trie-storage.md) | store | RESOLVED (8981bef1, 546f2675, a910eeea) | performance | RocksDB's block cache, Bloom filters and memtables are sized from `--memory.budget`, with bounded account, trie-node and block caches; `--cache.*` is ignored with a warning. |
 | [STORE-13](state-trie-storage.md) | store | DIVERGENT | performance | Still no stack-trie: derive-sha roots insert every item into a fresh MPT and hash at the end. Correct roots, minor constant-factor cost. |
-| [EVM-12](evm-and-gas.md) | evm | DIVERGENT | performance | Jump-destination validity is recomputed by scanning the contract from offset 0 on every `JUMP`/`JUMPI`. Magnitude UNVERIFIED. |
-| [EVM-10](evm-and-gas.md) | evm | DIVERGENT | performance | Memory expansion allocates and copies the whole buffer with no capacity slack, so word-at-a-time growth is quadratic. Magnitude UNVERIFIED. |
-| [EVM-11](evm-and-gas.md) | evm | DIVERGENT | performance | The 1024-item stack limit is enforced by taking `length` of a list on every push. Magnitude UNVERIFIED. |
-| [EVM-14](evm-and-gas.md) | evm | MISSING | performance | No precompile result cache, which matters more here than in geth because several precompiles are pure Lisp. |
+| [EVM-12](evm-and-gas.md) | evm | RESOLVED (e225c1aa, ccd0bf1a) | performance | JUMPDESTs are analysed once into a bitmap per code vector and cached across frames. |
+| [EVM-10](evm-and-gas.md) | evm | RESOLVED (e225c1aa) | performance | Memory grows on a geometric backing store, so word-at-a-time growth copies amortized linear bytes. |
+| [EVM-11](evm-and-gas.md) | evm | RESOLVED (e225c1aa, 94a0ade3) | performance | The operand stack is a vector with a fixnum pointer, so the limit check is O(1). |
+| [EVM-14](evm-and-gas.md) | evm | MISSING | performance | Still no precompile result cache: `execute-precompile` always runs. BN254 now runs on Montgomery limbs (4683a9e5), which cuts each recomputation, not the repeat. |
 | [BUILD-06](txpool-building-and-ops.md) | build | RESOLVED (8f17c8c5, f35bc82c) | performance | The Engine builder executes candidates one at a time and charges the gas each actually used. |
 | [BUILD-05](txpool-building-and-ops.md) | build | RESOLVED (e12264a6, a1577a56) | performance | Selection re-ranks each sender's next transaction after every inclusion, through a heap keyed on effective tip. |
 | [BUILD-09](txpool-building-and-ops.md) | build | RESOLVED (afab959a, 3aa5b7c4, f35bc82c) | operability | `forkchoiceUpdated` returns the payload id after building only the empty block; pool execution runs on a background worker under a per-pass deadline. |
@@ -328,7 +328,7 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
-| [EXEC-16](block-execution-and-types.md) | exec | DIVERGENT | cosmetic | `receipt-list-root` cannot encode typed receipts; no live path uses it and a test pins the behaviour. Naming hazard only. |
+| [EXEC-16](block-execution-and-types.md) | exec | RESOLVED (08faec2a) | cosmetic | Receipts carry their type, so `receipt-list-root` produces the EIP-2718 typed root. |
 | [STORE-04](state-trie-storage.md) | store | DIVERGENT | cosmetic | Access-list and transient-storage bookkeeping still live on the EVM context, copied per frame beside the state journal mark. No observable difference. |
 | [STORE-09](state-trie-storage.md) | store | DIVERGENT | cosmetic | Still no secure-trie layer and no preimage store; callers hash keys inline. No API that needs preimages exists yet. |
 | [RPC-26](rpc-and-engine.md) | rpc | RESOLVED (13f8efa3) | cosmetic | `eth_getLogs` and `eth_newFilter` with an unknown `blockHash` answer `-32000 unknown block`. |

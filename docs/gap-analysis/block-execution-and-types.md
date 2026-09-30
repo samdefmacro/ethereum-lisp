@@ -45,7 +45,7 @@ revision; the remediation status below records the later implementation.
 
 | Side | Version | Commit | Read on |
 | --- | --- | --- | --- |
-| ethereum-lisp | working tree | `28e9912072135bebc3f49bc75226d6fed68dc21f` | 2026-07-28 |
+| ethereum-lisp | working tree (findings); `main` (the `Status 2026-09-30` lines) | `28e9912072135bebc3f49bc75226d6fed68dc21f` (findings); `6fee0c69559a57f7cc9ea239b40ddd5e39f2bcbb` (status) | 2026-07-28; 2026-09-30 |
 | go-ethereum | 1.17.6-unstable | `38271784c2b31926563806da9a2e023b88f5e7a8` | 2026-07-28 |
 | Nethermind | 1.40.0 | `e52dc19a56a46f58170a730822580774d403c838` | 2026-07-28 |
 
@@ -122,6 +122,14 @@ The ten most consequential gaps, ordered by consensus risk.
 
 ### EXEC-01 — EIP-7918 excess blob gas uses the parent's update fraction
 
+**Status 2026-09-30:** RESOLVED in 3d68a503 (2026-07-29):
+`expected-excess-blob-gas` takes one `update-fraction`, the child's schedule,
+and prices the parent's excess with it in the reserve-price branch
+(`src/protocol/consensus/block-validation/fees.lisp:55-82`); the separate
+`parent-update-fraction` is gone. Test
+`EIP7918-RESERVE-PRICE-USES-THE-CHILD-BLOB-FEE-UPDATE-FRACTION`. The original
+finding follows for the record.
+
 **Verdict** DIVERGENT. **Severity** consensus-breaking.
 
 Our evidence: `src/protocol/consensus/block-validation/fees.lisp:55-85`.
@@ -155,6 +163,19 @@ the divergence but could not establish which side was right because it had no
 pinned checkout. Both pinned references now answer it. Dedupe against that item.
 
 ### EXEC-02 — No uncle validation, but uncle rewards are paid
+
+**Status 2026-09-30:** RESOLVED in 33354ea3 (2026-07-29) and d06f4002
+(2026-09-30): `validate-block-ommers-against-config`
+(`src/protocol/consensus/block-validation/body.lisp:47-90`) caps the count at
+two, requires each ommer's parent in the recent ancestry, bounds its depth to
+six, refuses duplicates and canonical ancestors, and validates the ommer
+header against the config, as geth's `VerifyUncles` does; the depth bound also
+removes the negative-reward sub-case. Tests
+`PROOF-OF-WORK-OMMER-VALIDATION-REQUIRES-RECENT-ANCESTRY`,
+`PREMERGE-OMMER-REWARDS-FOLLOW-ACCUMULATE-REWARDS`, and
+`PREMERGE-LEGACY-OMMER-AND-DAO-FIXTURES-REPLAY` (ethereum/tests v6.0.0-beta.3
+`bcUncleTest` 12/12; `mainnet-inventory.md`). The original finding follows for
+the record.
 
 **Verdict** MISSING. **Severity** consensus-breaking on pre-merge chains.
 
@@ -193,6 +214,16 @@ is undocumented rather than a stated limitation.
 
 ### EXEC-03 — Post-merge status is inferred from the header, not the config
 
+**Status 2026-09-30:** RESOLVED in 08faec2a (2026-07-29: header validation
+takes proof-of-stake status from `chain-config-post-merge-p`) and b6c095a1
+(2026-09-30: where the configuration leaves the Merge open,
+`block-header-merge-rules-p`, `src/protocol/consensus/block-validation/forks.lisp:99`,
+applies EIP-3675 over the parent's total difficulty, which the chain store now
+keeps). Tests `MERGE-TRANSITION-FOLLOWS-THE-TERMINAL-TOTAL-DIFFICULTY`,
+`PUBLIC-PRESET-POST-MERGE-HEADERS-VALIDATE-AS-PROOF-OF-STAKE`; record
+`docs/evidence/sec9-merge-by-total-difficulty.txt`. The original finding
+follows for the record.
+
 **Verdict** DIVERGENT. **Severity** consensus-breaking, configuration dependent.
 
 Our evidence: `src/protocol/consensus/block-validation/forks.lisp:69-71`.
@@ -229,6 +260,18 @@ surface is the transition block and any chain whose earliest blocks we import.
 
 ### EXEC-04 — No proof-of-work seal or difficulty formula
 
+**Status 2026-09-30:** RESOLVED in 33354ea3 (2026-07-29):
+`expected-ethash-difficulty` implements the Frontier-through-Gray-Glacier
+formulas and `verify-ethash-seal-light` checks the seal from an epoch cache
+(`src/protocol/consensus/block-validation/pow.lisp:218`, `:294`), installed as
+`*ethash-seal-verifier*` by the CLI. Test
+`ETHASH-LIGHT-HASHIMOTO-MATCHES-OFFICIAL-VECTOR` (ethereum/tests `c67e485f`);
+the pre-Merge burn-down passes legacy v5.4.0 5,466/5,466 and tests@v20.0.2
+21,260/21,260 (`docs/evidence/gates.md`, row 820956d7). The light verifier is
+slow over long ranges, which is why the mainnet join is a snap/checkpoint
+bootstrap (`mainnet-inventory.md`). The original finding follows for the
+record.
+
 **Verdict** MISSING. **Severity** correctness.
 
 Our evidence: `validate-block-header-basics`
@@ -252,6 +295,16 @@ down anywhere in the repository.
 
 ### EXEC-05 — DAO fork parsed but not implemented
 
+**Status 2026-09-30:** RESOLVED in 33354ea3 (2026-07-29:
+`validate-block-dao-extra-data`, `src/protocol/consensus/block-validation/forks.lisp:10`,
+and `apply-dao-hard-fork`, `src/runtime/execution/dao.lisp:125-149`) and
+d06f4002 (2026-09-30: an absent refund contract or drain account is created,
+as geth's `getOrNewStateObject` does). Tests
+`PREMERGE-DAO-FORK-BLOCK-DRAINS-INTO-THE-REFUND-CONTRACT`,
+`BLOCK-EXECUTION-APPLIES-DAO-BALANCE-TRANSITION`, and the vendored
+`bcHomesteadToDao` fixtures 4/4 (`mainnet-inventory.md`). The original finding
+follows for the record.
+
 **Verdict** MISSING. **Severity** correctness (historical replay only).
 
 Our evidence: `src/protocol/genesis/chain-config.lisp:52-53` parses
@@ -273,6 +326,17 @@ headers in blocks 1,920,000 through 1,920,009 are accepted regardless of their
 extra-data. Only reachable on a full replay from genesis.
 
 ### EXEC-06 — Block access list is validated but never derived
+
+**Status 2026-09-30:** RESOLVED in 0d774e0b (2026-07-29: the block access list
+is constructed from the accesses recorded during execution,
+`src/runtime/execution/access.lisp`, and `validate-derived-block-access-list`,
+`src/runtime/execution/block-body-validation.lisp:126-147`, checks it against
+the header hash and any supplied list), corrected by 38ab8068 (a zero-tip
+coinbase is listed), ac7d692d and 87183c60. `eip7928_block_level_access_lists`
+passes state 14/14 and engine 1,007/1,007 at a69c6621
+(`amsterdam-inventory.md`). Amsterdam payloads are still refused at the Engine
+while `amsterdam-execution-available-p` returns NIL. The original finding
+follows for the record.
 
 **Verdict** MISSING. **Severity** completeness (becomes consensus-breaking at Amsterdam).
 
@@ -301,6 +365,17 @@ source. Amsterdam is unscheduled, so this is completeness today.
 
 ### EXEC-07 — EIP-7997 and EIP-8282 absent from the pipeline
 
+**Status 2026-09-30:** RESOLVED in 0d774e0b (2026-07-29):
+`apply-eip7997-transition` and `apply-amsterdam-activation-transition`
+(`src/runtime/execution/system-calls.lisp:39`, `:69`) install the factory at
+activation, and `derive-prague-execution-requests` appends builder request
+types `0x03` and `0x04` under Amsterdam
+(`src/runtime/execution/prague-requests.lisp:24-25`, `:142-147`); ac7d692d and
+2ed808e1 fixed the activation block's access list and the system-call state
+reservoir. `eip7997_deterministic_factory_predeploy` (16/16) and
+`eip8282_builder_execution_requests` (47/47 engine) pass. The original finding
+follows for the record.
+
 **Verdict** MISSING. **Severity** completeness (Amsterdam).
 
 Our evidence: `src/runtime/execution/block-execution.lisp:99-106` runs exactly
@@ -322,6 +397,15 @@ account) and the requests hash is wrong for every block (missing types 0x03 and
 
 ### EXEC-08 — EIP-2935 system call failure is swallowed
 
+**Status 2026-09-30:** RESOLVED in 08faec2a (2026-07-29):
+`process-parent-block-hash-history` calls the history contract with
+`:require-success-p t` (`src/runtime/execution/system-calls.lisp:208-231`), so
+a failure rejects the block; geth panics, and neither imports it. The EIP-4788
+call stays rolled back and non-fatal, as in geth. Tests
+`REVERTED-PARENT-HASH-HISTORY-SYSTEM-CALL-REJECTS-BLOCK`,
+`REVERTED-PARENT-BEACON-ROOT-SYSTEM-CALL-DOES-NOT-REJECT-BLOCK`. The original
+finding follows for the record.
+
 **Verdict** DIVERGENT. **Severity** correctness (low reachability).
 
 Our evidence: `src/runtime/execution/system-calls.lisp:115-136` calls
@@ -342,6 +426,18 @@ asymmetry between geth's two system calls is easy to miss when this code is next
 touched.
 
 ### EXEC-09 — Request system calls require code and success; geth does not
+
+**Status 2026-09-30:** still DIVERGENT (correctness), narrowed.
+`checked-request-system-call-data` still passes `:require-code-p t` and
+`:require-success-p t` (`src/runtime/execution/prague-requests.lisp:99-108`;
+the code check is `src/runtime/execution/system-calls.lisp:114-119`). Re-read
+against geth 1.17.6 `38271784`, `processRequestsSystemCall`
+(`core/state_processor.go:423-430`) fails the block on any `evm.Call` error,
+a revert included, so the success half agrees; the remaining difference is a
+codeless predeploy, which geth calls, gets empty output from and skips
+(`:433-435`), and we refuse. No `ethereum/execution-specs` answer has been
+recorded in the code, so the direction is still undecided. The original
+finding follows for the record.
 
 **Verdict** DIVERGENT. **Severity** correctness, direction undecided.
 
@@ -367,6 +463,15 @@ returned data is non-empty (`prague-requests.lisp:121,129`), as geth does at
 
 ### EXEC-10 — Withdrawals are applied before the request system calls
 
+**Status 2026-09-30:** still DIVERGENT (correctness, structural): withdrawals
+are credited before `derive-prague-execution-requests`
+(`src/runtime/execution/block-execution.lisp:179-181`), geth's order is the
+reverse. Still no observable difference: the tests@v20.0.2 Prague and Osaka
+gates, the Amsterdam `eip8282` and `eip7928` directories (with
+`bal_zero_withdrawal` and `bal_withdrawal_to_precompiles`) and the Hoodi
+differential replay all pass. Whether a non-canonical predeploy can observe
+the order remains UNVERIFIED. The original finding follows for the record.
+
 **Verdict** DIVERGENT. **Severity** correctness, no observable difference established.
 
 Our evidence: `src/runtime/execution/block-execution.lisp:127-133` — withdrawals
@@ -387,6 +492,23 @@ structural difference rather than a bug; whether any observable difference
 exists for a non-canonical predeploy is UNVERIFIED.
 
 ### EXEC-11 — No blob sidecar network wrapper, and the KZG check has no caller
+
+**Status 2026-09-30:** RESOLVED in 08faec2a (2026-07-29: a sidecar entering
+the live store or a persisted import is verified with
+`validate-blob-sidecar-fields :require-proof-verification t`; today's call
+sites include `src/application/services/block-import.lisp:146` and
+`src/storage/node-store/persistence/import/blobs.lisp:75`), 511481d7 and
+a979fc60 (2026-07-29: the EIP-4844 and EIP-7594 pooled wrapper codec,
+`blob-pooled-transaction-from-encoding` and
+`blob-network-transaction-from-rlp` in
+`src/protocol/transactions/blob.lisp:203-275`) and bd7906c3 (2026-09-24: one
+atomic txpool admission that verifies every blob's proofs,
+`src/application/services/txpool-blob-admission.lisp:201-240`). 68c2f376
+verifies a gossiped sidecar before any pool verdict. Tests
+`BLOB-POOLED-TRANSACTION-WRAPPER-ROUNDTRIPS-SIDECAR`,
+`TXPOOL-BLOB-GOSSIP-DROPS-A-BAD-SIDECAR-THE-POOL-WOULD-REFUSE-ANYWAY`; Hive
+devp2p 47/48 at 0fe42b97, every eth-suite blob case included (discv5 is the
+one failure). The original finding follows for the record.
 
 **Verdict** MISSING. **Severity** completeness for the codec, correctness for
 the unwired verifier — PROJECT.md names "real cryptography on real paths" as a
@@ -437,6 +559,16 @@ Overlaps networking and txpool.
 
 ### EXEC-12 — No built-in chain presets
 
+**Status 2026-09-30:** RESOLVED in a22ed4e9 (2026-07-29):
+`src/protocol/genesis/presets.lisp` embeds mainnet, Sepolia, Holesky and Hoodi
+(`find-built-in-genesis-preset`, allocations under
+`src/protocol/genesis/alloc-data`). Test
+`BUILT-IN-PUBLIC-NETWORK-GENESIS-HASHES-MATCH-PUBLISHED-VALUES`; the Hoodi
+live runs start from the preset. The related genesis note is also settled: an
+absent `blockAccessListHash`/`slotNumber` is filled only when the genesis
+itself is at or after Amsterdam (`src/protocol/genesis/block.lisp:136-140`).
+The original finding follows for the record.
+
 **Verdict** MISSING. **Severity** completeness.
 
 Our evidence: `src/protocol/genesis/` parses a genesis JSON document into a
@@ -458,6 +590,15 @@ rather than leaving them unset, which will need revisiting for an Amsterdam
 genesis.
 
 ### EXEC-13 — Header RLP encoding is presence-driven, not fork-driven
+
+**Status 2026-09-30:** RESOLVED in 3d68a503 and 08faec2a (2026-07-29): the
+encoder emits every optional field up to the last one present, with a typed
+zero placeholder for any gap (`src/protocol/blocks/header-rlp.lisp:29-67`), so
+no field shifts into an earlier position; fork-aware validation still refuses
+such a shape at import. The decoder allowlist
+(`src/protocol/blocks/rlp-decode.lisp:7`) is unchanged. Test
+`BLOCK-HEADER-RLP-KEEPS-GAPPED-OPTIONAL-FIELDS-POSITIONAL`. The original
+finding follows for the record.
 
 **Verdict** DIVERGENT. **Severity** correctness (latent).
 
@@ -486,6 +627,16 @@ geth decodes those and then rejects them in header validation, so both
 implementations refuse the block.
 
 ### EXEC-14 — Unbounded recursion in the RLP decoder
+
+**Status 2026-09-30:** RESOLVED in 3a7abace and 3d68a503 (2026-07-29): the
+decoder carries a depth argument and fails past `+rlp-max-depth+` (64) with an
+RLP error (`src/foundation/rlp.lisp:8`, `:190-193`), and one item budget spans
+nested lists. The finding had been confirmed first (README, "Where the audits
+disagree", item 4).
+Tests `RLP-REJECTS-EXCESSIVE-NESTING-WITH-RLP-ERROR`,
+`RLP-REJECTS-EXCESSIVE-LIST-DEPTH`,
+`RLP-ENFORCES-ONE-TOTAL-ITEM-BUDGET-ACROSS-NESTED-LISTS`. The original finding
+follows for the record.
 
 **Verdict** UNVERIFIED. **Severity** correctness if confirmed.
 
@@ -516,6 +667,15 @@ leading-zero rule does not cover (`0xb8 0x00`) is caught by the short-payload
 rule instead, so there is no hole there.
 
 ### EXEC-15 — No fixture the harness selects runs a fork later than Shanghai
+
+**Status 2026-09-30:** RESOLVED in 8f05abb1 (2026-07-26: the pinned corpus
+runs in CI), ac080fd3 (2026-08-30: the complete `tests@v20.0.2` current-fork
+gates, Cancun through Osaka, with non-vacuity manifests) and 4f682c58
+(2026-09-29: the optional ported_static gate). At 0fe42b97 the EEST gates are
+8/8, ported_static passes Cancun 7,059/7,060, Prague 7,059/7,060 and Osaka
+6,581/6,581 (one named heap skip per pre-Osaka fork), and the Amsterdam and
+pre-Merge burn-downs pass (`docs/evidence/gates.md`). The original finding
+follows for the record.
 
 **Verdict** MISSING (coverage). **Severity** correctness — this is the reason the
 other findings survive.
@@ -567,6 +727,13 @@ This extends `docs/gas-parity.md` item 3.1, which quantified the bundled corpus
 but not the pinned-corpus selectors. Dedupe against that item.
 
 ### EXEC-16 — `receipt-list-root` cannot encode typed receipts
+
+**Status 2026-09-30:** RESOLVED in 08faec2a (2026-07-29): the `receipt`
+struct carries its transaction type and `receipt-encoding` prefixes it, so
+`receipt-list-root` yields the EIP-2718 typed root
+(`src/protocol/receipts/receipts.lisp:147-207`). Test
+`TYPED-RECEIPT-ENCODING-AND-ROOT`. The original finding follows for the
+record.
 
 **Verdict** DIVERGENT. **Severity** cosmetic (API hazard).
 
