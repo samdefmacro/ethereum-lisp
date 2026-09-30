@@ -10,7 +10,10 @@
 Both are the local checkouts under `references/`. Every reference citation below is
 a path relative to `references/go-ethereum` or `references/nethermind`, with the
 line numbers as they stand at those commits. Our own citations are relative to
-the repository root at the working tree of 2026-07-28.
+the repository root at the working tree of 2026-07-28, except in the
+`**Status 2026-09-30:**` line that opens each finding, which was measured at
+`6fee0c69559a57f7cc9ea239b40ddd5e39f2bcbb` (`main`, 2026-09-30) and cites that
+revision.
 
 This document covers the interpreter, the precompiles, gas accounting, and fork
 and EIP activation. It is a companion to `docs/gas-parity.md`, not a replacement:
@@ -135,6 +138,17 @@ with all three and does not re-litigate them.
 
 ### EVM-01 — Amsterdam opcodes are not implemented
 
+**Status 2026-09-30:** RESOLVED in e225c1aa (2026-07-29: `SLOTNUM` 0x4b in
+`src/runtime/evm/opcodes/environment.lisp:257`, `DUPN`/`SWAPN`/`EXCHANGE`
+0xe6..0xe8 in `src/runtime/evm/opcodes/stack-log.lisp:32-75`, each behind the
+Amsterdam check) and 5029383e (JUMPDEST analysis no longer skips their
+immediates). Tests `EVM-SLOTNUM-IS-AMSTERDAM-GATED`,
+`EVM-EIP8024-STACK-OPCODES-DECODE-IMMEDIATES`; the `eip7843_slotnum` and
+`eip8024_dupn_swapn_exchange` directories of tests-glamsterdam-devnet@v7.2.1
+pass in full (`amsterdam-inventory.md`). The Engine still refuses Amsterdam
+payloads: `amsterdam-execution-available-p` returns NIL (EVM-04). The original
+finding follows for the record.
+
 **Verdict:** MISSING. **Severity:** consensus-breaking on any chain that
 activates Amsterdam.
 
@@ -168,6 +182,17 @@ devnet. Our own `chain-config` accepts `amsterdam-time`
 
 ### EVM-02 — EIP-8037 state-gas metering and EIP-8038 repricing are absent
 
+**Status 2026-09-30:** RESOLVED in 1fc51bf1 (2026-07-29, two-dimensional
+regular/state gas through frames, transactions, receipts and block
+accounting) and 462c6d34 (2026-09-29, geth's `GasBudget` frame hand-off:
+`evm-gas-budget-forward` and the exit/absorb family in
+`src/runtime/evm/gas.lisp:74`), with the EIP-8038 prices in
+`src/runtime/evm/types.lisp`. Tests `EIP8037-FRAME-LEFTOVERS-FOLLOW-GETH-GAS-BUDGET`,
+`EIP8038-STORAGE-ACCESS-FORK-MATRIX`; `eip8037_state_creation_gas_cost_increase`
+(state 346/346, engine 605/605) and `eip8038_state_access_gas_cost_increase`
+(192/192, 192/192) pass at a69c6621. The original finding follows for the
+record.
+
 **Verdict:** MISSING. **Severity:** consensus-breaking on any chain that
 activates Amsterdam.
 
@@ -199,6 +224,14 @@ non-trivial transaction.
 
 ### EVM-03 — the Amsterdam code-size limit is 32,768 instead of 65,536
 
+**Status 2026-09-30:** RESOLVED in e225c1aa: `+amsterdam-max-contract-code-size+`
+is 65,536 (`src/protocol/chain-config/types.lisp:23`), and
+`+block-access-list-amsterdam-max-code-size+` is now defined as that constant
+(`src/protocol/block-access-lists/types.lisp:4-5`), so there is one number.
+Test `AMSTERDAM-CONTRACT-CODE-LIMIT-IS-EIP7954-VALUE`;
+`eip7954_increase_max_contract_size` passes 30/30 in both families. The
+original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** consensus-breaking on any chain that
 activates Amsterdam.
 
@@ -229,6 +262,18 @@ deploying a large contract fails validation here.
 
 ### EVM-04 — `engine_newPayloadV5` is enabled at Amsterdam with no Amsterdam EVM
 
+**Status 2026-09-30:** RESOLVED in e225c1aa: `engine_newPayloadV5`,
+`engine_getPayloadV6` and `engine_forkchoiceUpdatedV4` carry `:amsterdam-p`
+(`src/api/engine/methods.lisp:15-31`), and `engine-rpc-method-available-p`
+requires `amsterdam-execution-available-p` for them (`:96`). That predicate
+still returns NIL at 6fee0c69 (`src/runtime/evm/base.lisp:97-110`), so the
+Amsterdam methods are neither advertised nor dispatched, although every
+directory of the Amsterdam burn-down now passes; reopening it also needs the
+Hive Engine suites and the resource-budget check the readiness plan names
+(`amsterdam-inventory.md`, Not covered). Test
+`AMSTERDAM-ENGINE-METHODS-REFUSED-WHILE-EXECUTION-UNAVAILABLE`. The original
+finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** consensus-breaking; capability-gating
 violation.
 
@@ -257,6 +302,15 @@ supporting the fork.
 
 ### EVM-05 — EIP-7708 ETH-transfer system logs are absent
 
+**Status 2026-09-30:** RESOLVED in e225c1aa (`make-eth-transfer-log-entry`,
+`src/protocol/receipts/receipts.lisp:59`, emitted from value transfers and
+`SELFDESTRUCT` payouts under Amsterdam), with e1761197 (no burn log for a
+self-destruct to self) and 87183c60 (the beneficiary read). Tests
+`AMSTERDAM-EMITS-TOP-LEVEL-ETH-TRANSFER-LOG`,
+`AMSTERDAM-EMITS-NESTED-CALL-AND-SELFDESTRUCT-TRANSFER-LOGS`;
+`eip7708_eth_transfer_logs` passes 69/69 state and 72/72 engine. The original
+finding follows for the record.
+
 **Verdict:** MISSING. **Severity:** consensus-breaking on any chain that
 activates Amsterdam.
 
@@ -281,6 +335,19 @@ downstream log index shifts, which also corrupts `eth_getLogs` results for the
 block.
 
 ### EVM-06 — the fork schedule has no Bogota and no order validation
+
+**Status 2026-09-30:** PARTIAL (completeness). e225c1aa added
+`validate-chain-config-fork-order` (`src/protocol/genesis/chain-config.lisp:48-80`,
+called from `chain-config-from-genesis-config`): it refuses `osakaTime` without
+`pragueTime`, `amsterdamTime` without `osakaTime`, and any timestamp fork
+(Shanghai through Amsterdam, BPO1-5 and `ubtTime` included) scheduled before
+an earlier one. Test `CHAIN-CONFIG-FROM-GENESIS-CONFIG-REJECTS-IMPOSSIBLE-FORK-ORDER`.
+Still missing as of 6fee0c69: the block-number forks (Homestead through
+London, the Merge netsplit block) are not ordered; `cancunTime` without
+`shanghaiTime`, or `pragueTime` without `cancunTime`, is accepted, where geth's
+`CheckConfigForkOrder` refuses both; and there is still no Bogota, so a genesis
+naming `bogotaTime` is silently ignored. The original finding follows for the
+record.
 
 **Verdict:** MISSING. **Severity:** completeness.
 
@@ -314,6 +381,12 @@ impossible ruleset that executes without complaint, and the resulting divergence
 looks like an EVM bug rather than a configuration error.
 
 ### EVM-07 — EIP-7702 delegation resolution is not fork-gated
+
+**Status 2026-09-30:** RESOLVED in e225c1aa: `evm-resolved-code`
+(`src/runtime/evm/state.lisp:95-102`) and `execution-resolved-code`
+(`src/runtime/execution/state.lisp:48-55`) take the chain rules and follow a
+designator only when `chain-rules-prague-p` holds (or no rules are given, the
+latest-fork convention). The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** correctness; reachable only pre-Prague.
 
@@ -349,6 +422,12 @@ Observable consequence: a pre-London block calling such an account executes
 different code here than in geth, so state root and `gasUsed` both differ.
 
 ### EVM-08 — `EXTCODEHASH` and the emptiness predicate disagree with both references
+
+**Status 2026-09-30:** RESOLVED in e225c1aa: `empty-account-p`
+(`src/runtime/evm/state.lisp:7-13`) is nonce zero, balance zero and the empty
+code hash, the three-way test of geth's `stateObject.empty()`; the storage-root
+term is gone. Test `STORAGE-ONLY-ACCOUNT-IS-EMPTY-BUT-STILL-COLLIDES-ON-CREATE`.
+The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** correctness.
 
@@ -387,6 +466,13 @@ Observable consequence: a contract branching on `EXTCODEHASH == 0` takes the
 other branch, which can change the whole transaction, not just its gas.
 
 ### EVM-09 — `POINT_EVALUATION` reports a verdict when the KZG backend is missing
+
+**Status 2026-09-30:** RESOLVED in e225c1aa: an unavailable verifier signals
+the typed `kzg-unavailable-error` (`src/protocol/kzg/verifier-hooks.lisp:6-12`),
+and `run-kzg-point-evaluation-precompile` re-signals it before its catch-all
+clause (`src/runtime/evm/precompiles/kzg.lisp:22-29`), so only a definite
+verification failure fails the precompile, as the BLS precompiles already did.
+The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** correctness.
 
@@ -430,6 +516,14 @@ check proofs".
 
 ### EVM-10 — memory expansion reallocates and copies the whole buffer
 
+**Status 2026-09-30:** RESOLVED in e225c1aa: `ensure-memory-size`
+(`src/runtime/evm/memory.lisp:97-121`) keeps the word-aligned logical size as a
+displaced array over a backing store that at least doubles when it grows, so
+word-at-a-time growth copies an amortized linear number of bytes. Later
+throughput work (e8f58512, 8ae6b113) moves words in 32-bit pieces; the measured
+effect on real blocks is in `docs/evidence/sec5-evm-throughput.txt` and
+`sec5-evm-throughput-2.txt`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** performance, with denial-of-service
 potential. Magnitude UNVERIFIED.
 
@@ -459,6 +553,13 @@ which is a liveness problem for a node expected to keep up with a chain.
 
 ### EVM-11 — the stack limit check is linear in stack depth
 
+**Status 2026-09-30:** RESOLVED in e225c1aa (a frame-local O(1) depth counter)
+and 94a0ade3 (2026-09-24: the operand stack is a vector with a fixnum pointer,
+`src/runtime/evm/interpreter/machine.lisp:68`, `:109-121`); the register loop
+of 61c210bb checks `sp` against `+stack-limit+` directly
+(`src/runtime/evm/interpreter/interpreter.lisp:127`). The original finding
+follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** performance. Magnitude UNVERIFIED.
 
 `stack-push` calls `(length stack)` on every push to compare against
@@ -479,6 +580,13 @@ dispute that; it is about the cost of the check, not its placement. As with
 EVM-10 the complexity is structural and the magnitude is UNVERIFIED.
 
 ### EVM-12 — jump-destination analysis is redone on every jump
+
+**Status 2026-09-30:** RESOLVED in e225c1aa (each frame builds a
+`jump-destination-bitmap` once) and ccd0bf1a (2026-09-30: the bitmap is cached
+per code vector across frames, `*jump-destination-bitmaps*`,
+`src/runtime/evm/opcodes.lisp:104-133`). 5029383e later made the analysis skip
+PUSH data only, as geth's `codeBitmap` does. The original finding follows for
+the record.
 
 **Verdict:** DIVERGENT. **Severity:** performance, with denial-of-service
 potential. Magnitude UNVERIFIED.
@@ -510,6 +618,17 @@ unacceptable import latency, and a cheap adversarial input to produce it.
 
 ### EVM-13 — no interpreter-side tracing hooks beyond call boundaries
 
+**Status 2026-09-30:** PARTIAL (completeness). 4b9f20b2 (2026-09-29) labels
+every callTracer frame by its opcode (`CALLCODE`, `DELEGATECALL`,
+`STATICCALL`), makes `CREATE` and `CREATE2` frames, and traces a block in one
+execution; test `DEBUG-TRACE-CALL-LABELS-EVERY-CALL-AND-CREATE-FRAME`, and ten
+Hoodi blocks' call traces match the reference callTracer
+(`docs/evidence/sec5-rpc-section7-leftovers.txt`). Still missing as of
+6fee0c69, by design (`src/runtime/evm/tracing.lisp:10-14`,
+`src/api/public/debug/tracing.lisp:10`): any per-opcode hook, so `structLog`,
+`prestateTracer` and `4byteTracer` cannot be served. The original finding
+follows for the record.
+
 **Verdict:** MISSING. **Severity:** completeness. Deliberate and documented.
 
 `src/runtime/evm/tracing.lisp` provides exactly one hook pair, opened and closed
@@ -538,6 +657,18 @@ since the information is available at the opcode handler.
 
 ### EVM-14 — no precompile result cache
 
+**Status 2026-09-30:** still MISSING (performance): `execute-precompile`
+(`src/runtime/evm/precompiles/dispatch.lisp:178-189`) runs the precompile on
+every call and no result cache exists anywhere in `src/`. The cost of each
+recomputation fell: BN254 moved to Montgomery limbs in 4683a9e5 (22 BN254-heavy
+Hoodi blocks 5.7 s -> 1.7 s, `docs/evidence/sec5-bn254-fast.txt`). The
+access-list half noted below is closed: the block access list is built from
+the accesses recorded at the state database (`src/runtime/execution/access.lisp`),
+and `eip7928_block_level_access_lists` passes 1,007/1,007 engine cases,
+`bal_precompile_call_opcode` (each precompile under CALL, CALLCODE,
+DELEGATECALL and STATICCALL) among them. The original finding follows for the
+record.
+
 **Verdict:** MISSING. **Severity:** performance.
 
 geth 1.17.6 carries a shared precompile result cache: `PrecompileCache`
@@ -562,6 +693,20 @@ Observable consequence: repeated identical precompile calls within a block — a
 common shape in rollup verifier contracts — cost full recomputation here.
 
 ### EVM-15 — `PREVRANDAO` selection is not derived from the fork schedule
+
+**Status 2026-09-30:** still DIVERGENT, re-graded to correctness. Block
+execution and the system calls still take `:random-p` from
+`block-header-post-merge-p` (`src/runtime/execution/block-execution.lisp:155`,
+`src/runtime/execution/system-calls.lisp:139`); header validation now decides
+the Merge from the configuration or EIP-3675 (08faec2a, b6c095a1) and refuses a
+zero-difficulty proof-of-work header and a positive-difficulty proof-of-stake
+one, so on imported blocks the two answers agree. The call paths are unchanged: `eth_call`,
+`eth_estimateGas` and `eth_simulateV1` pass `:random-p t`
+(`src/api/public/state/call-simulation.lisp:457`; default at
+`src/runtime/execution/call-simulation.lisp:60`), so a call against a
+pre-Merge block pushes the mix hash where geth pushes the difficulty. Pre-Merge
+blocks are validated since 33354ea3 and b6c095a1, which is what makes that case
+reachable. The original finding follows for the record.
 
 **Verdict:** DIVERGENT on derivation; equivalence UNVERIFIED. **Severity:**
 completeness.
@@ -593,6 +738,14 @@ which for a contract using it as a randomness source changes the transaction.
 
 ### EVM-16 — BLS backend availability is not represented in the Engine gate
 
+**Status 2026-09-30:** RESOLVED in e225c1aa: `bls12381-backend-available-p`
+(`src/protocol/bls12381/backend-hooks.lisp:48`) is exported, and every Engine
+method from Prague on (`newPayloadV4`/`V5`, `getPayloadV4`-`V6`,
+`forkchoiceUpdatedV4`) carries `:bls-p`, which `engine-rpc-method-available-p`
+requires (`src/api/engine/methods.lisp:94`). BLS runs on blst through CFFI
+since f930e9e5. Test `ENGINE-RPC-CAPABILITIES-REQUIRE-EVERY-EXECUTION-BACKEND`.
+The original finding follows for the record.
+
 **Verdict:** MISSING. **Severity:** completeness. The refusal itself is honest.
 
 The BLS precompiles fail loudly and correctly when their backend is absent:
@@ -617,6 +770,11 @@ transaction and then stalls, instead of declining Prague up front.
 
 ### EVM-17 — EOF: absent in both references, absent here
 
+**Status 2026-09-30:** still not a gap: no EOF instruction set or container
+validator exists in the tree, and none of the pinned corpora
+(tests@v20.0.2, tests-glamsterdam-devnet@v7.2.1) exercises one. The original
+finding follows for the record.
+
 **Verdict:** not a gap. Recorded so it is not rediscovered.
 
 geth 1.17.6 reserves the EOF opcode names (`EOFCREATE` `0xec`,
@@ -628,6 +786,16 @@ container validator in `core/vm/`. Nethermind 1.40.0 likewise has no EOF fork in
 work on EOF would be speculative against these commits.
 
 ### EVM-18 — Amsterdam EIP inventory beyond the EVM items above
+
+**Status 2026-09-30:** RESOLVED. Every EIP in the table below is implemented,
+and all fourteen EIP directories of tests-glamsterdam-devnet@v7.2.1 pass in
+both executed families (state 1,748/1,748, engine 3,729/3,729 at a69c6621;
+the per-EIP code map and commits are in `amsterdam-inventory.md`). The rows
+this table left open: EIP-8246's burn removal (e225c1aa, e1761197, 87183c60),
+EIP-7928 construction including interpreter-side touching (0d774e0b,
+38ab8068, 87183c60), and the five unassessed EIPs, 2780/7976/7981 (1cbb6a98),
+7778 (1fc51bf1) and 8282 (0d774e0b, 2ed808e1). Amsterdam stays gated at the
+Engine (EVM-04). The original finding follows for the record.
 
 **Verdict:** mixed; several UNVERIFIED. **Severity:** completeness.
 
