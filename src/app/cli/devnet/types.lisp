@@ -115,17 +115,35 @@ the established pool instead of relearning it from the cold minimum."
 the 128 KiB blob key, 256 KiB of cells and 6 KiB of proofs, so the cache stays
 near 12 MiB -- above the largest scheduled blob count per block (bpo2, 21).")
 
+(defconstant +devnet-blob-cell-cache-wait-seconds+ 10
+  "Longest a caller waits for another thread's derivation of the same blob
+before deriving it itself. Our policy: far above one c-kzg derivation (0.12-0.19
+s, about a second under load), so it only matters if that thread is stuck.")
+
+(defconstant +devnet-blob-cell-warm-up-limit+ 4096
+  "How many transaction hashes a node remembers having started a background
+cell derivation for. Our policy: past it the set is cleared, and the worst case
+is a second warm-up whose blobs are already cached.")
+
 (defstruct (devnet-blob-cell-cache
             (:constructor make-devnet-blob-cell-cache ()))
   "Cells and cell proofs per blob, keyed by the blob's bytes.
 
 Pinned geth's blobpool computes a transaction's cells once, when it enters the
 pool, and serves eth/72 GetCells and pooled wrappers from what it stored. We
-derive lazily instead, on the first eth/72 request, but at most once per blob,
-and callers do it outside the store guard."
+derive when the transaction is first announced to an eth/72 peer, in the
+background (DEVNET-NODE-WARM-POOLED-BLOB-SIDECARS), or failing that on the
+first request, but at most once per blob, and never under the store guard."
   (lock #+sbcl (sb-thread:make-mutex :name "ethereum-lisp-blob-cell-cache")
         #-sbcl nil)
+  ;; Signalled whenever a derivation in flight ends.
+  (changed #+sbcl (sb-thread:make-waitqueue :name "ethereum-lisp-blob-cell-cache")
+           #-sbcl nil)
   (entries (make-hash-table :test #'equalp))
+  ;; Blobs a thread is deriving now; another caller waits for that thread.
+  (in-flight (make-hash-table :test #'equalp))
+  ;; Transaction hashes a background warm-up has been started for.
+  (warmed (make-hash-table :test #'equalp))
   (order '()))
 
 (defun devnet-blob-cell-cache-contains-p (cache blob)
@@ -137,44 +155,88 @@ and callers do it outside the store guard."
     #-sbcl
     (nth-value 1 (gethash key (devnet-blob-cell-cache-entries cache)))))
 
+(defun devnet-blob-cell-cache-note-warm-up (cache hash)
+  "Record that a background warm-up starts for the transaction with HASH, and
+return true unless one was already started for it."
+  (flet ((note ()
+           (let ((warmed (devnet-blob-cell-cache-warmed cache))
+                 (key (copy-seq (ensure-byte-vector hash))))
+             (unless (gethash key warmed)
+               (when (>= (hash-table-count warmed)
+                         +devnet-blob-cell-warm-up-limit+)
+                 (clrhash warmed))
+               (setf (gethash key warmed) t)))))
+    #+sbcl
+    (sb-thread:with-mutex ((devnet-blob-cell-cache-lock cache))
+      (note))
+    #-sbcl
+    (note)))
+
+(defun devnet-blob-cell-cache-store (cache key cells proofs)
+  "Put CELLS and PROOFS under KEY, evicting the oldest entry past the limit.
+Call it with CACHE's lock held."
+  (let ((entries (devnet-blob-cell-cache-entries cache)))
+    (unless (gethash key entries)
+      (setf (gethash key entries) (cons cells proofs))
+      (push key (devnet-blob-cell-cache-order cache))
+      (when (> (hash-table-count entries) +devnet-blob-cell-cache-limit+)
+        (let ((oldest (car (last (devnet-blob-cell-cache-order cache)))))
+          (setf (devnet-blob-cell-cache-order cache)
+                (butlast (devnet-blob-cell-cache-order cache)))
+          (remhash oldest entries))))))
+
 (defun devnet-blob-cell-cache-derivation (cache blob function)
   "Return (VALUES CELLS PROOFS) for BLOB, computing them with FUNCTION once.
 
 FUNCTION takes the blob and returns cells and proofs as two values. It runs
-outside the cache lock; two threads racing on a new blob may both compute it,
-which costs time but never a wrong answer, since the derivation is a pure
-function of the blob. Keys are the blob bytes themselves: an equalp table
-compares them in full, so a colliding hash costs a comparison, never a wrong
-entry."
+outside the cache lock. A caller that finds another thread deriving the same
+blob waits for it, up to +DEVNET-BLOB-CELL-CACHE-WAIT-SECONDS+, instead of
+deriving it a second time: a peer's request often arrives while the background
+warm-up of the transaction it asks for is still running. Keys are the blob
+bytes themselves: an equalp table compares them in full, so a colliding hash
+costs a comparison, never a wrong entry."
   (let ((key (copy-seq (ensure-byte-vector blob))))
-    (flet ((locked (thunk)
-             #+sbcl
-             (sb-thread:with-mutex ((devnet-blob-cell-cache-lock cache))
-               (funcall thunk))
-             #-sbcl
-             (funcall thunk)))
-      (let ((cached
-              (locked
-               (lambda ()
-                 (gethash key (devnet-blob-cell-cache-entries cache))))))
+    #-sbcl
+    (let ((cached (gethash key (devnet-blob-cell-cache-entries cache))))
+      (if cached
+          (values (car cached) (cdr cached))
+          (multiple-value-bind (cells proofs) (funcall function blob)
+            (devnet-blob-cell-cache-store cache key cells proofs)
+            (values cells proofs))))
+    #+sbcl
+    (let ((lock (devnet-blob-cell-cache-lock cache))
+          (changed (devnet-blob-cell-cache-changed cache))
+          (in-flight (devnet-blob-cell-cache-in-flight cache))
+          (deadline (+ (get-internal-real-time)
+                       (* +devnet-blob-cell-cache-wait-seconds+
+                          internal-time-units-per-second))))
+      (multiple-value-bind (cached owner-p)
+          (sb-thread:with-mutex (lock)
+            (loop
+              (let ((entry (gethash key (devnet-blob-cell-cache-entries cache)))
+                    (left (- deadline (get-internal-real-time))))
+                (cond
+                  (entry (return (values entry nil)))
+                  ((not (gethash key in-flight))
+                   (setf (gethash key in-flight) t)
+                   (return (values nil t)))
+                  ;; The deriving thread is stuck: derive it ourselves.
+                  ((<= left 0) (return (values nil nil)))
+                  (t (sb-thread:condition-wait
+                      changed lock
+                      :timeout (max 1/1000
+                                    (/ left internal-time-units-per-second))))))))
         (if cached
             (values (car cached) (cdr cached))
-            (multiple-value-bind (cells proofs) (funcall function blob)
-              (locked
-               (lambda ()
-                 (let ((entries (devnet-blob-cell-cache-entries cache)))
-                   (unless (gethash key entries)
-                     (setf (gethash key entries) (cons cells proofs))
-                     (push key (devnet-blob-cell-cache-order cache))
-                     (when (> (hash-table-count entries)
-                              +devnet-blob-cell-cache-limit+)
-                       (let ((oldest
-                               (car (last
-                                     (devnet-blob-cell-cache-order cache)))))
-                         (setf (devnet-blob-cell-cache-order cache)
-                               (butlast (devnet-blob-cell-cache-order cache)))
-                         (remhash oldest entries)))))))
-              (values cells proofs)))))))
+            (unwind-protect
+                 (multiple-value-bind (cells proofs) (funcall function blob)
+                   (sb-thread:with-mutex (lock)
+                     (devnet-blob-cell-cache-store cache key cells proofs))
+                   (values cells proofs))
+              (when owner-p
+                (sb-thread:with-mutex (lock)
+                  (remhash key in-flight)
+                  (sb-thread:condition-broadcast changed)))))))))
 
 (defstruct (devnet-node
             (:constructor %make-devnet-node

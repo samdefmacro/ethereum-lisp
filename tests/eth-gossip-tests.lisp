@@ -2340,32 +2340,46 @@ ON-DERIVATION with the blob and returns 128 cells and 128 proofs."
   ;; eth/72 peer derived all 128 cell proofs per blob just to learn the
   ;; wrapper's size, 0.9-1.7 s per announcement on the session's writer, and
   ;; the peer's own announcements waited unread behind it. Every KZG proof is
-  ;; 48 bytes, so the size needs no proof.
+  ;; 48 bytes, so the size needs no proof. Since b40d61c0 the backend starts
+  ;; deriving the announced wrapper in the background, so what is counted is
+  ;; the derivations on the announcing thread; serving then derives each
+  ;; blob once in all.
+  #-sbcl
+  (skip-test "The background warm-up requires SBCL threads")
+  #+sbcl
   (multiple-value-bind (node transaction)
       (eth-gossip-test-pooled-multi-blob-node 2)
     (let* ((backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
            (peer (ethereum-lisp.eth-sync::%make-eth-peer
                   :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
                   :serve-backend backend))
+           (lock (sb-thread:make-mutex :name "eth-72-announcement-derivations"))
+           (announcing-thread sb-thread:*current-thread*)
            (derivations 0)
+           (on-announcing-thread 0)
            (sent '()))
       (eth-gossip-test-call-with-function-overrides
        (append
         (eth-gossip-test-fake-cell-derivation
-         (lambda (blob) (declare (ignore blob)) (incf derivations)))
+         (lambda (blob)
+           (declare (ignore blob))
+           (sb-thread:with-mutex (lock)
+             (incf derivations)
+             (when (eq sb-thread:*current-thread* announcing-thread)
+               (incf on-announcing-thread)))))
         (list (cons 'ethereum-lisp.eth-sync:eth-peer-send
                     (lambda (seen message-id payload)
                       (declare (ignore seen))
                       (push (cons message-id payload) sent)))))
        (lambda ()
          (is (= 1 (eth-peer-announce-transactions peer (list transaction))))
-         (is (zerop derivations))
-         ;; Positive control: serving the wrapper derives both blobs' proofs,
-         ;; and the announced size is that wrapper's size.
+         (is (zerop (sb-thread:with-mutex (lock) on-announcing-thread)))
+         ;; Positive control: serving the wrapper needs both blobs' proofs,
+         ;; each derived once, and the announced size is that wrapper's size.
          (let ((wrapper (funcall (ethereum-lisp.eth-sync::eth-serve-backend-pooled-blob-sidecar
                                   backend)
                                  transaction)))
-           (is (= 2 derivations))
+           (is (= 2 (sb-thread:with-mutex (lock) derivations)))
            (is (= (* 2 +cell-proofs-per-blob+)
                   (length (blob-sidecar-proofs wrapper))))
            (is (= 1 (length sent)))
@@ -2418,3 +2432,271 @@ ON-DERIVATION with the blob and returns 128 cells and 128 proofs."
       ;; Each blob derived exactly once, and more than one at a time.
       (is (equal '(1 2 3 4 5) (sort (copy-list derived) #'<)))
       (is (> most-active 1)))))
+
+;;; Hive engine-cancun "Blob Transaction Ordering, Multiple Clients" at
+;;; b40d61c0 (docs/evidence/sec5-b40d61c0-hive-blob-order.txt): after
+;;; 68c2f376, B's five 1-blob transactions still reached A through a chain of
+;;; steps on the two session threads, and each thread spent seconds on KZG
+;;; work one blob at a time: B verified every blob of each of A's 5-blob
+;;; transactions and derived its blob proof in turn, and answering a request
+;;; for several 1-blob wrappers derived each transaction's cells in turn. Two
+;;; real devnet nodes over loopback eth/72, loaded like the Hive host, built
+;;; A's payload before any of B's transactions arrived.
+
+(defun eth-gossip-test-concurrency-probe ()
+  "A function of one blob that sleeps 0.2 s while counting how many calls
+overlap, and a function returning (VALUES MOST-ACTIVE BLOBS-SEEN)."
+  (let ((lock (sb-thread:make-mutex :name "eth-gossip-concurrency-probe"))
+        (active 0)
+        (most-active 0)
+        (seen '()))
+    (values
+     (lambda (blob)
+       (sb-thread:with-mutex (lock)
+         (incf active)
+         (setf most-active (max most-active active))
+         (push (aref blob 1) seen))
+       (sleep 0.2)
+       (sb-thread:with-mutex (lock)
+         (decf active)))
+     (lambda ()
+       (sb-thread:with-mutex (lock)
+         (values most-active (sort (copy-list seen) #'<)))))))
+
+(deftest eth-72-received-blob-sidecar-is-verified-blob-by-blob-in-parallel
+  (:layer :integration :module :p2p)
+  ;; B's side: a 5-blob transaction whose cells arrived over eth/72 enters
+  ;; the pool through the devnet node's production backend, on the session
+  ;; thread. Each blob's cell proofs are verified and its blob proof derived
+  ;; once, and different blobs' work overlaps.
+  #-sbcl
+  (skip-test "Parallel verification requires SBCL threads")
+  #+sbcl
+  (let* ((key 7301)
+         (node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json
+                (devnet-cli-funded-txpool-genesis-json
+                 :private-keys (list key)
+                 :config-fields (list (cons "cancunTime" "0x0")))
+                :port 0 :public-port 0))
+         (config (ethereum-lisp.cli:devnet-node-config node))
+         (blobs (loop for index from 1 to 5
+                      collect (let ((blob (make-byte-vector +blob-byte-size+)))
+                                (setf (aref blob 1) index)
+                                blob)))
+         (commitments
+           (loop for index from 1 to 5
+                 collect (let ((commitment
+                                 (make-byte-vector +kzg-commitment-size+
+                                                   :initial-element #xc0)))
+                           (setf (aref commitment 1) index)
+                           commitment)))
+         (transaction
+           (fixture-sign-blob-transaction
+            (make-blob-transaction
+             :chain-id (chain-config-chain-id config) :nonce 0
+             :max-priority-fee-per-gas 1000000000
+             :max-fee-per-gas 30000000000 :gas-limit 100000
+             :to (address-from-hex
+                  "0x0000000000000000000000000000000000003001")
+             :max-fee-per-blob-gas 100
+             :blob-versioned-hashes
+             (mapcar #'kzg-commitment-to-versioned-hash commitments))
+            key))
+         (sidecar
+           (make-blob-sidecar
+            :blobs blobs :commitments commitments
+            :proofs (loop repeat (* 5 +cell-proofs-per-blob+)
+                          collect (make-byte-vector +kzg-proof-size+))))
+         (accept (eth-serve-backend-accept-blob-transaction
+                  (ethereum-lisp.cli::devnet-peer-serve-backend node))))
+    (multiple-value-bind (verify verified) (eth-gossip-test-concurrency-probe)
+      (multiple-value-bind (derive derived) (eth-gossip-test-concurrency-probe)
+        (let ((ethereum-lisp.kzg:*kzg-verifier* nil)
+              (*kzg-cell-proof-verifier*
+                (lambda (blob commitment proofs)
+                  (declare (ignore commitment))
+                  (is (= +cell-proofs-per-blob+ (length proofs)))
+                  (funcall verify blob)
+                  t)))
+          (eth-gossip-test-call-with-function-overrides
+           (list (cons 'ethereum-lisp.kzg::compute-kzg-blob-proof
+                       (lambda (blob commitment)
+                         (declare (ignore commitment))
+                         (funcall derive blob)
+                         (make-byte-vector +kzg-proof-size+
+                                           :initial-element #xc0))))
+           (lambda ()
+             (is (funcall accept transaction sidecar)))))
+        (is (ethereum-lisp.txpool:engine-payload-store-pooled-transaction
+             (ethereum-lisp.cli:devnet-node-store node)
+             (transaction-hash transaction)))
+        ;; Every blob verified and derived exactly once...
+        (multiple-value-bind (most-active seen) (funcall verified)
+          (is (equal '(1 2 3 4 5) seen))
+          ;; ...and not one after another.
+          (is (> most-active 1)))
+        (multiple-value-bind (most-active seen) (funcall derived)
+          (is (equal '(1 2 3 4 5) seen))
+          (is (> most-active 1)))))))
+
+(deftest eth-72-pooled-transactions-reply-derives-all-its-blobs-at-once
+  (:layer :integration :module :p2p)
+  ;; B's other side: A asks B for its three 1-blob transactions in one
+  ;; GetPooledTransactions. Their eth/72 wrappers need every blob's cell
+  ;; proofs, and one wrapper at a time derived them one after another; the
+  ;; reply derives each blob once, more than one at a time.
+  #-sbcl
+  (skip-test "Parallel derivation requires SBCL threads")
+  #+sbcl
+  (let* ((node (ethereum-lisp.cli:make-devnet-node
+                :genesis-json *eth-sync-paris-genesis-json*
+                :port 0 :public-port 0))
+         (store (ethereum-lisp.cli:devnet-node-store node))
+         (transactions
+           (loop for index from 1 to 3
+                 collect
+                 (let* ((blob (make-byte-vector +blob-byte-size+))
+                        (commitment (make-byte-vector +kzg-commitment-size+
+                                                      :initial-element #xc0))
+                        (transaction
+                          (make-blob-transaction
+                           :chain-id 1 :nonce index :max-fee-per-gas 1000
+                           :max-priority-fee-per-gas 1 :gas-limit 21000
+                           :max-fee-per-blob-gas 10
+                           :to (address-from-hex
+                                "0x0000000000000000000000000000000000003001")
+                           :blob-versioned-hashes
+                           (list (progn
+                                   (setf (aref commitment 1) index)
+                                   (kzg-commitment-to-versioned-hash
+                                    commitment)))
+                           :y-parity 0 :r 8 :s 9)))
+                   (setf (aref blob 1) index)
+                   (let ((*kzg-blob-proof-verifier*
+                           (lambda (b c p) (declare (ignore b c p)) t))
+                         (ethereum-lisp.kzg:*kzg-verifier* nil))
+                     (engine-payload-store-put-blob-sidecar
+                      store
+                      (make-blob-sidecar
+                       :blobs (list blob) :commitments (list commitment)
+                       :proofs (list (make-byte-vector +kzg-proof-size+)))))
+                   (ethereum-lisp.txpool:engine-payload-store-put-blob-transaction
+                    store transaction)
+                   transaction)))
+         (backend (ethereum-lisp.cli::devnet-peer-serve-backend node)))
+    (multiple-value-bind (derive derived) (eth-gossip-test-concurrency-probe)
+      (eth-gossip-test-call-with-function-overrides
+       (eth-gossip-test-fake-cell-derivation derive)
+       (lambda ()
+         (let ((entries
+                 (ethereum-lisp.eth-sync::eth-serve-pooled-transactions
+                  backend
+                  (mapcar #'eth-gossip-transaction-hash-bytes transactions)
+                  :version ethereum-lisp.eth-wire:+eth-protocol-version-72+)))
+           (is (= 3 (length entries)))
+           (dolist (entry entries)
+             (is (= +cell-proofs-per-blob+
+                    (length (blob-sidecar-proofs
+                             (blob-network-transaction-sidecar entry)))))))))
+      (multiple-value-bind (most-active seen) (funcall derived)
+        (is (equal '(1 2 3) seen))
+        (is (> most-active 1))))))
+
+(defun eth-gossip-test-announce-five-blob-transaction ()
+  "Announce a pooled 5-blob transaction to an eth/72 peer through a devnet
+node's production backend; the caller fakes c-kzg's derivation. Returns the
+node, the backend, the transaction, and the five blobs."
+  (multiple-value-bind (node transaction)
+      (eth-gossip-test-pooled-multi-blob-node 5)
+    (let* ((backend (ethereum-lisp.cli::devnet-peer-serve-backend node))
+           (peer (ethereum-lisp.eth-sync::%make-eth-peer
+                  :eth-version ethereum-lisp.eth-wire:+eth-protocol-version-72+
+                  :serve-backend backend)))
+      (eth-gossip-test-call-with-function-overrides
+       (list (cons 'ethereum-lisp.eth-sync:eth-peer-send
+                   (lambda (seen message-id payload)
+                     (declare (ignore seen message-id payload))
+                     nil)))
+       (lambda ()
+         (is (= 1 (eth-peer-announce-transactions peer (list transaction))))))
+      (values node backend transaction
+              (loop for index from 1 to 5
+                    collect (make-byte-vector +blob-byte-size+
+                                              :initial-element index))))))
+
+(deftest eth-72-announced-blob-transaction-is-derived-before-its-peer-asks
+  (:layer :integration :module :p2p)
+  ;; A's side: the producer derived each of its 5-blob transactions' cell
+  ;; proofs only when B asked for the wrapper, 0.6-1.1 s per transaction
+  ;; under load on the session thread that also had to read B's
+  ;; announcements. Pinned geth computes a blob transaction's cells when it
+  ;; enters the pool (blobpool newBlobTxForPool). Announcing the transaction
+  ;; to an eth/72 peer starts that derivation in the background: the cache
+  ;; fills with no request at all, nothing runs on the announcing thread, and
+  ;; the wrapper served afterwards derives nothing more.
+  #-sbcl
+  (skip-test "The background warm-up requires SBCL threads")
+  #+sbcl
+  (let ((lock (sb-thread:make-mutex :name "eth-72-warm-up-derivations"))
+        (announcing-thread sb-thread:*current-thread*)
+        (derived '())
+        (on-announcing-thread 0))
+    (eth-gossip-test-call-with-function-overrides
+     (eth-gossip-test-fake-cell-derivation
+      (lambda (blob)
+        (sb-thread:with-mutex (lock)
+          (push (aref blob 0) derived)
+          (when (eq sb-thread:*current-thread* announcing-thread)
+            (incf on-announcing-thread)))))
+     (lambda ()
+       (multiple-value-bind (node backend transaction blobs)
+           (eth-gossip-test-announce-five-blob-transaction)
+         (let ((cache (ethereum-lisp.cli::devnet-node-blob-cell-cache node)))
+           (wait-for-test-condition
+            "the announced transaction's blobs derived without a request" 10d0
+            (lambda ()
+              (every (lambda (blob)
+                       (ethereum-lisp.cli::devnet-blob-cell-cache-contains-p
+                        cache blob))
+                     blobs)))
+           (let ((wrapper
+                   (funcall (ethereum-lisp.eth-sync::eth-serve-backend-pooled-blob-sidecar
+                             backend)
+                            transaction)))
+             (is (= (* 5 +cell-proofs-per-blob+)
+                    (length (blob-sidecar-proofs wrapper)))))))))
+    (is (zerop on-announcing-thread))
+    (is (equal '(1 2 3 4 5) (sort (copy-list derived) #'<)))))
+
+(deftest eth-72-request-during-a-warm-up-waits-for-it
+  (:layer :integration :module :p2p)
+  ;; The peer's GetPooledTransactions usually arrives while the background
+  ;; derivation of what it asks for is still running. The request waits for
+  ;; that derivation instead of deriving each blob a second time
+  ;; (DEVNET-BLOB-CELL-CACHE-DERIVATION); without the wait this serves ten
+  ;; derivations for five blobs.
+  #-sbcl
+  (skip-test "The background warm-up requires SBCL threads")
+  #+sbcl
+  (let ((lock (sb-thread:make-mutex :name "eth-72-warm-up-single-flight"))
+        (derived '()))
+    (eth-gossip-test-call-with-function-overrides
+     (eth-gossip-test-fake-cell-derivation
+      (lambda (blob)
+        (sb-thread:with-mutex (lock)
+          (push (aref blob 0) derived))
+        (sleep 0.3)))
+     (lambda ()
+       (multiple-value-bind (node backend transaction)
+           (eth-gossip-test-announce-five-blob-transaction)
+         (declare (ignore node))
+         ;; At once, while the warm-up sleeps in its derivations.
+         (let ((wrapper
+                 (funcall (ethereum-lisp.eth-sync::eth-serve-backend-pooled-blob-sidecar
+                           backend)
+                          transaction)))
+           (is (= (* 5 +cell-proofs-per-blob+)
+                  (length (blob-sidecar-proofs wrapper))))))))
+    (is (equal '(1 2 3 4 5)
+               (sb-thread:with-mutex (lock) (sort (copy-list derived) #'<))))))

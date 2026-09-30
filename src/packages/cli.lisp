@@ -20,6 +20,7 @@
   (:import-from #:ethereum-lisp.eth-wire
                 #:eth-pooled-entry-transaction
                 #:+eth-protocol-version-69+
+                #:+eth-protocol-version-72+
                 #:+eth-message-new-block-hashes+
                 #:make-eth-new-block-hash
                 #:encode-eth-new-block-hashes)

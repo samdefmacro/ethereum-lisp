@@ -134,53 +134,98 @@ in the warm image, and the guard also serializes every Engine request."
    (lambda (blob) (kzg-compute-cells-and-proofs blob))))
 
 (defconstant +devnet-blob-cell-derivation-threads+ 8
-  "Most blobs one serving call derives EIP-7594 cells and proofs for at once.
-Our policy: a derivation is about 0.12-0.19 s of c-kzg per blob, and it runs on
-a peer session's writer thread, which reads nothing from that peer meanwhile.")
+  "Most blobs one peer-session call does KZG work for at once: deriving
+EIP-7594 cells and proofs to serve, or verifying a received sidecar. Our
+policy: that work is 0.01-0.19 s of c-kzg per blob, and it runs on a peer
+session's writer thread, which reads nothing from that peer meanwhile.")
+
+(defun devnet-kzg-special-bindings ()
+  "The KZG verifier specials as the calling thread sees them, as (SYMBOLS
+VALUES) for PROGV. A LET binding is thread-local in SBCL, so a helper thread
+would otherwise verify with the global verifiers, not the caller's."
+  (list (list '*kzg-verifier* '*kzg-point-proof-verifier*
+              '*kzg-blob-proof-verifier* '*kzg-cell-proof-verifier*)
+        (list *kzg-verifier* *kzg-point-proof-verifier*
+              *kzg-blob-proof-verifier* *kzg-cell-proof-verifier*)))
+
+(defun devnet-parallel-map (function items)
+  "FUNCTION applied to each of ITEMS, results in order, like MAPCAR, but at
+most +DEVNET-BLOB-CELL-DERIVATION-THREADS+ items at a time: the calling thread
+takes the first item of each batch and helper threads the rest.
+
+For independent c-kzg work on the blobs of one session call; c-kzg only reads
+its settings. A helper runs with the caller's KZG verifier specials. Every
+item's condition is captured, and once its batch has been joined the first
+failing item's condition is signalled again in the calling thread, so a caller
+sees the condition MAPCAR would have given it."
+  #-sbcl
+  (mapcar function items)
+  #+sbcl
+  (if (null (rest items))
+      (mapcar function items)
+      (destructuring-bind (symbols values) (devnet-kzg-special-bindings)
+        (let ((results '()))
+          (flet ((outcome (item)
+                   (handler-case (cons :value (funcall function item))
+                     (serious-condition (condition)
+                       (cons :condition condition)))))
+            (loop while items
+                  do (let* ((batch
+                              (loop repeat +devnet-blob-cell-derivation-threads+
+                                    while items
+                                    collect (pop items)))
+                            (outcomes (make-array (length batch)
+                                                  :initial-element nil))
+                            (helpers '()))
+                       (unwind-protect
+                            (progn
+                              (loop for item in (rest batch)
+                                    for index from 1
+                                    do (let ((item item) (index index))
+                                         (push
+                                          (sb-thread:make-thread
+                                           (lambda ()
+                                             ;; MANDATORY, not defensive: the
+                                             ;; node runs as `sbcl --script`,
+                                             ;; where an unhandled condition in
+                                             ;; any thread exits the process.
+                                             ;; OUTCOME catches it.
+                                             (progv symbols values
+                                               (setf (aref outcomes index)
+                                                     (outcome item))))
+                                           :name "ethereum-lisp-blob-kzg-work")
+                                          helpers)))
+                              (setf (aref outcomes 0) (outcome (first batch))))
+                         (dolist (helper helpers)
+                           (sb-thread:join-thread helper :default nil)))
+                       (loop for outcome across outcomes
+                             do (cond
+                                  ((null outcome)
+                                   (error "A blob KZG helper thread ended ~
+                                           without a result"))
+                                  ((eq :condition (car outcome))
+                                   (error (cdr outcome)))
+                                  (t (push (cdr outcome) results)))))))
+          (nreverse results)))))
 
 (defun devnet-node-derive-blob-cells (node blobs)
   "Put the cells and cell proofs of every blob in BLOBS into NODE's cache,
-deriving the missing ones in parallel, at most
-+DEVNET-BLOB-CELL-DERIVATION-THREADS+ at a time.
+deriving the missing ones in parallel (DEVNET-PARALLEL-MAP).
 
 A 5-blob transaction served to an eth/72 peer cost its session 0.85 s when its
 blobs were derived one after another, and the peer's own messages waited behind
 it: Hive 'Blob Transaction Ordering, Multiple Clients' at 7116af82
-(docs/evidence/sec5-hive-engine-7116af82.txt). A helper thread's failure is
-dropped; the caller's own derivation of that blob then signals it."
-  (let ((missing
-          (remove-if (lambda (blob)
-                       (devnet-blob-cell-cache-contains-p
-                        (devnet-node-blob-cell-cache node) blob))
-                     blobs)))
-    #-sbcl
-    (dolist (blob missing)
-      (devnet-node-blob-cells-and-proofs node blob))
-    #+sbcl
-    (loop while missing
-          do (let* ((batch (loop repeat +devnet-blob-cell-derivation-threads+
-                                 while missing
-                                 collect (pop missing)))
-                    (helpers
-                      (mapcar
-                       (lambda (blob)
-                         (sb-thread:make-thread
-                          (lambda ()
-                            ;; MANDATORY, not defensive: the node runs as
-                            ;; `sbcl --script`, where an unhandled condition in
-                            ;; any thread exits the process.
-                            (handler-case
-                                (progn
-                                  (devnet-node-blob-cells-and-proofs node blob)
-                                  t)
-                              (serious-condition () nil)))
-                          :name "ethereum-lisp-blob-cell-derivation"))
-                       (rest batch))))
-               (unwind-protect
-                    (devnet-node-blob-cells-and-proofs node (first batch))
-                 (dolist (helper helpers)
-                   (sb-thread:join-thread helper :default nil)))))
-    blobs))
+(docs/evidence/sec5-hive-engine-7116af82.txt). A derivation's failure is
+dropped here; the caller's own lookup of that blob then signals it."
+  (devnet-parallel-map
+   (lambda (blob)
+     (handler-case (progn (devnet-node-blob-cells-and-proofs node blob) t)
+       (serious-condition () nil)))
+   (remove-if (lambda (blob)
+                (devnet-blob-cell-cache-contains-p
+                 (devnet-node-blob-cell-cache node) blob))
+              blobs))
+  blobs)
 
 (defun devnet-node-pooled-blob-sidecar (node transaction version)
   "DEVNET-POOLED-BLOB-SIDECAR for serving: the store read under NODE's guard,
@@ -206,6 +251,72 @@ wrapper fills for all of its blobs in parallel first."
      (and derive-p
           (lambda (blob)
             (nth-value 1 (devnet-node-blob-cells-and-proofs node blob)))))))
+
+(defun devnet-node-prepare-pooled-blob-sidecars (node transactions version)
+  "Before an eth/72 PooledTransactions reply reads its wrappers one by one,
+derive the cells and cell proofs of every blob of TRANSACTIONS that NODE's cache
+lacks, all in one parallel pass: one store read under the guard, the
+derivation after it.
+
+Hive 'Blob Transaction Ordering, Multiple Clients' at b40d61c0: answering a
+request for five 1-blob transactions derived them one after another, 0.13 s
+each in the warm image and 2.3 s under load, on the session thread that also
+carries the peer's own announcements and cell requests
+(docs/evidence/sec5-b40d61c0-hive-blob-order.txt)."
+  (when (and (>= version +eth-protocol-version-72+)
+             (kzg-cell-computation-available-p))
+    (let ((entries
+            (call-with-devnet-node-store-guard-as
+             node "blob-sidecar-lookup"
+             (lambda ()
+               (loop with store = (devnet-node-store node)
+                     for transaction in transactions
+                     append (devnet-pooled-blob-entries store transaction))))))
+      (devnet-node-derive-blob-cells
+       node
+       (loop for entry in entries
+             unless (= +cell-proofs-per-blob+
+                       (length (engine-blob-and-proofs-cell-proofs entry)))
+               collect (engine-blob-and-proofs-blob entry))))))
+
+(defun devnet-node-warm-pooled-blob-sidecars (node transactions version)
+  "Start deriving, on a background thread, the cells and cell proofs of the
+blobs of TRANSACTIONS that were just announced to an eth/72 peer, and return at
+once. The peer's GetPooledTransactions then finds them derived, or waits for
+this derivation rather than repeating it (DEVNET-BLOB-CELL-CACHE-DERIVATION).
+Pinned geth computes a blob transaction's cells when it enters the pool
+(core/txpool/blobpool newBlobTxForPool), off the peer's message loop.
+
+Hive 'Blob Transaction Ordering, Multiple Clients' at b40d61c0: the producer
+derived each of its 5-blob transactions when its peer asked, 0.6-1.1 s per
+transaction under load, on the session thread that had to read the peer's
+announcements of the transactions the payload was waiting for
+(docs/evidence/sec5-b40d61c0-hive-blob-order.txt). A transaction is warmed
+once however many sessions announce it."
+  (when (and (>= version +eth-protocol-version-72+)
+             (kzg-cell-computation-available-p))
+    (let* ((cache (devnet-node-blob-cell-cache node))
+           (fresh (remove-if-not
+                   (lambda (transaction)
+                     (devnet-blob-cell-cache-note-warm-up
+                      cache (hash32-bytes (transaction-hash transaction))))
+                   transactions)))
+      #-sbcl (declare (ignore fresh))
+      #+sbcl
+      (when fresh
+        ;; A warm-up that fails, or cannot even start, costs nothing: the
+        ;; peer's request derives what it needs.
+        (handler-case
+            (sb-thread:make-thread
+             (lambda ()
+               ;; MANDATORY, not defensive: the node runs as `sbcl --script`,
+               ;; where an unhandled condition in any thread exits the process.
+               (handler-case
+                   (devnet-node-prepare-pooled-blob-sidecars node fresh version)
+                 (serious-condition () nil)))
+             :name "ethereum-lisp-blob-cell-warm-up")
+          (serious-condition () nil)))
+      nil)))
 
 (defun devnet-peer-blob-cells (node hashes mask)
   "Resolve pooled sidecars under NODE's guard, then serve eth/72 cell groups
@@ -301,6 +412,12 @@ batch is admitted in chunks of +DEVNET-TX-ADMISSION-CHUNK+, one hold each."
        :pooled-transaction-sidecar
        (lambda (transaction)
          (devnet-node-pooled-blob-sidecar node transaction 1))
+       :prepare-pooled-blob-sidecars
+       (lambda (transactions version)
+         (devnet-node-prepare-pooled-blob-sidecars node transactions version))
+       :warm-pooled-blob-sidecars
+       (lambda (transactions version)
+         (devnet-node-warm-pooled-blob-sidecars node transactions version))
        :blob-cells
        (when (kzg-cell-computation-available-p)
          (lambda (hashes mask)
@@ -342,7 +459,8 @@ batch is admitted in chunks of +DEVNET-TX-ADMISSION-CHUNK+, one hold each."
                      :admitted-at (unix-time)))))
        ;; One admission for a blob transaction and its sidecar: the pool checks
        ;; and the single commit run under the guard, the KZG verification
-       ;; between them does not.
+       ;; between them does not, and verifies the blobs in parallel: it runs
+       ;; on the peer's session thread.
        :accept-blob-transaction
        (lambda (transaction sidecar)
          (handler-case
@@ -351,7 +469,8 @@ batch is admitted in chunks of +DEVNET-TX-ADMISSION-CHUNK+, one hold each."
                 transaction sidecar store config policy
                 :admitted-at (unix-time)
                 :call-with-store
-                (lambda (thunk) (guarded "blob-admission" thunk)))
+                (lambda (thunk) (guarded "blob-admission" thunk))
+                :map-function #'devnet-parallel-map)
                t)
            (txpool-invalid-blob-sidecar (condition) (error condition))
            (block-validation-error () nil)))
