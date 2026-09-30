@@ -18,8 +18,8 @@ with a `**Status 2026-09-30:**` line naming the commits that closed them. Of the
 `STORE-20`) and 7 DIVERGENT (`EVM-15`, `EXEC-09`, `EXEC-10`, `POOL-06`, `STORE-04`,
 `STORE-09`, `STORE-13`). The tier prose, work programme and phases below are the
 2026-07-28 plan of record and are kept as written; read the table, not the prose,
-for what is still open. Originally, nothing described below had been implemented, and no statement here
-should be read as a claim that a fix is in the tree.
+for what is still open. The July prose was written before any fix landed; only the
+table verdicts and the Status lines make claims about the tree.
 
 ## The six areas
 
