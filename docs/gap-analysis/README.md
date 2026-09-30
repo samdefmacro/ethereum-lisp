@@ -150,10 +150,10 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
-| [NET-01](networking-and-sync.md) | net | DIVERGENT | remote-DoS | One ~64 KB pre-authentication RLPx auth packet exhausts the control stack and exits the whole process. |
+| [NET-01](networking-and-sync.md) | net | RESOLVED (3a7abace, 4c68d5c6) | remote-DoS | `rlp-decode` refuses nesting past `+rlp-max-depth+` (64) as an ordinary error, and peer session threads contain `serious-condition`, so hostile nesting no longer kills the process. |
 | [EXEC-14](block-execution-and-types.md) | exec | UNVERIFIED → confirmed | remote-DoS | The same root cause: `rlp-decode`/`decode-list-payload` recurse per nesting level with no depth limit. |
-| [NET-02](networking-and-sync.md) | net | MISSING | remote-DoS | No per-protocol message size cap; any frame up to 16 MB is accepted, which carries NET-01 past the handshake. |
-| [NET-17](networking-and-sync.md) | net | MISSING | remote-DoS | Transaction decoders have no item-count cap, so a 16 MB message decodes to millions of objects. |
+| [NET-02](networking-and-sync.md) | net | RESOLVED (4c68d5c6) | remote-DoS | Base-protocol messages are capped at 2 KiB and `eth`/`snap` messages at 10 MiB, checked from the frame header and again after Snappy, as geth does. |
+| [NET-17](networking-and-sync.md) | net | RESOLVED (4c68d5c6, 3a785f74) | remote-DoS | Every `eth` decode has a per-list item cap enforced inside the RLP decoder: 5000 transactions or announcements, 262,144 items elsewhere. |
 
 ### Tier 2 — Confident wrong answers
 
@@ -169,7 +169,7 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EXEC-11](block-execution-and-types.md) | exec | MISSING | correctness | The KZG blob-proof verifier exists, is capability-gated, and has no caller on any live path; no code we own verifies a blob against its commitment. |
 | [RPC-06](rpc-and-engine.md) | rpc | RESOLVED (511481d7, 68c2f376) | CC-integration | Blob transactions are built into payloads and `getPayloadV3`+ returns a `blobsBundle` assembled from the stored sidecars. |
 | [POOL-13](txpool-building-and-ops.md) | pool | RESOLVED (511481d7, 5e3fb80f, bd7906c3) | completeness | Blob transactions are pooled with pinned sidecars, built into payloads, announced to peers and expired. |
-| [OPS-01](txpool-building-and-ops.md) | ops | DIVERGENT | operability | 56 command-line flags are accepted, consumed and discarded, including `--verbosity`, `--syncmode`, the cache family and every chain preset. |
+| [OPS-01](txpool-building-and-ops.md) | ops | PARTIAL (b3e05d91, 05ef79d5) | operability | About 36 geth flags are still accepted and ignored, now each with a warning; unknown TOML keys, `--syncmode` and the IPC flags are refused, and the rest are honoured. |
 | [RPC-37](rpc-and-engine.md) | rpc | RESOLVED (d8a000ea) | completeness | There is still no IPC transport, and `--ipcpath`/`--ipcapi`/`--ipcdisable` are refused at parse time instead of accepted. |
 
 ### Tier 3 — Verification collapse
@@ -185,13 +185,13 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EXEC-01](block-execution-and-types.md) | exec | DIVERGENT | consensus | EIP-7918 reserve-price comparison uses the parent's blob base-fee update fraction where both references use the child's. |
 | [EXEC-03](block-execution-and-types.md) | exec | DIVERGENT | consensus | Post-merge status is inferred from the header's own difficulty, not the chain config, so a PoS-from-genesis chain skips all four PoS header checks. |
 | [EXEC-02](block-execution-and-types.md) | exec | MISSING | consensus | Uncles are never validated beyond the ommers hash, yet uncle rewards are paid, so a pre-merge block can mint to fabricated uncles. |
-| [STORE-02](state-trie-storage.md) | store | DIVERGENT | consensus | Empty-account deletion is not gated on EIP-158, so pre-Spurious-Dragon replay produces a wrong account trie. Inert post-merge. |
+| [STORE-02](state-trie-storage.md) | store | RESOLVED (f17a95dd, d06f4002) | consensus | Empty-account deletion runs only in the end-of-transaction pass, gated on the cumulative EIP-158 rule; pre-Spurious-Dragon account creation follows geth (6e405bf9). |
 | [POOL-03](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | blocks-production | Admission applies the EIP-7623 floor data gas. |
 | [POOL-02](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | blocks-production | Admission applies the EIP-3860 initcode-size cap. |
 | [BUILD-01](txpool-building-and-ops.md) | build | RESOLVED (a7a7b1d0, 8f17c8c5, f35bc82c) | blocks-production | The Engine builder rolls a failing transaction back, skips its sender and keeps building, from an empty block that is always returnable. |
 | [BUILD-02](txpool-building-and-ops.md) | build | RESOLVED (a7a7b1d0) | blocks-production | Selection filters the pending list at the child block's base fee. |
 | [BUILD-03](txpool-building-and-ops.md) | build | RESOLVED (8f17c8c5, afab959a, 2bab2d36) | blocks-production | A background worker improves open payloads every 2 s and `getPayload` makes one final bounded rebuild, keeping the more valuable block. |
-| [STORE-21](state-trie-storage.md) | store | MISSING | durability | A head whose state is gone is a hard startup failure; there is no `SetHead`, no rewind and no repair. |
+| [STORE-21](state-trie-storage.md) | store | RESOLVED (c12488be, ef6f5e94) | durability | Startup rewinds a head without state to the newest stateful canonical ancestor; offline `db repair`/`rebuild` exist, and SIGKILL recovery is tested end to end. |
 | [RPC-11](rpc-and-engine.md) | rpc | RESOLVED (8117b233, 13cebe2a, 6b37b097) | CC-integration | An unknown or state-less forkchoice head becomes a sync target that the peer dialer fetches toward. |
 | [EVM-07](evm-and-gas.md) | evm | DIVERGENT | correctness | EIP-7702 delegation resolution is not fork-gated; we execute a designator's target at every fork where geth resolves only under Prague. |
 | [EVM-08](evm-and-gas.md) | evm | DIVERGENT | correctness | `empty-account-p` carries a storage-root term, so `EXTCODEHASH` pushes a hash where both references push zero. |
@@ -202,8 +202,8 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EXEC-09](block-execution-and-types.md) | exec | DIVERGENT | correctness | Request system calls require code and success; geth accepts a codeless predeploy. Direction undecided — needs execution-specs, not geth. |
 | [EXEC-10](block-execution-and-types.md) | exec | DIVERGENT | correctness | Withdrawals are credited before the request system calls; geth's order is the reverse. No observable difference established. |
 | [EXEC-13](block-execution-and-types.md) | exec | DIVERGENT | correctness | Header RLP encoding is presence-driven, not positional, so a gapped header silently shifts fields. Latent; the decoder allowlist is load-bearing. |
-| [STORE-03](state-trie-storage.md) | store | MISSING | correctness | No touched set and no end-of-transaction finalisation pass; the no-empty-account invariant is held by agreement between mutators. |
-| [STORE-10](state-trie-storage.md) | store | DIVERGENT | correctness | Proof verification requires an exactly-sized, correctly-ordered list, so a valid geth or Nethermind proof is rejected as malformed. |
+| [STORE-03](state-trie-storage.md) | store | RESOLVED (f17a95dd) | correctness | One end-of-transaction pass sweeps every account journaled or touched since the transaction mark, so the no-empty-account invariant no longer rests on mutators agreeing. |
+| [STORE-10](state-trie-storage.md) | store | RESOLVED (6a98ab75) | correctness | Proof verification indexes the supplied nodes by Keccak hash, so an unordered or padded geth or Nethermind proof verifies. |
 | [RPC-04](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e, e12264a6, 27c42c1c) | correctness | `forkchoiceUpdatedV4` requires `targetGasLimit` and the builder moves the gas limit toward it; the third `custodyColumns` parameter is length-checked and otherwise unused. |
 | [RPC-07](rpc-and-engine.md) | rpc | RESOLVED (0d4fd71e, f35bc82c) | correctness | `blockValue` is the priority fees the built block pays its fee recipient, and it also decides which rebuild is kept. |
 | [RPC-08](rpc-and-engine.md) | rpc | RESOLVED (8f17c8c5, afab959a, 2bab2d36) | correctness | The payload id is derived from version, parent and attributes only, and the payload behind it is improved in the background and once more at `getPayload`. |
@@ -218,14 +218,14 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [POOL-12](txpool-building-and-ops.md) | pool | RESOLVED (511481d7) | correctness | Replacing a blob transaction requires a 100% bump on the fee cap, the tip and the blob fee cap. |
 | [BUILD-04](txpool-building-and-ops.md) | build | RESOLVED (e12264a6, b3e05d91, 6e3e9b1d) | correctness | The builder moves the gas limit toward `targetGasLimit` or `--miner.gaslimit` (default 60,000,000) by at most parent/1024 - 1 per block. |
 | [BUILD-07](txpool-building-and-ops.md) | build | PARTIAL | completeness | From Osaka the Engine builder budgets transaction bytes against the EIP-7934 cap and re-checks the built block; per-transaction list framing is not counted, and no test covers the cap during building. |
-| [OPS-03](txpool-building-and-ops.md) | ops | MISSING | correctness | The data directory is not locked, so two processes can open the same datadir and interleave writes. |
+| [OPS-03](txpool-building-and-ops.md) | ops | RESOLVED (b3e05d91) | correctness | The node holds an exclusive POSIX lock on `<datadir>/LOCK` for its whole lifetime and refuses a datadir that is already in use. |
 
 ### Tier 5 — Unauthenticated resource exhaustion and open-by-default exposure
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
-| [NET-15](networking-and-sync.md) | net | MISSING | remote-DoS | No inbound per-IP throttle, no `netrestrict`, no IP-diversity limit; one host can occupy every peer slot and force unlimited ECIES work. |
-| [NET-06](networking-and-sync.md) | net | DIVERGENT | correctness | An unsolicited Ping marks a node bonded with its claimed ports, and bonded nodes are relayed — table poisoning and traffic reflection. |
+| [NET-15](networking-and-sync.md) | net | PARTIAL (191a89a4, 2e0c125a) | performance | Inbound admission applies `--netrestrict`, 3 connections per IP and 10 per /24 (LAN exempt); there is no time-window reconnect throttle, and dials and discovery ignore `--netrestrict`. |
+| [NET-06](networking-and-sync.md) | net | RESOLVED (3571d8e4) | correctness | A Ping records its sender unbonded and triggers a tracked Ping-back; only the matching Pong bonds it, and Neighbors relay only bonded, relay-checked entries. |
 | [RPC-16](rpc-and-engine.md) | rpc | RESOLVED (b0606eb3, 3ad547c9) | performance | Calls are capped at a 50,000,000 gas default and `eth_call`/`eth_simulateV1` at a 5 s EVM timeout, both set by `--rpc.gascap`/`--rpc.evmtimeout`. |
 | [RPC-25](rpc-and-engine.md) | rpc | PARTIAL | performance | Topic and address limits match geth, and range scans are streamed and capped at 5,000 blocks and 10,000 results; a scan still has no deadline of its own. |
 | [RPC-35](rpc-and-engine.md) | rpc | RESOLVED (6d0dbad7, 3ad547c9) | performance | Batches are limited to 1,000 items and 25,000,000 response bytes as geth does, and `--rpc.batch-request-limit`/`--rpc.batch-response-max-size` set both. |
@@ -236,29 +236,29 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [POOL-09](txpool-building-and-ops.md) | pool | PARTIAL | operability | The basefee and blob subpools are each bounded at the global slot limit, and the blob subpool at 1,024 blobs; there is no shared cross-subpool bound and no blob data cap setting. |
 | [POOL-10](txpool-building-and-ops.md) | pool | RESOLVED (b3e05d91) | operability | A maintenance thread expires pool entries every 60 s with a 3 h default lifetime, independent of RPC traffic. |
 | [POOL-01](txpool-building-and-ops.md) | pool | RESOLVED (014d1bd1) | correctness | Admission caps the encoded size at 128 KiB, and 1 MiB for a blob transaction without its sidecar. |
-| [NET-18](networking-and-sync.md) | net | DIVERGENT | performance | A hash-origin header query with a large skip walks the chain one parent at a time — up to ~10⁶ store lookups per small request. |
+| [NET-18](networking-and-sync.md) | net | PARTIAL (df1644ad) | performance | A canonical hash-origin skip query jumps by number in constant time; a side-chain origin still walks parents with no bound like geth's `maxNonCanonical` (100). |
 
 ### Tier 6 — Capability gaps
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
-| [NET-03](networking-and-sync.md) | net | MISSING | blocks-network-use | No `snap` capability, so state can only be acquired by executing every block from genesis. |
-| [NET-04](networking-and-sync.md) | net | DIVERGENT | blocks-network-use | The block download driver is one peer, one request in flight, sequential, capped at 2048 blocks per session. |
-| [NET-05](networking-and-sync.md) | net | DIVERGENT | blocks-network-use | Discovery advertises a loopback IP and an ephemeral TCP port, so nobody can ever dial us in. |
-| [NET-09](networking-and-sync.md) | net | MISSING | completeness | `Receipts` has an encoder and no decoder, so a receipt-fetching sync mode cannot be built. |
-| [NET-11](networking-and-sync.md) | net | DIVERGENT | completeness | Our `eth` message-id block length is 17 where geth's is 18 — latent today, a trap for whoever adds a second capability. |
-| [NET-10](networking-and-sync.md) | net | MISSING | completeness | `BlockRangeUpdate` is neither sent nor handled, and the peer's claimed block range is never validated. |
-| [NET-12](networking-and-sync.md) | net | MISSING | completeness | We speak eth/68 and eth/69; geth speaks 69 through 72 and has dropped 68, so there is no headroom. |
-| [NET-07](networking-and-sync.md) | net | MISSING | completeness | The routing table never evicts, revalidates or refreshes; `discv4-table-note-failure` and `-remove` have no caller. |
-| [NET-21](networking-and-sync.md) | net | DIVERGENT | completeness | The served ENR carries no `ip`/`tcp`/`udp` and a hardcoded sequence number of 1, so cached records never update. |
-| [NET-08](networking-and-sync.md) | net | MISSING | completeness | discv5 is absent. |
-| [NET-22](networking-and-sync.md) | net | MISSING | completeness | No NAT traversal or port mapping; `--nat` is parsed and ignored. |
-| [NET-16](networking-and-sync.md) | net | MISSING | completeness | No peer scoring; misbehaviour costs only the current session and eight of twelve disconnect reasons are never sent. |
-| [NET-20](networking-and-sync.md) | net | MISSING | completeness | Multi-frame RLPx messages cannot be read, so a Nethermind Hello above 1024 bytes is unreadable. |
-| [NET-14](networking-and-sync.md) | net | MISSING | completeness | No block propagation and no fetcher. Correct for a post-merge network; we contribute nothing to propagation. |
-| [STORE-07](state-trie-storage.md) | store | MISSING | completeness | No persistent trie node store, so state cannot be loaded lazily, served to a peer, or healed. |
-| [STORE-11](state-trie-storage.md) | store | MISSING | completeness | No range-proof verification, so a peer's account or storage range cannot be checked against the state root. |
-| [STORE-12](state-trie-storage.md) | store | MISSING | completeness | No node iterator; range enumeration re-scans and re-sorts the whole entry table per call. |
+| [NET-03](networking-and-sync.md) | net | RESOLVED (bcfcad1a, 93187217, 3a785f74) | blocks-network-use | `snap/1` is served and consumed: range download, healing and pivot rebase; the 0fe42b97 Hoodi run completed with the healer finished. |
+| [NET-04](networking-and-sync.md) | net | RESOLVED (24725d46, 6d41a29a, 3a785f74) | blocks-network-use | `eth-sync-download-blocks-multi` pipelines headers, bodies and receipts across peers with failover; the 2048-block ceiling is gone and the snap pivot follows the CL target. |
+| [NET-05](networking-and-sync.md) | net | RESOLVED (3571d8e4, 3ae7706c, 65a8604a) | blocks-network-use | Discovery advertises the listener's TCP port and the responder's UDP port and crawls from the responder socket, so peers dial us in. |
+| [NET-09](networking-and-sync.md) | net | RESOLVED (75daf03f, 24725d46) | completeness | `decode-eth-receipts` decodes `Receipts` per negotiated version, and the multi-peer downloader fetches receipts and checks them against the receipt root. |
+| [NET-11](networking-and-sync.md) | net | RESOLVED (23c954f8, df1644ad) | completeness | Message-id block lengths are per `eth` version (17, 18, 18, 20, 22 for 68 through 72) plus 8 for `snap`, matching geth. |
+| [NET-10](networking-and-sync.md) | net | RESOLVED (75daf03f, 68575c9b) | completeness | `BlockRangeUpdate` is encoded, decoded, validated and applied, the Status range is validated, and we send updates at geth's cadence. |
+| [NET-12](networking-and-sync.md) | net | RESOLVED (df1644ad, 635a9667) | completeness | We speak eth/68 through eth/72, including eth/71 block access lists and eth/72 cells in both deployed geth `GetCells` layouts. |
+| [NET-07](networking-and-sync.md) | net | PARTIAL (ae913ec5) | completeness | Unbonded and bond-expired entries are revalidated and evicted after four failed probes; bonded entries are not re-probed within their 12 h bond, and a full bucket keeps no replacement list. |
+| [NET-21](networking-and-sync.md) | net | RESOLVED (3571d8e4, 3a785f74) | completeness | The served ENR carries `ip`/`tcp`/`udp` and the `eth` fork id; its sequence number rises when they change and persists in the datadir. |
+| [NET-08](networking-and-sync.md) | net | PARTIAL (fbcee9d5) | completeness | A discv5.1 library (wire, crypto, table, official vectors) exists, but the node runs no discv5 service; Hive devp2p's discv5 case is the one expected failure. |
+| [NET-22](networking-and-sync.md) | net | PARTIAL (18726f66) | completeness | `--nat extip:ADDR` and `--nat none` work; `upnp`, `pmp` and `any` are refused at startup because the gateway clients have no production transport. |
+| [NET-16](networking-and-sync.md) | net | PARTIAL (191a89a4, 5e6240fc, 6284d463) | completeness | Peers carry a process-lifetime score charged only for data they sent and are refused at -100; scores neither decay nor persist, and seven of thirteen disconnect reasons are never sent. |
+| [NET-20](networking-and-sync.md) | net | RESOLVED (c7900464) | completeness | Chunked multi-frame RLPx packets, the Hello included, are reassembled with context-id and total-size checks. |
+| [NET-14](networking-and-sync.md) | net | RESOLVED (a646ebab, 3a785f74) | completeness | `NewBlock` and `NewBlockHashes` are decoded and admitted through validated import with an announced-block fetcher; eth/68 peers get `NewBlockHashes`, eth/69+ peers `BlockRangeUpdate`. |
+| [STORE-07](state-trie-storage.md) | store | RESOLVED (a307bc01, 00dc3b0a, 1fb99031) | completeness | Trie nodes are persisted content-addressed under `:trie-node`, opened lazily by root, served over snap `GetTrieNodes`, and healed. |
+| [STORE-11](state-trie-storage.md) | store | RESOLVED (a307bc01, 3a785f74) | completeness | `mpt-verify-range-proof` checks a gap-free range against the root with snap/1 edge proofs, empty and proofless ranges included; the snap client uses it. |
+| [STORE-12](state-trie-storage.md) | store | PARTIAL (6dae34ea) | cosmetic | Snap serving walks the trie in key order from the origin and stops at the bound; `make-mpt-iterator` and the entry-range helpers, called only from tests, still scan and sort. |
 | [EVM-01](evm-and-gas.md) | evm | MISSING | consensus | The four Amsterdam opcodes (`SLOTNUM`, `DUPN`, `SWAPN`, `EXCHANGE`) are not implemented. |
 | [EVM-02](evm-and-gas.md) | evm | MISSING | consensus | EIP-8037 state-gas metering and EIP-8038 repricing are absent; our gas budget is a scalar, so the metering dimension does not exist. |
 | [EVM-03](evm-and-gas.md) | evm | DIVERGENT | consensus | The Amsterdam contract-code-size limit is 32,768 where both references use 65,536 (EIP-7954), in two independent constants. |
@@ -268,7 +268,7 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [EXEC-07](block-execution-and-types.md) | exec | MISSING | completeness | EIP-7997's irregular state transition and EIP-8282's request types `0x03`/`0x04` are absent from the pipeline. |
 | [EVM-06](evm-and-gas.md) | evm | MISSING | completeness | No Bogota, and no fork-order validation at all, so a mistyped genesis yields an impossible ruleset that executes without complaint. |
 | [EXEC-12](block-execution-and-types.md) | exec | MISSING | completeness | No built-in chain presets, so mainnet, Sepolia, Holesky and Hoodi genesis state cannot be constructed from the tree. |
-| [OPS-02](txpool-building-and-ops.md) | ops | MISSING | completeness | No chain presets means `--genesis` is mandatory, and the preset flags are accepted anyway. |
+| [OPS-02](txpool-building-and-ops.md) | ops | RESOLVED (a22ed4e9, 3a785f74) | completeness | `--mainnet`, `--sepolia`, `--holesky` and `--hoodi` select an embedded genesis, chain config and bootnodes, so `--genesis` is optional on public networks. |
 | [POOL-14](txpool-building-and-ops.md) | pool | RESOLVED (511481d7, a979fc60, bd7906c3) | completeness | Pooled blob transactions carry their sidecars, and admission verifies the sidecar shape, versioned hashes and every KZG proof before touching the pool. |
 | [BUILD-08](txpool-building-and-ops.md) | build | RESOLVED (511481d7, f35bc82c) | completeness | Built payloads include blob transactions whose sidecars the node holds, within the fork's blob-gas limit. |
 | [RPC-15](rpc-and-engine.md) | rpc | RESOLVED (27c42c1c) | completeness | `eth_call`, `eth_estimateGas` and `eth_createAccessList` accept state overrides and block overrides. |
@@ -284,29 +284,29 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [RPC-10](rpc-and-engine.md) | rpc | RESOLVED (27c42c1c, 5fbbd9a2) | completeness | `engine_getBlobsV4` and `engine_hasBlobs` are implemented and advertised. |
 | [EVM-13](evm-and-gas.md) | evm | MISSING | completeness | No interpreter-side tracing hooks beyond call boundaries; `CREATE`/`CREATE2` frames are untraced and `DELEGATECALL`/`CALLCODE` are mislabelled. |
 | [POOL-11](txpool-building-and-ops.md) | pool | PARTIAL | completeness | New-head promotion applies the slot limits recorded by admission; until the first admission after a start, those limits are unset and promotion is unbounded. |
-| [OPS-05](txpool-building-and-ops.md) | ops | MISSING | operability | No log levels, no structured format, no rotation; the log stream is Lisp plists via `write`. |
-| [OPS-08](txpool-building-and-ops.md) | ops | MISSING | operability | No profiling endpoint and no health endpoint; a stuck node cannot be profiled in place. |
-| [OPS-10](txpool-building-and-ops.md) | ops | MISSING | completeness | The persisted format has a version and no migration, so the first format change orphans every datadir. |
+| [OPS-05](txpool-building-and-ops.md) | ops | MISSING | operability | Still no log levels, no structured format and no rotation; every event is a Lisp plist, and `--verbosity` and `--log.*` are ignored with a warning. |
+| [OPS-08](txpool-building-and-ops.md) | ops | PARTIAL (2f29e23c) | operability | `/health/live` and `/health/ready` exist and never take the store guard; there is still no on-demand profiling endpoint, and `--pprof` is ignored. |
+| [OPS-10](txpool-building-and-ops.md) | ops | RESOLVED (14e1499d, 01a4aefa, 1fb99031) | completeness | The chain schema (v4) migrates forward in resumable batches and a newer schema is refused by name; the metadata version is still exact-match but has never changed. |
 
 ### Tier 7 — Performance, capacity, and operability
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
-| [STORE-14](state-trie-storage.md) | store | DIVERGENT | durability | `file-key-value-database` subclasses `memory-key-value-database`, so resident size equals total persisted size and open time is O(file bytes). |
-| [STORE-08](state-trie-storage.md) | store | DIVERGENT | performance | A root computation rebuilds and re-hashes the whole node tree; nothing is memoized on a node. Cost is linear in total accounts per block. |
-| [STORE-01](state-trie-storage.md) | store | DIVERGENT | performance | No journal: snapshot and revert deep-copy the entire world state, once per revertible frame. |
-| [STORE-16](state-trie-storage.md) | store | DIVERGENT | performance | Atomic commit snapshots every table in the memory chain store plus the txpool, so per-block cost is linear in all state ever stored. |
-| [STORE-06](state-trie-storage.md) | store | DIVERGENT | performance | `mpt` is a flat key/value table, not a trie; nodes exist only as transients. Every node-level capability follows from this. |
-| [STORE-17](state-trie-storage.md) | store | MISSING | durability | No trie-node pruning, no state history, no reverse diffs; a full baseline every 128 blocks stores the world state again. |
-| [STORE-19](state-trie-storage.md) | store | DIVERGENT | durability | Block, header, receipt and BAL records are append-only by construction, and every block record is materialised into memory at startup. |
-| [STORE-18](state-trie-storage.md) | store | DIVERGENT | completeness | Pruning is manual, keyed to an absolute block number, and runs only at export, so retention is a constant rather than a distance. |
-| [STORE-15](state-trie-storage.md) | store | DIVERGENT | completeness | The on-disk schema is hash-keyed with no height ordering, no ancients and no state history, so nothing can be iterated or deleted by height. |
-| [STORE-20](state-trie-storage.md) | store | MISSING | completeness | No freezer, no flat snapshot layer over a trie, no offline pruning tool; five geth flags are accepted with no subsystem behind them. |
-| [STORE-22](state-trie-storage.md) | store | MISSING | completeness | No `SetHead`, no transaction-lookup limit, no reorg-depth limit, no side-chain expiry. Reorg correctness itself is fine. |
-| [STORE-23](state-trie-storage.md) | store | DIVERGENT | performance | Every historical-state query materialises the entire world state, so one `eth_call` at a height costs a full state copy. |
-| [STORE-05](state-trie-storage.md) | store | DIVERGENT | performance | Code is stored inline on the state object with no content-addressed code store, and the code hash is recomputed on demand. |
-| [STORE-24](state-trie-storage.md) | store | DIVERGENT | performance | No bounded cache of any kind — residency substitutes for caching — and the `--cache.*` flags are accepted and inert. |
-| [STORE-13](state-trie-storage.md) | store | DIVERGENT | performance | No stack-trie; each derive-sha root builds a full trie per list. Minor. |
+| [STORE-14](state-trie-storage.md) | store | RESOLVED (9c7762ad, 06a26763, 1fb99031) | durability | A pinned RocksDB 11.1.2 backend is the default for public presets and restarts through point reads; the file store remains as the dev and test oracle. |
+| [STORE-08](state-trie-storage.md) | store | RESOLVED (6a98ab75, 82d35265) | performance | Nodes memoize their encoding and hash and an update rewrites only its path; the one-leaf root cost is pinned independent of trie size. |
+| [STORE-01](state-trie-storage.md) | store | RESOLVED (f17a95dd, 5bd780b3) | performance | Snapshots are marks into a per-mutation journal replayed backwards on revert; entries record a slot, an account or a touch, never a state copy. |
+| [STORE-16](state-trie-storage.md) | store | RESOLVED (eba1eeaa, 1fb99031) | performance | Atomic commit rolls back through a changed-key journal, so per-block cost follows the keys touched, not all state ever stored. |
+| [STORE-06](state-trie-storage.md) | store | RESOLVED (6a98ab75, 1fb99031) | performance | `mpt` keeps an immutable node graph with copy-on-write path updates and lazily resolved hash nodes. |
+| [STORE-17](state-trie-storage.md) | store | PARTIAL (d77c7e07, 1fb99031) | durability | State roots are retained 128 blocks behind head over shared trie nodes, but unreachable trie-node and code records are never deleted, online or offline. |
+| [STORE-19](state-trie-storage.md) | store | PARTIAL (1fb99031) | durability | RocksDB restarts no longer materialise block records, but block, header, receipt and side-chain records are still never deleted. |
+| [STORE-18](state-trie-storage.md) | store | RESOLVED (d77c7e07, 1fb99031) | completeness | State pruning is automatic at a fixed 128-block distance behind head, applied in each forkchoice batch with safe and finalized protected. |
+| [STORE-15](state-trie-storage.md) | store | PARTIAL (00dc3b0a, 01a4aefa, 1fb99031) | completeness | Schema v4 adds height-ordered mirrors and trie-node, code and state-history namespaces with resumable migration; primary records stay hash-keyed and there is no ancient namespace. |
+| [STORE-20](state-trie-storage.md) | store | MISSING | completeness | Still no freezer, no flat snapshot layer and no offline pruner; `db rebuild` copies trie nodes verbatim, and the five geth flags are ignored with a warning. |
+| [STORE-22](state-trie-storage.md) | store | PARTIAL (27c42c1c) | completeness | `debug_setHead` rewinds pre-Merge views only; there is still no transaction-lookup limit, no reorg-depth limit and no side-chain expiry. |
+| [STORE-23](state-trie-storage.md) | store | RESOLVED (1562085f, 1fb99031) | performance | Historical state resolves lazily per account from the persisted trie at the block's root, so a query costs what it touches. |
+| [STORE-05](state-trie-storage.md) | store | RESOLVED (9a581e35, 01a4aefa) | performance | Clones share contract code with a memoized hash, and code is stored once per Keccak hash under `:code`. |
+| [STORE-24](state-trie-storage.md) | store | RESOLVED (8981bef1, 546f2675, a910eeea) | performance | RocksDB's block cache, Bloom filters and memtables are sized from `--memory.budget`, with bounded account, trie-node and block caches; `--cache.*` is ignored with a warning. |
+| [STORE-13](state-trie-storage.md) | store | DIVERGENT | performance | Still no stack-trie: derive-sha roots insert every item into a fresh MPT and hash at the end. Correct roots, minor constant-factor cost. |
 | [EVM-12](evm-and-gas.md) | evm | DIVERGENT | performance | Jump-destination validity is recomputed by scanning the contract from offset 0 on every `JUMP`/`JUMPI`. Magnitude UNVERIFIED. |
 | [EVM-10](evm-and-gas.md) | evm | DIVERGENT | performance | Memory expansion allocates and copies the whole buffer with no capacity slack, so word-at-a-time growth is quadratic. Magnitude UNVERIFIED. |
 | [EVM-11](evm-and-gas.md) | evm | DIVERGENT | performance | The 1024-item stack limit is enforced by taking `length` of a list on every push. Magnitude UNVERIFIED. |
@@ -314,26 +314,26 @@ Severity tokens: `remote-DoS`, `consensus` (consensus-breaking), `CC-integration
 | [BUILD-06](txpool-building-and-ops.md) | build | RESOLVED (8f17c8c5, f35bc82c) | performance | The Engine builder executes candidates one at a time and charges the gas each actually used. |
 | [BUILD-05](txpool-building-and-ops.md) | build | RESOLVED (e12264a6, a1577a56) | performance | Selection re-ranks each sender's next transaction after every inclusion, through a heap keyed on effective tip. |
 | [BUILD-09](txpool-building-and-ops.md) | build | RESOLVED (afab959a, 3aa5b7c4, f35bc82c) | operability | `forkchoiceUpdated` returns the payload id after building only the empty block; pool execution runs on a background worker under a per-pass deadline. |
-| [NET-19](networking-and-sync.md) | net | DIVERGENT | performance | Downloaded bodies are not matched to their headers at the sync layer, so a bad delivery ends the session instead of the delivery. |
-| [NET-13](networking-and-sync.md) | net | DIVERGENT | performance | Transaction gossip pushes every transaction in full to every peer and re-sends to the peer it came from. |
+| [NET-19](networking-and-sync.md) | net | RESOLVED (962c50a6, 24725d46, 7106f9e5) | performance | Header contiguity and each body's commitments are checked before import; a contradicting delivery disconnects that peer and its range is requeued to another. |
+| [NET-13](networking-and-sync.md) | net | PARTIAL (142380c2) | performance | Gossip tracks what each peer knows, so nothing is echoed to its sender, and announces transactions over 4096 bytes; small ones still go in full to every peer. |
 | [POOL-15](txpool-building-and-ops.md) | pool | RESOLVED (cb7cb5b8, 5e3fb80f) | performance | Gossip reads a bounded per-peer change log and announces transactions from every subpool; small transactions still go in full to every peer. |
-| [NET-23](networking-and-sync.md) | net | DIVERGENT | performance | `snappy-compress` emits literal runs only, so egress is several times what a peer expects. Documented. |
+| [NET-23](networking-and-sync.md) | net | RESOLVED (06b1aa1d, 0fa09fff) | performance | `snappy-compress` runs libsnappy through CFFI and emits real back-references; the pure-Lisp matcher remains as the test oracle. |
 | [RPC-36](rpc-and-engine.md) | rpc | PARTIAL | completeness | HTTP connections are kept alive and reused; chunked request bodies and gzip are still not handled. |
-| [OPS-06](txpool-building-and-ops.md) | ops | DIVERGENT | operability | Metrics are event counts only — no pool-size, head-number or peer-count gauge — and no derivative recovers a level. |
-| [OPS-04](txpool-building-and-ops.md) | ops | DIVERGENT | operability | `--log-file` truncates the previous run's log, so the restart destroys the record of the crash it follows. |
-| [OPS-09](txpool-building-and-ops.md) | ops | MISSING | operability | Unclean shutdown has no repair path: no rewind, no reset, no offline inspection between "it starts" and "delete the datadir". |
-| [OPS-07](txpool-building-and-ops.md) | ops | DIVERGENT | operability | Any startup failure prints the whole ~4,000-character usage string after the one line that explains what went wrong. |
+| [OPS-06](txpool-building-and-ops.md) | ops | RESOLVED (b3e05d91, a560644b, 096a3fc0) | operability | `/metrics` exports gauges for the pool, head, safe, finalized, peers, sync lag, SNAP pivot, database and process, plus latency histograms. |
+| [OPS-04](txpool-building-and-ops.md) | ops | RESOLVED (b3e05d91) | operability | `--log-file` opens in append mode, so a restart keeps the log of the run it follows. |
+| [OPS-09](txpool-building-and-ops.md) | ops | PARTIAL (1fb99031, ef6f5e94) | operability | Offline `db verify`, `backup`, `restore`, `repair` and `rebuild` exist and SIGKILL recovery is tested; there is still no post-Merge rewind or reset-to-block-N. |
+| [OPS-07](txpool-building-and-ops.md) | ops | RESOLVED (b3e05d91, a546c7c8) | operability | Startup failures print only the error; the usage text is printed only for malformed input. |
 
 ### Tier 8 — Cosmetic, informational, and recorded non-gaps
 
 | ID | Area | Verdict | Severity | Statement |
 | --- | --- | --- | --- | --- |
 | [EXEC-16](block-execution-and-types.md) | exec | DIVERGENT | cosmetic | `receipt-list-root` cannot encode typed receipts; no live path uses it and a test pins the behaviour. Naming hazard only. |
-| [STORE-04](state-trie-storage.md) | store | DIVERGENT | cosmetic | Access-list and transient-storage bookkeeping live on the EVM context, not the state database. No observable difference. |
-| [STORE-09](state-trie-storage.md) | store | DIVERGENT | cosmetic | No secure-trie layer; callers hash keys themselves and no preimages are kept. |
+| [STORE-04](state-trie-storage.md) | store | DIVERGENT | cosmetic | Access-list and transient-storage bookkeeping still live on the EVM context, copied per frame beside the state journal mark. No observable difference. |
+| [STORE-09](state-trie-storage.md) | store | DIVERGENT | cosmetic | Still no secure-trie layer and no preimage store; callers hash keys inline. No API that needs preimages exists yet. |
 | [RPC-26](rpc-and-engine.md) | rpc | RESOLVED (13f8efa3) | cosmetic | `eth_getLogs` and `eth_newFilter` with an unknown `blockHash` answer `-32000 unknown block`. |
 | [RPC-32](rpc-and-engine.md) | rpc | RESOLVED (b0606eb3) | cosmetic | `txpool_inspect` formats its summary with geth's `×`. |
-| [NET-24](networking-and-sync.md) | net | informational | cosmetic | Session policy constants are ours, not parity claims; the audit's 33-row table is the correction to `docs/reference-map.md`. |
+| [NET-24](networking-and-sync.md) | net | informational | cosmetic | Session policy constants are ours, not parity claims; 8b5f80a5 pointed `docs/reference-map.md` at the audit's table, several of whose rows are now stale. |
 | [EVM-17](evm-and-gas.md) | evm | not a gap | no gap | EOF is absent from both references and from us. Nothing to close. |
 | [RPC-13](rpc-and-engine.md) | rpc | no gap | no gap | Payload-status semantics match geth including `ACCEPTED`-on-missing-state and the absence of `INVALID_BLOCK_HASH`. Do not "fix". |
 | [RPC-14](rpc-and-engine.md) | rpc | no gap | no gap | JWT authentication and `iat` freshness are implemented correctly; one operational note about an omitted `now`. |

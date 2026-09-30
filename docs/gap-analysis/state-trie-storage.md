@@ -15,6 +15,13 @@ section records the measurements. Every other finding is as-audited text whose
 current accuracy has not been re-established, so read it as evidence of what was
 true on 2026-07-28 rather than as a description of the tree today.
 
+**Update 2026-09-30.** Every finding was re-checked against `6fee0c69` by
+reading source and history (not by execution); the result is the **Status
+2026-09-30** line at the top of each finding, and the text below it is the
+original audit. Fifteen findings are resolved, five are partial, one
+(STORE-20) is still missing, and three (STORE-04, STORE-09, STORE-13) are
+unchanged divergences.
+
 ## Sources read
 
 Audit date: 2026-07-28.
@@ -150,6 +157,8 @@ better safety net than either reference client has for the same hazard.
 
 #### STORE-01 — No journal; snapshot and revert deep-copy the entire world state
 
+**Status 2026-09-30:** RESOLVED in f17a95dd (2026-07-29, `state-db-snapshot`/`state-db-revert-to-snapshot` over a per-mutation journal, `src/runtime/state/db.lisp`) and 5bd780b3 (2026-09-30, entries record a storage slot, an account record or a touch instead of a whole-object clone; `docs/evidence/sec5-evm-throughput-2.txt`). `state-db-copy` remains only for call simulation and the chain-store cache. Tests: `STATE-JOURNAL-REVERTS-NESTED-ACCOUNT-MUTATIONS`, `STATE-JOURNAL-ENTRIES-REVERT-TO-THE-STATE-THAT-NEVER-SAW-THEM`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** performance (with a correctness-adjacent
 consequence noted below).
 
@@ -190,6 +199,8 @@ the first try, with no incremental path.
 
 #### STORE-02 — Empty-account deletion is not gated on EIP-158
 
+**Status 2026-09-30:** RESOLVED in f17a95dd (2026-07-29, deletion moved into `state-db-finalize-transaction` behind a `delete-empty-objects-p` flag) and d06f4002 (2026-09-30, callers pass the cumulative `chain-rules-eip158-active-p`); 6e405bf9 (2026-09-30) added geth's pre-EIP-158 account-creation rules. The ungated `prune-empty-state-object` is still defined in `src/runtime/state/db.lisp` but has no caller. Tests: `STATE-FINALIZATION-IS-FORK-GATED`, `PRE-SPURIOUS-DRAGON-CALL-CHARGES-AND-CREATES-AN-ABSENT-CALLEE`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** consensus-breaking for pre-Spurious-Dragon
 chains; inert on post-Merge chains.
 
@@ -217,6 +228,8 @@ the first block where a touched account is empty. Post-Merge chains set
 `eip158Block` to 0, so the divergence is unreachable there.
 
 #### STORE-03 — No touched-account set and no end-of-transaction finalisation pass
+
+**Status 2026-09-30:** RESOLVED in f17a95dd (2026-07-29): `state-db-finalize-transaction` sweeps every key journaled since the transaction mark, EIP-161 touches are `:touch` journal entries (`state-db-touch-account`), and the mutators no longer prune eagerly. The journal range, not the state-db `touched` slot (the block-commit changed set), plays the role of geth's touched set. Test: `STATE-FINALIZATION-IS-FORK-GATED`. The original finding follows for the record.
 
 **Verdict:** MISSING. **Severity:** correctness (latent; no reachable trigger
 established).
@@ -259,6 +272,8 @@ Establishing reachability needs execution, which this audit could not do.
 
 #### STORE-04 — Access-list and transient-storage bookkeeping live on the EVM context, not the state database
 
+**Status 2026-09-30:** still DIVERGENT, cosmetic. `capture-execution-snapshot` (`src/runtime/evm/snapshots.lisp`) now takes a state journal mark (f17a95dd) but still copies the accessed-address, accessed-storage and transient-storage tables of the EVM context; nothing in `src/runtime/state` knows about them. Each copy costs the transaction's accessed set, not the world state. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** cosmetic (layering).
 
 **Ours.** EIP-2929 warm/cold sets and EIP-1153 transient storage are fields of
@@ -286,6 +301,8 @@ owns whether the warm/cold and transient semantics are themselves correct.
 
 #### STORE-05 — Code is stored inline on the state object with no content-addressed code store
 
+**Status 2026-09-30:** RESOLVED in 9a581e35 (2026-08-07, clones share the code vector and memoize `cached-code-hash`, `src/runtime/state/types.lisp`) and 01a4aefa (2026-08-07, code stored once per hash under the `:code` record kind by `node-store-code-sink-put`). Tests: `NODE-STORE-CODE-STORE-WRITES-EACH-CONTRACT-BODY-ONCE`, `NODE-STORE-CONTENT-ADDRESSED-CODE-ROUND-TRIPS-THROUGH-KV`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** performance.
 
 **Ours.** `state-object` holds `code` as a byte vector directly
@@ -311,6 +328,8 @@ that code, on top of the trie rebuild in STORE-08.
 ### Trie
 
 #### STORE-06 — `mpt` is a flat key/value table, not a trie
+
+**Status 2026-09-30:** RESOLVED in 6a98ab75 (2026-07-29, `mpt` keeps a root node graph and `mpt-put`/`mpt-delete` rewrite one path through `trie-put-node`/`trie-delete-node`, `src/foundation/trie/store.lisp`) and 1fb99031 (2026-08-08, lazily resolved hash nodes and `make-persisted-mpt`). Tests: `TRIE-REHASHES-ONLY-THE-UPDATED-PATH`, `TRIE-REHASH-COST-IS-INDEPENDENT-OF-TRIE-SIZE`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** performance, and completeness for
 everything that needs node-level access.
@@ -346,6 +365,8 @@ finding in this section follows from this one.
 
 #### STORE-07 — No persistent trie node store
 
+**Status 2026-09-30:** RESOLVED in a307bc01 (2026-07-29, content-addressed node persistence: `mpt-persist`, `trie-node-store-get`, `src/foundation/trie/persistence.lisp`), 00dc3b0a (2026-07-29, the `:trie-node` record kind) and 1fb99031 (2026-08-08, production state opened lazily from persisted nodes); 3a785f74 (2026-08-13) serves `GetTrieNodes` and heals over it. `docs/evidence/gates.md` rows b40d61c0 and 0fe42b97 record Hoodi healing to completion. Tests: `TRIE-NODE-STORE-PERSISTS-ROOT-AND-DESCENDANTS`, `SNAP-SERVER-SERVING-AN-INCOMPLETE-STATE-WRITES-NO-TRIE-NODE`. The original finding follows for the record.
+
 **Verdict:** MISSING. **Severity:** completeness (blocks sync and historical
 state), durability.
 
@@ -376,6 +397,8 @@ pruning has nothing to operate on. Any future snap sync or historical-state
 work has to build this layer first.
 
 #### STORE-08 — Root computation rebuilds and re-hashes the whole tree; node hashes are not memoized
+
+**Status 2026-09-30:** RESOLVED in 6a98ab75 (2026-07-29, cached RLP, encoding, reference and hash on each node) and 82d35265 (2026-08-07, the two size-comparison tests below). The 2026-08-07 note further down is accurate on the code; its "What this did not fix" caveat no longer holds for production, because since 1fb99031 (2026-08-08) durable states are `direct-trie-p` and `state-db-state-trie` flushes only dirty leaves without materialising (`src/runtime/state/roots.lisp`), and d8f27d6b (2026-09-29) extends that to the RPC read view. Materialisation remains for flat memory and file-oracle states. The measurements were not re-run. The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** performance.
 
@@ -446,6 +469,8 @@ import.
 
 #### STORE-09 — No secure-trie layer; key hashing is the caller's job and no preimages are kept
 
+**Status 2026-09-30:** still DIVERGENT, cosmetic. Callers still hash keys inline (`state-db-account-proof-key`, `state-db-storage-proof-key`), and `src/foundation/database/chain-keys.lisp` has no preimage record kind. The snap-sync consequence below no longer applies, because snap serving walks the hashed trie directly (`mpt-map-entries-from`), and no API that needs preimages exists. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** cosmetic, with one completeness
 consequence.
 
@@ -472,6 +497,8 @@ because the range comes from our own in-memory tables rather than from a trie
 walk.
 
 #### STORE-10 — Proof verification requires an exactly-sized, correctly-ordered proof list
+
+**Status 2026-09-30:** RESOLVED in 6a98ab75 (2026-07-29): `mpt-proof-node-index` (`src/foundation/trie/proofs.lisp`) indexes the supplied nodes by Keccak hash, and the "unconsumed nodes" rejection is gone. Tests: `TRIE-PROOF-VERIFIES-PRESENT-AND-MISSING-KEYS` (a reversed proof padded with another key's nodes), `STATE-PROOF-RESULT-VERIFIES-NETHERMIND-STATE-TRIE-LAYOUTS`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** correctness (interoperability).
 
@@ -500,6 +527,8 @@ incompatibility is one-directional.
 
 #### STORE-11 — No range-proof verification
 
+**Status 2026-09-30:** RESOLVED in a307bc01 (2026-07-29, a first verifier that needed the whole leaf set) and 3a785f74 (2026-08-13, `mpt-verify-range-proof` in `src/foundation/trie/persistence.lisp` over snap/1 edge proofs, including empty and proofless ranges, called by the snap client); 4d8a4e9a and 0413fa5f build ranges directly from ordered keys. Tests: `TRIE-RANGE-PROOF-IS-COMPACT-AND-REJECTS-RANGE-TAMPERING`, `TRIE-RANGE-PROOF-VERIFIES-AN-EMPTY-TAIL-AND-REJECTS-A-FALSE-EMPTY-RANGE`. The original finding follows for the record.
+
 **Verdict:** MISSING. **Severity:** completeness (blocks snap sync).
 
 **Ours.** `src/foundation/trie/proofs.lisp` provides single-key generation and
@@ -520,6 +549,8 @@ only be trusted or discarded. Combined with STORE-12 it also cannot be served.
 **Overlaps the networking/sync area**, which owns the wire protocol itself.
 
 #### STORE-12 — No node iterator; range enumeration re-scans and re-sorts the whole table
+
+**Status 2026-09-30:** PARTIAL, re-graded to cosmetic. 6dae34ea (2026-09-24) added `mpt-map-entries-from` (`src/foundation/trie/persistence.lisp`), an ordered walk from a start key that resolves only the nodes it visits, and the snap account and storage servers use it. Still missing at 6fee0c69: `make-mpt-iterator`, `mpt-entry-range`/`mpt-entry-pairs` and `mpt-get-range-proof` still enumerate and sort the whole trie (only tests call them), and `state-db-account-range` still sorts for flat, non-lazy states. Tests: `SNAP-SERVE-TRIE-WALK-MATCHES-THE-FULL-ENUMERATION`, `SNAP-SERVER-ACCOUNT-RANGE-READS-ONLY-THE-NODES-IT-RETURNS`. The original finding follows for the record.
 
 **Verdict:** MISSING (iterator) and DIVERGENT (range enumeration).
 **Severity:** performance, completeness.
@@ -542,6 +573,8 @@ state query pay a full scan and sort.
 
 #### STORE-13 — No stack-trie; derive-sha roots build a full trie per list
 
+**Status 2026-09-30:** still DIVERGENT, minor performance. `derive-list-root` (`src/protocol/receipts/receipts.lisp`) still inserts every item into a fresh MPT and hashes at the end; since 6a98ab75 that MPT builds path-sharing nodes rather than a flat table, but no streaming stack-trie exists. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** performance (minor).
 
 **Ours.** `derive-list-root` creates a fresh `mpt`, `mpt-put`s each
@@ -563,6 +596,8 @@ than as a priority.
 ### Storage substrate and layout
 
 #### STORE-14 — The key-value engine is a RAM-resident hash table with an append-only durability log
+
+**Status 2026-09-30:** RESOLVED in 9c7762ad (2026-07-29, the pinned RocksDB 11.1.2 CFFI backend, `src/foundation/database/rocksdb.lisp`), 06a26763 (2026-08-07, `--db.engine`) and 1fb99031 (2026-08-08, RocksDB is the default for public presets and restarts open through the direct point-read provider without hydrating history). The memory-resident `file-key-value-database` remains the default for local and dev runs and serves as the test oracle. Tests: `ROCKSDB-DATABASE-SURVIVES-A-PROCESS-KILL-WITH-NO-CLEAN-CLOSE`, `DATABASE-CHAIN-STORE-CONSTRUCTION-DOES-NOT-HYDRATE-HISTORY`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** durability and performance; this is the
 direction-level finding.
@@ -621,6 +656,8 @@ by what exists today. See the remediation section for the decision this needs.
 
 #### STORE-15 — On-disk schema is hash-keyed with no ordering, no ancients, and no state history
 
+**Status 2026-09-30:** PARTIAL. 00dc3b0a (2026-07-29) added height-ordered keys (`kv-chain-height-hash-identifier`), 01a4aefa (2026-08-07) the versioned, resumable schema with `:code`, 1fb99031 (2026-08-08) schema v4 with `:state-history`, `:ordered-state-history` and `:trie-node`, and b6c095a1 (2026-09-30) `:total-difficulty` (`src/foundation/database/chain-keys.lisp`). Still missing at 6fee0c69: primary block, header and receipt records stay hash-keyed with ordered mirrors beside them, and there is no ancient namespace (STORE-20). Tests: `HEIGHT-ORDERED-CHAIN-IDENTIFIERS-SORT-AND-ROUND-TRIP`, `CHAIN-SCHEMA-V4-MIGRATES-FLAT-HISTORY-TO-DIRECT-TRIES-RESUMABLY`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** completeness.
 
 **Ours.** Twenty-one record kinds, each a one-byte prefix followed by an
@@ -651,6 +688,8 @@ checkpoint labels do carry head, safe and finalized
 missing.
 
 #### STORE-16 — Atomic commit is a whole-store deep copy; durability is a separate, later step
+
+**Status 2026-09-30:** RESOLVED in eba1eeaa (2026-08-05, `chain-store-atomic-commit` rolls back through a changed-key journal, `src/storage/node-store/snapshots.lisp`) and 1fb99031 (2026-08-08, `execute-atomic-block-commit` takes `state-db-transaction-snapshot` instead of a state copy). The in-memory commit and the durable RocksDB batch are still two steps; crash recovery between them is covered by the SIGKILL tests in `docs/evidence/sec5-ops-recovery.txt`. Tests: `CHAIN-STORE-ATOMIC-COMMIT-ROLLS-BACK-TOUCHED-KEYS-COMPLETELY`, `CHAIN-STORE-ATOMIC-COMMIT-JOURNAL-WORK-TRACKS-TOUCHED-KEYS`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** performance; durability window.
 
@@ -704,6 +743,8 @@ not establish whether any configuration splits an export across multiple
 
 #### STORE-17 — No trie-node pruning, no state history, no reverse diffs
 
+**Status 2026-09-30:** PARTIAL. d77c7e07 (2026-07-29) bounded state retention behind the head, and 1fb99031 (2026-08-08) replaced the baseline-plus-diff history with persisted content-addressed trie nodes; `node-store-populate-state-retention-batch` deletes expired `:state-history` roots. Still missing at 6fee0c69: unreachable `:trie-node` and `:code` records are never deleted; `node-store-populate-database-rebuild-record` (`src/storage/node-store/persistence/operations.lisp`) copies them verbatim, contrary to `docs/storage-substrate.md`, which calls the offline rebuild their compaction path. There are no reverse diffs. Test: `DIRECT-STATE-RETENTION-KEEPS-FINALITY-ANCHORS-IN-THE-LIVE-BATCH`. The original finding follows for the record.
+
 **Verdict:** MISSING. **Severity:** durability (the node cannot be run
 long-term).
 
@@ -736,6 +777,8 @@ sets a hard ceiling on how long the node can run.
 
 #### STORE-18 — Pruning is manual, absolute-numbered, and only runs at export
 
+**Status 2026-09-30:** RESOLVED in d77c7e07 (2026-07-29, `chain-store-prune-state-to-retention-depth` runs from `chain-store-set-canonical-head`) and 1fb99031 (2026-08-08, the same distance applied durably in each forkchoice batch); 096da158 keeps the safe and finalized anchors. The depth is the constant `+chain-store-default-state-retention-depth+` 128 with no command-line knob, and `--prune-state-before` remains as an extra manual bound. Tests: `CHAIN-STORE-CANONICAL-HEAD-PRUNES-STATE-BY-RETENTION-DEPTH`, `CHAIN-STORE-RETENTION-KEEPS-THE-SAFE-AND-FINALIZED-ANCHORS`. The original finding follows for the record.
+
 **Verdict:** DIVERGENT. **Severity:** completeness.
 
 **Ours.** `chain-store-prune-state-before` takes an absolute block number and
@@ -765,6 +808,8 @@ restarting with a new number, so in practice the node grows without bound
 records are untouched (STORE-19).
 
 #### STORE-19 — Blocks, headers, receipts and BAL records are append-only and all are loaded at startup
+
+**Status 2026-09-30:** PARTIAL. 1fb99031 (2026-08-08) starts current-schema RocksDB datadirs through `devnet-cli-import-direct-chain-database` with a fixed number of point reads; `chain-store-import-block-records-from-kv` now runs only on the file-oracle path. Still missing at 6fee0c69: no code expires `:block`, `:header`, `:receipt` or side-chain records, so disk grows with every block seen. Test: `DATABASE-CHAIN-STORE-CONSTRUCTION-DOES-NOT-HYDRATE-HISTORY`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** durability.
 
@@ -797,6 +842,8 @@ expire it is the gap.
 
 #### STORE-20 — No ancient/freezer store, no flat snapshot layer, no offline pruning tool
 
+**Status 2026-09-30:** still MISSING. 1fb99031 (2026-08-08) added offline `db verify`, `backup`, `restore`, `repair` and `rebuild` (`src/app/cli/db.lisp`), but none of them prunes, and `rebuild` copies trie nodes verbatim. Bounded account and trie-node caches (STORE-24) stand in for a flat snapshot layer. `--datadir.ancient`, `--gcmode`, `--state.scheme`, `--cache.trie` and `--txlookuplimit` are accepted and ignored with a warning (`devnet-cli-report-ignored-options`). The original finding follows for the record.
+
 **Verdict:** MISSING. **Severity:** completeness.
 
 **Ours.** No freezer, no ancient directory, and no offline pruning entry point;
@@ -824,6 +871,8 @@ store is introduced.
 ### Reorg and rewind
 
 #### STORE-21 — No rewind or repair; a head without state is a hard startup failure
+
+**Status 2026-09-30:** RESOLVED in c12488be (2026-07-29, `chain-store-newest-stateful-ancestor` and the startup rewind in `chain-store-import-checkpoints-from-kv`, `src/storage/node-store/persistence/import/core.lisp`) and ef6f5e94 (2026-09-23, SIGKILL recovery tests, `docs/evidence/sec5-ops-recovery.txt`); 1fb99031 added offline `db repair` and `rebuild`. Residuals: on RocksDB the rewind runs only through the full hydrating import, the direct path fails closed if safe or finalized lacks a state root, and there is no operator rewind flag. Tests: `NODE-STORE-REWIND-FINDS-NEWEST-CANONICAL-STATEFUL-ANCESTOR`, `OPS-SIGKILL-DURING-A-REORG-RESTARTS-ON-ONE-BRANCH-AND-COMPLETES-IT`. The original finding follows for the record.
 
 **Verdict:** MISSING. **Severity:** durability. This is the highest-risk gap.
 
@@ -859,6 +908,8 @@ absent is the recovery path that should follow it.
 
 #### STORE-22 — No `SetHead`, no transaction-lookup limit, no reorg-depth limit, no side-chain expiry
 
+**Status 2026-09-30:** PARTIAL. 27c42c1c (2026-07-29) added `engine-rpc-handle-debug-set-head` (`src/api/public/debug/tracing.lisp`), and since fa8859d4 (2026-08-11) it refuses post-Merge views. Still missing at 6fee0c69: `--txlookuplimit` and `--history.transactions` are ignored, reorg depth is only measured (a metrics histogram), and side-chain blocks never expire. Tests: `DEBUG-SET-HEAD-REWINDS-THE-CANONICAL-CHAIN`, `DEBUG-SET-HEAD-CANNOT-PUBLISH-A-POST-MERGE-VIEW`. The original finding follows for the record.
+
 **Verdict:** MISSING. **Severity:** completeness.
 
 **Ours.** Canonical index maintenance across a reorg is present and correct.
@@ -887,6 +938,8 @@ without external surgery.
 ### Historical state access
 
 #### STORE-23 — Historical state works, but each query materialises the entire world state
+
+**Status 2026-09-30:** RESOLVED in 1562085f (2026-07-29, `chain-store-state-db` loads accounts lazily, `src/application/services/execution.lisp`) and 1fb99031 (2026-08-08, the direct provider opens the persisted account trie at the block's root); d8f27d6b (2026-09-29) serves state reads from the published read view off the store guard. Tests: `HISTORICAL-STATE-DB-LOADS-ONLY-TOUCHED-ACCOUNTS`, `READ-VIEW-ANSWERS-STATE-READS-WHILE-THE-STORE-GUARD-IS-HELD`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** performance.
 
@@ -917,6 +970,8 @@ area**, which owns whether the endpoints' semantics are right.
 ### Performance shape
 
 #### STORE-24 — No cache layers of the reference kind; residency substitutes for caching
+
+**Status 2026-09-30:** RESOLVED in 8981bef1 (2026-08-22, RocksDB LRU block cache and Bloom filters, `rocksdb-configure-block-table`), 547ebfba, 546f2675 and f1accdea (2026-08-31, bounded account, trie-node and block caches in `src/storage/node-store/persistence/direct-store.lisp`) and a910eeea (2026-09-24, RocksDB sized from `--memory.budget` by `make-rocksdb-memory-profile`; `docs/evidence/sec5-resident-memory.txt`). The Lisp caches are fixed entry counts, and `--cache.*` is still ignored, now with a warning. Tests: `ROCKSDB-MEMORY-PROFILE-DERIVES-CACHE-SIZES-FROM-ONE-BUDGET`, `DATABASE-CHAIN-STORE-TRIE-NODE-CACHE-IS-BOUNDED-AND-READ-THROUGH`. The original finding follows for the record.
 
 **Verdict:** DIVERGENT. **Severity:** performance.
 
@@ -967,6 +1022,16 @@ visibly present in the tree, but present is not verified, and the claim covers
 correctness rather than existence. Treat items 2–10 as unconfirmed until each is
 re-checked the way item 1 was. The original findings remain below as the
 evidence and acceptance criteria that motivated the changes.
+
+As of 2026-09-30 (source and history at `6fee0c69`, not execution), code,
+commits and tests exist for items 2 (f17a95dd, 5bd780b3), 3 (f17a95dd,
+d06f4002), 4 (6a98ab75) and the node store and range proofs of item 10
+(a307bc01, 3a785f74); each finding's **Status 2026-09-30** line names them. Two
+parts of the 2026-07-29 banner overstated what landed that day: a307bc01's
+"complete range witnesses" needed the whole leaf set, and compact snap/1 edge
+proofs came with 3a785f74 on 2026-08-13; and `make-mpt-iterator` still scans
+and sorts the whole trie, while the bounded walk (`mpt-map-entries-from`) came
+with 6dae34ea on 2026-09-24.
 
 ### 1. Memoize node encodings and hashes; hash only dirty paths — M
 
